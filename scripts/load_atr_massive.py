@@ -24,10 +24,12 @@ import time as time_module
 import os
 
 # Importar calculadora y clientes
-sys.path.insert(0, '/app/services/analytics')
-from atr_calculator import ATRCalculator
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
+
+# Importar ATRCalculator desde el módulo analytics
+sys.path.insert(0, '/app/services/analytics')
+from atr_calculator import ATRCalculator
 
 # Configuración
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "vjzI76TMiepqrMZKphpfs3SA54JFkhEx")

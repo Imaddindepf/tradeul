@@ -352,15 +352,21 @@ class ATRCalculator:
         keys = [f"{self.cache_prefix}:{symbol}" for symbol in symbols]
         
         try:
-            values = await self.redis.mget(keys)
+            # Usar el cliente Redis directamente para mget
+            values = await self.redis.client.mget(keys)
             results = {}
             
-            for symbol, data in zip(symbols, values):
-                if data:
-                    results[symbol] = {
-                        'atr': float(data.get('atr', 0)),
-                        'atr_percent': float(data.get('atr_percent', 0)) if data.get('atr_percent') else None
-                    }
+            for symbol, value in zip(symbols, values):
+                if value:
+                    try:
+                        import json
+                        data = json.loads(value)
+                        results[symbol] = {
+                            'atr': float(data.get('atr', 0)),
+                            'atr_percent': float(data.get('atr_percent', 0)) if data.get('atr_percent') else None
+                        }
+                    except (json.JSONDecodeError, ValueError, TypeError):
+                        pass
             
             return results
             
@@ -375,14 +381,15 @@ class ATRCalculator:
         
         key = f"{self.cache_prefix}:{symbol}"
         try:
-            await self.redis.setex(
+            # Usar el método set() del RedisClient con TTL
+            await self.redis.set(
                 key,
-                self.cache_ttl,
                 {
                     'atr': data['atr'],
                     'atr_percent': data['atr_percent'],
                     'updated': date.today().isoformat()
-                }
+                },
+                ttl=self.cache_ttl
             )
         except Exception as e:
             logger.error("cache_write_error", symbol=symbol, error=str(e))
