@@ -102,7 +102,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         switch (delta.action) {
           case 'add': {
             if (delta.data) {
-              delta.data.rank = delta.rank;
+              delta.data.rank = delta.rank ?? 0;
               newMap.set(delta.symbol, delta.data);
             }
             break;
@@ -114,7 +114,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           case 'update': {
             if (delta.data) {
               const oldTicker = newMap.get(delta.symbol);
-              delta.data.rank = delta.rank;
+              delta.data.rank = delta.rank ?? 0;
               newMap.set(delta.symbol, delta.data);
 
               if (oldTicker) {
