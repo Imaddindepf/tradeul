@@ -1,0 +1,35 @@
+# =============================================
+# TRADEUL SCANNER - DEPENDENCIAS PRINCIPALES
+# =============================================
+
+# Framework Web
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+websockets==12.0
+
+# Validación y Modelos
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Cliente HTTP Asíncrono
+httpx==0.26.0
+aiohttp==3.9.1
+
+# Redis
+redis[hiredis]==5.0.1
+
+# PostgreSQL / TimescaleDB
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Procesamiento de Datos
+numpy==1.26.3
+pandas==2.1.4
+
+# Utilidades
+python-dotenv==1.0.0
+pytz==2023.3
+python-dateutil==2.8.2
+
+# Logging
+structlog==24.1.0

@@ -1,0 +1,39 @@
+# ============================================================================
+# API Gateway - Python Dependencies
+# ============================================================================
+
+# Core
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# WebSocket
+websockets==12.0
+
+# CORS & Security
+python-multipart==0.0.6
+
+# Async & HTTP
+httpx==0.25.2
+aiohttp==3.9.1
+asyncio==3.4.3
+
+# Redis
+redis==5.0.1
+hiredis==2.2.3
+
+# Database
+asyncpg==0.29.0
+
+# Date/Time
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Logging & Monitoring
+structlog==23.2.0
+python-json-logger==2.0.7
+
+# Utilities
+orjson==3.9.10
+

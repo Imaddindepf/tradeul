@@ -1,0 +1,600 @@
+"""
+API Gateway - Main Entry Point
+
+Gateway principal para el frontend web:
+- REST API para consultas
+- WebSocket para datos en tiempo real
+- Agregación de múltiples servicios
+"""
+
+import asyncio
+import uuid
+from datetime import datetime
+from typing import Optional, List
+import structlog
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+from shared.config.settings import settings
+from shared.utils.redis_client import RedisClient
+from shared.utils.timescale_client import TimescaleClient
+from shared.utils.logger import configure_logging, get_logger
+from ws_manager import ConnectionManager
+
+# Configurar logger
+configure_logging(service_name="api_gateway")
+logger = get_logger(__name__)
+
+# ============================================================================
+# Global State
+# ============================================================================
+
+redis_client: Optional[RedisClient] = None
+timescale_client: Optional[TimescaleClient] = None
+connection_manager: ConnectionManager = ConnectionManager()
+stream_broadcaster_task: Optional[asyncio.Task] = None
+
+
+# ============================================================================
+# Lifecycle Management
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gestión del ciclo de vida de la aplicación"""
+    global redis_client, timescale_client, stream_broadcaster_task
+    
+    logger.info("api_gateway_starting")
+    
+    # Inicializar Redis
+    redis_client = RedisClient()
+    await redis_client.connect()
+    
+    # Inicializar TimescaleDB
+    # timescale_client = TimescaleClient()
+    # await timescale_client.connect()
+    logger.info("Timescale disabled - using Redis only")
+    
+    # Iniciar broadcaster de streams - DESACTIVADO: Ahora usamos servidor WebSocket dedicado
+    # stream_broadcaster_task = asyncio.create_task(broadcast_streams())
+    stream_broadcaster_task = None
+    logger.info("WebSocket broadcaster disabled - using dedicated websocket_server")
+    
+    logger.info("api_gateway_started")
+    
+    yield
+    
+    # Shutdown
+    logger.info("api_gateway_shutting_down")
+    
+    if stream_broadcaster_task:
+        stream_broadcaster_task.cancel()
+        try:
+            await stream_broadcaster_task
+        except asyncio.CancelledError:
+            pass
+    
+    if redis_client:
+        await redis_client.disconnect()
+    
+    if timescale_client:
+        await timescale_client.disconnect()
+    
+    logger.info("api_gateway_stopped")
+
+
+# ============================================================================
+# FastAPI App
+# ============================================================================
+
+app = FastAPI(
+    title="Tradeul Scanner API",
+    description="API Gateway para el scanner en tiempo real",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # En producción: especificar dominios exactos
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================================
+# Stream Broadcaster
+# ============================================================================
+
+async def broadcast_streams():
+    """
+    DESACTIVADO COMPLETAMENTE: Ahora usamos servidor WebSocket dedicado (websocket_server)
+    Esta función ya no se ejecuta - la línea está comentada en startup()
+    """
+    # Esta función nunca debe ejecutarse - está desactivada en startup()
+    logger.warning("broadcast_streams() fue llamado pero está DESACTIVADO")
+    return  # Return inmediatamente sin hacer nada
+    
+    streams_config = [
+        {
+            "stream": "stream:analytics:rvol",
+            "group": "api_gateway_rvol",
+            "consumer": "gateway_consumer_1",
+            "message_type": "rvol"
+        },
+        {
+            "stream": "stream:realtime:aggregates",
+            "group": "api_gateway_agg",
+            "consumer": "gateway_consumer_2",
+            "message_type": "aggregate"
+        }
+    ]
+    
+    # Crear consumer groups
+    for config in streams_config:
+        try:
+            await redis_client.create_consumer_group(
+                config["stream"],
+                config["group"],
+                mkstream=True
+            )
+        except Exception as e:
+            logger.debug("consumer_group_exists", stream=config["stream"])
+    
+    while True:
+        try:
+            # Leer de múltiples streams
+            for config in streams_config:
+                messages = await redis_client.read_stream(
+                    stream_name=config["stream"],
+                    consumer_group=config["group"],
+                    consumer_name=config["consumer"],
+                    count=50,
+                    block=100  # 100ms
+                )
+                
+                if messages:
+                    # Parsear estructura: [(stream_name, [(message_id, data), ...])]
+                    for stream_name, stream_messages in messages:
+                        for message_id, data in stream_messages:
+                            symbol = data.get('symbol') if isinstance(data, dict) else None
+                            
+                            if symbol:
+                                # Transformar datos de Redis a formato Polygon para el frontend
+                                transformed_data = {
+                                    "o": float(data.get('open', 0)),
+                                    "h": float(data.get('high', 0)),
+                                    "l": float(data.get('low', 0)),
+                                    "c": float(data.get('close', 0)),
+                                    "v": int(data.get('volume', 0)),
+                                    "vw": float(data.get('vwap', 0)),
+                                    "av": int(data.get('volume_accumulated', 0)),
+                                    "op": float(data.get('open', 0)),
+                                }
+                                
+                                # Agregar RVOL si existe
+                                if 'rvol' in data:
+                                    transformed_data['rvol'] = float(data['rvol'])
+                                
+                                # Preparar mensaje para WebSocket
+                                ws_message = {
+                                    "type": config["message_type"],
+                                    "symbol": symbol,
+                                    "data": transformed_data,
+                                    "timestamp": datetime.now().isoformat()
+                                }
+                                
+                                # Broadcast a suscriptores
+                                await connection_manager.broadcast_to_subscribers(
+                                    ws_message,
+                                    symbol
+                                )
+                            
+                            # ACK mensaje
+                            await redis_client.xack(
+                                config["stream"],
+                                config["group"],
+                                message_id
+                            )
+            
+            # Pequeña pausa para no saturar CPU
+            await asyncio.sleep(0.01)
+        
+        except asyncio.CancelledError:
+            logger.info("stream_broadcaster_cancelled")
+            raise
+        
+        except Exception as e:
+            logger.error(
+                "stream_broadcaster_error",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            await asyncio.sleep(1)
+
+
+# ============================================================================
+# REST API Endpoints
+# ============================================================================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "api_gateway",
+        "timestamp": datetime.now().isoformat(),
+        "redis_connected": redis_client is not None,
+        "timescale_connected": timescale_client is not None
+    }
+
+
+@app.get("/api/v1/scanner/status")
+async def get_scanner_status():
+    """
+    Obtiene el estado actual del scanner
+    
+    Returns:
+        Estado general del sistema
+    """
+    try:
+        # Obtener estado de Redis
+        market_session = await redis_client.get("market:session:current")
+        
+        # Obtener count de tickers filtrados
+        filtered_count = await redis_client.get("scanner:filtered:count")
+        
+        return {
+            "status": "running",
+            "market_session": market_session or "UNKNOWN",
+            "filtered_tickers_count": int(filtered_count or 0),
+            "websocket_connections": connection_manager.stats["active_connections"],
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error("scanner_status_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/scanner/filtered")
+async def get_filtered_tickers(
+    limit: int = Query(default=100, ge=1, le=1000)
+):
+    """
+    Obtiene los tickers actualmente filtrados por el scanner
+    
+    Args:
+        limit: Número máximo de tickers a retornar
+    
+    Returns:
+        Lista de tickers filtrados con sus métricas
+    """
+    try:
+        # Leer últimos mensajes del stream de scanner
+        messages = await redis_client.read_stream_range(
+            "stream:scanner:filtered",
+            count=limit
+        )
+        
+        tickers = []
+        seen = set()
+        
+        for message_id, data in messages:
+            symbol = data.get('symbol')
+            if symbol and symbol not in seen:
+                tickers.append({
+                    "symbol": symbol,
+                    "price": float(data.get('price', 0)),
+                    "change_percent": float(data.get('change_percent', 0)),
+                    "volume": int(data.get('volume', 0)),
+                    "rvol": float(data.get('rvol', 0)),
+                    "market_cap": float(data.get('market_cap', 0)),
+                    "timestamp": data.get('timestamp')
+                })
+                seen.add(symbol)
+        
+        return {
+            "tickers": tickers,
+            "count": len(tickers),
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error("filtered_tickers_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/ticker/{symbol}")
+async def get_ticker_details(symbol: str):
+    """
+    Obtiene información detallada de un ticker
+    
+    Args:
+        symbol: Símbolo del ticker (ej: AAPL)
+    
+    Returns:
+        Información completa del ticker
+    """
+    try:
+        symbol = symbol.upper()
+        
+        # Obtener datos de Redis (caché)
+        cached_data = await redis_client.get(f"ticker:data:{symbol}")
+        
+        if cached_data:
+            return JSONResponse(content=eval(cached_data))
+        
+        # Si no está en caché, obtener de TimescaleDB
+        query = """
+            SELECT 
+                symbol,
+                price,
+                change_percent,
+                volume,
+                market_cap,
+                float_shares,
+                avg_volume_30d,
+                timestamp
+            FROM ticker_metadata
+            WHERE symbol = $1
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """
+        
+        result = await timescale_client.fetchrow(query, symbol)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Ticker {symbol} not found")
+        
+        ticker_data = dict(result)
+        
+        # Guardar en caché (5 segundos)
+        await redis_client.setex(
+            f"ticker:data:{symbol}",
+            5,
+            str(ticker_data)
+        )
+        
+        return ticker_data
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("ticker_details_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/rvol/{symbol}")
+async def get_ticker_rvol(symbol: str):
+    """
+    Obtiene el RVOL actual de un ticker
+    
+    Args:
+        symbol: Símbolo del ticker
+    
+    Returns:
+        RVOL del ticker con información del slot
+    """
+    try:
+        symbol = symbol.upper()
+        
+        # Obtener RVOL del Analytics Service
+        # (podríamos hacer una llamada HTTP o leer de Redis)
+        rvol_data = await redis_client.get(f"rvol:{symbol}")
+        
+        if not rvol_data:
+            raise HTTPException(status_code=404, detail=f"RVOL data not available for {symbol}")
+        
+        return JSONResponse(content=eval(rvol_data))
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("rvol_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/history/scans")
+async def get_scan_history(
+    date: Optional[str] = None,
+    limit: int = Query(default=100, ge=1, le=1000)
+):
+    """
+    Obtiene histórico de scans para backtesting
+    
+    Args:
+        date: Fecha en formato YYYY-MM-DD (opcional)
+        limit: Número máximo de resultados
+    
+    Returns:
+        Histórico de scans
+    """
+    try:
+        if date:
+            query = """
+                SELECT 
+                    scan_id,
+                    symbol,
+                    price,
+                    volume,
+                    rvol,
+                    change_percent,
+                    market_cap,
+                    scan_timestamp
+                FROM scan_results
+                WHERE DATE(scan_timestamp) = $1
+                ORDER BY scan_timestamp DESC
+                LIMIT $2
+            """
+            results = await timescale_client.fetch(query, date, limit)
+        else:
+            query = """
+                SELECT 
+                    scan_id,
+                    symbol,
+                    price,
+                    volume,
+                    rvol,
+                    change_percent,
+                    market_cap,
+                    scan_timestamp
+                FROM scan_results
+                ORDER BY scan_timestamp DESC
+                LIMIT $1
+            """
+            results = await timescale_client.fetch(query, limit)
+        
+        scans = [dict(row) for row in results]
+        
+        return {
+            "scans": scans,
+            "count": len(scans),
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error("scan_history_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/stats")
+async def get_system_stats():
+    """Obtiene estadísticas del sistema completo"""
+    try:
+        stats = {
+            "api_gateway": {
+                "websocket_connections": connection_manager.stats["active_connections"],
+                "messages_sent": connection_manager.stats["messages_sent"],
+                "errors": connection_manager.stats["errors"]
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        return stats
+    
+    except Exception as e:
+        logger.error("system_stats_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# WebSocket Endpoints
+# ============================================================================
+
+@app.websocket("/ws/scanner")
+async def websocket_scanner(websocket: WebSocket):
+    """
+    WebSocket para datos del scanner en tiempo real
+    
+    El cliente puede enviar comandos:
+    - {"action": "subscribe", "symbols": ["AAPL", "TSLA"]}
+    - {"action": "unsubscribe", "symbols": ["AAPL"]}
+    - {"action": "subscribe_all"}
+    
+    El servidor envía:
+    - {"type": "rvol", "symbol": "AAPL", "data": {...}}
+    - {"type": "aggregate", "symbol": "AAPL", "data": {...}}
+    """
+    connection_id = str(uuid.uuid4())
+    
+    await connection_manager.connect(websocket, connection_id)
+    
+    try:
+        # Enviar mensaje de bienvenida
+        await connection_manager.send_personal_message(
+            {
+                "type": "connected",
+                "connection_id": connection_id,
+                "message": "Connected to Tradeul Scanner",
+                "timestamp": datetime.now().isoformat()
+            },
+            connection_id
+        )
+        
+        # Loop para recibir comandos del cliente
+        while True:
+            data = await websocket.receive_json()
+            
+            action = data.get("action")
+            
+            if action == "subscribe":
+                symbols = set(data.get("symbols", []))
+                connection_manager.subscribe(connection_id, symbols)
+                
+                await connection_manager.send_personal_message(
+                    {
+                        "type": "subscribed",
+                        "symbols": list(symbols),
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    connection_id
+                )
+            
+            elif action == "unsubscribe":
+                symbols = set(data.get("symbols", []))
+                connection_manager.unsubscribe(connection_id, symbols)
+                
+                await connection_manager.send_personal_message(
+                    {
+                        "type": "unsubscribed",
+                        "symbols": list(symbols),
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    connection_id
+                )
+            
+            elif action == "subscribe_all":
+                connection_manager.subscribe(connection_id, {"*"})
+                
+                await connection_manager.send_personal_message(
+                    {
+                        "type": "subscribed_all",
+                        "message": "Subscribed to all tickers",
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    connection_id
+                )
+            
+            elif action == "ping":
+                await connection_manager.send_personal_message(
+                    {
+                        "type": "pong",
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    connection_id
+                )
+    
+    except WebSocketDisconnect:
+        connection_manager.disconnect(connection_id)
+        logger.info("websocket_disconnected", connection_id=connection_id)
+    
+    except Exception as e:
+        logger.error(
+            "websocket_error",
+            connection_id=connection_id,
+            error=str(e)
+        )
+        connection_manager.disconnect(connection_id)
+
+
+# ============================================================================
+# Main
+# ============================================================================
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    uvicorn.run(
+        "services.api_gateway.main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,
+        log_config=None  # Usar nuestro logger personalizado
+    )
+

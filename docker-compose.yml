@@ -1,0 +1,269 @@
+services:
+  # =============================================
+  # INFRAESTRUCTURA
+  # =============================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: tradeul_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tradeul_network
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: tradeul_timescale
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tradeul}
+      POSTGRES_USER: ${POSTGRES_USER:-tradeul_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradeul_password_secure_123}
+      TIMESCALEDB_TELEMETRY: off
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-tradeul_user} -d ${POSTGRES_DB:-tradeul}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tradeul_network
+
+  # =============================================
+  # SERVICIOS CORE
+  # =============================================
+
+  market_session:
+    build:
+      context: .
+      dockerfile: services/market_session/Dockerfile
+    container_name: tradeul_market_session
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8002:8002"
+
+  data_ingest:
+    build:
+      context: .
+      dockerfile: services/data_ingest/Dockerfile
+    container_name: tradeul_data_ingest
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8003:8003"
+
+  historical:
+    build:
+      context: .
+      dockerfile: services/historical/Dockerfile
+    container_name: tradeul_historical
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8004:8004"
+
+  scanner:
+    build:
+      context: .
+      dockerfile: services/scanner/Dockerfile
+    container_name: tradeul_scanner
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8005:8005"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+
+  polygon_ws:
+    build:
+      context: .
+      dockerfile: services/polygon_ws/Dockerfile
+    container_name: tradeul_polygon_ws
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8006:8006"
+
+  analytics:
+    build:
+      context: .
+      dockerfile: services/analytics/Dockerfile
+    container_name: tradeul_analytics
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8007:8007"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3G
+
+  # orchestrator:
+  #   build:
+  #     context: .
+  #     dockerfile: services/orchestrator/Dockerfile
+  #   container_name: tradeul_orchestrator
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     - redis
+  #     - timescaledb
+  #     - market_session
+  #     - data_ingest
+  #     - historical
+  #     - scanner
+  #     - polygon_ws
+  #     - analytics
+  #   restart: unless-stopped
+  #   networks:
+  #     - tradeul_network
+  #   ports:
+  #     - "8001:8001"
+
+  websocket_server:
+    build:
+      context: .
+      dockerfile: services/websocket_server/Dockerfile
+    container_name: tradeul_websocket_server
+    environment:
+      WS_PORT: ${WS_PORT:-9000}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "9000:9000"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+
+  api_gateway:
+    build:
+      context: .
+      dockerfile: services/api_gateway/Dockerfile
+    container_name: tradeul_api_gateway
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8000:8000"
+
+  # admin_panel:
+  #   build:
+  #     context: .
+  #     dockerfile: services/admin_panel/Dockerfile
+  #   container_name: tradeul_admin_panel
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     timescaledb:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   networks:
+  #     - tradeul_network
+  #   ports:
+  #     - "8008:8008"
+
+  # =============================================
+  # OPCIONAL: NGINX REVERSE PROXY
+  # =============================================
+
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: tradeul_nginx
+  #   volumes:
+  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   depends_on:
+  #     - api_gateway
+  #     # - admin_panel
+  #   networks:
+  #     - tradeul_network
+
+volumes:
+  redis_data:
+    driver: local
+  timescale_data:
+    driver: local
+
+networks:
+  tradeul_network:
+    driver: bridge
