@@ -398,6 +398,19 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         enableResizing: true,
         cell: (info) => <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>,
       }),
+      columnHelper.accessor('atr_percent', {
+        header: 'ATR%',
+        size: 70,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 5 ? 'text-orange-600 font-semibold' : 'text-slate-600';
+          return <div className={`font-mono ${colorClass}`}>{value.toFixed(2)}%</div>;
+        },
+      }),
     ],
     [cellChanges]
   );

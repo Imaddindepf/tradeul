@@ -22,6 +22,7 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
 from rvol_calculator import RVOLCalculator
+from atr_calculator import ATRCalculator
 
 # Configurar logger
 configure_logging(service_name="analytics")
@@ -34,6 +35,7 @@ logger = get_logger(__name__)
 redis_client: Optional[RedisClient] = None
 timescale_client: Optional[TimescaleClient] = None
 rvol_calculator: Optional[RVOLCalculator] = None
+atr_calculator: Optional[ATRCalculator] = None
 background_task: Optional[asyncio.Task] = None
 
 
@@ -44,7 +46,7 @@ background_task: Optional[asyncio.Task] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, timescale_client, rvol_calculator, background_task
+    global redis_client, timescale_client, rvol_calculator, atr_calculator, background_task
     
     logger.info("analytics_service_starting")
     
@@ -62,6 +64,14 @@ async def lifespan(app: FastAPI):
         slot_size_minutes=5,
         lookback_days=5,
         include_extended_hours=True  # ✅ Incluye pre-market y post-market
+    )
+    
+    # Inicializar calculador de ATR
+    atr_calculator = ATRCalculator(
+        redis_client=redis_client,
+        timescale_client=timescale_client,
+        period=14,
+        use_ema=True
     )
     
     # Iniciar procesamiento en background
@@ -176,6 +186,21 @@ async def run_analytics_processing():
             enriched_tickers = []
             rvol_mapping = {}
             
+            # Obtener ATR para todos los símbolos en batch (desde Redis cache)
+            symbols = [t.get('ticker') for t in tickers_data if t.get('ticker')]
+            current_prices = {
+                t.get('ticker'): t.get('lastTrade', {}).get('p') or t.get('day', {}).get('c')
+                for t in tickers_data if t.get('ticker')
+            }
+            atr_data = await atr_calculator._get_batch_from_cache(symbols)
+            
+            # Actualizar atr_percent con precios actuales
+            for symbol, atr_info in atr_data.items():
+                if atr_info and symbol in current_prices:
+                    price = current_prices[symbol]
+                    if price and price > 0:
+                        atr_info['atr_percent'] = round((atr_info['atr'] / price) * 100, 2)
+            
             # DEBUG: Log primeros 3 tickers
             for idx, ticker_data in enumerate(tickers_data):
                 try:
@@ -218,6 +243,14 @@ async def run_analytics_processing():
                     # Agregar ticker (con o sin RVOL)
                     if 'rvol' not in ticker_data:
                         ticker_data['rvol'] = None
+                    
+                    # Añadir ATR si está disponible en caché
+                    if symbol in atr_data and atr_data[symbol]:
+                        ticker_data['atr'] = atr_data[symbol]['atr']
+                        ticker_data['atr_percent'] = atr_data[symbol]['atr_percent']
+                    else:
+                        ticker_data['atr'] = None
+                        ticker_data['atr_percent'] = None
                     
                     enriched_tickers.append(ticker_data)
                 
