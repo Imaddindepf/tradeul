@@ -425,7 +425,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         cell: (info) => <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>,
       }),
       columnHelper.accessor('atr_percent', {
-        header: 'ATR',
+        header: 'ATR%',
         size: 70,
         minSize: 60,
         maxSize: 100,
@@ -435,9 +435,65 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-          const ratio = value / 100; // Convertir porcentaje a ratio (5% → 0.05)
           const colorClass = value > 5 ? 'text-orange-600 font-semibold' : 'text-slate-600';
-          return <div className={`font-mono ${colorClass}`}>{ratio.toFixed(3)}</div>;
+          return <div className={`font-mono ${colorClass}`}>{value.toFixed(1)}%</div>;
+        },
+      }),
+      columnHelper.accessor((row) => {
+        // Calcular % del ATR usado hoy basado en el RANGO intradiario
+        const atr_percent = row.atr_percent;
+        const prev_close = row.prev_close;
+        const change_percent = row.change_percent || 0;
+        
+        if (!atr_percent || atr_percent === 0 || !prev_close) return null;
+        
+        // Usar intraday_high/intraday_low (incluye pre/post market)
+        // Fallback a high/low si no están disponibles
+        const high = row.intraday_high ?? row.high;
+        const low = row.intraday_low ?? row.low;
+        
+        // Si no tenemos high/low (pre-market sin datos), usar gap %
+        if (!high || !low) {
+          return (Math.abs(change_percent) / atr_percent) * 100;
+        }
+        
+        // Calcular rango usado basado en dirección
+        let range_percent;
+        if (change_percent >= 0) {
+          // Gap up: medir desde cierre previo hasta intraday high
+          range_percent = ((high - prev_close) / prev_close) * 100;
+        } else {
+          // Gap down: medir desde cierre previo hasta intraday low
+          range_percent = ((prev_close - low) / prev_close) * 100;
+        }
+        
+        return (Math.abs(range_percent) / atr_percent) * 100;
+      }, {
+        id: 'atr_used',
+        header: 'ATR Used',
+        size: 85,
+        minSize: 70,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          
+          // Colores según el % usado
+          let colorClass = 'text-slate-600';
+          if (value > 150) {
+            colorClass = 'text-red-600 font-bold'; // Movimiento extremo
+          } else if (value > 100) {
+            colorClass = 'text-orange-600 font-semibold'; // Superó el ATR
+          } else if (value > 75) {
+            colorClass = 'text-yellow-600 font-medium'; // Alto uso
+          } else if (value > 50) {
+            colorClass = 'text-blue-600'; // Uso medio-alto
+          }
+          
+          return <div className={`font-mono ${colorClass}`}>{value.toFixed(0)}%</div>;
         },
       }),
     ],

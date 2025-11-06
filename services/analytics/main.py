@@ -23,6 +23,7 @@ from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
 from rvol_calculator import RVOLCalculator
 from atr_calculator import ATRCalculator
+from intraday_tracker import IntradayTracker
 
 # Configurar logger
 configure_logging(service_name="analytics")
@@ -36,6 +37,7 @@ redis_client: Optional[RedisClient] = None
 timescale_client: Optional[TimescaleClient] = None
 rvol_calculator: Optional[RVOLCalculator] = None
 atr_calculator: Optional[ATRCalculator] = None
+intraday_tracker: Optional[IntradayTracker] = None
 background_task: Optional[asyncio.Task] = None
 
 
@@ -46,7 +48,7 @@ background_task: Optional[asyncio.Task] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, timescale_client, rvol_calculator, atr_calculator, background_task
+    global redis_client, timescale_client, rvol_calculator, atr_calculator, intraday_tracker, background_task
     
     logger.info("analytics_service_starting")
     
@@ -73,6 +75,41 @@ async def lifespan(app: FastAPI):
         period=14,
         use_ema=True
     )
+    
+    # Inicializar IntradayTracker (high/low intradiario)
+    intraday_tracker = IntradayTracker(
+        polygon_api_key=settings.POLYGON_API_KEY
+    )
+    
+    # 🔄 RECUPERAR DATOS INTRADIARIOS AL INICIAR (si es día de trading)
+    try:
+        # Obtener símbolos activos desde snapshot más reciente
+        snapshot_data = await redis_client.get("snapshot:polygon:latest")
+        if snapshot_data:
+            tickers_data = snapshot_data.get('tickers', [])
+            # Filtrar símbolos con volumen > 0
+            active_symbols = [
+                t.get('ticker') for t in tickers_data
+                if t.get('ticker') and (
+                    (t.get('min', {}).get('av', 0) > 0) or 
+                    (t.get('day', {}).get('v', 0) > 0)
+                )
+            ]
+            
+            if active_symbols:
+                logger.info("recovering_intraday_data", symbols_count=len(active_symbols))
+                recovered_count = await intraday_tracker.recover_active_symbols(
+                    active_symbols=active_symbols,
+                    max_symbols=100  # Limitar para no saturar API
+                )
+                logger.info("intraday_recovery_complete", recovered=recovered_count)
+            else:
+                logger.info("no_active_symbols_for_recovery")
+        else:
+            logger.info("no_snapshot_available_for_recovery")
+    except Exception as e:
+        logger.warning("intraday_recovery_failed", error=str(e))
+        # No es crítico, continuamos sin datos recuperados
     
     # Iniciar procesamiento en background
     background_task = asyncio.create_task(run_analytics_processing())
@@ -221,11 +258,21 @@ async def run_analytics_processing():
                     if not symbol:
                         continue
                     
+
+                    
                     # NUEVO: Siempre agregar el ticker (aunque volumen sea 0)
                     # Si tiene volumen, calcular RVOL
                     rvol = None
                     
                     if volume > 0:
+                        # ACTUALIZAR INTRADAY HIGH/LOW
+                        # Obtener precio actual para tracking
+                        current_price = ticker_data.get('lastTrade', {}).get('p')
+                        if not current_price:
+                            current_price = day_data.get('c') if day_data else None
+                        
+                        if current_price and current_price > 0:
+                            intraday_tracker.update(symbol, current_price)
                         # Actualizar volumen
                         await rvol_calculator.update_volume_for_symbol(
                             symbol=symbol,
@@ -251,6 +298,16 @@ async def run_analytics_processing():
                     else:
                         ticker_data['atr'] = None
                         ticker_data['atr_percent'] = None
+                    
+                    # 🔄 AÑADIR INTRADAY HIGH/LOW
+                    intraday_data = intraday_tracker.get(symbol)
+                    if intraday_data:
+                        ticker_data['intraday_high'] = intraday_data.get('high')
+                        ticker_data['intraday_low'] = intraday_data.get('low')
+                    else:
+                        # Fallback a day.h/day.l si no hay datos intradiarios
+                        ticker_data['intraday_high'] = day_data.get('h') if day_data else None
+                        ticker_data['intraday_low'] = day_data.get('l') if day_data else None
                     
                     enriched_tickers.append(ticker_data)
                 

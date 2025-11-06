@@ -232,10 +232,12 @@ class ScannerEngine:
                     snapshot = PolygonSnapshot(**ticker_data)
                     rvol = ticker_data.get('rvol')
                     
-                    # Extraer ATR data
+                    # Extraer ATR data e intraday high/low
                     atr_data = {
                         'atr': ticker_data.get('atr'),
-                        'atr_percent': ticker_data.get('atr_percent')
+                        'atr_percent': ticker_data.get('atr_percent'),
+                        'intraday_high': ticker_data.get('intraday_high'),
+                        'intraday_low': ticker_data.get('intraday_low')
                     }
                     
                     enriched_snapshots.append((snapshot, rvol, atr_data))
@@ -619,6 +621,10 @@ class ScannerEngine:
                 atr = atr_data.get('atr')
                 atr_percent = atr_data.get('atr_percent')
             
+            # Extract intraday high/low (from enriched snapshot)
+            intraday_high = atr_data.get('intraday_high') if atr_data else None
+            intraday_low = atr_data.get('intraday_low') if atr_data else None
+            
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
@@ -630,6 +636,8 @@ class ScannerEngine:
                 open=day_data.o if day_data else None,
                 high=day_data.h if day_data else None,
                 low=day_data.l if day_data else None,
+                intraday_high=intraday_high,
+                intraday_low=intraday_low,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,

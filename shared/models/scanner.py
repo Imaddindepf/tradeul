@@ -31,8 +31,12 @@ class ScannerTicker(BaseModel):
     
     # OHLC
     open: Optional[float] = Field(None, description="Open price")
-    high: Optional[float] = Field(None, description="High price")
-    low: Optional[float] = Field(None, description="Low price")
+    high: Optional[float] = Field(None, description="High price (regular market hours)")
+    low: Optional[float] = Field(None, description="Low price (regular market hours)")
+    
+    # Intraday high/low (incluye pre-market, market hours, post-market)
+    intraday_high: Optional[float] = Field(None, description="Intraday high (includes pre/post market)")
+    intraday_low: Optional[float] = Field(None, description="Intraday low (includes pre/post market)")
     
     # Previous day reference
     prev_close: Optional[float] = Field(None, description="Previous close")
