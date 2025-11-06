@@ -13,6 +13,7 @@ import type { Ticker } from '@/lib/types';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { BaseDataTable } from '@/components/table/BaseDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
+import { TableSettings } from '@/components/table/TableSettings';
 
 type CellChange = {
   symbol: string;
@@ -42,6 +43,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [sequence, setSequence] = useState(0);
   const [cellChanges, setCellChanges] = useState<Map<string, CellChange>>(new Map());
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [columnVisibility, setColumnVisibility] = useState({});
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -291,6 +294,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 35,
         maxSize: 60,
         enableResizing: true,
+        enableSorting: false,
+        enableHiding: false, // No se puede ocultar
         cell: (info) => (
           <div className="text-center font-semibold text-slate-400">{info.row.index + 1}</div>
         ),
@@ -301,6 +306,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 55,
         maxSize: 120,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: false, // No se puede ocultar (columna esencial)
         cell: (info) => <div className="font-bold text-blue-600">{info.getValue()}</div>,
       }),
       columnHelper.accessor('price', {
@@ -309,6 +316,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 60,
         maxSize: 120,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
         cell: (info) => {
           const symbol = info.row.original.symbol;
           const change = cellChanges.get(`${symbol}-price`);
@@ -335,6 +344,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 70,
         maxSize: 130,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
           const symbol = info.row.original.symbol;
@@ -361,6 +372,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 70,
         maxSize: 140,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
         cell: (info) => <div className="font-mono text-slate-700 font-medium">{formatNumber(info.getValue())}</div>,
       }),
       columnHelper.accessor((row) => row.rvol_slot ?? row.rvol, {
@@ -370,6 +383,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 55,
         maxSize: 100,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
         cell: (info) => {
           const ticker = info.row.original;
           const displayValue = ticker.rvol_slot ?? ticker.rvol ?? 0;
@@ -395,6 +410,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 80,
         maxSize: 160,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
         cell: (info) => <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>,
       }),
       columnHelper.accessor('float_shares', {
@@ -403,6 +420,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 70,
         maxSize: 140,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
         cell: (info) => <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>,
       }),
       columnHelper.accessor('atr_percent', {
@@ -411,6 +430,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         minSize: 60,
         maxSize: 100,
         enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
@@ -426,8 +447,14 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const table = useReactTable({
     data,
     columns,
-    state: { sorting },
+    state: { 
+      sorting,
+      columnOrder,
+      columnVisibility,
+    },
     onSortingChange: setSorting,
+    onColumnOrderChange: setColumnOrder,
+    onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     columnResizeMode,
@@ -458,6 +485,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           count={isReady ? data.length : undefined}
           sequence={isReady ? sequence : undefined}
           lastUpdateTime={lastUpdateTime}
+          rightActions={<TableSettings table={table} />}
         />
       }
     />

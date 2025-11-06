@@ -3,7 +3,7 @@
 import { ReactNode, useRef, useState, useEffect, CSSProperties } from 'react';
 import type { Table as TanStackTable } from '@tanstack/react-table';
 import { flexRender } from '@tanstack/react-table';
-import { GripHorizontal, GripVertical, Maximize2 } from 'lucide-react';
+import { GripHorizontal, GripVertical, Maximize2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 
 interface ResizableTableProps<T> {
   table: TanStackTable<T>;
@@ -294,12 +294,43 @@ export function ResizableTable<T>({
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
+                      draggable={!header.column.getIsResizing()}
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', header.column.id);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const draggedColumnId = e.dataTransfer.getData('text/plain');
+                        const targetColumnId = header.column.id;
+                        
+                        if (draggedColumnId !== targetColumnId) {
+                          const columnOrder = table.getState().columnOrder;
+                          const currentOrder = columnOrder.length > 0 
+                            ? columnOrder 
+                            : table.getAllLeafColumns().map(c => c.id);
+                          
+                          const draggedIndex = currentOrder.indexOf(draggedColumnId);
+                          const targetIndex = currentOrder.indexOf(targetColumnId);
+                          
+                          const newOrder = [...currentOrder];
+                          newOrder.splice(draggedIndex, 1);
+                          newOrder.splice(targetIndex, 0, draggedColumnId);
+                          
+                          table.setColumnOrder(newOrder);
+                        }
+                      }}
                       className={`
                         relative text-left font-semibold text-slate-600 uppercase tracking-wider border-r border-slate-100 last:border-r-0 bg-slate-50
                         ${scale === 'xs' ? 'px-2 py-1.5 text-[10px]' : ''}
                         ${scale === 'sm' ? 'px-2.5 py-2 text-[11px]' : ''}
                         ${scale === 'md' ? 'px-3 py-2.5 text-xs' : ''}
                         ${scale === 'lg' ? 'px-4 py-3 text-xs' : ''}
+                        cursor-move hover:bg-slate-100 transition-colors
                       `}
                       style={{
                         width: header.getSize(),
@@ -321,6 +352,16 @@ export function ResizableTable<T>({
                             {flexRender(
                               header.column.columnDef.header,
                               header.getContext()
+                            )}
+                            {header.column.getCanSort() && (
+                              <span className="ml-1">
+                                {{
+                                  asc: <ArrowUp className="w-3 h-3" />,
+                                  desc: <ArrowDown className="w-3 h-3" />,
+                                }[header.column.getIsSorted() as string] ?? (
+                                  <ArrowUpDown className="w-3 h-3 opacity-40" />
+                                )}
+                              </span>
                             )}
                           </div>
                         </div>
