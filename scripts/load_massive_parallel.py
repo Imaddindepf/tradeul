@@ -221,10 +221,43 @@ async def main():
     await db.connect()
     
     # Días hábiles (excluye fines de semana Y festivos)
-    trading_days = get_trading_days(10)
-    print(f"📅 Días de trading ({len(trading_days)}):")
-    for d in trading_days:
+    all_trading_days = get_trading_days(10)
+    print(f"📅 Días de trading potenciales ({len(all_trading_days)}):")
+    for d in all_trading_days:
         print(f"   {d} ({d.strftime('%A')})")
+    print()
+    
+    # 🔍 DETECTAR QUÉ DÍAS YA EXISTEN EN LA BD
+    print("🔍 Detectando días ya cargados en BD...")
+    existing_dates_query = """
+        SELECT DISTINCT date 
+        FROM volume_slots 
+        WHERE date >= $1 
+        ORDER BY date DESC
+    """
+    oldest_date = min(all_trading_days)
+    existing_rows = await db.fetch(existing_dates_query, oldest_date)
+    existing_dates = {row['date'] for row in existing_rows}
+    
+    # Filtrar solo los días FALTANTES
+    trading_days = [d for d in all_trading_days if d not in existing_dates]
+    
+    if existing_dates:
+        print(f"   ✅ Ya existen: {len(existing_dates)} días")
+        for d in sorted(existing_dates, reverse=True)[:5]:
+            print(f"      - {d}")
+    
+    if not trading_days:
+        print()
+        print("="*90)
+        print("✅ TODOS LOS DÍAS YA ESTÁN CARGADOS - NO HAY NADA QUE HACER")
+        print("="*90)
+        await db.disconnect()
+        return
+    
+    print(f"   ⚠️  Faltan: {len(trading_days)} días")
+    for d in sorted(trading_days, reverse=True):
+        print(f"      - {d} ({d.strftime('%A')})")
     print()
     
     # Obtener UNIVERSO COMPLETO de Polygon (con paginación)

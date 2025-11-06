@@ -133,6 +133,33 @@ CREATE INDEX IF NOT EXISTS idx_volume_slots_symbol ON volume_slots (symbol, date
 CREATE INDEX IF NOT EXISTS idx_volume_slots_date ON volume_slots (date DESC);
 
 -- =============================================
+-- TABLA: DATOS OHLC DIARIOS (para ATR y otros indicadores)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS market_data_daily (
+    trading_date DATE NOT NULL,
+    symbol VARCHAR(10) NOT NULL,
+    open DECIMAL(12, 4) NOT NULL,
+    high DECIMAL(12, 4) NOT NULL,
+    low DECIMAL(12, 4) NOT NULL,
+    close DECIMAL(12, 4) NOT NULL,
+    volume BIGINT NOT NULL,
+    vwap DECIMAL(12, 4),
+    trades_count INTEGER,
+    PRIMARY KEY (trading_date, symbol)
+);
+
+-- Convertir a hypertable para TimescaleDB
+SELECT create_hypertable('market_data_daily', 'trading_date', 
+    if_not_exists => TRUE,
+    chunk_time_interval => INTERVAL '1 month'
+);
+
+-- Índices
+CREATE INDEX IF NOT EXISTS idx_market_data_daily_symbol ON market_data_daily (symbol, trading_date DESC);
+CREATE INDEX IF NOT EXISTS idx_market_data_daily_date ON market_data_daily (trading_date DESC);
+
+-- =============================================
 -- TABLA: CONFIGURACIÓN DE FILTROS
 -- =============================================
 

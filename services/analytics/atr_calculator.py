@@ -55,10 +55,10 @@ class ATRCalculator:
         self.period = period
         self.use_ema = use_ema
         
-        # Caché de ATR en Redis
-        # Key: "atr:daily:{symbol}" → {"atr": 2.45, "atr_percent": 3.2, "updated": "2025-11-05"}
-        self.cache_prefix = "atr:daily"
-        self.cache_ttl = 86400  # 24 horas
+        # Caché de ATR en Redis usando HASH (optimizado para RAM)
+        # Key: "atr:daily" → HASH {symbol: {"atr": 2.45, "atr_percent": 3.2, "updated": "2025-11-05"}}
+        self.cache_key = "atr:daily"  # Una sola clave HASH
+        self.cache_ttl = 28800  # 8 horas (suficiente para trading day)
         
         logger.info(
             "atr_calculator_initialized",
@@ -182,17 +182,22 @@ class ATRCalculator:
         Returns:
             Dict con atr, atr_percent o None si no hay datos
         """
+        logger.info("calculate_atr_start", symbol=symbol, has_redis=bool(self.redis), has_db=bool(self.db))
+        
         if trading_date is None:
             trading_date = date.today()
         
         # Intentar obtener de caché primero
         if self.redis:
+            logger.info("checking_cache", symbol=symbol)
             cached = await self._get_from_cache(symbol)
             if cached:
+                logger.info("returning_from_cache", symbol=symbol, cached=cached)
                 # Actualizar atr_percent con precio actual si se provee
                 if current_price and current_price > 0:
                     cached['atr_percent'] = round((cached['atr'] / current_price) * 100, 2)
                 return cached
+            logger.info("cache_miss_proceeding_to_calculate", symbol=symbol)
         
         # Calcular desde TimescaleDB
         if not self.db:
@@ -250,7 +255,11 @@ class ATRCalculator:
             
             # Guardar en caché
             if result and self.redis:
+                logger.info("saving_atr_to_cache", symbol=symbol, result=result)
                 await self._save_to_cache(symbol, result)
+                logger.info("atr_saved_to_cache", symbol=symbol)
+            else:
+                logger.warning("not_saving_atr", symbol=symbol, has_result=bool(result), has_redis=bool(self.redis))
             
             return result
             
@@ -324,18 +333,22 @@ class ATRCalculator:
         return results
     
     async def _get_from_cache(self, symbol: str) -> Optional[Dict[str, float]]:
-        """Obtiene ATR de caché de Redis"""
+        """Obtiene ATR de caché de Redis usando HASH"""
         if not self.redis:
             return None
         
-        key = f"{self.cache_prefix}:{symbol}"
         try:
-            data = await self.redis.get(key)
+            # Leer desde HASH: HGET atr:daily {symbol}
+            data = await self.redis.hget(self.cache_key, symbol)
+            logger.info("cache_read_attempt", symbol=symbol, data=data, has_data=bool(data))
             if data:
-                return {
+                result = {
                     'atr': float(data.get('atr', 0)),
                     'atr_percent': float(data.get('atr_percent', 0)) if data.get('atr_percent') else None
                 }
+                logger.info("cache_hit", symbol=symbol, result=result)
+                return result
+            logger.info("cache_miss", symbol=symbol)
         except Exception as e:
             logger.error("cache_read_error", symbol=symbol, error=str(e))
         
@@ -345,27 +358,23 @@ class ATRCalculator:
         self,
         symbols: List[str]
     ) -> Dict[str, Optional[Dict[str, float]]]:
-        """Obtiene ATR de múltiples símbolos de caché (batch)"""
+        """Obtiene ATR de múltiples símbolos de caché usando HASH (batch optimizado)"""
         if not self.redis or not symbols:
             return {}
         
-        keys = [f"{self.cache_prefix}:{symbol}" for symbol in symbols]
-        
         try:
-            # Usar el cliente Redis directamente para mget
-            values = await self.redis.client.mget(keys)
+            # Leer batch desde HASH: HMGET atr:daily {symbol1} {symbol2} ...
+            values = await self.redis.hmget(self.cache_key, symbols)
             results = {}
             
             for symbol, value in zip(symbols, values):
                 if value:
                     try:
-                        import json
-                        data = json.loads(value)
                         results[symbol] = {
-                            'atr': float(data.get('atr', 0)),
-                            'atr_percent': float(data.get('atr_percent', 0)) if data.get('atr_percent') else None
+                            'atr': float(value.get('atr', 0)),
+                            'atr_percent': float(value.get('atr_percent', 0)) if value.get('atr_percent') else None
                         }
-                    except (json.JSONDecodeError, ValueError, TypeError):
+                    except (ValueError, TypeError, KeyError):
                         pass
             
             return results
@@ -375,22 +384,26 @@ class ATRCalculator:
             return {}
     
     async def _save_to_cache(self, symbol: str, data: Dict[str, float]):
-        """Guarda ATR en caché de Redis"""
+        """Guarda ATR en caché de Redis usando HASH"""
         if not self.redis:
+            logger.warning("no_redis_client", symbol=symbol)
             return
         
-        key = f"{self.cache_prefix}:{symbol}"
         try:
-            # Usar el método set() del RedisClient con TTL
-            await self.redis.set(
-                key,
-                {
-                    'atr': data['atr'],
-                    'atr_percent': data['atr_percent'],
-                    'updated': date.today().isoformat()
-                },
-                ttl=self.cache_ttl
+            # Guardar en HASH: HSET atr:daily {symbol} {data}
+            cache_data = {
+                'atr': data['atr'],
+                'atr_percent': data.get('atr_percent'),
+                'updated': date.today().isoformat()
+            }
+            result = await self.redis.hset(
+                self.cache_key,
+                symbol,
+                cache_data
             )
+            # Actualizar TTL del HASH completo
+            await self.redis.expire(self.cache_key, self.cache_ttl)
+            logger.debug("atr_cached", symbol=symbol, atr=data['atr'], hset_result=result)
         except Exception as e:
-            logger.error("cache_write_error", symbol=symbol, error=str(e))
+            logger.error("cache_write_error", symbol=symbol, error=str(e), data=data)
 

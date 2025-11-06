@@ -193,7 +193,7 @@ class ScannerEngine:
         - Procesamiento consistente y profesional
         
         Returns:
-            Lista de tuplas (snapshot, rvol) de UN SOLO snapshot completo
+            Lista de tuplas (snapshot, rvol, atr_data) de UN SOLO snapshot completo
         """
         try:
             # Leer snapshot enriquecido completo
@@ -223,7 +223,7 @@ class ScannerEngine:
                        tickers=len(tickers_data),
                        timestamp=snapshot_timestamp)
             
-            # Convertir a lista de tuplas (snapshot, rvol)
+            # Convertir a lista de tuplas (snapshot, rvol, atr_data)
             enriched_snapshots = []
             
             for ticker_data in tickers_data:
@@ -232,7 +232,13 @@ class ScannerEngine:
                     snapshot = PolygonSnapshot(**ticker_data)
                     rvol = ticker_data.get('rvol')
                     
-                    enriched_snapshots.append((snapshot, rvol))
+                    # Extraer ATR data
+                    atr_data = {
+                        'atr': ticker_data.get('atr'),
+                        'atr_percent': ticker_data.get('atr_percent')
+                    }
+                    
+                    enriched_snapshots.append((snapshot, rvol, atr_data))
                 
                 except Exception as e:
                     logger.error("Error parsing ticker", 
@@ -324,7 +330,7 @@ class ScannerEngine:
         Combina: enriquecimiento + filtrado + deduplicación + scoring
         
         Args:
-            enriched_snapshots: Lista de tuplas (snapshot, rvol)
+            enriched_snapshots: Lista de tuplas (snapshot, rvol, atr_data)
         """
         # OPTIMIZACIÓN CRÍTICA: Batch MGET de TODAS las metadatas de una vez
         
@@ -332,7 +338,7 @@ class ScannerEngine:
         unique_snapshots = []
         seen_symbols = set()
         
-        for snapshot, rvol in enriched_snapshots:
+        for snapshot, rvol, atr_data in enriched_snapshots:
             # Filtro temprano: excluir precios < 0.5 para evitar MGET masivo
             cp = snapshot.current_price
             if cp is not None and cp < 0.5:
@@ -340,16 +346,16 @@ class ScannerEngine:
             symbol = snapshot.ticker
             if symbol not in seen_symbols:
                 seen_symbols.add(symbol)
-                unique_snapshots.append((snapshot, rvol))
+                unique_snapshots.append((snapshot, rvol, atr_data))
         
         # 2-4. Metadata con caché local + MGET paginado solo para misses
-        symbols = [s.ticker for s, r in unique_snapshots]
+        symbols = [s.ticker for s, r, a in unique_snapshots]
         metadatas = await self._get_metadata_batch_cached(symbols)
         
         # 5. Procesar con metadatas ya disponibles
         filtered_and_scored = []
         
-        for snapshot, rvol in unique_snapshots:
+        for snapshot, rvol, atr_data in unique_snapshots:
             try:
                 symbol = snapshot.ticker
                 
@@ -369,7 +375,7 @@ class ScannerEngine:
                 # No necesita buscar en dict
                 
                 # 5. Build ticker inline
-                ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol)
+                ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol, atr_data)
                 if not ticker:
                     continue
                 
@@ -421,7 +427,7 @@ class ScannerEngine:
                     continue
                 
                 # Build scanner ticker
-                ticker = await self._build_scanner_ticker(snapshot, metadata)
+                ticker = await self._build_scanner_ticker(snapshot, metadata, atr_data)
                 
                 if ticker:
                     # Enriquecer con cálculos de gaps (NUEVO)
@@ -474,9 +480,10 @@ class ScannerEngine:
     async def _build_scanner_ticker(
         self,
         snapshot: PolygonSnapshot,
-        metadata: TickerMetadata
+        metadata: TickerMetadata,
+        atr_data: Optional[Dict] = None
     ) -> Optional[ScannerTicker]:
-        """Build ScannerTicker from snapshot and metadata"""
+        """Build ScannerTicker from snapshot, metadata, and ATR data"""
         try:
             price = snapshot.current_price
             volume_today = snapshot.current_volume
@@ -506,6 +513,13 @@ class ScannerEngine:
             if prev_day and prev_day.c and prev_day.c > 0:
                 change_percent = ((price - prev_day.c) / prev_day.c) * 100
             
+            # Extract ATR data
+            atr = None
+            atr_percent = None
+            if atr_data:
+                atr = atr_data.get('atr')
+                atr_percent = atr_data.get('atr_percent')
+            
             # Build ticker
             return ScannerTicker(
                 symbol=snapshot.ticker,
@@ -534,6 +548,8 @@ class ScannerEngine:
                 # Calculated indicators
                 rvol=rvol,
                 rvol_slot=rvol_slot,
+                atr=atr,
+                atr_percent=atr_percent,
                 price_from_high=price_from_high,
                 price_from_low=price_from_low,
                 # Context
@@ -571,7 +587,8 @@ class ScannerEngine:
         self,
         snapshot: PolygonSnapshot,
         metadata: TickerMetadata,
-        rvol: Optional[float]
+        rvol: Optional[float],
+        atr_data: Optional[Dict] = None
     ) -> Optional[ScannerTicker]:
         """Build scanner ticker inline (sin awaits innecesarios)"""
         try:
@@ -594,6 +611,13 @@ class ScannerEngine:
             
             if prev_day and prev_day.c and prev_day.c > 0:
                 change_percent = ((price - prev_day.c) / prev_day.c) * 100
+            
+            # Extract ATR data
+            atr = None
+            atr_percent = None
+            if atr_data:
+                atr = atr_data.get('atr')
+                atr_percent = atr_data.get('atr_percent')
             
             return ScannerTicker(
                 symbol=snapshot.ticker,
@@ -619,6 +643,8 @@ class ScannerEngine:
                 exchange=metadata.exchange,
                 rvol=rvol,
                 rvol_slot=rvol,
+                atr=atr,
+                atr_percent=atr_percent,
                 price_from_high=price_from_high,
                 price_from_low=price_from_low,
                 session=self.current_session,

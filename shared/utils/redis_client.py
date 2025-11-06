@@ -169,6 +169,31 @@ class RedisClient:
             logger.error("Redis HGET error", name=name, key=key, error=str(e))
             return None
     
+    async def hmget(
+        self,
+        name: str,
+        keys: List[str],
+        deserialize: bool = True
+    ) -> List[Optional[Any]]:
+        """Get multiple hash fields"""
+        try:
+            values = await self.client.hmget(name, keys)
+            if deserialize:
+                result = []
+                for value in values:
+                    if value:
+                        try:
+                            result.append(json.loads(value))
+                        except json.JSONDecodeError:
+                            result.append(value)
+                    else:
+                        result.append(None)
+                return result
+            return values
+        except RedisError as e:
+            logger.error("Redis HMGET error", name=name, keys_count=len(keys), error=str(e))
+            return [None] * len(keys)
+    
     async def hgetall(
         self,
         name: str,

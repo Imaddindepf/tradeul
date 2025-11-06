@@ -599,14 +599,14 @@ async def get_bulk_metadata(symbols: str):
 @app.get("/api/rvol/hist-avg")
 async def get_rvol_hist_avg(
     symbol: str = Query(..., description="Ticker symbol"),
-    slot: int = Query(..., ge=0, le=500, description="Slot number (5m slots from 4:00 ET)"),
+    slot: int = Query(..., ge=0, le=250, description="Slot number (5m slots from 4:00 ET, 0-250)"),
     days: int = Query(5, ge=1, le=60, description="Lookback trading days (trading days)")
 ):
     """
     Calcula y cachea el promedio histórico de volumen ACUMULADO hasta un slot
     para los últimos N días de trading.
     - Lee de TimescaleDB (volume_slots)
-    - Escribe en Redis: rvol:hist:avg:{symbol}:{slot}
+    - Escribe en Redis HASH: rvol:hist:avg:{symbol}:{days} -> field {slot}
     - Devuelve { symbol, slot, avg }
     """
     try:
@@ -639,9 +639,12 @@ async def get_rvol_hist_avg(
         avg_vol = await timescale_client.fetchval(query, sym, slot, days)
         if avg_vol is None:
             raise HTTPException(status_code=404, detail="No historical data")
-        # Guardar en Redis cache
-        cache_key = f"rvol:hist:avg:{sym}:{slot}:{days}"
-        await redis_client.set(cache_key, str(int(avg_vol)), ttl=86400, serialize=False)
+        
+        # Guardar en Redis HASH (optimizado - mismo formato que bulk)
+        hash_key = f"rvol:hist:avg:{sym}:{days}"
+        await redis_client.hset(hash_key, str(slot), str(int(avg_vol)))
+        await redis_client.expire(hash_key, 28800)  # 8 horas TTL
+        
         return {"symbol": sym, "slot": slot, "avg": int(avg_vol)}
     except HTTPException:
         raise
@@ -654,13 +657,14 @@ async def get_rvol_hist_avg(
 async def get_rvol_hist_avg_bulk(
     symbol: str = Query(..., description="Ticker symbol"),
     days: int = Query(5, ge=1, le=60, description="Lookback trading days (trading days)"),
-    max_slot: int = Query(500, ge=1, le=500, description="Maximum slot to compute")
+    max_slot: int = Query(250, ge=1, le=250, description="Maximum slot to compute (0-250, trading day slots)")
 ):
     """
     Calcula el promedio histórico acumulado por slot para TODOS los slots de un símbolo
-    en una sola consulta y lo cachea en Redis:
+    en una sola consulta y lo cachea en Redis usando HASH (optimizado):
       - Hash: rvol:hist:avg:{SYMBOL}:{DAYS} con fields {slot -> avg}
-      - Claves por slot: rvol:hist:avg:{SYMBOL}:{SLOT}:{DAYS}
+      - TTL: 8 horas (suficiente para día de trading)
+      - Límite: 250 slots (4:00 AM - 8:00 PM = 192 slots reales + margen)
     """
     try:
         sym = symbol.upper()
@@ -697,7 +701,7 @@ async def get_rvol_hist_avg_bulk(
         if not rows:
             raise HTTPException(status_code=404, detail="No historical data")
 
-        # Preparar estructuras para Redis
+        # Preparar hash para Redis (SOLO hash, sin claves individuales)
         hash_key = f"rvol:hist:avg:{sym}:{days}"
         mapping = {}
         for row in rows:
@@ -706,13 +710,9 @@ async def get_rvol_hist_avg_bulk(
             avg_val = int(raw_avg or 0)
             mapping[str(slot_num)] = str(avg_val)
 
-        # Guardar hash completo (TTL vía expire)
+        # Guardar SOLO hash (optimizado - 1 clave en lugar de 250)
         await redis_client.hmset(hash_key, mapping, serialize=False)
-        await redis_client.expire(hash_key, 86400)
-
-        # Guardar también claves por slot (compat)
-        for s, v in mapping.items():
-            await redis_client.set(f"rvol:hist:avg:{sym}:{s}:{days}", v, ttl=86400, serialize=False)
+        await redis_client.expire(hash_key, 28800)  # 8 horas TTL
 
         return {"symbol": sym, "days": days, "slots": len(mapping)}
     except HTTPException:

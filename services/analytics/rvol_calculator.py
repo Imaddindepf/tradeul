@@ -60,10 +60,11 @@ class RVOLCalculator:
         # Caché de volúmenes del día actual
         self.volume_cache = VolumeSlotCache()
         
-        # Caché de promedios históricos en Redis
-        # Key: "rvol:hist:avg:{symbol}:{slot}" → avg_volume
+        # Caché de promedios históricos en Redis (OPTIMIZADO CON HASHES)
+        # Hash Key: "rvol:hist:avg:{symbol}:{days}" → {slot: avg_volume, ...}
+        # Ejemplo: "rvol:hist:avg:AAPL:5" → {"0": "12345", "1": "23456", ...}
         self.hist_cache_prefix = "rvol:hist:avg"
-        self.hist_cache_ttl = 86400  # 24 horas
+        self.hist_cache_ttl = 28800  # 8 horas (suficiente para día de trading)
         
         logger.info(
             "rvol_calculator_initialized",
@@ -293,27 +294,32 @@ class RVOLCalculator:
     ) -> Optional[float]:
         """
         Obtiene el promedio histórico de volumen para un slot.
-        - Lee de Redis primero (rvol:hist:avg:{SYMBOL}:{SLOT}:{DAYS})
+        - Lee de Redis HASH primero (rvol:hist:avg:{SYMBOL}:{DAYS} -> field {slot})
         - En miss, llama al bulk de Historical para precalentar todos los slots del símbolo
           y vuelve a leer el slot concreto desde Redis.
         """
         sym = symbol.upper()
         days = self.lookback_days
-        # 1) Redis first
-        cache_key = f"{self.hist_cache_prefix}:{sym}:{slot_number}:{days}"
-        cached_avg = await self.redis.get(cache_key)
-        if cached_avg is not None:
-            try:
-                return float(cached_avg)
-            except (TypeError, ValueError):
-                return None
+        
+        # 1) Redis HASH first (optimizado)
+        hash_key = f"{self.hist_cache_prefix}:{sym}:{days}"
+        try:
+            cached_avg = await self.redis.hget(hash_key, str(slot_number))
+            if cached_avg is not None:
+                try:
+                    return float(cached_avg)
+                except (TypeError, ValueError):
+                    return None
+        except Exception:
+            # Si falla hget, continuar con bulk
+            pass
 
-        # 2) Miss -> pedir bulk a Historical (precalienta todos los slots del símbolo)
+        # 2) Miss -> pedir bulk a Historical (precalienta todos los slots del símbolo en UN SOLO HASH)
         try:
             import httpx
             historical_host = "http://historical:8004"
             url_bulk = f"{historical_host}/api/rvol/hist-avg/bulk"
-            params = {"symbol": sym, "days": days, "max_slot": 500}
+            params = {"symbol": sym, "days": days, "max_slot": 250}
             async with httpx.AsyncClient(timeout=8.0) as client:
                 resp = await client.get(url_bulk, params=params)
                 if resp.status_code not in (200, 201):
@@ -322,13 +328,17 @@ class RVOLCalculator:
             # Si falla el bulk, no insistimos
             return None
 
-        # 3) Reintentar lectura del slot desde Redis
-        cached_avg = await self.redis.get(cache_key)
-        if cached_avg is not None:
-            try:
-                return float(cached_avg)
-            except (TypeError, ValueError):
-                return None
+        # 3) Reintentar lectura del slot desde Redis HASH
+        try:
+            cached_avg = await self.redis.hget(hash_key, str(slot_number))
+            if cached_avg is not None:
+                try:
+                    return float(cached_avg)
+                except (TypeError, ValueError):
+                    return None
+        except Exception:
+            pass
+        
         return None
     
     async def _get_volume_for_slot(
