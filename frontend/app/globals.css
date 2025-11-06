@@ -172,3 +172,32 @@ td, th {
   }
 }
 
+/* Animación para nuevos tickers */
+@keyframes new-ticker-pulse {
+  0% { 
+    background-color: rgba(59, 130, 246, 0.3); /* blue-500 con opacidad */
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+  }
+  25% {
+    background-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+  }
+  50% {
+    background-color: rgba(59, 130, 246, 0.3);
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+  }
+  75% {
+    background-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+  }
+  100% { 
+    background-color: transparent;
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.new-ticker-flash {
+  animation: new-ticker-pulse 3s ease-in-out;
+  position: relative;
+}
+

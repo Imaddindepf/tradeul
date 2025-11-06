@@ -7,10 +7,9 @@ import {
   getSortedRowModel,
   createColumnHelper,
 } from '@tanstack/react-table';
-import type { SortingState, ColumnResizeMode } from '@tanstack/react-table';
+import type { SortingState, ColumnResizeMode, Row } from '@tanstack/react-table';
 import { formatNumber, formatPercent, formatPrice, formatRVOL } from '@/lib/formatters';
 import type { Ticker } from '@/lib/types';
-import { ChevronUp, ChevronDown } from 'lucide-react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { BaseDataTable } from '@/components/table/BaseDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
@@ -42,10 +41,11 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [tickerOrder, setTickerOrder] = useState<string[]>([]);
   const [sequence, setSequence] = useState(0);
   const [cellChanges, setCellChanges] = useState<Map<string, CellChange>>(new Map());
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'rank', desc: false }]);
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
 
   const deltaBuffer = useRef<DeltaAction[]>([]);
   const rafId = useRef<number | null>(null);
@@ -104,6 +104,16 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             if (delta.data) {
               delta.data.rank = delta.rank ?? 0;
               newMap.set(delta.symbol, delta.data);
+              // Marcar como nuevo ticker
+              setNewTickers((prev) => new Set(prev).add(delta.symbol));
+              // Remover el marcador después de 3 segundos
+              setTimeout(() => {
+                setNewTickers((prev) => {
+                  const updated = new Set(prev);
+                  updated.delete(delta.symbol);
+                  return updated;
+                });
+              }, 3000);
             }
             break;
           }
@@ -307,15 +317,13 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           return (
             <div
               className={`
-                inline-flex items-center gap-1 font-mono font-semibold px-1 py-0.5 rounded
+                font-mono font-semibold px-1 py-0.5 rounded
                 ${isUp ? 'text-emerald-600 flash-up' : ''}
                 ${isDown ? 'text-rose-600 flash-down' : ''}
                 ${!change ? 'text-slate-900' : ''}
                 transition-colors duration-200
               `}
             >
-              {isUp ? <ChevronUp className="w-3 h-3" /> : null}
-              {isDown ? <ChevronDown className="w-3 h-3" /> : null}
               {formatPrice(info.getValue())}
             </div>
           );
@@ -335,14 +343,13 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           return (
             <div
               className={`
-                inline-flex items-center gap-0.5 font-mono font-semibold
+                font-mono font-semibold
                 ${isPositive ? 'text-emerald-600' : 'text-rose-600'}
                 ${change?.direction === 'up' ? 'flash-up' : ''}
                 ${change?.direction === 'down' ? 'flash-down' : ''}
                 transition-all duration-200
               `}
             >
-              {isPositive ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
               {formatPercent(value)}
             </div>
           );
@@ -399,7 +406,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         cell: (info) => <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>,
       }),
       columnHelper.accessor('atr_percent', {
-        header: 'ATR%',
+        header: 'ATR',
         size: 70,
         minSize: 60,
         maxSize: 100,
@@ -407,8 +414,9 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const ratio = value / 100; // Convertir porcentaje a ratio (5% → 0.05)
           const colorClass = value > 5 ? 'text-orange-600 font-semibold' : 'text-slate-600';
-          return <div className={`font-mono ${colorClass}`}>{value.toFixed(2)}%</div>;
+          return <div className={`font-mono ${colorClass}`}>{ratio.toFixed(3)}</div>;
         },
       }),
     ],
@@ -439,6 +447,10 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
       minWidth={400}
       stickyHeader={true}
       isLoading={!isReady}
+      getRowClassName={(row: Row<Ticker>) => {
+        const ticker = row.original;
+        return newTickers.has(ticker.symbol) ? 'new-ticker-flash' : '';
+      }}
       header={
         <MarketTableLayout
           title={title}

@@ -21,6 +21,7 @@ interface ResizableTableProps<T> {
   isLoading?: boolean;
   loadingState?: ReactNode;
   onResize?: (dimensions: { width: number; height: number }) => void;
+  getRowClassName?: (row: any) => string;
 }
 
 export function ResizableTable<T>({
@@ -39,6 +40,7 @@ export function ResizableTable<T>({
   isLoading = false,
   loadingState,
   onResize,
+  getRowClassName,
 }: ResizableTableProps<T>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -339,7 +341,7 @@ export function ResizableTable<T>({
               {rows.map((row, index) => (
                 <tr
                   key={row.id}
-                  className="hover:bg-slate-50 transition-colors duration-150 border-b border-slate-100"
+                  className={`hover:bg-slate-50 transition-colors duration-150 border-b border-slate-100 ${getRowClassName ? getRowClassName(row) : ''}`}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td

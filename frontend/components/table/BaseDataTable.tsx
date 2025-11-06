@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import type { Table as TanStackTable } from '@tanstack/react-table';
 import { ResizableTable } from '@/components/ui/ResizableTable';
 
-interface BaseDataTableProps<T> {
+export interface BaseDataTableProps<T> {
   table: TanStackTable<T>;
   className?: string;
   initialHeight?: number;
@@ -17,6 +17,7 @@ interface BaseDataTableProps<T> {
   emptyTitle?: string;
   emptySubtitle?: string;
   header?: ReactNode; // suele ser MarketTableLayout
+  getRowClassName?: (row: any) => string;
 }
 
 export function BaseDataTable<T>({
@@ -32,6 +33,7 @@ export function BaseDataTable<T>({
   emptyTitle = 'No Tickers Available',
   emptySubtitle = 'Data will appear when market is active',
   header,
+  getRowClassName,
 }: BaseDataTableProps<T>) {
   return (
     <ResizableTable
@@ -43,6 +45,7 @@ export function BaseDataTable<T>({
       showResizeHandles={true}
       stickyHeader={stickyHeader}
       isLoading={isLoading}
+      getRowClassName={getRowClassName}
       loadingState={
         <div className="flex items-center justify-center h-full bg-slate-50">
           <div className="text-center">
