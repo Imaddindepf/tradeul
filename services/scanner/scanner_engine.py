@@ -8,7 +8,7 @@ import asyncio
 import time
 import json
 from datetime import datetime, time as time_type
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 import httpx
 
 import sys
@@ -79,6 +79,9 @@ class ScannerEngine:
         self.last_rankings: Dict[str, List[ScannerTicker]] = {}  # Por categoría
         self.sequence_numbers: Dict[str, int] = {}  # Sequence number por categoría
         
+        # Auto-subscription tracking (para Polygon WS)
+        self._previous_filtered_symbols: Set[str] = set()  # Track símbolos previos
+        
         # RVOL viene directamente en las tuplas (snapshot, rvol) - no necesita dict
         
         # Metadata cache (LRU con TTL en memoria de proceso)
@@ -147,9 +150,9 @@ class ScannerEngine:
                 
                 # 3. Categorizar (usa tickers en memoria)
                 await self.categorize_filtered_tickers(scored_tickers)
-            
-            # Publish filtered tickers to stream (DESACTIVADO - stream huérfano sin consumidores)
-            # await self._publish_filtered_tickers(scored_tickers)
+                
+                # 4. AUTO-SUSCRIPCIÓN a Polygon WS (PROFESIONAL)
+                await self._publish_filtered_tickers_for_subscription(scored_tickers)
             
             # Save scan results to database
             await self._save_scan_results(scored_tickers)
@@ -883,37 +886,92 @@ class ScannerEngine:
         except Exception as e:
             logger.error("Error caching filtered tickers", error=str(e))
     
-    async def _publish_filtered_tickers(self, tickers: List[ScannerTicker]) -> None:
-        """Publish filtered tickers to stream (para Analytics)"""
+    async def _publish_filtered_tickers_for_subscription(
+        self, 
+        tickers: List[ScannerTicker]
+    ) -> None:
+        """
+        🚀 SISTEMA AUTOMÁTICO DE SUSCRIPCIONES (PROFESIONAL)
+        
+        Publica símbolos filtrados para que Polygon WS se suscriba automáticamente.
+        Gestiona suscripciones/desuscripciones dinámicas basadas en rankings.
+        
+        Ventajas:
+        - Frontend NO gestiona suscripciones manualmente
+        - Scanner decide QUÉ es relevante → Polygon WS se suscribe
+        - Tickers que salen del ranking → auto-desuscripción
+        - Centralizado: 1 suscripción por ticker (no por cliente)
+        - Eficiente: max 1000 suscripciones a Polygon (límite del plan)
+        
+        Args:
+            tickers: Lista de tickers filtrados (top 500-1000)
+        """
         try:
-            # Publish to stream - IMPORTANTE: incluir volume_accumulated para Analytics
-            for ticker in tickers:
-                await self.redis.xadd(
-                    settings.stream_filtered_tickers,
-                    {
-                        "symbol": ticker.symbol,
-                        "price": ticker.price,
-                        "volume_accumulated": ticker.volume_today,  # CRÍTICO para Analytics
-                        "vwap": ticker.price,  # Aproximación
-                        "rvol": ticker.rvol or 0,
-                        "score": ticker.score,
-                        "data": ticker.model_dump_json()
-                    },
-                    maxlen=10000
+            # 1. Obtener símbolos actuales (top filtered)
+            current_symbols = {t.symbol for t in tickers}
+            
+            # 2. Detectar NUEVOS símbolos (entraron al ranking)
+            new_symbols = current_symbols - self._previous_filtered_symbols
+            
+            # 3. Detectar símbolos REMOVIDOS (salieron del ranking)
+            removed_symbols = self._previous_filtered_symbols - current_symbols
+            
+            # 4. Publicar SUSCRIPCIONES para nuevos símbolos
+            if new_symbols:
+                for symbol in new_symbols:
+                    await self.redis.xadd(
+                        settings.key_polygon_subscriptions,  # "polygon_ws:subscriptions"
+                        {
+                            "symbol": symbol,
+                            "action": "subscribe",
+                            "source": "scanner_auto",
+                            "session": self.current_session.value,
+                            "timestamp": datetime.now().isoformat()
+                        },
+                        maxlen=10000  # Mantener historial razonable
+                    )
+                
+                logger.info(
+                    "🔔 Auto-subscribe nuevos tickers",
+                    count=len(new_symbols),
+                    examples=list(new_symbols)[:10]
                 )
             
-            # Also save to sorted set for ranking quick access
-            if tickers:
-                mapping = {ticker.symbol: ticker.score for ticker in tickers}
-                await self.redis.zadd(
-                    f"{settings.key_prefix_scanner}:filtered:{self.current_session.value}",
-                    mapping
+            # 5. Publicar DESUSCRIPCIONES para símbolos removidos
+            if removed_symbols:
+                for symbol in removed_symbols:
+                    await self.redis.xadd(
+                        settings.key_polygon_subscriptions,
+                        {
+                            "symbol": symbol,
+                            "action": "unsubscribe",
+                            "source": "scanner_auto",
+                            "session": self.current_session.value,
+                            "timestamp": datetime.now().isoformat()
+                        },
+                        maxlen=10000
+                    )
+                
+                logger.info(
+                    "🔕 Auto-unsubscribe tickers removidos",
+                    count=len(removed_symbols),
+                    examples=list(removed_symbols)[:10]
                 )
             
-            logger.debug(f"Published {len(tickers)} filtered tickers to stream")
+            # 6. Actualizar tracking para próximo ciclo
+            self._previous_filtered_symbols = current_symbols
+            
+            # 7. Log resumen
+            logger.info(
+                "✅ Auto-subscription actualizada",
+                total_active=len(current_symbols),
+                new=len(new_symbols),
+                removed=len(removed_symbols),
+                session=self.current_session.value
+            )
         
         except Exception as e:
-            logger.error("Error publishing filtered tickers", error=str(e))
+            logger.error("Error en auto-subscription", error=str(e))
     
     async def _save_scan_results(self, tickers: List[ScannerTicker]) -> None:
         """Save scan results to database (OPTIMIZADO con batch insert)"""
