@@ -13,6 +13,7 @@ sys.path.append('/app')
 from shared.models.scanner import ScannerTicker
 from shared.enums.market_session import MarketSession
 from shared.utils.logger import get_logger
+from shared.config.settings import settings
 
 # Importar GapTracker (para global instance)
 from gap_calculator import GapTracker
@@ -159,7 +160,7 @@ class ScannerCategorizer:
         self,
         tickers: List[ScannerTicker],
         category: ScannerCategory,
-        limit: int = 20
+        limit: int = settings.default_category_limit
     ) -> List[ScannerTicker]:
         """
         Obtiene ranking de tickers para una categoría específica
@@ -167,11 +168,13 @@ class ScannerCategorizer:
         Args:
             tickers: Lista completa de tickers filtrados
             category: Categoría a rankear
-            limit: Top N resultados
+            limit: Top N resultados (por defecto: settings.default_category_limit)
         
         Returns:
             Lista ordenada de tickers para esa categoría
         """
+        # Validar límite máximo
+        limit = min(limit, settings.max_category_limit)
         # Filtrar tickers que pertenecen a la categoría
         categorized = []
         
@@ -230,14 +233,20 @@ class ScannerCategorizer:
     def get_all_categories(
         self,
         tickers: List[ScannerTicker],
-        limit_per_category: int = 20
+        limit_per_category: int = settings.default_category_limit
     ) -> Dict[str, List[ScannerTicker]]:
         """
         Obtiene TODAS las categorías con sus respectivos rankings
         
+        Args:
+            tickers: Lista completa de tickers filtrados
+            limit_per_category: Límite de resultados por categoría
+        
         Returns:
             Dict con {category_name: [tickers_ranked]}
         """
+        # Validar límite máximo
+        limit_per_category = min(limit_per_category, settings.max_category_limit)
         results = {}
         
         for category in ScannerCategory:

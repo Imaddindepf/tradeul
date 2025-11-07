@@ -367,10 +367,10 @@ class TimescaleClient:
     
     async def get_recent_scan_results(
         self,
-        limit: int = 100,
+        limit: int = 100,  # Mantener 100 como default razonable para esta función interna
         session: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Get recent scan results"""
+        """Get recent scan results (función interna, usa límite razonable)"""
         if session:
             query = """
                 SELECT * FROM scan_results

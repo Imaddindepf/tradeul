@@ -13,6 +13,7 @@ from shared.models.polygon import PolygonSnapshot
 from shared.models.scanner import ScannerTicker
 from shared.enums.market_session import MarketSession
 from shared.utils.logger import get_logger
+from shared.config.settings import settings
 
 logger = get_logger(__name__)
 
@@ -259,7 +260,7 @@ class GapTracker:
     def get_top_gappers(
         self,
         session: Optional[MarketSession] = None,
-        limit: int = 20,
+        limit: int = settings.default_gappers_limit,
         direction: str = 'both'  # 'up', 'down', 'both'
     ) -> List[tuple]:
         """
@@ -267,12 +268,14 @@ class GapTracker:
         
         Args:
             session: Filtrar por sesión (PRE_MARKET, MARKET_OPEN, etc.)
-            limit: Top N resultados
+            limit: Top N resultados (por defecto: settings.default_gappers_limit)
             direction: 'up', 'down', o 'both'
         
         Returns:
             Lista de (symbol, gap_data) ordenada por gap absoluto
         """
+        # Validar límite máximo
+        limit = min(limit, settings.max_category_limit)
         results = []
         
         for symbol, data in self.gap_tracking.items():

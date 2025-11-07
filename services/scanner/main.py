@@ -290,9 +290,11 @@ async def scan_once():
 
 
 @app.get("/api/scanner/filtered", response_model=List[ScannerTicker])
-async def get_filtered_tickers(limit: int = 100):
+async def get_filtered_tickers(limit: int = settings.default_query_limit):
     """Get currently filtered tickers"""
     try:
+        # Validar límite máximo
+        limit = min(limit, settings.max_query_limit)
         tickers = await scanner_engine.get_filtered_tickers(limit=limit)
         return tickers
     
@@ -440,13 +442,13 @@ async def get_categories_stats():
 
 
 @app.get("/api/categories/{category_name}")
-async def get_category_tickers(category_name: str, limit: int = 20):
+async def get_category_tickers(category_name: str, limit: int = settings.default_category_limit):
     """
     Obtiene tickers de una categoría específica
     
     Args:
         category_name: Nombre de la categoría (gappers_up, momentum_up, etc.)
-        limit: Número máximo de resultados (default: 20)
+        limit: Número máximo de resultados
     
     Returns:
         Lista de tickers rankeados para esa categoría
@@ -460,6 +462,9 @@ async def get_category_tickers(category_name: str, limit: int = 20):
                 status_code=400,
                 detail=f"Invalid category: {category_name}. Use /api/categories to see available categories."
             )
+        
+        # Validar y limitar el límite máximo
+        limit = min(limit, settings.max_category_limit)
         
         # Obtener tickers de la categoría
         tickers = await scanner_engine.get_category(category, limit=limit)
@@ -501,7 +506,7 @@ async def get_categories_stats():
 
 
 @app.get("/api/gappers")
-async def get_gappers(direction: str = "both", limit: int = 20):
+async def get_gappers(direction: str = "both", limit: int = settings.default_gappers_limit):
     """
     🔥 ENDPOINT ESPECIALIZADO PARA GAPPERS
     
@@ -509,7 +514,7 @@ async def get_gappers(direction: str = "both", limit: int = 20):
     
     Args:
         direction: 'up', 'down', o 'both'
-        limit: Top N resultados (default: 200)
+        limit: Top N resultados
     
     Returns:
         Lista de tickers con mayor gap
@@ -517,6 +522,9 @@ async def get_gappers(direction: str = "both", limit: int = 20):
     try:
         if direction not in ['up', 'down', 'both']:
             raise HTTPException(status_code=400, detail="direction must be 'up', 'down', or 'both'")
+        
+        # Validar límite máximo
+        limit = min(limit, settings.max_category_limit)
         
         result = {}
         

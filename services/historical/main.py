@@ -842,13 +842,13 @@ async def get_universe_stats():
 
 
 @app.get("/api/universe/symbols")
-async def get_universe_symbols(limit: int = 100):
+async def get_universe_symbols(limit: int = settings.default_query_limit):
     """
     Obtiene una muestra de símbolos del universo
     """
     try:
-        if limit > 1000:
-            limit = 1000
+        # Validar límite máximo
+        limit = min(limit, settings.max_query_limit)
         
         # Obtener símbolos de Redis
         symbols = await redis_client.client.srandmember("ticker:universe", limit)

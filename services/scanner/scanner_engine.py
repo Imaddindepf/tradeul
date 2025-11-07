@@ -410,7 +410,10 @@ class ScannerEngine:
         snapshots: List[PolygonSnapshot]
     ) -> List[ScannerTicker]:
         """
-        Enrich snapshots with historical data and calculate indicators
+        LEGACY METHOD - No se usa actualmente
+        
+        Reemplazado por _process_snapshots_optimized() que combina
+        enriquecimiento + filtrado + scoring en un solo paso.
         
         Args:
             snapshots: Raw snapshots from Polygon
@@ -428,8 +431,8 @@ class ScannerEngine:
                 if not metadata:
                     continue
                 
-                # Build scanner ticker
-                ticker = await self._build_scanner_ticker(snapshot, metadata, atr_data)
+                # Build scanner ticker (sin atr_data - legacy)
+                ticker = await self._build_scanner_ticker(snapshot, metadata, atr_data=None)
                 
                 if ticker:
                     # Enriquecer con cálculos de gaps (NUEVO)
@@ -1027,7 +1030,10 @@ class ScannerEngine:
         """
         try:
             # Obtener todas las categorías
-            categories = self.categorizer.get_all_categories(tickers, limit_per_category=20)
+            categories = self.categorizer.get_all_categories(
+                tickers, 
+                limit_per_category=settings.default_category_limit
+            )
             
             # NEW: Calcular y emitir deltas para cada categoría
             if emit_deltas:
@@ -1076,7 +1082,7 @@ class ScannerEngine:
     async def get_category(
         self,
         category: ScannerCategory,
-        limit: int = 20
+        limit: int = settings.default_category_limit
     ) -> List[ScannerTicker]:
         """
         Obtiene tickers de una categoría específica
@@ -1084,6 +1090,9 @@ class ScannerEngine:
         Usa cache de última categorización (actualizado cada scan)
         """
         try:
+            # Validar y limitar el límite máximo
+            limit = min(limit, settings.max_category_limit)
+            
             # Usar cache de categorías (se actualiza en cada scan)
             if self.last_categories and category.value in self.last_categories:
                 return self.last_categories.get(category.value, [])[:limit]
@@ -1176,7 +1185,7 @@ class ScannerEngine:
         except Exception as e:
             logger.error("Error updating market session", error=str(e))
     
-    async def get_filtered_tickers(self, limit: int = 100) -> List[ScannerTicker]:
+    async def get_filtered_tickers(self, limit: int = settings.default_query_limit) -> List[ScannerTicker]:
         """
         Obtiene tickers filtrados COMPLETOS
         
@@ -1189,6 +1198,8 @@ class ScannerEngine:
             Lista de ScannerTicker COMPLETOS (con todos los datos)
         """
         try:
+            # Validar límite máximo
+            limit = min(limit, settings.max_query_limit)
             # CAPA 1: Memoria (más rápido)
             if (self.last_filtered_tickers and 
                 self.last_filtered_time and 

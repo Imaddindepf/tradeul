@@ -134,6 +134,13 @@ class Settings(BaseSettings):
     max_filtered_tickers: int = Field(default=1000, description="Max filtered tickers")
     snapshot_interval: int = Field(default=5, description="Snapshot interval in seconds")
     
+    # Límites de paginación/resultados
+    default_query_limit: int = Field(default=100, description="Límite por defecto para queries/endpoints")
+    max_query_limit: int = Field(default=500, description="Límite máximo permitido en queries")
+    default_category_limit: int = Field(default=100, description="Límite por defecto para categorías de scanner")
+    max_category_limit: int = Field(default=200, description="Límite máximo para categorías de scanner")
+    default_gappers_limit: int = Field(default=100, description="Límite por defecto para gappers")
+    
     # =============================================
     # MARKET HOURS (ET)
     # =============================================
