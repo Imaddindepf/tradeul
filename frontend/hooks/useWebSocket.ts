@@ -58,6 +58,7 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         ws.onmessage = (event) => {
           try {
             const message: WebSocketMessage = JSON.parse(event.data);
+            
             // Incrementar contador y crear nuevo objeto con ID único para forzar re-render
             // Esto asegura que React siempre detecte el cambio
             messageCounterRef.current += 1;
@@ -67,11 +68,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
               _id: messageCounterRef.current // ID único para forzar actualización
             };
             setLastMessage(newMessage);
-            
-            // Log para debugging de mensajes importantes
-            if (message.type === 'aggregate' && message.symbol) {
-              console.log(`📨 Aggregate recibido: ${message.symbol} = $${message.data?.c}`);
-            }
             
             // Call custom handler if registered
             if (messageHandlerRef.current) {

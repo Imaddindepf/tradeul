@@ -15,12 +15,6 @@ import { BaseDataTable } from '@/components/table/BaseDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
 
-type CellChange = {
-  symbol: string;
-  field: string;
-  direction: 'up' | 'down';
-};
-
 type DeltaAction = {
   action: 'add' | 'remove' | 'update' | 'rerank';
   rank?: number;
@@ -41,7 +35,6 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [tickersMap, setTickersMap] = useState<Map<string, Ticker>>(new Map());
   const [tickerOrder, setTickerOrder] = useState<string[]>([]);
   const [sequence, setSequence] = useState(0);
-  const [cellChanges, setCellChanges] = useState<Map<string, CellChange>>(new Map());
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [columnVisibility, setColumnVisibility] = useState({});
@@ -49,12 +42,18 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
+  const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
+  const [dataVersion, setDataVersion] = useState(0); // Contador para forzar re-render
 
   const deltaBuffer = useRef<DeltaAction[]>([]);
+  const aggregateBuffer = useRef<Map<string, any>>(new Map());
   const rafId = useRef<number | null>(null);
+  const aggregateRafId = useRef<number | null>(null);
   const hasSubscribed = useRef(false);
   const handleSnapshotRef = useRef<((snapshot: any) => void) | null>(null);
   const handleDeltaRef = useRef<((delta: any) => void) | null>(null);
+  const handleAggregateRef = useRef<((aggregate: any) => void) | null>(null);
+  const aggregateStats = useRef({ received: 0, applied: 0, lastLog: Date.now() });
 
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const ws = useWebSocket(wsUrl);
@@ -92,6 +91,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   useEffect(() => {
     handleSnapshotRef.current = handleSnapshot;
     handleDeltaRef.current = handleDelta;
+    handleAggregateRef.current = handleAggregate;
   });
 
   const applyDeltas = useCallback((deltas: DeltaAction[]) => {
@@ -99,7 +99,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
 
     setTickersMap((prevMap) => {
       const newMap = new Map(prevMap);
-      const newChanges = new Map<string, CellChange>();
+      const newRowChanges = new Map<string, 'up' | 'down'>();
 
       deltas.forEach((delta) => {
         switch (delta.action) {
@@ -107,9 +107,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             if (delta.data) {
               delta.data.rank = delta.rank ?? 0;
               newMap.set(delta.symbol, delta.data);
-              // Marcar como nuevo ticker
+              // Marcar como nuevo ticker (animación azul)
               setNewTickers((prev) => new Set(prev).add(delta.symbol));
-              // Remover el marcador después de 3 segundos
               setTimeout(() => {
                 setNewTickers((prev) => {
                   const updated = new Set(prev);
@@ -128,46 +127,74 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             if (delta.data) {
               const oldTicker = newMap.get(delta.symbol);
               delta.data.rank = delta.rank ?? 0;
-              newMap.set(delta.symbol, delta.data);
-
+              
               if (oldTicker) {
-                if (delta.data.price !== oldTicker.price) {
-                  const direction = delta.data.price > oldTicker.price ? 'up' : 'down';
-                  newChanges.set(`${delta.symbol}-price`, { symbol: delta.symbol, field: 'price', direction });
-                }
-                if (delta.data.change_percent !== oldTicker.change_percent) {
-                  const direction = (delta.data.change_percent || 0) > (oldTicker.change_percent || 0) ? 'up' : 'down';
-                  newChanges.set(`${delta.symbol}-change_percent`, { symbol: delta.symbol, field: 'change_percent', direction });
-                }
+                // Preservar datos en tiempo real de aggregates
+                const merged = {
+                  ...delta.data,
+                  price: oldTicker.price || delta.data.price,
+                  volume_today: oldTicker.volume_today || delta.data.volume_today,
+                  high: Math.max(oldTicker.high || 0, delta.data.high || 0),
+                  low: oldTicker.low && delta.data.low ? Math.min(oldTicker.low, delta.data.low) : (oldTicker.low || delta.data.low),
+                };
+                newMap.set(delta.symbol, merged);
+              } else {
+                newMap.set(delta.symbol, delta.data);
               }
             }
             break;
           }
           case 'rerank': {
             const ticker = newMap.get(delta.symbol);
-            if (ticker && delta.new_rank !== undefined) {
-              ticker.rank = delta.new_rank;
+            if (ticker && delta.new_rank !== undefined && delta.old_rank !== undefined) {
+              const oldRank = delta.old_rank;
+              const newRank = delta.new_rank;
+              
+              ticker.rank = newRank;
               newMap.set(delta.symbol, ticker);
+              
+              // Animación: verde si sube (menor rank = mejor posición), rojo si baja
+              if (newRank < oldRank) {
+                newRowChanges.set(delta.symbol, 'up');
+              } else if (newRank > oldRank) {
+                newRowChanges.set(delta.symbol, 'down');
+              }
             }
             break;
           }
         }
       });
 
-      if (newChanges.size > 0) {
-        setCellChanges((prev) => {
-          const merged = new Map(prev);
-          newChanges.forEach((value, key) => merged.set(key, value));
-          return merged;
-        });
+      // Forzar re-render
+      setDataVersion((v) => v + 1);
 
-        setTimeout(() => {
-          setCellChanges((prev) => {
-            const cleaned = new Map(prev);
-            newChanges.forEach((_, key) => cleaned.delete(key));
-            return cleaned;
+      // Aplicar animaciones de fila SOLO para reranks
+      if (newRowChanges.size > 0) {
+        // Limpiar animaciones existentes
+        setRowChanges((prev) => {
+          const cleaned = new Map(prev);
+          newRowChanges.forEach((_, key) => cleaned.delete(key));
+          return cleaned;
+        });
+        
+        // Aplicar nuevas animaciones
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setRowChanges((prev) => {
+              const merged = new Map(prev);
+              newRowChanges.forEach((value, key) => merged.set(key, value));
+              return merged;
+            });
+
+            setTimeout(() => {
+              setRowChanges((prev) => {
+                const cleaned = new Map(prev);
+                newRowChanges.forEach((_, key) => cleaned.delete(key));
+                return cleaned;
+              });
+            }, 1200);
           });
-        }, 2000);
+        });
       }
 
       return newMap;
@@ -217,6 +244,74 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
     setSequence(delta.sequence);
   }, [isReady, tickersMap, ws, listName]);
 
+  const handleAggregate = useCallback((message: any) => {
+    if (!isReady || !message.symbol || !message.data) return;
+
+    // Solo agregar al buffer (no setState directamente)
+    aggregateBuffer.current.set(message.symbol, message);
+    aggregateStats.current.received++;
+
+    // Log stats cada 10 segundos
+    const now = Date.now();
+    if (now - aggregateStats.current.lastLog > 10000) {
+      const elapsed = (now - aggregateStats.current.lastLog) / 1000;
+      const recvRate = (aggregateStats.current.received / elapsed).toFixed(1);
+      const applyRate = (aggregateStats.current.applied / elapsed).toFixed(1);
+      
+      console.log(
+        `📊 [${listName}] Aggregate stats: recv=${recvRate}/s, applied=${applyRate}/s, buffer=${aggregateBuffer.current.size}`
+      );
+      
+      aggregateStats.current.received = 0;
+      aggregateStats.current.applied = 0;
+      aggregateStats.current.lastLog = now;
+    }
+  }, [isReady, listName]);
+
+  const applyAggregatesBatch = useCallback(() => {
+    if (aggregateBuffer.current.size === 0) return;
+
+    const toApply = new Map(aggregateBuffer.current);
+    aggregateBuffer.current.clear();
+
+    setTickersMap((prevMap) => {
+      const newMap = new Map(prevMap);
+
+      toApply.forEach((message, symbol) => {
+        const ticker = newMap.get(symbol);
+        if (!ticker) return; // Solo actualizar si está en ranking
+
+        // Actualizar precio
+        const newPrice = parseFloat(message.data.c);
+        const newVolume = parseInt(message.data.av, 10);
+
+        // Recalcular change_percent si tenemos prev_close
+        let newChangePercent = ticker.change_percent;
+        if (ticker.prev_close && !isNaN(newPrice)) {
+          newChangePercent = ((newPrice - ticker.prev_close) / ticker.prev_close) * 100;
+        }
+
+        // Actualizar ticker con nuevos valores (sin animaciones)
+        const updated = {
+          ...ticker,
+          price: newPrice,
+          volume_today: newVolume,
+          change_percent: newChangePercent,
+          high: Math.max(parseFloat(message.data.h) || 0, ticker.high || 0),
+          low: ticker.low ? Math.min(parseFloat(message.data.l) || 0, ticker.low) : parseFloat(message.data.l),
+        };
+
+        newMap.set(symbol, updated);
+        aggregateStats.current.applied++;
+      });
+
+      // Forzar re-render incrementando versión
+      setDataVersion((v) => v + 1);
+
+      return newMap;
+    });
+  }, [listName]);
+
   useEffect(() => {
     const applyBufferedDeltas = () => {
       if (deltaBuffer.current.length > 0) {
@@ -231,6 +326,17 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
       if (rafId.current) cancelAnimationFrame(rafId.current);
     };
   }, [applyDeltas]);
+
+  useEffect(() => {
+    const applyBufferedAggregates = () => {
+      applyAggregatesBatch();
+      aggregateRafId.current = requestAnimationFrame(applyBufferedAggregates);
+    };
+    aggregateRafId.current = requestAnimationFrame(applyBufferedAggregates);
+    return () => {
+      if (aggregateRafId.current) cancelAnimationFrame(aggregateRafId.current);
+    };
+  }, [applyAggregatesBatch]);
 
   useEffect(() => {
     if (!ws.lastMessage) return;
@@ -249,41 +355,61 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             handleDeltaRef.current(message);
           }
           break;
+        case 'aggregate':
+          if (handleAggregateRef.current) {
+            handleAggregateRef.current(message);
+          }
+          break;
       }
     } catch {
       // noop
     }
   }, [ws.lastMessage, listName]);
 
+  // Suscripción a la lista (solo cuando se conecta el WS o cambia el listName)
   useEffect(() => {
-    if (ws.isConnected && !hasSubscribed.current) {
-      try {
-        ws.send({ action: 'subscribe_list', list: listName });
-        hasSubscribed.current = true;
-        const snapshotTimeout = setTimeout(() => {
-          if (!isReady && ws.isConnected) {
-            ws.send({ action: 'resync', list: listName });
-          }
-        }, 3000);
-        return () => clearTimeout(snapshotTimeout);
-      } catch {
-        // noop
-      }
-    }
-    if (!ws.isConnected && hasSubscribed.current) {
-      hasSubscribed.current = false;
-    }
-    return () => {
-      if (ws.isConnected && hasSubscribed.current) {
-        ws.send({ action: 'unsubscribe_list', list: listName });
+    if (!ws.isConnected) {
+      // Resetear flag si se desconecta
+      if (hasSubscribed.current) {
         hasSubscribed.current = false;
       }
+      return;
+    }
+
+    // Suscribirse solo si no está suscrito
+    if (!hasSubscribed.current) {
+      ws.send({ action: 'subscribe_list', list: listName });
+      hasSubscribed.current = true;
+      console.log(`✅ [${listName}] Subscribed to list`);
+    }
+
+    // Cleanup: desuscribir solo al desmontar el componente
+    return () => {
+      if (hasSubscribed.current) {
+        ws.send({ action: 'unsubscribe_list', list: listName });
+        hasSubscribed.current = false;
+        console.log(`❌ [${listName}] Unsubscribed from list`);
+      }
     };
-  }, [ws.isConnected, isReady, listName, ws]);
+  }, [ws.isConnected, listName, ws.send]);
+
+  // Timeout para resync si no llega snapshot
+  useEffect(() => {
+    if (!ws.isConnected || isReady) return;
+
+    const snapshotTimeout = setTimeout(() => {
+      if (!isReady && ws.isConnected) {
+        console.log(`⏱️ [${listName}] Snapshot timeout, requesting resync`);
+        ws.send({ action: 'resync', list: listName });
+      }
+    }, 5000); // 5 segundos para dar tiempo a múltiples conexiones
+
+    return () => clearTimeout(snapshotTimeout);
+  }, [ws.isConnected, isReady, listName, ws.send]);
 
   const data = useMemo(() => {
     return tickerOrder.map((symbol) => tickersMap.get(symbol)!).filter(Boolean);
-  }, [tickersMap, tickerOrder]);
+  }, [tickersMap, tickerOrder, dataVersion]); // dataVersion fuerza recalcular
 
   const columns = useMemo(
     () => [
@@ -320,20 +446,13 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         enableHiding: true,
         cell: (info) => {
           const symbol = info.row.original.symbol;
-          const change = cellChanges.get(`${symbol}-price`);
-          const isUp = change?.direction === 'up';
-          const isDown = change?.direction === 'down';
+          const price = info.getValue();
           return (
             <div
-              className={`
-                font-mono font-semibold px-1 py-0.5 rounded
-                ${isUp ? 'text-emerald-600 flash-up' : ''}
-                ${isDown ? 'text-rose-600 flash-down' : ''}
-                ${!change ? 'text-slate-900' : ''}
-                transition-colors duration-200
-              `}
+              key={`${symbol}-price-${price}-${dataVersion}`}
+              className="font-mono font-semibold px-1 py-0.5 rounded text-slate-900"
             >
-              {formatPrice(info.getValue())}
+              {formatPrice(price)}
             </div>
           );
         },
@@ -349,17 +468,11 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         cell: (info) => {
           const value = info.getValue();
           const symbol = info.row.original.symbol;
-          const change = cellChanges.get(`${symbol}-change_percent`);
           const isPositive = (value || 0) > 0;
           return (
             <div
-              className={`
-                font-mono font-semibold
-                ${isPositive ? 'text-emerald-600' : 'text-rose-600'}
-                ${change?.direction === 'up' ? 'flash-up' : ''}
-                ${change?.direction === 'down' ? 'flash-down' : ''}
-                transition-all duration-200
-              `}
+              key={`${symbol}-pct-${value}-${dataVersion}`}
+              className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}
             >
               {formatPercent(value)}
             </div>
@@ -374,7 +487,15 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         enableResizing: true,
         enableSorting: true,
         enableHiding: true,
-        cell: (info) => <div className="font-mono text-slate-700 font-medium">{formatNumber(info.getValue())}</div>,
+        cell: (info) => {
+          const symbol = info.row.original.symbol;
+          const volume = info.getValue();
+          return (
+            <div key={`${symbol}-vol-${volume}-${dataVersion}`} className="font-mono text-slate-700 font-medium">
+              {formatNumber(volume)}
+            </div>
+          );
+        },
       }),
       columnHelper.accessor((row) => row.rvol_slot ?? row.rvol, {
         id: 'rvol',
@@ -497,7 +618,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         },
       }),
     ],
-    [cellChanges]
+    [dataVersion]
   );
 
   const table = useReactTable({
@@ -532,7 +653,23 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
       isLoading={!isReady}
       getRowClassName={(row: Row<Ticker>) => {
         const ticker = row.original;
-        return newTickers.has(ticker.symbol) ? 'new-ticker-flash' : '';
+        const classes: string[] = [];
+        
+        // Animación para nuevos tickers (azul) - tiene prioridad
+        if (newTickers.has(ticker.symbol)) {
+          classes.push('new-ticker-flash');
+        } 
+        // Animaciones de subida/bajada (verde/rojo)
+        else {
+          const rowChange = rowChanges.get(ticker.symbol);
+          if (rowChange === 'up') {
+            classes.push('row-flash-up');
+          } else if (rowChange === 'down') {
+            classes.push('row-flash-down');
+          }
+        }
+        
+        return classes.join(' ');
       }}
       header={
         <MarketTableLayout

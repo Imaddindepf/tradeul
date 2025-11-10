@@ -275,17 +275,20 @@ async def manage_subscriptions():
     except Exception as e:
         logger.debug("consumer_group_already_exists", error=str(e))
     
-    # IMPORTANTE: Al inicio, leer TODOS los mensajes del stream para reconstruir desired_subscriptions
+    # IMPORTANTE: Leer ÚLTIMAS suscripciones del stream (más recientes = más relevantes)
+    # En lugar de leer TODO el stream (10K+ mensajes), leemos los últimos 2000
     try:
+        # Leer últimos 2000 mensajes del stream (los más recientes)
         results = await redis_client.read_stream_range(
             stream_name=input_stream,
-            count=1000,
-            start="-",
-            end="+"
+            count=2000,
+            start="-",  # Desde el principio
+            end="+"     # Hasta el final
         )
         
         if results:
-            for message_id, data in results:
+            # Procesar en orden inverso (más recientes primero) para tener estado actualizado
+            for message_id, data in reversed(results):
                 symbol = data.get('symbol', '').upper()
                 action = data.get('action', '').lower()
                 
@@ -295,12 +298,18 @@ async def manage_subscriptions():
                     desired_subscriptions.discard(symbol)
             
             logger.info(
-                "initialized_desired_subscriptions_from_stream",
+                "initialized_from_recent_subscriptions",
                 total_tickers=len(desired_subscriptions),
-                examples=list(desired_subscriptions)[:10]
+                messages_processed=len(results),
+                examples=sorted(list(desired_subscriptions))[:10]
+            )
+        else:
+            logger.warning(
+                "no_subscription_messages_found",
+                message="Esperando primer ciclo de Scanner"
             )
     except Exception as e:
-        logger.error("error_initializing_from_stream", error=str(e))
+        logger.error("error_initializing_subscriptions", error=str(e))
     
     while True:
         try:

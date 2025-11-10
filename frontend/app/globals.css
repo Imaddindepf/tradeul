@@ -172,7 +172,7 @@ td, th {
   }
 }
 
-/* Animación para nuevos tickers */
+/* Animación para nuevos tickers (azul brillante) */
 @keyframes new-ticker-pulse {
   0% { 
     background-color: rgba(59, 130, 246, 0.3); /* blue-500 con opacidad */
@@ -199,5 +199,48 @@ td, th {
 .new-ticker-flash {
   animation: new-ticker-pulse 3s ease-in-out;
   position: relative;
+}
+
+/* Animaciones para filas completas cuando suben o bajan */
+@keyframes row-flash-up {
+  0% { 
+    background-color: transparent; 
+  }
+  30% {
+    background-color: rgba(34, 197, 94, 0.4) !important; /* green-500 más intenso */
+    box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.5);
+  }
+  60% {
+    background-color: rgba(34, 197, 94, 0.3) !important;
+    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.4);
+  }
+  100% { 
+    background-color: transparent; 
+  }
+}
+
+@keyframes row-flash-down {
+  0% { 
+    background-color: transparent; 
+  }
+  30% {
+    background-color: rgba(239, 68, 68, 0.4) !important; /* red-500 más intenso */
+    box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.5);
+  }
+  60% {
+    background-color: rgba(239, 68, 68, 0.3) !important;
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.4);
+  }
+  100% { 
+    background-color: transparent; 
+  }
+}
+
+.row-flash-up {
+  animation: row-flash-up 1.2s ease-out !important;
+}
+
+.row-flash-down {
+  animation: row-flash-down 1.2s ease-out !important;
 }
 

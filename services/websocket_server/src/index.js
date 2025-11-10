@@ -1,11 +1,15 @@
 /**
  * WebSocket Server for Real-Time Stock Data
  *
- * NEW: Soporte para Snapshot + Deltas
- * - Envía snapshot inicial al conectar
- * - Consume stream:ranking:deltas
- * - Broadcast deltas incrementales a clientes
- * - Manejo de sequence numbers
+ * ARQUITECTURA HÍBRIDA:
+ * 1. Rankings: Snapshot + Deltas (cada 10s desde Scanner)
+ * 2. Precio/Volumen: Aggregates en tiempo real (cada 1s desde Polygon WS)
+ *
+ * FLUJO:
+ * - Cliente se suscribe a lista (ej: "GAPPERS_UP")
+ * - Recibe snapshot inicial
+ * - Recibe deltas de cambios en ranking
+ * - Recibe aggregates de precio/volumen en tiempo real
  */
 
 const WebSocket = require("ws");
@@ -36,7 +40,7 @@ const redis = new Redis({
   maxRetriesPerRequest: null,
 });
 
-// Cliente Redis adicional para comandos normales (XADD, GET, etc.)
+// Cliente Redis adicional para comandos normales
 const redisCommands = new Redis({
   host: REDIS_HOST,
   port: REDIS_PORT,
@@ -51,20 +55,261 @@ redis.on("error", (err) => {
   logger.error({ err }, "Redis error");
 });
 
-// Gestión de conexiones
-// connectionId -> { ws, subscriptions: Set<string>, sequence_numbers: Map<string, number> }
+// =============================================
+// DATA STRUCTURES (OPTIMIZADAS)
+// =============================================
+
+// Conexiones: connectionId -> { ws, subscriptions: Set<listName>, sequence_numbers: Map<listName, number> }
 const connections = new Map();
 
-// Últimos snapshots por lista (para nuevas conexiones)
-// list_name -> { sequence, rows, timestamp }
+// Índice inverso para broadcasting eficiente: listName -> Set<connectionId>
+const listSubscribers = new Map();
+
+// Mapeo symbol → lists (para broadcast de aggregates)
+// "TSLA" -> Set(["GAPPERS_UP", "MOMENTUM_UP"])
+const symbolToLists = new Map();
+
+// Últimos snapshots por lista (cache): listName -> { sequence, rows, timestamp }
 const lastSnapshots = new Map();
 
 // =============================================
-// SNAPSHOT & DELTAS - CORE FUNCTIONS
+// AGGREGATE SAMPLING & THROTTLING
+// =============================================
+
+// Sampling por símbolo: symbol -> { lastData, lastSentTime, count }
+const aggregateSamplers = new Map();
+
+// Configuración de throttling
+const AGGREGATE_THROTTLE_MS = 1000; // Enviar máximo cada 1000ms (1s) por símbolo - coincide con Polygon
+const AGGREGATE_BUFFER_FLUSH_INTERVAL = 500; // Flush buffer cada 500ms
+const MAX_BUFFER_SIZE = 10000; // Máximo de aggregates en buffer (backpressure)
+
+// Buffer de aggregates pendientes: Map<symbol, latestAggregate>
+const aggregateBuffer = new Map();
+
+// Estadísticas de performance
+const aggregateStats = {
+  received: 0,
+  sent: 0,
+  dropped: 0,
+  lastReset: Date.now(),
+};
+
+/**
+ * Agregar aggregate al buffer
+ * CRÍTICO: SIEMPRE mantener el último valor, el throttle se aplica en flush
+ */
+function bufferAggregate(symbol, data) {
+  // Backpressure: si el buffer está muy grande, dropeamos mensajes
+  if (aggregateBuffer.size >= MAX_BUFFER_SIZE) {
+    aggregateStats.dropped++;
+    return false;
+  }
+
+  aggregateStats.received++;
+
+  // Inicializar sampler si no existe
+  if (!aggregateSamplers.has(symbol)) {
+    aggregateSamplers.set(symbol, { lastSentTime: 0, count: 0 });
+  }
+
+  const sampler = aggregateSamplers.get(symbol);
+  sampler.count++;
+
+  // SIEMPRE actualizar el buffer con el último valor
+  // El flush decidirá si enviarlo basado en throttle
+  aggregateBuffer.set(symbol, data);
+
+  return true;
+}
+
+/**
+ * Flush del buffer de aggregates (batch broadcast)
+ * Envía solo símbolos que cumplan con throttle, pero siempre con el último valor
+ */
+function flushAggregateBuffer() {
+  if (aggregateBuffer.size === 0) return;
+
+  const now = Date.now();
+  const toSend = new Map();
+
+  // Filtrar solo símbolos que cumplan con el throttle
+  aggregateBuffer.forEach((data, symbol) => {
+    const sampler = aggregateSamplers.get(symbol);
+    if (!sampler) return;
+
+    // Verificar si pasó el tiempo de throttle
+    if (now - sampler.lastSentTime >= AGGREGATE_THROTTLE_MS) {
+      toSend.set(symbol, data);
+      sampler.lastSentTime = now;
+    }
+  });
+
+  // Limpiar buffer después de procesar
+  // Mantener símbolos que no se enviaron (aún en throttle)
+  toSend.forEach((_, symbol) => {
+    aggregateBuffer.delete(symbol);
+  });
+
+  if (toSend.size === 0) return;
+
+  // Agrupar por lista para batch broadcast
+  const messagesByList = new Map(); // listName -> [messages]
+
+  toSend.forEach((data, symbol) => {
+    const lists = symbolToLists.get(symbol);
+    if (!lists || lists.size === 0) return;
+
+    const aggregateData = transformToPolygonFormat(data);
+    const message = {
+      type: "aggregate",
+      symbol: symbol,
+      data: aggregateData,
+      timestamp: new Date().toISOString(),
+    };
+
+    // Agrupar por lista
+    lists.forEach((listName) => {
+      if (!messagesByList.has(listName)) {
+        messagesByList.set(listName, []);
+      }
+      messagesByList.get(listName).push(message);
+    });
+  });
+
+  // Broadcast batched por lista
+  let totalSent = 0;
+  messagesByList.forEach((messages, listName) => {
+    const subscribers = listSubscribers.get(listName);
+    if (!subscribers || subscribers.size === 0) return;
+
+    subscribers.forEach((connectionId) => {
+      const conn = connections.get(connectionId);
+      if (conn && conn.ws.readyState === WebSocket.OPEN) {
+        messages.forEach((message) => {
+          try {
+            conn.ws.send(JSON.stringify(message));
+            totalSent++;
+          } catch (err) {
+            logger.error({ connectionId, err }, "Error sending aggregate");
+          }
+        });
+      }
+    });
+  });
+
+  aggregateStats.sent += totalSent;
+
+  if (totalSent > 0) {
+    logger.debug(
+      {
+        buffered: aggregateBuffer.size,
+        sent: totalSent,
+        symbols: toSend.size,
+        lists: messagesByList.size,
+      },
+      "📊 Flushed aggregate buffer"
+    );
+  }
+}
+
+/**
+ * Log de estadísticas de aggregates cada minuto
+ */
+setInterval(() => {
+  const elapsed = (Date.now() - aggregateStats.lastReset) / 1000;
+  const recvRate = (aggregateStats.received / elapsed).toFixed(0);
+  const sentRate = (aggregateStats.sent / elapsed).toFixed(0);
+  const dropRate = (aggregateStats.dropped / elapsed).toFixed(0);
+  const reduction =
+    aggregateStats.received > 0
+      ? (
+          ((aggregateStats.received - aggregateStats.sent) /
+            aggregateStats.received) *
+          100
+        ).toFixed(1)
+      : 0;
+
+  logger.info(
+    {
+      received: aggregateStats.received,
+      sent: aggregateStats.sent,
+      dropped: aggregateStats.dropped,
+      recvRate: `${recvRate}/s`,
+      sentRate: `${sentRate}/s`,
+      dropRate: `${dropRate}/s`,
+      reduction: `${reduction}%`,
+      bufferSize: aggregateBuffer.size,
+      samplers: aggregateSamplers.size,
+    },
+    "📊 Aggregate stats (last 60s)"
+  );
+
+  // Reset stats
+  aggregateStats.received = 0;
+  aggregateStats.sent = 0;
+  aggregateStats.dropped = 0;
+  aggregateStats.lastReset = Date.now();
+}, 60000);
+
+// Iniciar flush periódico del buffer
+setInterval(() => {
+  flushAggregateBuffer();
+}, AGGREGATE_BUFFER_FLUSH_INTERVAL);
+
+// =============================================
+// UTILIDADES
 // =============================================
 
 /**
- * Obtiene snapshot inicial desde Redis para una lista
+ * Parsear fields de Redis stream a objeto
+ */
+function parseRedisFields(fields) {
+  const message = {};
+  for (let i = 0; i < fields.length; i += 2) {
+    message[fields[i]] = fields[i + 1];
+  }
+  return message;
+}
+
+/**
+ * Enviar mensaje a conexión específica
+ */
+function sendMessage(connectionId, message) {
+  const conn = connections.get(connectionId);
+  if (!conn || conn.ws.readyState !== WebSocket.OPEN) return false;
+
+  try {
+    conn.ws.send(JSON.stringify(message));
+    return true;
+  } catch (err) {
+    logger.error({ connectionId, err }, "Error sending message");
+    return false;
+  }
+}
+
+/**
+ * Transformar datos de Redis a formato Polygon
+ */
+function transformToPolygonFormat(data) {
+  return {
+    o: parseFloat(data.open || 0),
+    h: parseFloat(data.high || 0),
+    l: parseFloat(data.low || 0),
+    c: parseFloat(data.close || 0),
+    v: parseInt(data.volume || 0, 10),
+    vw: parseFloat(data.vwap || 0),
+    av: parseInt(data.volume_accumulated || 0, 10),
+    op: parseFloat(data.open || 0),
+  };
+}
+
+// =============================================
+// SNAPSHOT & DELTAS MANAGEMENT
+// =============================================
+
+/**
+ * Obtener snapshot inicial desde Redis
  */
 async function getInitialSnapshot(listName) {
   try {
@@ -73,14 +318,14 @@ async function getInitialSnapshot(listName) {
       const cached = lastSnapshots.get(listName);
       const age = Date.now() - new Date(cached.timestamp).getTime();
 
-      // Si el snapshot es reciente (< 1 minuto), usarlo
+      // Si es reciente (< 1 minuto), usarlo
       if (age < 60000) {
-        logger.info({ listName, age_ms: age }, "Using cached snapshot");
+        logger.debug({ listName, age_ms: age }, "Using cached snapshot");
         return cached;
       }
     }
 
-    // Obtener desde Redis key (guardado por scanner)
+    // Obtener desde Redis
     const key = `scanner:category:${listName}`;
     const data = await redisCommands.get(key);
 
@@ -114,13 +359,13 @@ async function getInitialSnapshot(listName) {
 
     return snapshot;
   } catch (err) {
-    logger.error({ err, listName }, "Error getting initial snapshot");
+    logger.error({ err, listName }, "Error getting snapshot");
     return null;
   }
 }
 
 /**
- * Envía snapshot inicial a un cliente
+ * Enviar snapshot inicial a cliente
  */
 async function sendInitialSnapshot(connectionId, listName) {
   const snapshot = await getInitialSnapshot(listName);
@@ -150,12 +395,104 @@ async function sendInitialSnapshot(connectionId, listName) {
       sequence: snapshot.sequence,
       count: snapshot.count,
     },
-    "📸 Sent initial snapshot to client"
+    "📸 Sent snapshot to client"
   );
 }
 
 /**
- * Procesa mensaje delta del stream
+ * Actualizar índice symbol → lists cuando llegan deltas
+ */
+function updateSymbolToListsIndex(listName, deltas) {
+  deltas.forEach((delta) => {
+    const symbol = delta.symbol;
+
+    if (delta.action === "add") {
+      // Agregar symbol a lista
+      if (!symbolToLists.has(symbol)) {
+        symbolToLists.set(symbol, new Set());
+      }
+      symbolToLists.get(symbol).add(listName);
+
+      logger.debug(
+        { symbol, listName, action: "add" },
+        "Updated symbol→lists index"
+      );
+    } else if (delta.action === "remove") {
+      // Remover symbol de lista
+      const lists = symbolToLists.get(symbol);
+      if (lists) {
+        lists.delete(listName);
+        // Si no está en ninguna lista, eliminar entrada
+        if (lists.size === 0) {
+          symbolToLists.delete(symbol);
+        }
+      }
+
+      logger.debug(
+        { symbol, listName, action: "remove" },
+        "Updated symbol→lists index"
+      );
+    }
+  });
+}
+
+// Track de símbolos ya publicados para evitar duplicados
+const publishedSymbols = new Set();
+
+/**
+ * Publicar símbolos añadidos/eliminados a Polygon WS (incremental)
+ */
+async function publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols) {
+  try {
+    const streamName = "polygon_ws:subscriptions";
+    let subscribed = 0;
+    let unsubscribed = 0;
+    
+    // Publicar símbolos NUEVOS
+    for (const symbol of addedSymbols) {
+      await redisCommands.xadd(
+        streamName,
+        "*",
+        "symbol",
+        symbol,
+        "action",
+        "subscribe",
+        "timestamp",
+        new Date().toISOString()
+      );
+      publishedSymbols.add(symbol);
+      subscribed++;
+    }
+    
+    // Publicar símbolos ELIMINADOS
+    for (const symbol of removedSymbols) {
+      await redisCommands.xadd(
+        streamName,
+        "*",
+        "symbol",
+        symbol,
+        "action",
+        "unsubscribe",
+        "timestamp",
+        new Date().toISOString()
+      );
+      publishedSymbols.delete(symbol);
+      unsubscribed++;
+    }
+    
+    if (subscribed > 0 || unsubscribed > 0) {
+      logger.info(
+        { subscribed, unsubscribed, total: publishedSymbols.size },
+        "📡 Published symbol changes to Polygon WS"
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "Error publishing symbol changes to Polygon WS");
+  }
+}
+
+/**
+ * Procesar mensaje delta/snapshot del stream
  */
 function processDeltaMessage(message) {
   try {
@@ -177,16 +514,57 @@ function processDeltaMessage(message) {
 
       lastSnapshots.set(list, snapshot);
 
+      // Detectar símbolos añadidos/eliminados vs estado anterior
+      const oldSymbols = new Set();
+      symbolToLists.forEach((lists, symbol) => {
+        if (lists.has(list)) {
+          oldSymbols.add(symbol);
+        }
+      });
+
+      const newSymbols = new Set(rows.map((ticker) => ticker.symbol));
+      const addedSymbols = [...newSymbols].filter((s) => !oldSymbols.has(s));
+      const removedSymbols = [...oldSymbols].filter((s) => !newSymbols.has(s));
+
+      // Actualizar índice symbol→lists con snapshot completo
+      symbolToLists.forEach((lists, symbol) => lists.delete(list));
+      rows.forEach((ticker) => {
+        const symbol = ticker.symbol;
+        if (!symbolToLists.has(symbol)) {
+          symbolToLists.set(symbol, new Set());
+        }
+        symbolToLists.get(symbol).add(list);
+      });
+
       logger.info(
-        { list, sequence, count: snapshot.count },
-        "📸 Cached new snapshot"
+        { list, sequence, count: snapshot.count, added: addedSymbols.length, removed: removedSymbols.length },
+        "📸 Cached snapshot & updated index"
       );
 
-      // Broadcast snapshot a todos los clientes suscritos
+      // Publicar cambios incrementales a Polygon WS
+      publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch((err) => {
+        logger.error({ err }, "Failed to publish symbols after snapshot");
+      });
+
+      // Broadcast snapshot
       broadcastToListSubscribers(list, snapshot);
     } else if (type === "delta") {
       // Parsear deltas
       const deltas = JSON.parse(message.deltas || "[]");
+
+      // Detectar símbolos añadidos/eliminados de los deltas
+      const addedSymbols = deltas.filter(d => d.action === 'add').map(d => d.symbol);
+      const removedSymbols = deltas.filter(d => d.action === 'remove').map(d => d.symbol);
+
+      // Actualizar índice symbol→lists
+      updateSymbolToListsIndex(list, deltas);
+
+      // Publicar solo los símbolos añadidos/eliminados (incremental)
+      if (addedSymbols.length > 0 || removedSymbols.length > 0) {
+        publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch((err) => {
+          logger.error({ err }, "Failed to publish symbols after delta");
+        });
+      }
 
       const deltaMessage = {
         type: "delta",
@@ -202,7 +580,7 @@ function processDeltaMessage(message) {
         "🔄 Broadcasting delta"
       );
 
-      // Broadcast delta a todos los clientes suscritos
+      // Broadcast delta
       broadcastToListSubscribers(list, deltaMessage);
     }
   } catch (err) {
@@ -211,17 +589,24 @@ function processDeltaMessage(message) {
 }
 
 /**
- * Broadcast a clientes suscritos a una lista específica
+ * Broadcast a clientes suscritos a una lista (OPTIMIZADO)
  */
 function broadcastToListSubscribers(listName, message) {
+  const subscribers = listSubscribers.get(listName);
+  if (!subscribers || subscribers.size === 0) return;
+
   let sentCount = 0;
   const disconnected = [];
 
-  for (const [connectionId, conn] of connections.entries()) {
-    // Verificar si está suscrito a esta lista
-    if (!conn.subscriptions.has(listName)) continue;
+  subscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
 
-    // Verificar sequence number (detectar gaps)
+    if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      disconnected.push(connectionId);
+      return;
+    }
+
+    // Verificar sequence gap para deltas/snapshots
     if (message.type === "delta" || message.type === "snapshot") {
       const clientSeq = conn.sequence_numbers.get(listName) || 0;
       const messageSeq = message.sequence;
@@ -232,15 +617,13 @@ function broadcastToListSubscribers(listName, message) {
           { connectionId, listName, clientSeq, messageSeq },
           "⚠️ Sequence gap detected, sending snapshot"
         );
-
-        // Enviar snapshot en lugar de delta
         sendInitialSnapshot(connectionId, listName).catch((err) => {
           logger.error(
             { err, connectionId, listName },
             "Error sending snapshot"
           );
         });
-        continue;
+        return;
       }
 
       // Actualizar sequence number del cliente
@@ -248,114 +631,103 @@ function broadcastToListSubscribers(listName, message) {
     }
 
     // Enviar mensaje
-    if (conn.ws.readyState === WebSocket.OPEN) {
-      try {
-        conn.ws.send(JSON.stringify(message));
-        sentCount++;
-      } catch (err) {
-        logger.error({ connectionId, err }, "Error sending message");
-        disconnected.push(connectionId);
-      }
-    } else {
+    try {
+      conn.ws.send(JSON.stringify(message));
+      sentCount++;
+    } catch (err) {
+      logger.error({ connectionId, err }, "Error sending message");
       disconnected.push(connectionId);
     }
-  }
+  });
 
   // Limpiar conexiones desconectadas
-  disconnected.forEach((id) => connections.delete(id));
+  disconnected.forEach((id) => {
+    subscribers.delete(id);
+    connections.delete(id);
+  });
 
   if (sentCount > 0) {
     logger.debug(
-      { listName, sentCount, type: message.type, sequence: message.sequence },
+      { listName, sentCount, type: message.type },
       "Broadcasted to subscribers"
     );
   }
 }
 
 // =============================================
-// LEGACY FUNCTIONS (Aggregates & RVOL)
+// SUSCRIPCIÓN DE CLIENTES
 // =============================================
 
 /**
- * Transformar datos de Redis a formato Polygon
+ * Suscribir cliente a lista
  */
-function transformToPolygonFormat(data) {
-  return {
-    o: parseFloat(data.open || 0),
-    h: parseFloat(data.high || 0),
-    l: parseFloat(data.low || 0),
-    c: parseFloat(data.close || 0),
-    v: parseInt(data.volume || 0, 10),
-    vw: parseFloat(data.vwap || 0),
-    av: parseInt(data.volume_accumulated || 0, 10),
-    op: parseFloat(data.open || 0),
-    ...(data.rvol ? { rvol: parseFloat(data.rvol) } : {}),
-  };
-}
-
-/**
- * Enviar mensaje a conexión
- */
-function sendMessage(connectionId, message) {
+function subscribeClientToList(connectionId, listName) {
   const conn = connections.get(connectionId);
-  if (!conn || conn.ws.readyState !== WebSocket.OPEN) return false;
+  if (!conn) return false;
 
-  try {
-    const json = JSON.stringify(message);
-    conn.ws.send(json);
-    return true;
-  } catch (err) {
-    logger.error({ connectionId, err }, "Error sending message");
-    return false;
+  // Agregar a suscripciones del cliente
+  conn.subscriptions.add(listName);
+
+  // Agregar a índice inverso
+  if (!listSubscribers.has(listName)) {
+    listSubscribers.set(listName, new Set());
   }
+  listSubscribers.get(listName).add(connectionId);
+
+  logger.info(
+    {
+      connectionId,
+      listName,
+      totalSubscribers: listSubscribers.get(listName).size,
+    },
+    "📋 Client subscribed to list"
+  );
+
+  return true;
 }
 
 /**
- * Publicar tickers a Polygon WS para suscripción/desuscripción
+ * Desuscribir cliente de lista
  */
-async function publishTickersToPolygonWS(symbols, action) {
-  try {
-    const streamName = "polygon_ws:subscriptions";
-    for (const symbol of symbols) {
-      await redisCommands.xadd(
-        streamName,
-        "*",
-        "symbol",
-        symbol.toUpperCase(),
-        "action",
-        action,
-        "timestamp",
-        new Date().toISOString()
-      );
+function unsubscribeClientFromList(connectionId, listName) {
+  const conn = connections.get(connectionId);
+  if (conn) {
+    conn.subscriptions.delete(listName);
+    conn.sequence_numbers.delete(listName);
+  }
+
+  // Remover de índice inverso
+  const subscribers = listSubscribers.get(listName);
+  if (subscribers) {
+    subscribers.delete(connectionId);
+    if (subscribers.size === 0) {
+      listSubscribers.delete(listName);
     }
-    logger.info(
-      { symbols, action, count: symbols.length },
-      "Published tickers to Polygon WS"
-    );
-  } catch (err) {
-    logger.error({ err, symbols, action }, "Error publishing to Polygon WS");
   }
+
+  logger.info({ connectionId, listName }, "📋 Client unsubscribed from list");
 }
 
 /**
- * Broadcast a suscriptores de un símbolo (legacy)
+ * Desuscribir cliente de todas las listas
  */
-function broadcastToSubscribers(symbol, message) {
-  let sentCount = 0;
-  const disconnected = [];
+function unsubscribeClientFromAll(connectionId) {
+  const conn = connections.get(connectionId);
+  if (!conn) return;
 
-  for (const [connectionId, conn] of connections.entries()) {
-    if (conn.subscriptions.has("*") || conn.subscriptions.has(symbol)) {
-      if (sendMessage(connectionId, message)) {
-        sentCount++;
-      } else {
-        disconnected.push(connectionId);
+  // Remover de todas las listas
+  conn.subscriptions.forEach((listName) => {
+    const subscribers = listSubscribers.get(listName);
+    if (subscribers) {
+      subscribers.delete(connectionId);
+      if (subscribers.size === 0) {
+        listSubscribers.delete(listName);
       }
     }
-  }
+  });
 
-  disconnected.forEach((id) => connections.delete(id));
-  return sentCount;
+  conn.subscriptions.clear();
+  conn.sequence_numbers.clear();
 }
 
 // =============================================
@@ -363,8 +735,7 @@ function broadcastToSubscribers(symbol, message) {
 // =============================================
 
 /**
- * Procesa stream de ranking deltas
- * MEJORADO: Usa consumer groups + BLOCK reducido para baja latencia
+ * Procesar stream de ranking deltas
  */
 async function processRankingDeltasStream() {
   const streamName = "stream:ranking:deltas";
@@ -373,7 +744,7 @@ async function processRankingDeltasStream() {
 
   logger.info({ streamName }, "🔄 Starting ranking deltas stream consumer");
 
-  // Crear consumer group si no existe
+  // Crear consumer group
   try {
     await redisCommands.xgroup(
       "CREATE",
@@ -384,99 +755,66 @@ async function processRankingDeltasStream() {
     );
     logger.info({ streamName, consumerGroup }, "Created consumer group");
   } catch (err) {
-    // Ignorar error si el grupo ya existe
     logger.debug({ err: err.message }, "Consumer group already exists");
   }
 
-  while (true) {
+  // INICIALIZACIÓN: Cargar snapshots existentes de todas las listas y publicar símbolos
+  logger.info("🔄 Initializing: loading existing rankings from Redis...");
+  const listNames = [
+    "gappers_up",
+    "gappers_down",
+    "momentum_up",
+    "momentum_down",
+    "high_volume",
+    "winners",
+    "losers",
+    "reversals",
+    "anomalies",
+    "new_highs",
+    "new_lows"
+  ];
+
+  const initialSymbols = new Set();
+  for (const listName of listNames) {
     try {
-      // MEJORADO: BLOCK 100ms (en lugar de 5000ms) para latencia mínima
-      const results = await redis.xreadgroup(
-        "GROUP",
-        consumerGroup,
-        consumerName,
-        "BLOCK",
-        100, // ← CAMBIADO: 100ms en lugar de 5000ms
-        "COUNT",
-        50,
-        "STREAMS",
-        streamName,
-        ">" // Leer solo mensajes nuevos no entregados al grupo
-      );
-
-      if (results && results.length > 0) {
-        const messageIds = [];
-
-        for (const [stream, messages] of results) {
-          for (const [messageId, fields] of messages) {
-            const message = {};
-            for (let i = 0; i < fields.length; i += 2) {
-              message[fields[i]] = fields[i + 1];
-            }
-
-            // Procesar mensaje delta/snapshot
-            processDeltaMessage(message);
-
-            // Guardar ID para ACK
-            messageIds.push(messageId);
+      const jsonData = await redisCommands.get(`scanner:category:${listName}`);
+      if (jsonData) {
+        const rows = JSON.parse(jsonData);
+        rows.forEach((ticker) => {
+          const symbol = ticker.symbol;
+          initialSymbols.add(symbol);
+          if (!symbolToLists.has(symbol)) {
+            symbolToLists.set(symbol, new Set());
           }
-        }
-
-        // ACK todos los mensajes procesados
-        if (messageIds.length > 0) {
-          try {
-            await redisCommands.xack(streamName, consumerGroup, ...messageIds);
-          } catch (err) {
-            logger.error({ err }, "Error acknowledging messages");
-          }
-        }
+          symbolToLists.get(symbol).add(listName);
+        });
+        logger.debug({ listName, count: rows.length }, "Loaded initial snapshot");
       }
-
-      // Pequeña pausa para no saturar CPU
-      await new Promise((resolve) => setTimeout(resolve, 10));
     } catch (err) {
-      logger.error({ err, streamName }, "Error in ranking deltas stream");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      logger.warn({ listName, err: err.message }, "Failed to load initial snapshot");
     }
   }
-}
 
-/**
- * Procesa stream de aggregates (legacy - precio/volumen)
- * MEJORADO: Usa consumer groups + BLOCK reducido para latencia mínima
- */
-async function processAggregatesStream() {
-  const streamName = "stream:realtime:aggregates";
-  const consumerGroup = "websocket_server_aggregates";
-  const consumerName = "ws_server_1";
-
-  logger.info({ streamName }, "Starting aggregates stream consumer");
-
-  // Crear consumer group si no existe
-  try {
-    await redisCommands.xgroup(
-      "CREATE",
-      streamName,
-      consumerGroup,
-      "$",
-      "MKSTREAM"
+  // Publicar TODOS los símbolos iniciales
+  if (initialSymbols.size > 0) {
+    await publishSymbolChangesToPolygonWS([...initialSymbols], []);
+    logger.info(
+      { count: initialSymbols.size },
+      "✅ Initialized with existing symbols from Redis"
     );
-    logger.info({ streamName, consumerGroup }, "Created consumer group");
-  } catch (err) {
-    logger.debug({ err: err.message }, "Consumer group already exists");
   }
 
   while (true) {
     try {
-      // MEJORADO: BLOCK 100ms para latencia casi en tiempo real
+      // BLOCK 100ms para baja latencia
       const results = await redis.xreadgroup(
         "GROUP",
         consumerGroup,
         consumerName,
         "BLOCK",
-        100, // ← CAMBIADO: 100ms en lugar de 5000ms
+        100,
         "COUNT",
-        100, // Procesar hasta 100 mensajes por batch
+        50,
         "STREAMS",
         streamName,
         ">"
@@ -487,25 +825,87 @@ async function processAggregatesStream() {
 
         for (const [stream, messages] of results) {
           for (const [messageId, fields] of messages) {
-            const message = {};
-            for (let i = 0; i < fields.length; i += 2) {
-              message[fields[i]] = fields[i + 1];
-            }
+            const message = parseRedisFields(fields);
+            processDeltaMessage(message);
+            messageIds.push(messageId);
+          }
+        }
 
+        // ACK mensajes procesados
+        if (messageIds.length > 0) {
+          try {
+            await redisCommands.xack(streamName, consumerGroup, ...messageIds);
+          } catch (err) {
+            logger.error({ err }, "Error acknowledging messages");
+          }
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } catch (err) {
+      logger.error({ err, streamName }, "Error in ranking deltas stream");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+/**
+ * Procesar stream de aggregates (precio/volumen en tiempo real)
+ */
+async function processAggregatesStream() {
+  const streamName = "stream:realtime:aggregates";
+  const consumerGroup = "websocket_server_aggregates";
+  const consumerName = "ws_server_1";
+
+  logger.info({ streamName }, "📊 Starting aggregates stream consumer");
+
+  // Crear consumer group
+  try {
+    await redisCommands.xgroup(
+      "CREATE",
+      streamName,
+      consumerGroup,
+      "$",
+      "MKSTREAM"
+    );
+    logger.info({ streamName, consumerGroup }, "Created consumer group");
+  } catch (err) {
+    logger.debug({ err: err.message }, "Consumer group already exists");
+  }
+
+  while (true) {
+    try {
+      // BLOCK 100ms para latencia casi en tiempo real
+      const results = await redis.xreadgroup(
+        "GROUP",
+        consumerGroup,
+        consumerName,
+        "BLOCK",
+        100,
+        "COUNT",
+        100,
+        "STREAMS",
+        streamName,
+        ">"
+      );
+
+      if (results && results.length > 0) {
+        const messageIds = [];
+
+        for (const [stream, messages] of results) {
+          for (const [messageId, fields] of messages) {
+            const message = parseRedisFields(fields);
             const { symbol, ...data } = message;
 
             if (symbol) {
-              const aggregateData = transformToPolygonFormat(data);
-              const outMessage = {
-                type: "aggregate",
-                symbol: symbol.toUpperCase(),
-                data: aggregateData,
-                timestamp: new Date().toISOString(),
-              };
+              const symbolUpper = symbol.toUpperCase();
 
-              const sent = broadcastToSubscribers(symbol, outMessage);
-              if (sent > 0) {
-                logger.debug({ symbol, sent }, "Broadcasted aggregate");
+              // Verificar si el símbolo está en alguna lista
+              const lists = symbolToLists.get(symbolUpper);
+
+              if (lists && lists.size > 0) {
+                // Agregar al buffer con sampling (no broadcast directo)
+                bufferAggregate(symbolUpper, data);
               }
             }
 
@@ -526,98 +926,6 @@ async function processAggregatesStream() {
       await new Promise((resolve) => setTimeout(resolve, 10));
     } catch (err) {
       logger.error({ err, streamName }, "Error in aggregates stream");
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  }
-}
-
-/**
- * Procesa stream de RVOL (legacy)
- * MEJORADO: Usa consumer groups + BLOCK reducido para latencia mínima
- */
-async function processRvolStream() {
-  const streamName = "stream:analytics:rvol";
-  const consumerGroup = "websocket_server_rvol";
-  const consumerName = "ws_server_1";
-
-  logger.info({ streamName }, "Starting RVOL stream consumer");
-
-  // Crear consumer group si no existe
-  try {
-    await redisCommands.xgroup(
-      "CREATE",
-      streamName,
-      consumerGroup,
-      "$",
-      "MKSTREAM"
-    );
-    logger.info({ streamName, consumerGroup }, "Created consumer group");
-  } catch (err) {
-    logger.debug({ err: err.message }, "Consumer group already exists");
-  }
-
-  while (true) {
-    try {
-      // MEJORADO: BLOCK 100ms para latencia casi en tiempo real
-      const results = await redis.xreadgroup(
-        "GROUP",
-        consumerGroup,
-        consumerName,
-        "BLOCK",
-        100, // ← CAMBIADO: 100ms en lugar de 5000ms
-        "COUNT",
-        100,
-        "STREAMS",
-        streamName,
-        ">"
-      );
-
-      if (results && results.length > 0) {
-        const messageIds = [];
-
-        for (const [stream, messages] of results) {
-          for (const [messageId, fields] of messages) {
-            const message = {};
-            for (let i = 0; i < fields.length; i += 2) {
-              message[fields[i]] = fields[i + 1];
-            }
-
-            const { symbol, rvol, slot_number } = message;
-
-            if (symbol && rvol) {
-              const outMessage = {
-                type: "rvol",
-                symbol: symbol.toUpperCase(),
-                data: {
-                  rvol: parseFloat(rvol),
-                  slot: slot_number ? parseInt(slot_number, 10) : null,
-                },
-                timestamp: new Date().toISOString(),
-              };
-
-              const sent = broadcastToSubscribers(symbol, outMessage);
-              if (sent > 0) {
-                logger.debug({ symbol, rvol, sent }, "Broadcasted RVOL");
-              }
-            }
-
-            messageIds.push(messageId);
-          }
-        }
-
-        // ACK mensajes procesados
-        if (messageIds.length > 0) {
-          try {
-            await redisCommands.xack(streamName, consumerGroup, ...messageIds);
-          } catch (err) {
-            logger.error({ err }, "Error acknowledging RVOL messages");
-          }
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    } catch (err) {
-      logger.error({ err, streamName }, "Error in RVOL stream");
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
@@ -644,7 +952,7 @@ wss.on("connection", (ws, req) => {
   connections.set(connectionId, {
     ws,
     subscriptions: new Set(),
-    sequence_numbers: new Map(), // NEW: Tracking de sequence numbers por lista
+    sequence_numbers: new Map(),
   });
 
   logger.info(
@@ -656,7 +964,7 @@ wss.on("connection", (ws, req) => {
   sendMessage(connectionId, {
     type: "connected",
     connection_id: connectionId,
-    message: "Connected to Tradeul Scanner (Snapshot + Deltas)",
+    message: "Connected to Tradeul Scanner (Hybrid: Rankings + Real-time)",
     timestamp: new Date().toISOString(),
   });
 
@@ -665,14 +973,10 @@ wss.on("connection", (ws, req) => {
     try {
       const json = Buffer.from(message).toString("utf-8");
       const data = JSON.parse(json);
-      const conn = connections.get(connectionId);
-
-      if (!conn) return;
-
       const { action } = data;
 
       // =============================================
-      // NEW: Subscribe to list (recibe snapshot inicial)
+      // SUBSCRIBE TO LIST
       // =============================================
       if (action === "subscribe_list") {
         const listName = data.list;
@@ -685,10 +989,8 @@ wss.on("connection", (ws, req) => {
           return;
         }
 
-        // Añadir a suscripciones
-        conn.subscriptions.add(listName);
-
-        logger.info({ connectionId, listName }, "📋 Client subscribed to list");
+        // Suscribir cliente
+        subscribeClientToList(connectionId, listName);
 
         // Enviar snapshot inicial
         await sendInitialSnapshot(connectionId, listName);
@@ -701,18 +1003,11 @@ wss.on("connection", (ws, req) => {
       }
 
       // =============================================
-      // NEW: Unsubscribe from list
+      // UNSUBSCRIBE FROM LIST
       // =============================================
       else if (action === "unsubscribe_list") {
         const listName = data.list;
-
-        conn.subscriptions.delete(listName);
-        conn.sequence_numbers.delete(listName);
-
-        logger.info(
-          { connectionId, listName },
-          "📋 Client unsubscribed from list"
-        );
+        unsubscribeClientFromList(connectionId, listName);
 
         sendMessage(connectionId, {
           type: "unsubscribed_list",
@@ -722,77 +1017,12 @@ wss.on("connection", (ws, req) => {
       }
 
       // =============================================
-      // NEW: Request resync (pide snapshot completo)
+      // REQUEST RESYNC
       // =============================================
       else if (action === "resync") {
         const listName = data.list;
-
         logger.info({ connectionId, listName }, "🔄 Client requested resync");
-
         await sendInitialSnapshot(connectionId, listName);
-      }
-
-      // =============================================
-      // LEGACY: Subscribe to symbol (para aggregates)
-      // =============================================
-      else if (action === "subscribe") {
-        const symbols = data.symbols || [];
-        symbols.forEach((symbol) => conn.subscriptions.add(symbol));
-
-        logger.info(
-          { connectionId, symbols, total: conn.subscriptions.size },
-          "Client subscribed to symbols"
-        );
-
-        if (symbols.length > 0) {
-          publishTickersToPolygonWS(symbols, "subscribe").catch((err) => {
-            logger.error({ err, symbols }, "Failed to publish to Polygon WS");
-          });
-        }
-
-        sendMessage(connectionId, {
-          type: "subscribed",
-          symbols,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // =============================================
-      // LEGACY: Unsubscribe from symbol
-      // =============================================
-      else if (action === "unsubscribe") {
-        const symbols = data.symbols || [];
-        symbols.forEach((symbol) => conn.subscriptions.delete(symbol));
-
-        logger.info(
-          { connectionId, symbols, total: conn.subscriptions.size },
-          "Client unsubscribed from symbols"
-        );
-
-        if (symbols.length > 0) {
-          publishTickersToPolygonWS(symbols, "unsubscribe").catch((err) => {
-            logger.error({ err, symbols }, "Failed to publish to Polygon WS");
-          });
-        }
-
-        sendMessage(connectionId, {
-          type: "unsubscribed",
-          symbols,
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // =============================================
-      // LEGACY: Subscribe all (deprecated)
-      // =============================================
-      else if (action === "subscribe_all") {
-        conn.subscriptions.add("*");
-        logger.info({ connectionId }, "Client subscribed to all");
-
-        sendMessage(connectionId, {
-          type: "subscribed_all",
-          timestamp: new Date().toISOString(),
-        });
       }
 
       // Acción desconocida
@@ -814,6 +1044,7 @@ wss.on("connection", (ws, req) => {
 
   // Manejar cierre de conexión
   ws.on("close", () => {
+    unsubscribeClientFromAll(connectionId);
     connections.delete(connectionId);
     logger.info({ connectionId }, "❌ Client disconnected");
   });
@@ -821,6 +1052,7 @@ wss.on("connection", (ws, req) => {
   // Manejar errores
   ws.on("error", (err) => {
     logger.error({ connectionId, err }, "WebSocket error");
+    unsubscribeClientFromAll(connectionId);
     connections.delete(connectionId);
   });
 });
@@ -840,19 +1072,14 @@ processAggregatesStream().catch((err) => {
   process.exit(1);
 });
 
-processRvolStream().catch((err) => {
-  logger.fatal({ err }, "RVOL stream processor crashed");
-  process.exit(1);
-});
-
 // Iniciar servidor
 server.listen(PORT, () => {
   logger.info({ port: PORT }, "🚀 WebSocket Server started");
-  logger.info("Features enabled:");
-  logger.info("  - Snapshot + Deltas (stream:ranking:deltas)");
-  logger.info("  - Sequence number tracking");
-  logger.info("  - Auto-resync on gaps");
-  logger.info("  - Legacy aggregates support");
+  logger.info("📡 Architecture: HYBRID");
+  logger.info("  ✅ Rankings: Snapshot + Deltas (every 10s)");
+  logger.info("  ✅ Price/Volume: Real-time Aggregates (every 1s)");
+  logger.info("  ✅ Optimized broadcasting with inverted index");
+  logger.info("  ✅ Symbol→Lists mapping for aggregates");
 });
 
 // Graceful shutdown
