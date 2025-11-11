@@ -1,0 +1,202 @@
+================================================================================
+QUICKSTART - FASE 1: TICKER-METADATA-SERVICE
+================================================================================
+
+DEPLOYMENT RÁPIDO EN 5 PASOS
+============================
+
+Paso 1: VERIFICAR PREREQUISITOS
+--------------------------------
+# Asegúrate de tener estos servicios corriendo:
+docker-compose ps
+
+# Deben estar "running":
+- redis
+- timescaledb
+
+# Si no están:
+docker-compose up -d redis timescaledb
+
+# Espera 10 segundos para que inicien
+sleep 10
+
+
+Paso 2: BUILD DEL NUEVO SERVICIO
+---------------------------------
+docker-compose build ticker_metadata
+
+
+Paso 3: LEVANTAR EL SERVICIO
+-----------------------------
+docker-compose up -d ticker_metadata
+
+# Espera 15 segundos para que inicie
+sleep 15
+
+
+Paso 4: VERIFICAR QUE FUNCIONA
+-------------------------------
+# Health check
+curl http://localhost:8010/health
+
+# Debería retornar:
+# {"status":"healthy","service":"ticker-metadata-service",...}
+
+# Test básico
+curl http://localhost:8010/api/v1/metadata/AAPL
+
+# Debería retornar metadata de Apple
+
+
+Paso 5: RESTART API GATEWAY
+----------------------------
+# Para que reconozca el nuevo servicio
+docker-compose restart api_gateway
+
+# Espera 10 segundos
+sleep 10
+
+
+VERIFICACIÓN FINAL
+==================
+
+# Test desde API Gateway (con fallback)
+curl http://localhost:8000/api/v1/ticker/AAPL/metadata
+
+# Test desde Frontend
+# Abre: http://localhost:3000/scanner
+# Click en un símbolo → Debería abrir modal con metadata
+
+
+TROUBLESHOOTING RÁPIDO
+======================
+
+Problema: Servicio no arranca
+Solución:
+  docker logs -f tradeul_ticker_metadata
+  # Buscar errores de conexión Redis/DB
+
+Problema: 503 Service Unavailable
+Solución:
+  # Verificar que Redis y TimescaleDB están corriendo
+  docker-compose ps
+  
+Problema: 404 Not Found
+Solución:
+  # Normal para símbolos inválidos
+  # Para símbolos válidos, el servicio enriquecerá desde Polygon
+
+Problema: Metadata modal no abre en frontend
+Solución:
+  # Verificar que api-gateway está corriendo
+  docker-compose restart api_gateway
+  # Limpiar cache del navegador
+  # Verificar consola del navegador (F12)
+
+
+TESTING COMPLETO
+================
+
+# Script automatizado con 11 tests
+./test_ticker_metadata_service.sh
+
+
+ROLLBACK SI ALGO FALLA
+=======================
+
+# Opción 1: Detener servicio (2 minutos)
+docker-compose stop ticker_metadata
+docker-compose restart api_gateway
+# → API Gateway usa fallback automático (DB direct)
+
+# Opción 2: Volver a main
+git checkout main
+docker-compose up -d --build
+
+
+LOGS ÚTILES
+===========
+
+# Logs del nuevo servicio
+docker logs -f tradeul_ticker_metadata
+
+# Logs del API Gateway
+docker logs -f tradeul_api_gateway
+
+# Logs de Redis (ver cache operations)
+docker exec -it tradeul_redis redis-cli MONITOR
+
+# Ver cache keys
+docker exec -it tradeul_redis redis-cli KEYS "ticker:metadata:*"
+
+
+MÉTRICAS DE ÉXITO
+=================
+
+✓ Health check responde HTTP 200
+✓ Metadata endpoint devuelve datos de AAPL
+✓ API Gateway funciona (con o sin nuevo servicio)
+✓ Frontend modal abre y muestra datos
+✓ No hay errores en logs
+✓ Cache hit rate > 70% (después de algunos requests)
+
+
+COMANDOS ÚTILES
+===============
+
+# Ver estadísticas del servicio
+curl http://localhost:8010/api/v1/metadata/stats/service
+
+# Forzar refresh de un símbolo
+curl -X POST http://localhost:8010/api/v1/metadata/AAPL/refresh
+
+# Refresh múltiples símbolos
+curl -X POST http://localhost:8010/api/v1/metadata/bulk/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"symbols": ["AAPL","TSLA","NVDA"]}'
+
+# Ver info de compañía
+curl http://localhost:8010/api/v1/company/AAPL
+
+# Ver estadísticas de mercado
+curl http://localhost:8010/api/v1/statistics/AAPL
+
+
+MERGE A MAIN (Después de testing exitoso)
+==========================================
+
+1. Verificar que todo funciona correctamente
+2. git checkout main
+3. git merge feature/ticker-metadata-service
+4. git push origin main
+5. docker-compose up -d --build (en producción)
+
+
+PRÓXIMOS PASOS
+==============
+
+Después de merge exitoso:
+
+1. Monitorear en producción por 24-48 horas
+2. Verificar cache hit rate
+3. Verificar latencias
+4. Documentar cualquier issue encontrado
+5. Planear Fase 2: APIs en scanner/analytics
+
+
+SOPORTE
+=======
+
+Documentación completa:
+- services/ticker-metadata-service/README.txt
+- services/PHASE_1_COMPLETED.txt
+- services/ROLLBACK_PLAN.txt
+
+Branch: feature/ticker-metadata-service
+Commit: c1b06b8
+
+
+================================================================================
+FIN QUICKSTART
+================================================================================
+
