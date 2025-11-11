@@ -238,6 +238,15 @@ class ScannerCategorizer:
         """
         Obtiene TODAS las categorías con sus respectivos rankings
         
+        Optimización doble:
+        1. Pre-calcula categorías UNA VEZ por ticker (evita redundancia)
+        2. Agrupa en UNA SOLA PASADA (evita doble bucle)
+        
+        Complejidad:
+        - Antes: O(11 × 500 × 20) = 110,000 operaciones
+        - Después paso 1: O(500 × 20 + 11 × 500) = 15,500 ops (-86%)
+        - Después paso 2: O(500 × 20 + 500 × 2.5) = 11,250 ops (-90%)
+        
         Args:
             tickers: Lista completa de tickers filtrados
             limit_per_category: Límite de resultados por categoría
@@ -245,15 +254,46 @@ class ScannerCategorizer:
         Returns:
             Dict con {category_name: [tickers_ranked]}
         """
-        # Validar límite máximo
         limit_per_category = min(limit_per_category, settings.max_category_limit)
-        results = {}
         
+        # Agrupar tickers por categoría en UNA SOLA PASADA
+        # Antes: O(11 categorías × 500 tickers) = 5,500 iteraciones
+        # Ahora:  O(500 tickers × 2.5 categorías/ticker) = 1,250 iteraciones (-77%)
+        results = {cat.value: [] for cat in ScannerCategory}
+        
+        for ticker in tickers:
+            categories = self.categorize_ticker(ticker)
+            for category in categories:
+                results[category.value].append(ticker)
+        
+        # Ordenar y limitar cada categoría
         for category in ScannerCategory:
-            ranked = self.get_category_rankings(tickers, category, limit_per_category)
+            categorized = results[category.value]
             
-            if ranked:  # Solo incluir si hay tickers
-                results[category.value] = ranked
+            if not categorized:
+                continue
+            
+            # Ordenar según la categoría
+            if category == ScannerCategory.GAPPERS_UP:
+                categorized.sort(key=lambda t: t.change_percent or 0, reverse=True)
+            elif category == ScannerCategory.GAPPERS_DOWN:
+                categorized.sort(key=lambda t: t.change_percent or 0)
+            elif category in [ScannerCategory.MOMENTUM_UP, ScannerCategory.WINNERS]:
+                categorized.sort(key=lambda t: t.change_percent or 0, reverse=True)
+            elif category in [ScannerCategory.MOMENTUM_DOWN, ScannerCategory.LOSERS]:
+                categorized.sort(key=lambda t: t.change_percent or 0)
+            elif category == ScannerCategory.ANOMALIES:
+                categorized.sort(key=lambda t: t.rvol_slot or t.rvol or 0, reverse=True)
+            elif category == ScannerCategory.HIGH_VOLUME:
+                categorized.sort(key=lambda t: t.volume_today or 0, reverse=True)
+            elif category == ScannerCategory.NEW_HIGHS:
+                categorized.sort(key=lambda t: abs(t.price_from_high) if t.price_from_high else 999)
+            elif category == ScannerCategory.NEW_LOWS:
+                categorized.sort(key=lambda t: abs(t.price_from_low) if t.price_from_low else 999)
+            elif category == ScannerCategory.REVERSALS:
+                categorized.sort(key=lambda t: t.score, reverse=True)
+            
+            results[category.value] = categorized[:limit_per_category]
         
         return results
     

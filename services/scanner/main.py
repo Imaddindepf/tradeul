@@ -23,7 +23,6 @@ from shared.utils.logger import get_logger, configure_logging
 
 from scanner_engine import ScannerEngine
 from scanner_categories import ScannerCategory
-from hot_ticker_manager import HotTickerManager
 
 # Configure logging
 configure_logging(service_name="scanner")
@@ -37,7 +36,6 @@ logger = get_logger(__name__)
 redis_client: Optional[RedisClient] = None
 timescale_client: Optional[TimescaleClient] = None
 scanner_engine: Optional[ScannerEngine] = None
-hot_ticker_manager: Optional[HotTickerManager] = None
 background_tasks: List[asyncio.Task] = []
 is_running = False
 
@@ -49,7 +47,7 @@ is_running = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the service"""
-    global redis_client, timescale_client, scanner_engine, hot_ticker_manager
+    global redis_client, timescale_client, scanner_engine
     
     logger.info("Starting Scanner Service")
     
@@ -63,10 +61,6 @@ async def lifespan(app: FastAPI):
     # Initialize scanner engine
     scanner_engine = ScannerEngine(redis_client, timescale_client)
     await scanner_engine.initialize()
-    
-    # Initialize hot ticker manager
-    hot_ticker_manager = HotTickerManager(redis_client)
-    logger.info("Hot Ticker Manager initialized")
     
     logger.info("Scanner Service started (paused)")
     
@@ -132,20 +126,12 @@ async def discovery_loop():
             result = await scanner_engine.run_scan()
             
             if result:
-                # Actualizar hot set basado en rankings actuales
-                current_rankings = {}
-                for category_name, tickers in scanner_engine.last_categories.items():
-                    current_rankings[category_name] = [t.symbol for t in tickers]
-                
-                await hot_ticker_manager.update_hot_set(current_rankings)
-                
                 duration = (datetime.now() - start).total_seconds()
                 logger.info(
                     "🔍 Discovery scan completed",
                     filtered_count=result.filtered_count,
                     total_scanned=result.total_universe_size,
-                    duration_sec=round(duration, 2),
-                    hot_tickers=len(hot_ticker_manager.hot_tickers)
+                    duration_sec=round(duration, 2)
                 )
             
             # Wait 10 seconds before next discovery (reducido de 30 para menor latencia)
@@ -157,39 +143,6 @@ async def discovery_loop():
         except Exception as e:
             logger.error("Error in discovery loop", error=str(e))
             await asyncio.sleep(30)
-
-async def hot_loop():
-    """
-    HOT LOOP - Actualiza SOLO hot tickers (rápido)
-    
-    - Frecuencia: cada 1 segundo
-    - Procesa: 50-200 tickers (solo hot)
-    - Objetivo: Mantener rankings actualizados en tiempo real
-    """
-    global is_running
-    
-    logger.info("🔥 Starting HOT loop (1 seg interval)")
-    
-    while is_running:
-        try:
-            # Si no hay hot tickers, esperar
-            if not hot_ticker_manager.hot_tickers:
-                await asyncio.sleep(1)
-                continue
-            
-            # TODO: Implementar run_hot_scan() en scanner_engine
-            # Por ahora, simplemente esperamos
-            # En la próxima iteración implementaremos este método
-            
-            await asyncio.sleep(1)
-        
-        except asyncio.CancelledError:
-            logger.info("Hot loop cancelled")
-            break
-        except Exception as e:
-            logger.error("Error in hot loop", error=str(e))
-            await asyncio.sleep(1)
-
 
 # =============================================
 # API ENDPOINTS
@@ -220,17 +173,16 @@ async def start_scanner():
     
     is_running = True
     
-    # Iniciar ambos loops en paralelo
+    # Iniciar discovery loop
     discovery_task = asyncio.create_task(discovery_loop())
-    hot_task = asyncio.create_task(hot_loop())
     
-    background_tasks = [discovery_task, hot_task]
+    background_tasks = [discovery_task]
     
-    logger.info("✅ Scanner started (discovery + hot loops)")
+    logger.info("✅ Scanner started (discovery loop)")
     
     return {
         "status": "started",
-        "loops": ["discovery (10s)", "hot (1s)"]
+        "loops": ["discovery (10s)"]
     }
 
 

@@ -139,7 +139,7 @@ class ScannerEngine:
             if len(scored_tickers) > settings.max_filtered_tickers:
                 scored_tickers = scored_tickers[:settings.max_filtered_tickers]
             
-            # Guardar tickers filtrados en cache (PROFESIONAL)
+            # Guardar tickers filtrados en cache
             if scored_tickers:
                 # 1. Cache en memoria (inmediato)
                 self.last_filtered_tickers = scored_tickers
@@ -151,11 +151,12 @@ class ScannerEngine:
                 # 3. Categorizar (usa tickers en memoria)
                 await self.categorize_filtered_tickers(scored_tickers)
                 
-                # 4. AUTO-SUSCRIPCIÓN a Polygon WS (PROFESIONAL)
+                # 4. AUTO-SUSCRIPCIÓN a Polygon WS
                 await self._publish_filtered_tickers_for_subscription(scored_tickers)
             
-            # Save scan results to database
-            await self._save_scan_results(scored_tickers)
+      
+            # Data Maintenance Service las persiste cada hora desde Redis cache en la tabla scan_results 
+       
             
             # Update statistics
             elapsed = (time.time() - start) * 1000
@@ -165,7 +166,7 @@ class ScannerEngine:
             self.last_scan_time = datetime.now()
             self.last_scan_duration_ms = elapsed
             
-            # Build result
+            # Build result y se usa para razones estadísticas que debo verificar después (pendiente de anañizar)
             result = ScannerResult(
                 timestamp=datetime.now(),
                 session=self.current_session,
@@ -337,61 +338,75 @@ class ScannerEngine:
         Args:
             enriched_snapshots: Lista de tuplas (snapshot, rvol, atr_data)
         """
-        # OPTIMIZACIÓN CRÍTICA: Batch MGET de TODAS las metadatas de una vez
+        # OPTIMIZACIÓN: Filtrado temprano + MGET batch + procesamiento en una sola pasada
         
-        # 1. Recopilar símbolos únicos con filtro temprano de precio
-        unique_snapshots = []
+        # 1. Primera pasada: filtrar por precio y volumen, recopilar símbolos únicos
+        valid_snapshots = []
         seen_symbols = set()
         
         for snapshot, rvol, atr_data in enriched_snapshots:
-            # Filtro temprano: excluir precios < 0.5 para evitar MGET masivo
+            # Validaciones tempranas (evita MGET innecesarios)
             cp = snapshot.current_price
-            if cp is not None and cp < 0.5:
+            cv = snapshot.current_volume
+            
+            # Skip: precio inválido o muy bajo
+            if not cp or cp < 0.5:
                 continue
+            
+            # Skip: volumen inválido
+            if not cv or cv <= 0:
+                continue
+            
+            # Deduplicar símbolos
             symbol = snapshot.ticker
             if symbol not in seen_symbols:
                 seen_symbols.add(symbol)
-                unique_snapshots.append((snapshot, rvol, atr_data))
+                valid_snapshots.append((snapshot, rvol, atr_data))
         
-        # 2-4. Metadata con caché local + MGET paginado solo para misses
-        symbols = [s.ticker for s, r, a in unique_snapshots]
-        metadatas = await self._get_metadata_batch_cached(symbols)
+        # 2. MGET de metadata solo para símbolos válidos
+        metadatas = await self._get_metadata_batch_cached(list(seen_symbols))
         
-        # 5. Procesar con metadatas ya disponibles
+        # 3. Procesamiento: construir tickers + filtrar + score (una sola pasada)
+        # NOTA: Este bucle aplica filtros que REQUIEREN metadata:
+        # - market_cap (requiere market_cap de metadata)  
+        # - sector/industry/exchange (requieren metadata)
+        # 
+        # Filtros que NO requieren metadata (pero ya se aplicaron en bucle 1):
+        # - Precio (viene del snapshot)
+        # - Volumen (viene del snapshot)
+        # 
+        # Otros filtros que NO requieren metadata (se aplican aquí):
+        # - RVOL (ya calculado por Analytics, viene en enriched_snapshots)
+        # - change_percent (usa prev_close del snapshot, no metadata)
+        
         filtered_and_scored = []
         
-        for snapshot, rvol, atr_data in unique_snapshots:
+        for snapshot, rvol, atr_data in valid_snapshots:
             try:
                 symbol = snapshot.ticker
                 
-                # Validaciones básicas
-                if not snapshot.current_price or snapshot.current_price <= 0:
-                    continue
-                
-                if not snapshot.current_volume or snapshot.current_volume <= 0:
-                    continue
-                
-                # Get metadata del dict (ya fue fetched con MGET)
+                # Get metadata (ya fetched con MGET batch)
                 metadata = metadatas.get(symbol)
                 if not metadata:
-                    continue  # EARLY EXIT
+                    continue  # Sin metadata, skip
                 
-                # 4. RVOL ya lo tenemos (parámetro de la tupla)
-                # No necesita buscar en dict
-                
-                # 5. Build ticker inline
+                # Build ticker completo (incluye cálculos de change_percent, etc)
+                # metadata incluye: market_cap, sector, industry, exchange, avg_volume_30d, float_shares
+                # NOTA: RVOL ya viene calculado por Analytics (no usa avg_volume_30d aquí)
                 ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol, atr_data)
                 if not ticker:
                     continue
                 
-                # 6. Enhance con gaps (solo cálculos)
+                # Enriquecer con gaps (usa prev_close y open del snapshot)
                 ticker = self.enhance_ticker_with_gaps(ticker, snapshot)
                 
-                # 7. FILTRAR INMEDIATAMENTE
+                # Aplicar filtros configurables
+                # Filtros que requieren metadata: market_cap, sector, industry, exchange
+                # Filtros que NO requieren metadata: RVOL (ya calculado), price, volume, change_percent
                 if not self._passes_all_filters(ticker):
-                    continue  # EARLY EXIT - no procesa más
+                    continue  # No cumple filtros, skip
                 
-                # 8. Calcular score SOLO si pasó filtros
+                # Calcular score (solo si pasó TODOS los filtros)
                 ticker.score = self._calculate_score_inline(ticker)
                 
                 filtered_and_scored.append(ticker)
@@ -408,44 +423,7 @@ class ScannerEngine:
         
         return filtered_and_scored
     
-    async def _enrich_and_calculate(
-        self,
-        snapshots: List[PolygonSnapshot]
-    ) -> List[ScannerTicker]:
-        """
-        LEGACY METHOD - No se usa actualmente
-        
-        Reemplazado por _process_snapshots_optimized() que combina
-        enriquecimiento + filtrado + scoring en un solo paso.
-        
-        Args:
-            snapshots: Raw snapshots from Polygon
-        
-        Returns:
-            List of enriched ScannerTicker objects
-        """
-        enriched = []
-        
-        for snapshot in snapshots:
-            try:
-                # Get metadata from cache/database
-                metadata = await self._get_ticker_metadata(snapshot.ticker)
-                
-                if not metadata:
-                    continue
-                
-                # Build scanner ticker (sin atr_data - legacy)
-                ticker = await self._build_scanner_ticker(snapshot, metadata, atr_data=None)
-                
-                if ticker:
-                    # Enriquecer con cálculos de gaps (NUEVO)
-                    ticker = self.enhance_ticker_with_gaps(ticker, snapshot)
-                    enriched.append(ticker)
-            
-            except Exception as e:
-                logger.error("Error enriching ticker", ticker=snapshot.ticker, error=str(e))
-        
-        return enriched
+   
     
     async def _get_ticker_metadata(self, symbol: str) -> Optional[TickerMetadata]:
         """
@@ -891,7 +869,7 @@ class ScannerEngine:
         tickers: List[ScannerTicker]
     ) -> None:
         """
-        🚀 SISTEMA AUTOMÁTICO DE SUSCRIPCIONES (PROFESIONAL)
+        SISTEMA AUTOMÁTICO DE SUSCRIPCIONES (PROFESIONAL)
         
         Publica símbolos filtrados para que Polygon WS se suscriba automáticamente.
         Gestiona suscripciones/desuscripciones dinámicas basadas en rankings.
@@ -961,7 +939,34 @@ class ScannerEngine:
             # 6. Actualizar tracking para próximo ciclo
             self._previous_filtered_symbols = current_symbols
             
-            # 7. Log resumen
+            # 7. Guardar snapshot de tickers activos en Redis SET (para inicialización rápida de Polygon WS)
+            try:
+                logger.info(
+                    "Intentando guardar snapshot",
+                    current_symbols_count=len(current_symbols),
+                    has_symbols=bool(current_symbols)
+                )
+                await self.redis.client.delete("polygon_ws:active_tickers")
+                if current_symbols:
+                    result = await self.redis.client.sadd("polygon_ws:active_tickers", *current_symbols)
+                    await self.redis.client.expire("polygon_ws:active_tickers", 3600)  # 1 hora
+                    logger.info(
+                        "✅ Snapshot de tickers activos guardado",
+                        key="polygon_ws:active_tickers",
+                        count=len(current_symbols),
+                        sadd_result=result
+                    )
+                else:
+                    logger.warning("current_symbols está vacío, no se guardará snapshot")
+            except Exception as snapshot_error:
+                logger.error(
+                    "Error guardando snapshot de tickers",
+                    error=str(snapshot_error),
+                    error_type=type(snapshot_error).__name__,
+                    traceback=traceback.format_exc()
+                )
+            
+            # 8. Log resumen
             logger.info(
                 "✅ Auto-subscription actualizada",
                 total_active=len(current_symbols),
@@ -972,51 +977,6 @@ class ScannerEngine:
         
         except Exception as e:
             logger.error("Error en auto-subscription", error=str(e))
-    
-    async def _save_scan_results(self, tickers: List[ScannerTicker]) -> None:
-        """Save scan results to database (OPTIMIZADO con batch insert)"""
-        try:
-            if not tickers:
-                return
-            
-            # Preparar batch de datos
-            batch_data = []
-            for ticker in tickers:
-                metadata_json = json.dumps(ticker.metadata) if ticker.metadata else None
-                
-                batch_data.append((
-                    ticker.timestamp,
-                    ticker.symbol,
-                    ticker.session.value,
-                    ticker.price,
-                    ticker.volume,
-                    ticker.volume_today,
-                    ticker.change_percent,
-                    ticker.rvol,
-                    ticker.rvol_slot,
-                    ticker.price_from_high,
-                    ticker.price_from_low,
-                    ticker.market_cap,
-                    ticker.float_shares,
-                    ticker.score,
-                    ticker.filters_matched,
-                    metadata_json
-                ))
-            
-            # Batch INSERT (una sola query)
-            query = """
-                INSERT INTO scan_results (
-                    time, symbol, session, price, volume, volume_today,
-                    change_percent, rvol, rvol_slot, price_from_high, price_from_low,
-                    market_cap, float_shares, score, filters_matched, metadata
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            """
-            
-            await self.db.executemany(query, batch_data)
-            
-        except Exception as e:
-            logger.error("Error saving scan results", error=str(e))
     
     # =============================================
     # FILTER MANAGEMENT
@@ -1120,6 +1080,9 @@ class ScannerEngine:
                     
                     # Guardar para próxima comparación
                     self.last_rankings[category_name] = new_ranking
+            
+            # Publicar tickers para auto-suscripción en Polygon WS
+            await self._publish_filtered_tickers_for_subscription(tickers)
             
             # Actualizar cache
             self.last_categories = categories

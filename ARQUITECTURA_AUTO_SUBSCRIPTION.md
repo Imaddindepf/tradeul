@@ -392,3 +392,4 @@ if len(scored_tickers) > settings.max_filtered_tickers:
 **Status:** ✅ Implementado y listo para testing
 
 
+
