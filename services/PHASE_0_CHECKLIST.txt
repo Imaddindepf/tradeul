@@ -1,0 +1,242 @@
+================================================================================
+FASE 0: CHECKLIST DE PREPARACIÓN
+Fecha completada: 2025-11-11
+================================================================================
+
+PROPÓSITO:
+Verificar que todo está listo antes de comenzar la reorganización de servicios.
+
+================================================================================
+DOCUMENTACIÓN
+================================================================================
+
+✅ CURRENT_APIS.txt
+   → Documentación completa de todos los endpoints actuales
+   → Todos los servicios catalogados
+   → Puertos, dependencias y flujos documentados
+
+✅ SERVICE_DEPENDENCIES.txt
+   → Mapa de dependencias entre servicios
+   → Análisis de impacto por servicio
+   → Identificación de servicios críticos vs seguros de modificar
+
+✅ ROLLBACK_PLAN.txt
+   → Plan detallado de rollback por fase
+   → Procedimientos de emergencia
+   → Tiempos estimados de recuperación
+
+✅ Git Backup Branch
+   → Branch creado: backup/pre-phase-1-migration
+   → Pusheado a origin
+   → Punto de restauración seguro
+
+================================================================================
+INFRAESTRUCTURA
+================================================================================
+
+⚠️  Base de Datos Backup
+   ACCIÓN REQUERIDA:
+   Antes de continuar con Fase 1, ejecutar:
+   
+   # Entrar al contenedor
+   docker exec -it timescaledb /bin/bash
+   
+   # Hacer backup
+   pg_dump -U postgres tradeul > /tmp/backup_pre_migration_$(date +%Y%m%d).sql
+   
+   # Copiar a host
+   exit
+   docker cp timescaledb:/tmp/backup_pre_migration_*.sql ./backups/
+
+⚠️  Redis Estado
+   VERIFICAR:
+   - Redis funcionando
+   - Memoria usage < 50%
+   - Latencia < 10ms
+   
+   COMANDOS:
+   docker exec -it redis redis-cli INFO memory
+   docker exec -it redis redis-cli PING
+
+⚠️  Docker Services Health
+   VERIFICAR antes de migración:
+   - Todos los servicios running
+   - No hay restart loops
+   - Logs sin errores críticos
+   
+   COMANDOS:
+   docker-compose ps
+   docker-compose logs --tail=50 | grep -i error
+
+================================================================================
+ANÁLISIS COMPLETO
+================================================================================
+
+✅ APIs Documentadas
+   → 9 servicios catalogados
+   → Todos los endpoints listados
+   → Protocolos y puertos identificados
+
+✅ Dependencias Mapeadas
+   → Grafo de dependencias creado
+   → 5 niveles identificados
+   → Puntos críticos marcados
+
+✅ Servicios Categorizados
+   SAFE TO MODIFY:
+   - ✅ data-maintenance (backend, no afecta runtime)
+   - ✅ api-gateway (si mantenemos API contract)
+   - ✅ historical (batch process)
+   
+   DO NOT TOUCH (Fase 1):
+   - ❌ scanner-service (core del negocio)
+   - ❌ analytics-service (cálculos críticos)
+   - ❌ polygon-ws (fuente de datos)
+   - ❌ data-ingest (pipeline crítico)
+   - ❌ websocket-server (frontend depende de él)
+
+✅ Flujos de Datos Documentados
+   → Real-time pipeline documentado
+   → Batch/maintenance pipeline documentado
+   → Redis data structures listados
+   → TimescaleDB schema documentado
+
+================================================================================
+PLAN DE MIGRACIÓN VALIDADO
+================================================================================
+
+✅ Fase 1 Definida
+   Objetivo: Crear ticker-metadata-service
+   
+   Pasos:
+   1. Crear nueva estructura de carpetas
+   2. Mover enrich_metadata.py
+   3. Crear FastAPI app
+   4. Implementar endpoints REST
+   5. Actualizar api-gateway
+   6. Actualizar docker-compose.yml
+   7. Testing
+   8. Deploy gradual
+   
+   Impacto esperado: BAJO
+   Rollback time: < 3 minutos
+
+✅ Fases Subsecuentes Planificadas
+   Fase 2: API REST en scanner/analytics
+   Fase 3: fundamental-data-service
+   Fase 4: Optimizaciones futuras
+
+✅ Rollback Procedures
+   → Git rollback documentado
+   → Selective rollback documentado
+   → Modo degradado documentado
+   → Emergency rollback total documentado
+
+================================================================================
+RIESGOS IDENTIFICADOS
+================================================================================
+
+ALTO RIESGO:
+-----------
+❗ Si Redis cae durante migración
+   Mitigation: No hacer cambios en horario pico
+   
+❗ Si TimescaleDB tiene problemas con nuevas queries
+   Mitigation: Test queries en staging primero
+
+MEDIO RIESGO:
+------------
+⚠️  Nuevo servicio consume más recursos de lo esperado
+   Mitigation: Monitorear CPU/memory durante deploy
+   
+⚠️  Latencia entre api-gateway y nuevo servicio
+   Mitigation: Mantener fallback a query directa
+
+BAJO RIESGO:
+-----------
+✓ Frontend muestra errores en modal metadata
+  Mitigation: Error handling ya implementado en UI
+
+✓ Data-maintenance falla sin enrich_metadata
+  Mitigation: Es background task, no afecta runtime
+
+================================================================================
+CONDICIONES PARA PROCEDER A FASE 1
+================================================================================
+
+REQUISITOS OBLIGATORIOS:
+-----------------------
+[ ] Backup de base de datos completado
+[ ] Branch de backup verificado en GitHub
+[ ] Servicios actuales funcionando correctamente
+[ ] No hay errores críticos en logs
+[ ] Redis stable (no spikes de memoria/latencia)
+[ ] TimescaleDB stable (no long queries bloqueantes)
+
+RECOMENDACIONES:
+---------------
+[ ] Deploy en horario de bajo tráfico
+[ ] Tener 2-3 horas disponibles sin interrupciones
+[ ] Monitoreo activo durante migración
+[ ] Equipo disponible para rollback si es necesario
+
+CUANDO TODOS LOS [ ] ESTÉN EN [✓] → OK PARA FASE 1
+
+================================================================================
+SIGUIENTE PASO
+================================================================================
+
+Una vez completado este checklist:
+
+1. Verificar que todos los requisitos están [✓]
+
+2. Notificar que se va a comenzar Fase 1:
+   "Iniciando Fase 1: Creación de ticker-metadata-service"
+
+3. Crear nuevo branch para trabajar:
+   git checkout -b feature/ticker-metadata-service
+
+4. Comenzar implementación según plan en SERVICE_DEPENDENCIES.txt
+
+5. Seguir procedimientos de testing antes de merge
+
+================================================================================
+NOTAS FINALES
+================================================================================
+
+✅ Documentación completa: CURRENT_APIS.txt, SERVICE_DEPENDENCIES.txt
+✅ Plan de rollback: ROLLBACK_PLAN.txt
+✅ Backup de código: branch backup/pre-phase-1-migration
+⚠️  Backup de DB: PENDIENTE (hacer antes de Fase 1)
+✅ Análisis de riesgos: Completado
+✅ Plan de migración: Validado
+
+Estado general: READY (con backup de DB pendiente)
+
+================================================================================
+APROBACIÓN PARA CONTINUAR
+================================================================================
+
+Fase 0 (Preparación): ✅ COMPLETADA
+Fecha: 2025-11-11
+
+Preparado por: Sistema automatizado
+Revisado por: [Usuario]
+
+AUTORIZACIÓN PARA FASE 1: [ ] Pendiente
+
+Comentarios:
+- Documentación exhaustiva completada
+- Backup de código en GitHub
+- Plan de rollback detallado
+- Riesgos identificados y mitigados
+- Sistema estable y listo para modificación
+
+PRÓXIMA ACCIÓN:
+Realizar backup de base de datos y marcar [✓] el requisito correspondiente.
+Una vez hecho, autorizar Fase 1.
+
+================================================================================
+FIN DEL CHECKLIST
+================================================================================
+

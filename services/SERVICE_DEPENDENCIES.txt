@@ -1,0 +1,416 @@
+================================================================================
+MAPA DE DEPENDENCIAS ENTRE SERVICIOS - TRADEUL
+Fecha: 2025-11-11
+================================================================================
+
+PROPÓSITO:
+Identificar todas las dependencias entre servicios para planificar la migración
+sin romper funcionalidades existentes.
+
+================================================================================
+DEPENDENCY GRAPH (quien depende de quien)
+================================================================================
+
+Level 0 - INFRASTRUCTURE (no dependen de nadie)
+├── TimescaleDB (PostgreSQL)
+├── Redis
+└── Polygon.io API (external)
+
+Level 1 - DATA SOURCES
+├── polygon-ws
+│   └── Depende de: Redis, Polygon.io API
+│   └── Produce: polygon:snapshots, polygon:aggregates
+│
+└── market-session-service
+    └── Depende de: Redis (cache)
+    └── Produce: session data (cached)
+
+Level 2 - DATA PROCESSING
+├── data-ingest
+│   └── Depende de: 
+│       - Redis (consume polygon:snapshots)
+│       - Redis (produce scanner:snapshots, analytics:aggregates)
+│   └── Produce: Processed snapshots
+│
+└── data-maintenance (background)
+    └── Depende de:
+        - TimescaleDB (read/write)
+        - Redis (sync data)
+        - Polygon API (enrich metadata)
+    └── Produce: ticker_metadata, ATR, volume_slots
+
+Level 3 - ANALYTICS
+├── analytics-service
+│   └── Depende de:
+│       - Redis (consume analytics:aggregates)
+│       - Redis (read volume_slots for RVOL calculation)
+│       - Redis (produce rvol:{symbol}, intraday:{symbol})
+│   └── Produce: RVOL data, intraday tracking
+│
+└── scanner-service
+    └── Depende de:
+        - Redis (consume scanner:snapshots)
+        - Redis (read ticker_metadata)
+        - Redis (produce scanner streams + ranked sets)
+    └── Produce: Ranked lists por categoría
+
+Level 4 - API LAYER
+├── websocket-server (Node.js)
+│   └── Depende de:
+│       - Redis (read scanner streams)
+│       - Redis (read analytics data for aggregation)
+│   └── Produce: WebSocket stream to frontend
+│
+└── api-gateway
+    └── Depende de:
+        - Redis (cache, scanner data)
+        - TimescaleDB (direct queries)
+        - market-session-service (HTTP proxy)
+    └── Produce: REST API + WebSocket para frontend
+
+Level 5 - PRESENTATION
+└── frontend (Next.js)
+    └── Depende de:
+        - api-gateway (REST + WS)
+        - websocket-server (real-time data)
+
+Level 6 - INFRASTRUCTURE
+└── nginx (reverse proxy)
+    └── Depende de: frontend
+
+================================================================================
+CRITICAL DEPENDENCIES (Si se rompe, todo falla)
+================================================================================
+
+1. Redis
+   Usado por: TODOS los servicios
+   Risk: CRITICAL
+   Mitigation: Redis sentinel / cluster
+
+2. TimescaleDB
+   Usado por: api-gateway, data-maintenance, historical
+   Risk: HIGH
+   Mitigation: Backups diarios, replication
+
+3. polygon-ws
+   Usado por: data-ingest → todo el pipeline
+   Risk: HIGH
+   Mitigation: Reconnect logic, offline mode
+
+================================================================================
+SERVICIO POR SERVICIO - ANÁLISIS DETALLADO
+================================================================================
+
+API GATEWAY
+-----------
+CONSUME DE:
+  - Redis:
+    * scanner:list:{list_name}:snapshot (read)
+    * scanner:ranked:{list_name} (read)
+    * ticker:data:{symbol} (read/write cache)
+    * rvol:{symbol} (read)
+  - TimescaleDB:
+    * ticker_metadata (SELECT)
+  - HTTP:
+    * market-session-service /api/session/current
+
+PRODUCE PARA:
+  - Frontend (REST responses + WebSocket)
+
+PUNTOS DE FALLO:
+  - Si Redis cae: Cache miss, pero puede leer de DB
+  - Si TimescaleDB cae: Metadata endpoint falla
+  - Si market-session cae: Session endpoint falla (podría cachear más tiempo)
+
+MIGRACIÓN IMPACT:
+  - Cambios internos no afectan frontend si API contract se mantiene
+  - Nuevo ticker-metadata-service debe ser transparente
+
+---
+
+SCANNER SERVICE
+--------------
+CONSUME DE:
+  - Redis pub/sub:
+    * scanner:snapshots (subscribe)
+  - Redis keys:
+    * ticker:metadata:{symbol} (read para filtros)
+
+PRODUCE PARA:
+  - Redis streams:
+    * stream:scanner:gappers_up
+    * stream:scanner:gappers_down
+    * stream:scanner:high_volume
+    * stream:scanner:anomalies
+  - Redis sorted sets:
+    * scanner:ranked:{list_name}
+
+DEPENDIENTES:
+  - websocket-server (lee los streams)
+  - api-gateway (lee ranked sets para gappers endpoint)
+
+PUNTOS DE FALLO:
+  - Si data-ingest cae: No recibe snapshots, scanner se detiene
+  - Si Redis cae: Todo el scanner se detiene
+
+MIGRACIÓN IMPACT:
+  - NO TOCAR en Fase 1
+  - Ya está bien separado
+  - Solo agregar API REST opcional en futuro
+
+---
+
+ANALYTICS SERVICE
+----------------
+CONSUME DE:
+  - Redis pub/sub:
+    * analytics:aggregates (subscribe)
+  - Redis keys:
+    * volume_slot:{symbol}:{slot_number} (read para RVOL)
+
+PRODUCE PARA:
+  - Redis keys:
+    * rvol:{symbol}
+    * intraday:{symbol}
+
+DEPENDIENTES:
+  - api-gateway (lee rvol data)
+  - websocket-server (agrega intraday data)
+
+PUNTOS DE FALLO:
+  - Si data-ingest cae: No recibe aggregates
+  - Si volume_slots no existen: RVOL default a 1.0
+
+MIGRACIÓN IMPACT:
+  - NO TOCAR en Fase 1
+  - Ya está bien separado
+
+---
+
+DATA MAINTENANCE
+---------------
+CONSUME DE:
+  - TimescaleDB (read):
+    * daily_ohlc (para ATR calculation)
+    * aggregates_1min (para volume slots)
+    * ticker_metadata (para enrich)
+  - Polygon API (HTTP):
+    * /v3/reference/tickers/{symbol}
+
+PRODUCE PARA:
+  - TimescaleDB (write):
+    * ticker_metadata (INSERT/UPDATE)
+    * ticker_atr (INSERT)
+    * volume_slots (INSERT)
+  - Redis (write):
+    * ticker:metadata:{symbol}
+    * volume_slot:{symbol}:{slot_number}
+
+DEPENDIENTES:
+  - analytics-service (necesita volume_slots)
+  - scanner-service (necesita ticker_metadata)
+  - api-gateway (necesita ticker_metadata)
+
+PUNTOS DE FALLO:
+  - Si Polygon API falla: enrich_metadata falla (no crítico)
+  - Si TimescaleDB cae: Todos los tasks fallan
+
+MIGRACIÓN IMPACT:
+  ⚠️  ALTA - Este servicio será reestructurado
+  - enrich_metadata → mover a ticker-metadata-service
+  - calculate_atr → puede quedarse aquí
+  - volume_slots → puede quedarse aquí
+
+---
+
+WEBSOCKET SERVER (Node.js)
+--------------------------
+CONSUME DE:
+  - Redis streams:
+    * stream:scanner:{list_name} (read)
+  - Redis keys:
+    * scanner:list:{list_name}:snapshot (read)
+
+PRODUCE PARA:
+  - Frontend (WebSocket messages)
+
+DEPENDIENTES:
+  - Frontend
+
+PUNTOS DE FALLO:
+  - Si Redis cae: No puede leer streams, WS se desconecta
+  - Si scanner-service cae: No hay nuevos datos pero no crashea
+
+MIGRACIÓN IMPACT:
+  - NO TOCAR
+  - Ya está desacoplado
+
+---
+
+DATA INGEST
+-----------
+CONSUME DE:
+  - Redis pub/sub:
+    * polygon:snapshots (subscribe)
+  - Redis keys:
+    * ticker:metadata:{symbol} (enrich snapshots)
+
+PRODUCE PARA:
+  - Redis pub/sub:
+    * scanner:snapshots (publish)
+    * analytics:aggregates (publish)
+
+DEPENDIENTES:
+  - scanner-service
+  - analytics-service
+
+PUNTOS DE FALLO:
+  - Si polygon-ws cae: No recibe datos
+  - Si Redis cae: No puede publicar
+
+MIGRACIÓN IMPACT:
+  - NO TOCAR
+  - Funciona bien
+
+---
+
+POLYGON WS
+----------
+CONSUME DE:
+  - Polygon.io WebSocket (external)
+
+PRODUCE PARA:
+  - Redis pub/sub:
+    * polygon:snapshots
+    * polygon:aggregates
+
+DEPENDIENTES:
+  - data-ingest
+
+PUNTOS DE FALLO:
+  - Si Polygon API cae: Reconecta automáticamente
+  - Si Redis cae: Buffer en memoria (límite)
+
+MIGRACIÓN IMPACT:
+  - NO TOCAR
+  - Funciona bien
+
+================================================================================
+FLUJO DE DATOS COMPLETO (REAL-TIME)
+================================================================================
+
+Polygon.io WS
+    ↓
+polygon-ws (service)
+    ↓ [Redis pub/sub: polygon:snapshots]
+data-ingest (service)
+    ↓ [Redis pub/sub: scanner:snapshots + analytics:aggregates]
+    ├─→ scanner-service
+    │     ↓ [Redis streams: stream:scanner:{list}]
+    │   websocket-server
+    │     ↓ [WebSocket]
+    │   frontend
+    │
+    └─→ analytics-service
+          ↓ [Redis keys: rvol:{symbol}]
+        api-gateway
+          ↓ [REST API]
+        frontend
+
+================================================================================
+FLUJO DE DATOS COMPLETO (BATCH/MAINTENANCE)
+================================================================================
+
+Polygon API (REST)
+    ↓
+data-maintenance
+    ↓ [TimescaleDB write]
+  ticker_metadata
+  ticker_atr
+  volume_slots
+    ↓ [sync to Redis]
+  Redis keys
+    ↓ [read by]
+  scanner-service
+  analytics-service
+  api-gateway
+
+================================================================================
+SERVICES QUE PODEMOS TOCAR SIN ROMPER NADA
+================================================================================
+
+✅ data-maintenance
+   - Interna, background tasks
+   - Solo importa que siga poblando las mismas tablas/keys
+
+✅ api-gateway
+   - Solo afecta frontend
+   - Si mantenemos API contract, es seguro
+
+⚠️  websocket-server
+   - Frontend depende de él
+   - Tocar con cuidado el formato de mensajes
+
+❌ scanner-service
+   - Core del sistema
+   - NO tocar en Fase 1
+
+❌ analytics-service
+   - RVOL crítico
+   - NO tocar en Fase 1
+
+❌ data-ingest
+   - Pipeline crítico
+   - NO tocar
+
+❌ polygon-ws
+   - Fuente de datos
+   - NO tocar
+
+================================================================================
+MIGRACIÓN SAFE: ORDEN RECOMENDADO
+================================================================================
+
+FASE 1 (Safe):
+1. Crear ticker-metadata-service
+2. Mover enrich_metadata.py
+3. Agregar endpoints nuevos
+4. api-gateway usa nuevo servicio
+5. Mantener data-maintenance para otras tasks
+
+IMPACTO: CERO en runtime (solo mejora arquitectura)
+
+FASE 2 (Safe):
+1. Agregar API REST a scanner-service (sin cambiar lógica)
+2. Agregar API REST a analytics-service (sin cambiar lógica)
+3. api-gateway puede usarlas directamente
+
+IMPACTO: Mejora performance (menos saltos vía Redis)
+
+FASE 3 (Medium risk):
+1. Crear fundamental-data-service
+2. Nuevos endpoints (no afecta existentes)
+
+IMPACTO: Solo features nuevas
+
+FASE 4 (Future):
+1. Refactor websocket-server si es necesario
+2. Refactor data-ingest si escalamos
+
+================================================================================
+ROLLBACK POINTS
+================================================================================
+
+Si algo falla en Fase 1:
+→ Revertir api-gateway a leer de TimescaleDB directamente (ya lo hace)
+→ Detener ticker-metadata-service
+→ data-maintenance sigue funcionando normal
+
+Si algo falla en Fase 2:
+→ api-gateway vuelve a leer de Redis
+→ Nuevos servicios no son críticos
+
+================================================================================
+FIN
+================================================================================
+

@@ -1,0 +1,413 @@
+================================================================================
+DOCUMENTACIÓN DE APIs ACTUALES - TRADEUL
+Fecha: 2025-11-11
+Fase: Preparación para reorganización de microservicios
+================================================================================
+
+PROPÓSITO:
+Este documento cataloga todas las APIs y servicios actuales antes de la
+reorganización. Servirá como referencia durante la migración.
+
+================================================================================
+1. API GATEWAY (Puerto 8000)
+================================================================================
+URL Base: http://localhost:8000
+
+REST ENDPOINTS:
+--------------
+GET  /health
+     → Health check del gateway
+
+GET  /api/session/current
+     → Obtiene la sesión de mercado actual
+     → Proxy a market-session-service
+
+GET  /api/v1/scanner/gappers
+     Query params: min_gap (default: 4)
+     → Obtiene lista de gappers up/down
+     → Datos desde scanner-service vía Redis
+
+GET  /api/v1/scanner/filtered
+     Query params: limit (default: 100, max: 1000)
+     → Obtiene tickers filtrados por el scanner
+     → Datos desde scanner-service
+
+GET  /api/v1/ticker/{symbol}
+     → Obtiene datos básicos de un ticker
+     → Primero Redis cache, luego TimescaleDB
+
+GET  /api/v1/ticker/{symbol}/metadata
+     → Obtiene metadatos completos de la compañía
+     → Query directo a ticker_metadata table
+     → Campos: company_name, exchange, sector, industry, market_cap,
+              float_shares, shares_outstanding, avg_volume_30d/10d,
+              avg_price_30d, beta, is_etf, is_actively_trading
+
+GET  /api/v1/rvol/{symbol}
+     → Obtiene RVOL actual de un ticker
+     → Datos desde Redis (analytics-service)
+
+WEBSOCKET:
+----------
+WS /ws/scanner
+   → Conexión WebSocket para datos en tiempo real del scanner
+   → Mensajes:
+     - subscribe_list: Suscribirse a una lista (gappers_up, etc)
+     - unsubscribe_list: Desuscribirse
+     - snapshot: Snapshot completo de la lista
+     - delta: Cambios incrementales
+     - aggregate: Actualizaciones de precio/volumen en tiempo real
+
+DEPENDENCIAS:
+- Redis (cache, pub/sub)
+- TimescaleDB (ticker_metadata, historical data)
+- Scanner Service (indirectamente vía Redis)
+- Analytics Service (indirectamente vía Redis)
+- Market Session Service (HTTP proxy)
+
+================================================================================
+2. SCANNER SERVICE (Puerto 8001)
+================================================================================
+URL Base: http://localhost:8001
+
+DESCRIPCIÓN:
+Motor de escaneo en tiempo real. Recibe datos de data-ingest y genera rankings.
+
+COMPONENTES:
+- scanner_engine.py: Motor principal
+- gap_calculator.py: Calcula gaps pre/post mercado
+- scanner_categories.py: Define categorías (gappers_up, gappers_down, etc)
+
+FLUJO DE DATOS:
+1. Recibe snapshots desde data-ingest vía Redis pub/sub
+2. Aplica filtros y calcula scores
+3. Genera rankings por categoría
+4. Publica a Redis streams:
+   - stream:scanner:gappers_up
+   - stream:scanner:gappers_down
+   - stream:scanner:high_volume
+   - stream:scanner:anomalies
+
+NO EXPONE API REST DIRECTA
+→ Todo se comunica vía Redis
+
+REDIS KEYS PRODUCIDAS:
+- scanner:list:{list_name}:snapshot
+- scanner:list:{list_name}:sequence
+- scanner:ranked:{list_name} (sorted set)
+
+================================================================================
+3. ANALYTICS SERVICE (Puerto 8002)
+================================================================================
+URL Base: http://localhost:8002
+
+DESCRIPCIÓN:
+Calcula métricas analíticas (RVOL, ATR, intraday tracking)
+
+COMPONENTES:
+- rvol_calculator.py: Calcula RVOL por slots de tiempo
+- atr_calculator.py: Average True Range (no usado en real-time)
+- intraday_tracker.py: Trackea high/low intradiarios
+- slot_manager.py: Gestiona slots de 5 minutos
+
+FLUJO DE DATOS:
+1. Recibe aggregates desde data-ingest vía Redis pub/sub
+2. Calcula RVOL basado en historical volume slots
+3. Actualiza intraday high/low
+4. Publica resultados a Redis
+
+NO EXPONE API REST DIRECTA
+→ Todo se comunica vía Redis
+
+REDIS KEYS PRODUCIDAS:
+- rvol:{symbol}
+- intraday:{symbol}
+- slot:{symbol}:{slot_number}
+
+REDIS KEYS CONSUMIDAS:
+- volume_slot:{symbol}:{slot_number} (datos históricos)
+
+================================================================================
+4. DATA INGEST SERVICE (Puerto 9002)
+================================================================================
+URL Base: http://localhost:9002
+
+DESCRIPCIÓN:
+Consume snapshots de Polygon WebSocket y los redistribuye
+
+COMPONENTES:
+- snapshot_consumer.py: Procesa snapshots all tickers
+
+FLUJO DE DATOS:
+1. Recibe de polygon-ws vía Redis pub/sub
+   - channel: polygon:snapshots
+2. Procesa y enriquece con datos de Redis (metadata)
+3. Publica a múltiples canales:
+   - scanner:snapshots (para scanner-service)
+   - analytics:aggregates (para analytics-service)
+
+NO EXPONE API REST
+
+REDIS CHANNELS PRODUCIDOS:
+- scanner:snapshots
+- analytics:aggregates
+
+================================================================================
+5. POLYGON WS SERVICE (Puerto 9001)
+================================================================================
+URL Base: http://localhost:9001
+
+DESCRIPCIÓN:
+Cliente WebSocket de Polygon.io para datos en tiempo real
+
+COMPONENTES:
+- ws_client.py: Cliente WebSocket Polygon
+
+FLUJO DE DATOS:
+1. Conecta a wss://socket.polygon.io/stocks
+2. Se subscribe a:
+   - T.* (Trades)
+   - A.* (Aggregates per second/minute)
+   - AM.* (Aggregates per minute)
+3. Publica raw data a Redis:
+   - polygon:trades
+   - polygon:aggregates
+   - polygon:snapshots
+
+NO EXPONE API REST
+
+REDIS CHANNELS PRODUCIDOS:
+- polygon:trades
+- polygon:aggregates
+- polygon:snapshots
+
+================================================================================
+6. MARKET SESSION SERVICE (Puerto 8002)
+================================================================================
+URL Base: http://localhost:8002
+
+DESCRIPCIÓN:
+Detecta sesión de mercado actual (PRE_MARKET, MARKET_OPEN, POST_MARKET, CLOSED)
+
+REST ENDPOINTS:
+--------------
+GET /api/session/current
+    → Retorna sesión actual con información detallada
+    → Respuesta:
+      {
+        "current_session": "MARKET_OPEN",
+        "trading_date": "2025-11-11",
+        "is_trading_day": true,
+        "is_holiday": false,
+        "pre_market_start": "04:00:00",
+        "market_open": "09:30:00",
+        "market_close": "16:00:00",
+        "post_market_end": "20:00:00",
+        "next_session": "POST_MARKET",
+        "seconds_until_next_session": 3600
+      }
+
+COMPONENTES:
+- session_detector.py: Detecta sesión basado en horarios NYSE
+
+ACTUALIZACIÓN:
+- Cache en Redis con TTL 60 segundos
+- Recalcula cada minuto
+
+================================================================================
+7. WEBSOCKET SERVER (Node.js, Puerto 9000)
+================================================================================
+URL Base: ws://localhost:9000
+
+DESCRIPCIÓN:
+Servidor WebSocket para frontend. Agrega datos de múltiples servicios.
+
+WEBSOCKET ENDPOINTS:
+-------------------
+WS /ws/scanner
+   → Stream de datos del scanner en tiempo real
+   → Lee de Redis streams y reenvía al frontend
+   → Maneja suscripciones por lista
+
+FLUJO:
+1. Frontend se conecta
+2. Envía {action: 'subscribe_list', list: 'gappers_up'}
+3. Server lee de Redis stream
+4. Envía snapshots + deltas
+5. Agrega datos de aggregates para updates de precio
+
+REDIS STREAMS CONSUMIDOS:
+- stream:scanner:gappers_up
+- stream:scanner:gappers_down
+- stream:scanner:high_volume
+- stream:scanner:anomalies
+
+================================================================================
+8. DATA MAINTENANCE SERVICE
+================================================================================
+URL Base: N/A (background tasks)
+
+DESCRIPCIÓN:
+Tareas de mantenimiento periódico (ETL, cálculos batch)
+
+TAREAS:
+-------
+1. enrich_metadata.py
+   - Enriquece ticker_metadata desde Polygon API
+   - Schedule: Diario 02:00 AM
+   - Actualiza: sector, industry, market_cap, float_shares
+
+2. calculate_atr.py
+   - Calcula ATR histórico para todos los tickers
+   - Schedule: Diario 01:00 AM
+   - Usa últimos 14 días de OHLC
+
+3. load_ohlc.py
+   - Carga OHLC diario desde Polygon
+   - Schedule: Diario 18:00 (después del cierre)
+
+4. load_volume_slots.py
+   - Calcula volumen promedio por slot (5 min)
+   - Schedule: Diario 01:30 AM
+   - Usa últimos 30 días
+
+5. sync_redis.py
+   - Sincroniza datos críticos a Redis
+   - Schedule: Cada 5 minutos
+   - Datos: ticker_metadata, ATR, volume_slots
+
+SCHEDULER:
+- maintenance_scheduler.py usando APScheduler
+- Logs en structlog
+
+================================================================================
+9. HISTORICAL/DATA LOADER SERVICE (Puerto 8003)
+================================================================================
+URL Base: http://localhost:8003
+
+DESCRIPCIÓN:
+Carga datos históricos desde Polygon (OHLC, agregados, metadata)
+
+COMPONENTES:
+- historical_loader.py: Orquestador de carga
+- polygon_data_loader.py: Integración con Polygon API
+- ticker_universe_loader.py: Carga universo de tickers
+
+USADO PRINCIPALMENTE EN SETUP INICIAL
+No se usa en runtime normal.
+
+================================================================================
+DEPENDENCIES ENTRE SERVICIOS
+================================================================================
+
+polygon-ws
+  ↓ (Redis pub/sub)
+data-ingest
+  ↓ (Redis pub/sub)
+  ├→ scanner (snapshots)
+  └→ analytics (aggregates)
+     ↓ (Redis keys)
+websocket-server
+  ↓ (WebSocket)
+frontend
+
+api-gateway ← (HTTP)
+  ├→ market-session (HTTP proxy)
+  ├→ TimescaleDB (direct query)
+  └→ Redis (cache + scanner data)
+
+data-maintenance (background)
+  └→ TimescaleDB (write)
+  └→ Redis (sync)
+
+================================================================================
+REDIS DATA STRUCTURES
+================================================================================
+
+CHANNELS (pub/sub):
+- polygon:snapshots
+- polygon:aggregates
+- scanner:snapshots
+- analytics:aggregates
+
+STREAMS:
+- stream:scanner:gappers_up
+- stream:scanner:gappers_down
+- stream:scanner:high_volume
+- stream:scanner:anomalies
+
+KEYS (hash/string):
+- ticker:metadata:{symbol}
+- rvol:{symbol}
+- intraday:{symbol}
+- volume_slot:{symbol}:{slot_number}
+- scanner:list:{list_name}:snapshot
+- scanner:ranked:{list_name} (sorted set)
+
+CACHE:
+- ticker:data:{symbol} (TTL 5s)
+- session:current (TTL 60s)
+
+================================================================================
+TIMESCALEDB TABLES
+================================================================================
+
+HYPERTABLES (time-series):
+- scan_results (scanner outputs históricos)
+- aggregates_1min (OHLCV 1-minute bars)
+- daily_ohlc (OHLC diario)
+
+REGULAR TABLES:
+- ticker_metadata (metadata de compañías)
+  Campos principales:
+  - symbol, company_name, exchange
+  - sector, industry
+  - market_cap, float_shares, shares_outstanding
+  - avg_volume_30d, avg_volume_10d, avg_price_30d
+  - beta, is_etf, is_actively_trading
+  - updated_at
+
+- ticker_atr (ATR calculado)
+  - symbol, atr, atr_percent, period, date
+
+- volume_slots (volumen promedio por slot)
+  - symbol, slot_number, avg_volume, data_date
+
+================================================================================
+EXTERNAL APIS
+================================================================================
+
+Polygon.io:
+- WebSocket: wss://socket.polygon.io/stocks
+- REST: https://api.polygon.io/v2/*
+  - /aggs/ticker/{symbol}/range/...
+  - /v3/reference/tickers/{symbol}
+  - /v2/snapshot/locale/us/markets/stocks/tickers
+
+FMP (Financial Modeling Prep):
+- https://financialmodelingprep.com/api/v3/*
+  - /profile/{symbol}
+  - Actualmente NO usado en producción
+
+================================================================================
+PORTS SUMMARY
+================================================================================
+
+8000 - API Gateway (FastAPI)
+8001 - Scanner Service (FastAPI)
+8002 - Analytics Service (FastAPI) + Market Session
+8003 - Historical/Data Loader (FastAPI)
+9000 - WebSocket Server (Node.js) → Frontend
+9001 - Polygon WS Client (FastAPI)
+9002 - Data Ingest (FastAPI)
+
+5432 - PostgreSQL/TimescaleDB
+6379 - Redis
+
+3000 - Frontend (Next.js)
+80   - Nginx (reverse proxy)
+
+================================================================================
+FIN DE DOCUMENTACIÓN
+================================================================================
+

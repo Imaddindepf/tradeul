@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 import structlog
+import httpx
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
@@ -384,7 +385,31 @@ async def get_ticker_metadata(symbol: str):
     try:
         symbol = symbol.upper()
         
-        # Obtener metadata de TimescaleDB
+        # Intentar obtener de ticker-metadata-service
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(
+                    f"http://ticker_metadata:8010/api/v1/metadata/{symbol}"
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 404:
+                    raise HTTPException(status_code=404, detail=f"Metadata for {symbol} not found")
+                else:
+                    logger.warning(
+                        "metadata_service_error",
+                        symbol=symbol,
+                        status=response.status_code
+                    )
+        except httpx.TimeoutException:
+            logger.warning("metadata_service_timeout", symbol=symbol)
+        except httpx.ConnectError:
+            logger.warning("metadata_service_unavailable", symbol=symbol)
+        
+        # Fallback: Query directo a DB (modo degradado)
+        logger.info("using_fallback_db_query", symbol=symbol)
+        
         query = """
             SELECT 
                 symbol,

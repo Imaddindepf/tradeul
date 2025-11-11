@@ -1,0 +1,389 @@
+================================================================================
+PLAN DE ROLLBACK - REORGANIZACIÓN DE MICROSERVICIOS
+Fecha: 2025-11-11
+================================================================================
+
+PROPÓSITO:
+Plan detallado de rollback para cada fase de la migración. Si algo sale mal,
+seguir estos pasos para restaurar el sistema al estado funcional anterior.
+
+================================================================================
+PRINCIPIOS DE ROLLBACK
+================================================================================
+
+1. NUNCA eliminar código viejo hasta confirmar que el nuevo funciona
+2. SIEMPRE tener backup de base de datos antes de cambios de schema
+3. MANTENER versiones anteriores en branches de git
+4. ROLLBACK debe ser < 5 minutos
+5. Sistema debe poder funcionar en "modo degradado"
+
+================================================================================
+PRE-REQUISITOS ANTES DE CUALQUIER CAMBIO
+================================================================================
+
+1. Crear branch de Git:
+   git checkout -b backup/pre-phase-1-migration
+   git push origin backup/pre-phase-1-migration
+
+2. Backup de Base de Datos:
+   ./scripts/backup_database.sh
+
+3. Backup de Redis (opcional pero recomendado):
+   redis-cli BGSAVE
+
+4. Documentar estado actual:
+   docker-compose ps > service_state_pre_migration.txt
+
+5. Test de salud:
+   curl http://localhost:8000/health
+   curl http://localhost:8002/api/session/current
+
+================================================================================
+FASE 1: CREACIÓN DE TICKER-METADATA-SERVICE
+================================================================================
+
+CAMBIOS QUE SE HARÁN:
+---------------------
+1. Crear nuevo directorio: services/ticker-metadata-service/
+2. Mover enrich_metadata.py de data-maintenance
+3. Crear API REST nueva (puerto 8010)
+4. Modificar api-gateway para usar nuevo endpoint
+5. Actualizar docker-compose.yml
+
+PUNTOS DE FALLO POSIBLES:
+-------------------------
+❌ ticker-metadata-service no arranca
+❌ api-gateway no puede conectarse al nuevo servicio
+❌ Endpoints de metadata devuelven errores
+❌ Data-maintenance falla porque falta enrich_metadata
+❌ Frontend muestra errores al abrir modal de metadata
+
+ROLLBACK PLAN:
+--------------
+
+OPCIÓN A: Rollback Git (Recomendado - Rápido)
+----------------------------------------------
+Tiempo: 2-3 minutos
+
+1. Detener servicios:
+   docker-compose down
+
+2. Volver al commit anterior:
+   cd /Users/imaddinamsif/Desktop/Tradeul-Amsif
+   git log --oneline -5  # Ver commits recientes
+   git reset --hard <commit-hash-pre-migration>
+
+3. Restartar servicios:
+   docker-compose up -d --build
+
+4. Verificar:
+   curl http://localhost:8000/health
+   curl http://localhost:8000/api/v1/ticker/AAPL/metadata
+
+OPCIÓN B: Rollback Selectivo (Si solo api-gateway falló)
+--------------------------------------------------------
+Tiempo: 1 minuto
+
+1. No detener servicios
+
+2. Revertir SOLO api-gateway:
+   cd services/api_gateway
+   git checkout HEAD^ main.py
+
+3. Rebuild solo api-gateway:
+   docker-compose up -d --build api-gateway
+
+4. Verificar:
+   curl http://localhost:8000/health
+
+OPCIÓN C: Modo Degradado (Temporal mientras debuggeamos)
+--------------------------------------------------------
+Si el nuevo servicio falla pero queremos mantener el sistema funcionando:
+
+1. Comentar en docker-compose.yml:
+   # ticker-metadata-service:
+   #   ...
+
+2. En api-gateway/main.py, endpoint /ticker/{symbol}/metadata:
+   # Agregar fallback a query directo (ya existe)
+   # No hace falta cambiar nada, ya funciona
+
+3. Restart:
+   docker-compose restart api-gateway
+
+VERIFICACIÓN POST-ROLLBACK:
+---------------------------
+✅ Frontend abre sin errores
+✅ Modal de metadata funciona (o muestra error graceful)
+✅ Scanner sigue actualizando en tiempo real
+✅ No hay errores en logs de servicios críticos
+
+LOGS A REVISAR:
+---------------
+docker-compose logs api-gateway --tail=100
+docker-compose logs scanner --tail=100
+docker-compose logs analytics --tail=100
+
+================================================================================
+FASE 2: AGREGAR APIS REST A SCANNER Y ANALYTICS
+================================================================================
+
+CAMBIOS QUE SE HARÁN:
+---------------------
+1. Agregar routes/ en scanner-service
+2. Agregar routes/ en analytics-service
+3. Exponer endpoints REST
+4. api-gateway usa nuevos endpoints
+
+PUNTOS DE FALLO POSIBLES:
+-------------------------
+❌ Scanner API muy lenta (bloquea el motor)
+❌ Analytics API consume mucha CPU
+❌ api-gateway timeout al llamar nuevos servicios
+
+ROLLBACK PLAN:
+--------------
+
+OPCIÓN A: Revertir api-gateway a usar Redis
+--------------------------------------------
+Tiempo: 1 minuto
+
+1. En api-gateway/main.py:
+   # Cambiar de:
+   response = await http_client.get(f"http://scanner-service:8001/api/...")
+   
+   # A:
+   response = await redis_client.get("scanner:...")
+
+2. Restart api-gateway:
+   docker-compose restart api-gateway
+
+OPCIÓN B: Rollback completo de servicios
+-----------------------------------------
+Tiempo: 3 minutos
+
+1. git reset --hard <commit-pre-phase-2>
+2. docker-compose up -d --build scanner analytics api-gateway
+
+VERIFICACIÓN:
+-------------
+✅ Scanner sigue rankeando tickers
+✅ RVOL se calcula correctamente
+✅ Frontend recibe datos en tiempo real
+
+================================================================================
+FASE 3: CREAR FUNDAMENTAL-DATA-SERVICE
+================================================================================
+
+CAMBIOS QUE SE HARÁN:
+---------------------
+1. Crear services/fundamental-data-service/
+2. Nuevos endpoints: financials, dilution, filings
+3. Nuevas tablas en TimescaleDB
+
+PUNTOS DE FALLO POSIBLES:
+-------------------------
+❌ Migrations de DB fallan
+❌ Servicio consume mucha memoria
+❌ Polygon API rate limit
+
+ROLLBACK PLAN:
+--------------
+
+OPCIÓN A: Detener servicio nuevo (No afecta existente)
+------------------------------------------------------
+Tiempo: 30 segundos
+
+1. docker-compose stop fundamental-data-service
+
+2. (Opcional) Comentar en docker-compose.yml
+
+Sistema sigue funcionando normal, solo features nuevas no disponibles.
+
+OPCIÓN B: Revertir migrations de DB
+------------------------------------
+Si se crearon nuevas tablas que causan problemas:
+
+1. Conectar a DB:
+   docker exec -it timescaledb psql -U postgres -d tradeul
+
+2. DROP nuevas tablas:
+   DROP TABLE IF EXISTS financial_statements CASCADE;
+   DROP TABLE IF EXISTS dilution_events CASCADE;
+   DROP TABLE IF EXISTS sec_filings CASCADE;
+
+3. Detener servicio:
+   docker-compose stop fundamental-data-service
+
+VERIFICACIÓN:
+-------------
+✅ Sistema funciona sin el servicio nuevo
+✅ No hay errores en otros servicios
+
+================================================================================
+ROLLBACK DE EMERGENCIA TOTAL
+================================================================================
+
+Si todo falla y necesitamos volver al estado conocido-bueno:
+
+PASO 1: Detener todo
+---------------------
+docker-compose down
+
+PASO 2: Volver a commit estable
+--------------------------------
+git log --oneline --all | grep "feat: Add ticker metadata modal"
+git reset --hard <ese-commit>
+
+PASO 3: Restaurar DB si es necesario
+------------------------------------
+./scripts/restore_database.sh backup_20251111.sql
+
+PASO 4: Limpiar Redis
+---------------------
+docker exec -it redis redis-cli FLUSHDB
+
+PASO 5: Rebuild completo
+------------------------
+docker-compose build --no-cache
+docker-compose up -d
+
+PASO 6: Esperar a que servicios inicien
+---------------------------------------
+sleep 30
+docker-compose ps
+
+PASO 7: Verificar salud
+-----------------------
+curl http://localhost:8000/health
+curl http://localhost:9000  # WebSocket server
+curl http://localhost:3000  # Frontend
+
+Tiempo total: 5-10 minutos
+
+================================================================================
+MONITOREO DURANTE MIGRACIÓN
+================================================================================
+
+MÉTRICAS A OBSERVAR:
+--------------------
+1. Latencia de API Gateway: debe ser < 100ms
+2. CPU de servicios: debe ser < 50%
+3. Memoria de servicios: debe ser < 500MB por servicio
+4. Redis memory usage: debe ser < 1GB
+5. TimescaleDB connections: debe ser < 100
+
+COMANDOS:
+---------
+# Ver recursos:
+docker stats
+
+# Ver logs en tiempo real:
+docker-compose logs -f api-gateway scanner analytics
+
+# Ver errores:
+docker-compose logs --since 5m | grep -i error
+
+# Healthchecks:
+watch -n 5 'curl -s http://localhost:8000/health | jq'
+
+================================================================================
+CONTACTOS DE EMERGENCIA
+================================================================================
+
+Si el rollback falla y necesitas ayuda:
+
+1. Revisar documentación:
+   - services/CURRENT_APIS.txt
+   - services/SERVICE_DEPENDENCIES.txt
+
+2. Comprobar estado de infraestructura:
+   docker-compose ps
+   docker-compose logs <service-name>
+
+3. Validar conexiones:
+   docker exec -it api-gateway ping timescaledb
+   docker exec -it api-gateway ping redis
+
+================================================================================
+TESTING POST-ROLLBACK
+================================================================================
+
+Suite de tests mínima para confirmar que todo funciona:
+
+1. Frontend:
+   - Abrir http://localhost:3000
+   - Ver que carga sin errores
+   - Ver que tabla del scanner muestra datos
+   - WebSocket conectado (punto verde)
+
+2. Scanner:
+   - Verificar que gappers_up tiene tickers
+   - Verificar que rankings cambian
+
+3. Metadata:
+   - Click en un símbolo
+   - Modal debe abrir (o error graceful)
+
+4. Real-time:
+   - Precios deben actualizarse cada segundo
+   - Volumen debe incrementar
+
+Si TODOS los tests pasan → Rollback exitoso ✅
+Si ALGUNO falla → Investigar logs específicos
+
+================================================================================
+SCRIPT DE ROLLBACK AUTOMATIZADO
+================================================================================
+
+Para crear en futuro (Fase 2):
+
+#!/bin/bash
+# rollback.sh
+# Usage: ./rollback.sh <phase-number>
+
+PHASE=$1
+BACKUP_BRANCH="backup/pre-phase-${PHASE}-migration"
+
+echo "🔄 Iniciando rollback de Fase ${PHASE}..."
+
+# 1. Detener servicios
+echo "⏹️  Deteniendo servicios..."
+docker-compose down
+
+# 2. Checkout a backup branch
+echo "📦 Restaurando código..."
+git checkout ${BACKUP_BRANCH}
+
+# 3. Rebuild y restart
+echo "🔨 Rebuilding servicios..."
+docker-compose build --no-cache
+docker-compose up -d
+
+# 4. Wait for services
+echo "⏳ Esperando servicios..."
+sleep 30
+
+# 5. Health check
+echo "✅ Verificando salud..."
+curl -f http://localhost:8000/health || echo "❌ API Gateway no responde"
+curl -f http://localhost:3000 || echo "❌ Frontend no responde"
+
+echo "✅ Rollback completado"
+
+================================================================================
+LECCIONES APRENDIDAS (Actualizar después de cada rollback)
+================================================================================
+
+Fecha: [TBD]
+Fase: [TBD]
+Motivo del rollback: [TBD]
+Tiempo de rollback: [TBD]
+Qué funcionó: [TBD]
+Qué no funcionó: [TBD]
+Mejoras para futuro: [TBD]
+
+================================================================================
+FIN DEL PLAN DE ROLLBACK
+================================================================================
+
