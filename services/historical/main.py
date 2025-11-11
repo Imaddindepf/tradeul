@@ -222,14 +222,17 @@ async def execute_universe_update() -> Dict[str, Any]:
 
 async def check_and_cleanup_on_startup():
     """
-    Al iniciar servicio, verificar obsolescencia y limpiar
+    Al iniciar servicio, verificar universo
+    
+    NOTA: Warmup automático DESACTIVADO
+    El servicio data_maintenance ahora se encarga de cargar metadata
+    Historical solo verifica el universo (necesario para funcionamiento)
     
     Verifica:
     1. ¿Existe universo en Redis/DB?
-    2. ¿Último warmup es de hoy?
-    3. ¿Necesitamos actualizar?
+    2. Si no existe o está obsoleto (>7 días) → cargar
     
-    Ejecuta lo necesario de inmediato
+    Warmup se ejecuta solo manualmente via: POST /api/warmup
     """
     logger.info("checking_data_status_on_startup")
     
@@ -255,35 +258,13 @@ async def check_and_cleanup_on_startup():
                     if days_old > 7:
                         logger.warning("universe_outdated_updating", days_old=days_old)
                         await execute_universe_update()
+                    else:
+                        logger.info("universe_up_to_date", days_old=days_old)
                 except Exception as e:
                     logger.warning("error_parsing_last_update", error=str(e))
         
-        # Check 2: ¿Último warmup obsoleto?
-        last_warmup_str = await redis_client.get("historical:last_warmup")
-        
-        if not last_warmup_str:
-            logger.warning("no_warmup_history_executing_now")
-            await execute_warmup()
-            return
-        
-        # Check 3: ¿Es de hoy?
-        try:
-            last_warmup = datetime.fromisoformat(last_warmup_str.replace('Z', '+00:00'))
-            current_date = datetime.now().date()
-            
-            if last_warmup.date() < current_date:
-                logger.warning(
-                    "warmup_obsolete_executing_now",
-                    last_warmup_date=str(last_warmup.date()),
-                    current_date=str(current_date)
-                )
-                await execute_warmup()
-            else:
-                logger.info("warmup_up_to_date", last_warmup=str(last_warmup))
-        except Exception as e:
-            logger.warning("error_checking_warmup_date", error=str(e))
-            # Si hay error parseando, ejecutar warmup por seguridad
-            await execute_warmup()
+        # Warmup desactivado - lo hace data_maintenance
+        logger.info("warmup_delegated_to_data_maintenance_use_manual_endpoint_if_needed")
     
     except Exception as e:
         logger.error("startup_check_error", error=str(e))
@@ -297,8 +278,9 @@ async def handle_session_changed(event: Event):
     """
     Handler para SESSION_CHANGED
     
-    Trigger principal: Ejecuta warmup al cerrar mercado
-    Momento óptimo: POST_MARKET → CLOSED
+    NOTA: Warmup automático DESACTIVADO
+    El servicio data_maintenance ahora se encarga de cargar metadata al cierre
+    Historical solo SIRVE los datos a través de sus endpoints
     """
     try:
         new_session = event.data.get('new_session')
@@ -310,15 +292,9 @@ async def handle_session_changed(event: Event):
             previous_session=previous_session
         )
         
-        # Ejecutar warmup al cerrar mercado (momento óptimo)
-        if new_session == 'CLOSED' and previous_session in ['POST_MARKET', 'MARKET_OPEN']:
-            logger.info("market_closed_triggering_warmup")
-            
-            # Primero actualizar universo (puede haber nuevos tickers, IPOs, etc.)
-            await execute_universe_update()
-            
-            # Luego warmup de metadata (market cap actualizado con cierre del día)
-            await execute_warmup()
+        # Warmup automático desactivado - lo hace data_maintenance
+        # Para ejecutar manualmente: POST /api/warmup
+        logger.debug("warmup_delegated_to_data_maintenance_service")
     
     except Exception as e:
         logger.error("error_handling_session_changed", error=str(e))
@@ -328,8 +304,9 @@ async def handle_day_changed(event: Event):
     """
     Handler para DAY_CHANGED
     
-    Fallback: Verifica que tengamos warmup del día anterior
-    Si no, ejecuta inmediatamente
+    NOTA: Warmup automático DESACTIVADO
+    El servicio data_maintenance ahora se encarga de cargar metadata
+    Historical solo SIRVE los datos a través de sus endpoints
     """
     try:
         new_date = event.data.get('new_date')
@@ -337,36 +314,8 @@ async def handle_day_changed(event: Event):
         
         logger.info("day_changed_event_received", new_date=new_date, previous_date=previous_date)
         
-        # Verificar si tenemos warmup del día anterior
-        last_warmup_str = await redis_client.get("historical:last_warmup")
-        
-        if not last_warmup_str:
-            # No hay warmup previo → ejecutar inmediatamente
-            logger.warning("day_changed_no_warmup_executing")
-            await execute_universe_update()
-            await execute_warmup()
-            return
-        
-        # Parsear fecha de último warmup
-        try:
-            last_warmup = datetime.fromisoformat(last_warmup_str.replace('Z', '+00:00'))
-            previous_date_obj = datetime.fromisoformat(previous_date).date()
-            
-            # Si no hay warmup del día anterior → ejecutar
-            if last_warmup.date() < previous_date_obj:
-                logger.warning("day_changed_missing_warmup_executing",
-                              last_warmup_date=str(last_warmup.date()),
-                              expected_date=str(previous_date_obj))
-                await execute_universe_update()
-                await execute_warmup()
-            else:
-                logger.info("day_changed_warmup_already_done")
-        
-        except Exception as e:
-            logger.warning("error_parsing_dates", error=str(e))
-            # Por seguridad, ejecutar warmup si hay error
-            await execute_universe_update()
-            await execute_warmup()
+        # Warmup automático desactivado - lo hace data_maintenance
+        logger.debug("warmup_delegated_to_data_maintenance_service")
     
     except Exception as e:
         logger.error("error_handling_day_changed", error=str(e))
@@ -378,69 +327,23 @@ async def handle_day_changed(event: Event):
 
 async def periodic_warmup_fallback():
     """
-    Tarea periódica como ÚLTIMA red de seguridad
+    Tarea periódica DESACTIVADA
     
-    - Se ejecuta cada 24h
-    - PERO verifica si ya se hizo warmup hoy
-    - Solo ejecuta si eventos fallaron
+    NOTA: El servicio data_maintenance ahora se encarga del mantenimiento automático
+    Historical solo SIRVE los datos a través de sus endpoints
     
-    Este es un fallback por si:
-    - Market Session Service está caído
-    - EventBus no funciona
-    - Eventos no se publican/reciben
+    Mantener ejecutándose para compatibilidad pero sin hacer nada
     """
-    logger.info("starting_periodic_warmup_fallback_task")
-    
-    # Esperar 1h después del inicio antes de primera verificación
-    await asyncio.sleep(3600)
+    logger.info("periodic_warmup_fallback_disabled_delegated_to_data_maintenance")
     
     while True:
         try:
-            logger.info("periodic_warmup_fallback_checking")
-            
-            # Verificar si warmup es necesario
-            last_warmup_str = await redis_client.get("historical:last_warmup")
-            current_date = datetime.now().date()
-            
-            should_execute = False
-            reason = ""
-            
-            if not last_warmup_str:
-                should_execute = True
-                reason = "no_warmup_history"
-            else:
-                try:
-                    last_warmup = datetime.fromisoformat(
-                        last_warmup_str.replace('Z', '+00:00')
-                    )
-                    
-                    if last_warmup.date() < current_date:
-                        should_execute = True
-                        reason = f"warmup_obsolete_last={last_warmup.date()}"
-                    else:
-                        reason = "warmup_already_done_today"
-                except Exception as e:
-                    should_execute = True
-                    reason = f"error_parsing_date_{str(e)}"
-            
-            if should_execute:
-                logger.warning("periodic_fallback_triggered", reason=reason)
-                await execute_universe_update()
-                await execute_warmup()
-            else:
-                logger.info("periodic_fallback_skipped", reason=reason)
-            
-            # Esperar 24h hasta próxima verificación
+            # Solo esperar indefinidamente
             await asyncio.sleep(86400)
         
         except asyncio.CancelledError:
             logger.info("periodic_warmup_fallback_cancelled")
             break
-        
-        except Exception as e:
-            logger.error("periodic_fallback_error", error=str(e))
-            # Reintentar en 1 hora si falla
-            await asyncio.sleep(3600)
 
 
 # =============================================

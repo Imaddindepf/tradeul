@@ -14,6 +14,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { BaseDataTable } from '@/components/table/BaseDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
+import TickerMetadataModal from './TickerMetadataModal';
 
 type DeltaAction = {
   action: 'add' | 'remove' | 'update' | 'rerank';
@@ -44,6 +45,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
   const [dataVersion, setDataVersion] = useState(0); // Contador para forzar re-render
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const deltaBuffer = useRef<DeltaAction[]>([]);
   const aggregateBuffer = useRef<Map<string, any>>(new Map());
@@ -434,7 +437,19 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         enableResizing: true,
         enableSorting: true,
         enableHiding: false, // No se puede ocultar (columna esencial)
-        cell: (info) => <div className="font-bold text-blue-600">{info.getValue()}</div>,
+        cell: (info) => (
+          <div 
+            className="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedSymbol(info.getValue());
+              setIsModalOpen(true);
+            }}
+            title="Clic para ver metadatos"
+          >
+            {info.getValue()}
+          </div>
+        ),
       }),
       columnHelper.accessor('price', {
         header: 'Price',
@@ -644,44 +659,55 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   });
 
   return (
-    <BaseDataTable
-      table={table}
-      initialHeight={700}
-      minHeight={200}
-      minWidth={400}
-      stickyHeader={true}
-      isLoading={!isReady}
-      getRowClassName={(row: Row<Ticker>) => {
-        const ticker = row.original;
-        const classes: string[] = [];
-        
-        // Animación para nuevos tickers (azul) - tiene prioridad
-        if (newTickers.has(ticker.symbol)) {
-          classes.push('new-ticker-flash');
-        } 
-        // Animaciones de subida/bajada (verde/rojo)
-        else {
-          const rowChange = rowChanges.get(ticker.symbol);
-          if (rowChange === 'up') {
-            classes.push('row-flash-up');
-          } else if (rowChange === 'down') {
-            classes.push('row-flash-down');
+    <>
+      <BaseDataTable
+        table={table}
+        initialHeight={700}
+        minHeight={200}
+        minWidth={400}
+        stickyHeader={true}
+        isLoading={!isReady}
+        getRowClassName={(row: Row<Ticker>) => {
+          const ticker = row.original;
+          const classes: string[] = [];
+          
+          // Animación para nuevos tickers (azul) - tiene prioridad
+          if (newTickers.has(ticker.symbol)) {
+            classes.push('new-ticker-flash');
+          } 
+          // Animaciones de subida/bajada (verde/rojo)
+          else {
+            const rowChange = rowChanges.get(ticker.symbol);
+            if (rowChange === 'up') {
+              classes.push('row-flash-up');
+            } else if (rowChange === 'down') {
+              classes.push('row-flash-down');
+            }
           }
+          
+          return classes.join(' ');
+        }}
+        header={
+          <MarketTableLayout
+            title={title}
+            isLive={ws.isConnected}
+            count={isReady ? data.length : undefined}
+            sequence={isReady ? sequence : undefined}
+            lastUpdateTime={lastUpdateTime}
+            rightActions={<TableSettings table={table} />}
+          />
         }
-        
-        return classes.join(' ');
-      }}
-      header={
-        <MarketTableLayout
-          title={title}
-          isLive={ws.isConnected}
-          count={isReady ? data.length : undefined}
-          sequence={isReady ? sequence : undefined}
-          lastUpdateTime={lastUpdateTime}
-          rightActions={<TableSettings table={table} />}
-        />
-      }
-    />
+      />
+      
+      <TickerMetadataModal
+        symbol={selectedSymbol}
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedSymbol(null);
+        }}
+      />
+    </>
   );
 }
 

@@ -370,6 +370,62 @@ async def get_ticker_details(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/ticker/{symbol}/metadata")
+async def get_ticker_metadata(symbol: str):
+    """
+    Obtiene los metadatos completos de la compañía (sector, industria, exchange, etc.)
+    
+    Args:
+        symbol: Símbolo del ticker (ej: AAPL)
+    
+    Returns:
+        Metadatos completos de la compañía
+    """
+    try:
+        symbol = symbol.upper()
+        
+        # Obtener metadata de TimescaleDB
+        query = """
+            SELECT 
+                symbol,
+                company_name,
+                exchange,
+                sector,
+                industry,
+                market_cap,
+                float_shares,
+                shares_outstanding,
+                avg_volume_30d,
+                avg_volume_10d,
+                avg_price_30d,
+                beta,
+                is_etf,
+                is_actively_trading,
+                updated_at
+            FROM ticker_metadata
+            WHERE symbol = $1
+        """
+        
+        result = await timescale_client.fetchrow(query, symbol)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Metadata for {symbol} not found")
+        
+        metadata = dict(result)
+        
+        # Convertir datetime a string para JSON
+        if metadata.get('updated_at'):
+            metadata['updated_at'] = metadata['updated_at'].isoformat()
+        
+        return metadata
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("ticker_metadata_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/rvol/{symbol}")
 async def get_ticker_rvol(symbol: str):
     """

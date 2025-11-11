@@ -37,22 +37,22 @@ export default function ScannerPage() {
 
   return (
     <main className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="border-b border-gray-200 bg-white sticky top-0 z-50 shadow-sm">
+      {/* Header limpio y profesional */}
+      <header className="border-b border-slate-200 bg-white sticky top-0 z-50 shadow-sm">
         <div className="w-full px-0 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Tradeul Scanner</h1>
-              <p className="text-sm text-gray-500 mt-0.5">Professional Real-Time Market Scanner</p>
+              <h1 className="text-2xl font-bold text-slate-900">Escáner de Mercado</h1>
+              <p className="text-sm text-slate-600 mt-0.5">
+                Datos en tiempo real
+              </p>
             </div>
             {session && mounted && (
-              <div className="flex items-center gap-4">
-                <div className={`px-3 py-1 rounded-full text-sm font-medium ${sessionColors[session.current_session as keyof typeof sessionColors]}`}>
-                  {session.current_session.replace('_', ' ')}
-                </div>
-                <div className="text-sm text-gray-600">
-                  {new Date(session.trading_date).toLocaleDateString()}
-                </div>
+              <div className={`
+                px-3 py-1.5 rounded-lg text-sm font-medium
+                ${sessionColors[session.current_session as keyof typeof sessionColors]}
+              `}>
+                {session.current_session.replace('_', ' ')}
               </div>
             )}
           </div>
@@ -61,12 +61,7 @@ export default function ScannerPage() {
 
       {/* Main Content */}
       <div className="w-full px-0 py-6">
-        <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900">Escáner general</h2>
-          <p className="text-sm text-gray-600 mt-1">Actualización en tiempo real • Click en headers para ordenar</p>
-        </div>
-
-        <div className="grid grid-cols-12 gap-2 grid-flow-dense" data-grid-root>
+        <div className="grid grid-cols-12 gap-4 grid-flow-dense" data-grid-root>
           {/* Fila 1: dos columnas */}
           <div className="col-span-12 lg:col-span-6 m-0 p-0">
             <CategoryTable title="Gappers Up" listName="gappers_up" />

@@ -244,3 +244,39 @@ td, th {
   animation: row-flash-down 1.2s ease-out !important;
 }
 
+/* Animaciones para el Sidebar */
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Smooth scroll para toda la app */
+* {
+  scroll-behavior: smooth;
+}
+
+/* Animación de pulso suave para indicadores en vivo */
+@keyframes pulse-soft {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+

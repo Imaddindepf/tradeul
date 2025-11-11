@@ -160,6 +160,32 @@ services:
           cpus: "2"
           memory: 3G
 
+  data_maintenance:
+    build:
+      context: .
+      dockerfile: services/data_maintenance/Dockerfile
+    container_name: tradeul_data_maintenance
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8008:8008"
+    environment:
+      - TIMEZONE=America/New_York
+      - MAINTENANCE_SCHEDULE=MARKET_CLOSE
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+
   # orchestrator:
   #   build:
   #     context: .
