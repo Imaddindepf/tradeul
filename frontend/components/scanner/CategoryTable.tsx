@@ -45,8 +45,11 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
   const [dataVersion, setDataVersion] = useState(0); // Contador para forzar re-render
+  
+  // Estados del modal - usar useRef para evitar re-renders
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const modalStateRef = useRef({ symbol: null as string | null, isOpen: false });
 
   const deltaBuffer = useRef<DeltaAction[]>([]);
   const aggregateBuffer = useRef<Map<string, any>>(new Map());
@@ -660,53 +663,56 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
 
   return (
     <>
-      <BaseDataTable
-        table={table}
-        initialHeight={700}
-        minHeight={200}
-        minWidth={400}
-        stickyHeader={true}
-        isLoading={!isReady}
-        getRowClassName={(row: Row<Ticker>) => {
-          const ticker = row.original;
-          const classes: string[] = [];
-          
-          // Animación para nuevos tickers (azul) - tiene prioridad
-          if (newTickers.has(ticker.symbol)) {
-            classes.push('new-ticker-flash');
-          } 
-          // Animaciones de subida/bajada (verde/rojo)
-          else {
-            const rowChange = rowChanges.get(ticker.symbol);
-            if (rowChange === 'up') {
-              classes.push('row-flash-up');
-            } else if (rowChange === 'down') {
-              classes.push('row-flash-down');
-            }
+    <BaseDataTable
+      table={table}
+      initialHeight={700}
+      minHeight={200}
+      minWidth={400}
+      stickyHeader={true}
+      isLoading={!isReady}
+      getRowClassName={(row: Row<Ticker>) => {
+        const ticker = row.original;
+        const classes: string[] = [];
+        
+        // Animación para nuevos tickers (azul) - tiene prioridad
+        if (newTickers.has(ticker.symbol)) {
+          classes.push('new-ticker-flash');
+        } 
+        // Animaciones de subida/bajada (verde/rojo)
+        else {
+          const rowChange = rowChanges.get(ticker.symbol);
+          if (rowChange === 'up') {
+            classes.push('row-flash-up');
+          } else if (rowChange === 'down') {
+            classes.push('row-flash-down');
           }
-          
-          return classes.join(' ');
-        }}
-        header={
-          <MarketTableLayout
-            title={title}
-            isLive={ws.isConnected}
-            count={isReady ? data.length : undefined}
-            sequence={isReady ? sequence : undefined}
-            lastUpdateTime={lastUpdateTime}
-            rightActions={<TableSettings table={table} />}
-          />
         }
-      />
+        
+        return classes.join(' ');
+      }}
+      header={
+        <MarketTableLayout
+          title={title}
+          isLive={ws.isConnected}
+          count={isReady ? data.length : undefined}
+          sequence={isReady ? sequence : undefined}
+          lastUpdateTime={lastUpdateTime}
+          rightActions={<TableSettings table={table} />}
+        />
+      }
+    />
       
-      <TickerMetadataModal
-        symbol={selectedSymbol}
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setSelectedSymbol(null);
-        }}
-      />
+      {/* Modal renderizado fuera usando Portal - no afecta re-renders de tabla */}
+      {typeof window !== 'undefined' && (
+        <TickerMetadataModal
+          symbol={selectedSymbol}
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false);
+            setSelectedSymbol(null);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -2,6 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevenir layout shift por scrollbar */
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+/* Asegurar que el body no cause layout shifts */
+body {
+  min-height: 100vh;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

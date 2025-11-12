@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, memo } from 'react';
+import { createPortal } from 'react-dom';
 import type { CompanyMetadata } from '@/lib/types';
 import { getCompanyMetadata } from '@/lib/api';
 import { formatNumber } from '@/lib/formatters';
@@ -11,11 +12,17 @@ interface TickerMetadataModalProps {
   onClose: () => void;
 }
 
-export default function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalProps) {
+function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [metadata, setMetadata] = useState<CompanyMetadata | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Solo renderizar en el cliente
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Cargar metadatos cuando se abre el modal
   useEffect(() => {
@@ -35,7 +42,7 @@ export default function TickerMetadataModal({ symbol, isOpen, onClose }: TickerM
     }
   }, [isOpen, symbol]);
 
-  // Cerrar al presionar Escape
+  // Cerrar al presionar Escape (SIN modificar body overflow para evitar reflow)
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -43,12 +50,10 @@ export default function TickerMetadataModal({ symbol, isOpen, onClose }: TickerM
     
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
     }
     
     return () => {
       document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
     };
   }, [isOpen, onClose]);
 
@@ -69,7 +74,8 @@ export default function TickerMetadataModal({ symbol, isOpen, onClose }: TickerM
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen || !symbol) return null;
+  // No renderizar hasta que esté mounted (client-side)
+  if (!mounted || !isOpen || !symbol) return null;
 
   // Organizar metadatos de la compañía en secciones
   const sections = metadata ? [
@@ -120,8 +126,20 @@ export default function TickerMetadataModal({ symbol, isOpen, onClose }: TickerM
     },
   ] : [];
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm animate-fadeIn">
+  // Usar portal para renderizar fuera del árbol DOM
+  const modalContent = (
+    <div 
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm animate-fadeIn" 
+      style={{ 
+        margin: 0,
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        pointerEvents: 'auto'
+      }}
+    >
       <div
         ref={modalRef}
         className="bg-white rounded-lg shadow-2xl max-w-5xl w-full mx-4 max-h-[90vh] overflow-hidden animate-slideUp"
@@ -248,5 +266,10 @@ export default function TickerMetadataModal({ symbol, isOpen, onClose }: TickerM
       `}</style>
     </div>
   );
+
+  // Renderizar en portal para evitar afectar el layout de las tablas
+  return createPortal(modalContent, document.body);
 }
 
+// Memoizar para evitar re-renders innecesarios
+export default memo(TickerMetadataModal);

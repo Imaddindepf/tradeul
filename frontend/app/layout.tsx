@@ -19,6 +19,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AppShell>{children}</AppShell>
+        <div id="portal-root" />
       </body>
     </html>
   );
