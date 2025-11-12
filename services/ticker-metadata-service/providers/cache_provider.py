@@ -102,8 +102,8 @@ class CacheProvider:
             
             serialized = json.dumps(data)
             
-            # Guardar con TTL
-            await self.redis.setex(key, ttl, serialized)
+            # Guardar con TTL usando set con ex parameter
+            await self.redis.set(key, serialized, ex=ttl)
             
             return True
         

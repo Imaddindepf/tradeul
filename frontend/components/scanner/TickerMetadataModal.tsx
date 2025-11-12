@@ -26,118 +26,163 @@ function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalPro
 
   // Cargar metadatos cuando se abre el modal
   useEffect(() => {
-    if (isOpen && symbol) {
-      setLoading(true);
-      setError(null);
-      
-      getCompanyMetadata(symbol)
-        .then((data) => {
+    if (!isOpen || !symbol) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    getCompanyMetadata(symbol)
+      .then((data) => {
+        if (!cancelled) {
           setMetadata(data);
           setLoading(false);
-        })
-        .catch((err) => {
-          setError(err.message || 'Error al cargar metadatos');
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err?.message || 'Error al cargar metadatos');
           setLoading(false);
-        });
-    }
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, symbol]);
 
   // Cerrar al presionar Escape (SIN modificar body overflow para evitar reflow)
   useEffect(() => {
+    if (!isOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-    }
-    
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
   // Cerrar al hacer clic fuera del modal
   useEffect(() => {
+    if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen, onClose]);
 
-  // No renderizar hasta que esté mounted (client-side)
   if (!mounted || !isOpen || !symbol) return null;
 
-  // Organizar metadatos de la compañía en secciones
-  const sections = metadata ? [
-    {
-      title: 'Company Information',
-      items: [
-        { label: 'Symbol', value: metadata.symbol },
-        { label: 'Company Name', value: metadata.company_name || '-' },
-        { label: 'Type', value: metadata.is_etf ? 'ETF' : 'Stock' },
-        { label: 'Status', value: metadata.is_actively_trading ? 'Active' : 'Inactive', color: metadata.is_actively_trading ? 'text-emerald-600' : 'text-rose-600' },
-      ],
-    },
-    {
-      title: 'Exchange & Classification',
-      items: [
-        { label: 'Exchange', value: metadata.exchange || '-' },
-        { label: 'Sector', value: metadata.sector || '-' },
-        { label: 'Industry', value: metadata.industry || '-' },
-      ],
-    },
-    {
-      title: 'Market Capitalization',
-      items: [
-        { label: 'Market Cap', value: metadata.market_cap !== null ? `$${formatNumber(metadata.market_cap)}` : '-' },
-        { label: 'Float Shares', value: metadata.float_shares !== null ? formatNumber(metadata.float_shares) : '-' },
-        { label: 'Shares Outstanding', value: metadata.shares_outstanding !== null ? formatNumber(metadata.shares_outstanding) : '-' },
-      ],
-    },
-    {
-      title: 'Average Volume',
-      items: [
-        { label: 'Avg Volume (30d)', value: metadata.avg_volume_30d !== null ? formatNumber(metadata.avg_volume_30d) : '-' },
-        { label: 'Avg Volume (10d)', value: metadata.avg_volume_10d !== null ? formatNumber(metadata.avg_volume_10d) : '-' },
-      ],
-    },
-    {
-      title: 'Price Statistics',
-      items: [
-        { label: 'Avg Price (30d)', value: metadata.avg_price_30d !== null ? `$${metadata.avg_price_30d.toFixed(2)}` : '-' },
-        { label: 'Beta', value: metadata.beta !== null ? metadata.beta.toFixed(3) : '-' },
-      ],
-    },
-    {
-      title: 'Metadata Info',
-      items: [
-        { label: 'Last Updated', value: new Date(metadata.updated_at).toLocaleString() },
-      ],
-    },
-  ] : [];
+  const formatAddress = (addr: any) => {
+    if (!addr) return '-';
+    const parts = [addr.address1, addr.city, addr.state, addr.postal_code].filter(Boolean);
+    return parts.length > 0 ? parts.join(', ') : '-';
+  };
 
-  // Usar portal para renderizar fuera del árbol DOM
+  const sections =
+    metadata
+      ? [
+          {
+            title: 'Company Information',
+            items: [
+              { label: 'Symbol', value: metadata.symbol },
+              { label: 'Company Name', value: metadata.company_name || '-' },
+              { label: 'Type', value: metadata.type || (metadata.is_etf ? 'ETF' : 'Stock') },
+              {
+                label: 'Status',
+                value: metadata.is_actively_trading ? 'Active' : 'Inactive',
+                color: metadata.is_actively_trading ? 'text-emerald-600' : 'text-rose-600',
+              },
+              { label: 'Listed Since', value: metadata.list_date || '-' },
+            ],
+          },
+          {
+            title: 'Exchange & Classification',
+            items: [
+              { label: 'Exchange', value: metadata.exchange || '-' },
+              { label: 'Market', value: metadata.market || '-' },
+              { label: 'Locale', value: metadata.locale?.toUpperCase() || '-' },
+              { label: 'Sector', value: metadata.sector || '-' },
+              { label: 'Industry', value: metadata.industry || '-' },
+            ],
+          },
+          {
+            title: 'Market Capitalization',
+            items: [
+              {
+                label: 'Market Cap',
+                value: metadata.market_cap != null ? `$${formatNumber(metadata.market_cap)}` : '-',
+              },
+              {
+                label: 'Float Shares',
+                value: metadata.float_shares != null ? formatNumber(metadata.float_shares) : '-',
+              },
+              {
+                label: 'Shares Outstanding',
+                value:
+                  metadata.shares_outstanding != null ? formatNumber(metadata.shares_outstanding) : '-',
+              },
+              { label: 'Round Lot', value: metadata.round_lot != null ? formatNumber(metadata.round_lot) : '-' },
+            ],
+          },
+          {
+            title: 'Business Details',
+            items: [
+              {
+                label: 'Employees',
+                value: metadata.total_employees != null ? formatNumber(metadata.total_employees) : '-',
+              },
+              { label: 'Phone', value: metadata.phone_number || '-' },
+              { label: 'Address', value: formatAddress(metadata.address) },
+              { label: 'Website', value: metadata.homepage_url || '-', link: metadata.homepage_url },
+            ],
+          },
+          {
+            title: 'Trading Statistics',
+            items: [
+              {
+                label: 'Avg Volume (30d)',
+                value: metadata.avg_volume_30d != null ? formatNumber(metadata.avg_volume_30d) : '-',
+              },
+              {
+                label: 'Avg Volume (10d)',
+                value: metadata.avg_volume_10d != null ? formatNumber(metadata.avg_volume_10d) : '-',
+              },
+              {
+                label: 'Avg Price (30d)',
+                value:
+                  metadata.avg_price_30d != null ? `$${Number(metadata.avg_price_30d).toFixed(2)}` : '-',
+              },
+              { label: 'Beta', value: metadata.beta != null ? Number(metadata.beta).toFixed(3) : '-' },
+              { label: 'Currency', value: metadata.currency_name?.toUpperCase() || '-' },
+            ],
+          },
+          {
+            title: 'Identifiers',
+            items: [
+              { label: 'CIK', value: metadata.cik || '-' },
+              { label: 'Composite FIGI', value: metadata.composite_figi || '-' },
+              { label: 'Share Class FIGI', value: metadata.share_class_figi || '-' },
+              { label: 'Ticker Root', value: metadata.ticker_root || '-' },
+              { label: 'Ticker Suffix', value: metadata.ticker_suffix || '-' },
+            ],
+          },
+        ]
+      : [];
+
   const modalContent = (
-    <div 
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm animate-fadeIn" 
-      style={{ 
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm animate-fadeIn"
+      style={{
         margin: 0,
         position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        pointerEvents: 'auto'
+        pointerEvents: 'auto',
       }}
     >
       <div
@@ -146,9 +191,21 @@ function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalPro
       >
         {/* Header */}
         <div className="bg-slate-800 px-6 py-4 flex items-center justify-between border-b border-slate-700">
-          <div>
-            <h2 className="text-2xl font-bold text-white">{symbol}</h2>
-            <p className="text-slate-300 text-sm mt-0.5">Company Metadata</p>
+          <div className="flex items-center gap-4">
+            {metadata?.logo_url && (
+              <img
+                src={metadata.logo_url}
+                alt={`${symbol} logo`}
+                className="w-12 h-12 object-contain bg-white rounded-lg p-1"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            )}
+            <div>
+              <h2 className="text-2xl font-bold text-white">{symbol}</h2>
+              <p className="text-slate-300 text-sm mt-0.5">{metadata?.company_name || 'Company Metadata'}</p>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -168,41 +225,73 @@ function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalPro
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-700"></div>
             </div>
           )}
-          
+
           {error && (
             <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 text-rose-700">
               <p className="font-semibold">Error</p>
               <p className="text-sm">{error}</p>
             </div>
           )}
-          
+
           {!loading && !error && metadata && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {sections.map((section) => (
-                <div
-                  key={section.title}
-                  className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm"
-                >
+            <>
+              {/* Description Section */}
+              {metadata.description && (
+                <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm mb-4">
                   <h3 className="text-sm font-bold text-slate-700 mb-3 pb-2 border-b border-slate-200 uppercase tracking-wide">
-                    {section.title}
+                    Company Description
                   </h3>
-                  <div className="space-y-2.5">
-                    {section.items.map((item) => (
-                      <div key={item.label} className="flex justify-between items-center gap-2">
-                        <span className="text-xs text-slate-600 font-medium">{item.label}</span>
-                        <span
-                          className={`text-sm font-semibold ${
-                            item.color || 'text-slate-900'
-                          } font-mono text-right`}
-                        >
-                          {item.value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-sm text-slate-700 leading-relaxed">{metadata.description}</p>
                 </div>
-              ))}
-            </div>
+              )}
+
+              {/* GRID CORRECTAMENTE CERRADA */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {sections.map((section) => (
+                  <div
+                    key={section.title}
+                    className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm"
+                  >
+                    <h3 className="text-sm font-bold text-slate-700 mb-3 pb-2 border-b border-slate-200 uppercase tracking-wide">
+                      {section.title}
+                    </h3>
+                    <div className="space-y-2.5">
+                      {section.items.map((item) => (
+                        <div
+                          key={item.label}
+                          className="flex justify-between items-center gap-2"
+                        >
+                          <span className="text-xs text-slate-600 font-medium">{item.label}</span>
+                          {item.link ? (
+                            <a
+                              href={item.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm font-semibold text-blue-600 hover:text-blue-800 font-mono text-right underline"
+                            >
+                              {item.value}
+                            </a>
+                          ) : (
+                            <span
+                              className={`text-sm font-semibold ${item.color || 'text-slate-900'} font-mono text-right`}
+                            >
+                              {item.value}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Last Updated Footer */}
+              {metadata.updated_at && (
+                <div className="mt-4 text-xs text-slate-500 text-center border-t border-slate-200 pt-3">
+                  Last updated: {new Date(metadata.updated_at).toLocaleString()}
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -267,9 +356,7 @@ function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalPro
     </div>
   );
 
-  // Renderizar en portal para evitar afectar el layout de las tablas
   return createPortal(modalContent, document.body);
 }
 
-// Memoizar para evitar re-renders innecesarios
 export default memo(TickerMetadataModal);

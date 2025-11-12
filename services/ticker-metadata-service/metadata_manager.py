@@ -3,7 +3,7 @@ Metadata Manager - Core business logic
 """
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, date
 from typing import Optional, Dict, Any, List
 import httpx
 
@@ -113,22 +113,61 @@ class MetadataManager:
                 logger.warning("polygon_no_data", symbol=symbol)
                 return None
             
+            # Extraer branding
+            branding = ticker_details.get("branding", {})
+            
             metadata = TickerMetadata(
+                # Identificación básica
                 symbol=symbol,
                 company_name=ticker_details.get("name"),
+                
+                # Clasificación
                 exchange=ticker_details.get("primary_exchange"),
                 sector=self._map_sic_to_sector(ticker_details.get("sic_description")),
                 industry=ticker_details.get("sic_description"),
+                
+                # Capitalización y shares
                 market_cap=ticker_details.get("market_cap"),
                 float_shares=ticker_details.get("weighted_shares_outstanding"),
                 shares_outstanding=ticker_details.get("share_class_shares_outstanding"),
+                
+                # Métricas (se calculan por separado)
                 avg_volume_30d=None,
                 avg_volume_10d=None,
                 avg_price_30d=None,
                 beta=None,
+                
+                # Información de la compañía
+                description=ticker_details.get("description"),
+                homepage_url=ticker_details.get("homepage_url"),
+                phone_number=ticker_details.get("phone_number"),
+                address=ticker_details.get("address"),  # Ya viene como dict
+                total_employees=ticker_details.get("total_employees"),
+                list_date=ticker_details.get("list_date"),  # Mantener como string "YYYY-MM-DD"
+                
+                # Branding
+                logo_url=branding.get("logo_url") if branding else None,
+                icon_url=branding.get("icon_url") if branding else None,
+                
+                # Identificadores
+                cik=ticker_details.get("cik"),
+                composite_figi=ticker_details.get("composite_figi"),
+                share_class_figi=ticker_details.get("share_class_figi"),
+                ticker_root=ticker_details.get("ticker_root"),
+                ticker_suffix=ticker_details.get("ticker_suffix"),
+                
+                # Detalles del activo
+                type=ticker_details.get("type"),
+                currency_name=ticker_details.get("currency_name"),
+                locale=ticker_details.get("locale"),
+                market=ticker_details.get("market"),
+                round_lot=ticker_details.get("round_lot"),
+                delisted_utc=ticker_details.get("delisted_utc"),
+                
+                # Estados
                 is_etf=ticker_details.get("type") == "ETF",
                 is_actively_trading=ticker_details.get("active", True),
-                updated_at=datetime.now()
+                updated_at=datetime.now(timezone.utc)
             )
             
             await self._save_to_db(metadata)
@@ -204,13 +243,18 @@ class MetadataManager:
         return stats
     
     async def _get_from_db(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Obtiene metadata de TimescaleDB"""
+        """Obtiene metadata de TimescaleDB con todos los campos"""
         query = """
             SELECT 
                 symbol, company_name, exchange, sector, industry,
                 market_cap, float_shares, shares_outstanding,
-                avg_volume_30d, avg_volume_10d, avg_price_30d,
-                beta, is_etf, is_actively_trading, updated_at
+                avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
+                description, homepage_url, phone_number, address,
+                total_employees, list_date,
+                logo_url, icon_url,
+                cik, composite_figi, share_class_figi, ticker_root, ticker_suffix,
+                type, currency_name, locale, market, round_lot, delisted_utc,
+                is_etf, is_actively_trading, updated_at
             FROM ticker_metadata
             WHERE symbol = $1
         """
@@ -219,15 +263,27 @@ class MetadataManager:
         return dict(result) if result else None
     
     async def _save_to_db(self, metadata: TickerMetadata) -> None:
-        """Guarda metadata en TimescaleDB"""
+        """Guarda metadata en TimescaleDB con todos los campos expandidos"""
+        import json
+        
         query = """
             INSERT INTO ticker_metadata (
                 symbol, company_name, exchange, sector, industry,
                 market_cap, float_shares, shares_outstanding,
-                avg_volume_30d, avg_volume_10d, avg_price_30d,
-                beta, is_etf, is_actively_trading, updated_at
+                avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
+                description, homepage_url, phone_number, address,
+                total_employees, list_date,
+                logo_url, icon_url,
+                cik, composite_figi, share_class_figi, ticker_root, ticker_suffix,
+                type, currency_name, locale, market, round_lot, delisted_utc,
+                is_etf, is_actively_trading, updated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                $13, $14, $15, $16::jsonb, $17, $18,
+                $19, $20,
+                $21, $22, $23, $24, $25,
+                $26, $27, $28, $29, $30, $31,
+                $32, $33, NOW()
             )
             ON CONFLICT (symbol) DO UPDATE SET
                 company_name = EXCLUDED.company_name,
@@ -241,10 +297,32 @@ class MetadataManager:
                 avg_volume_10d = EXCLUDED.avg_volume_10d,
                 avg_price_30d = EXCLUDED.avg_price_30d,
                 beta = EXCLUDED.beta,
+                description = EXCLUDED.description,
+                homepage_url = EXCLUDED.homepage_url,
+                phone_number = EXCLUDED.phone_number,
+                address = EXCLUDED.address,
+                total_employees = EXCLUDED.total_employees,
+                list_date = EXCLUDED.list_date,
+                logo_url = EXCLUDED.logo_url,
+                icon_url = EXCLUDED.icon_url,
+                cik = EXCLUDED.cik,
+                composite_figi = EXCLUDED.composite_figi,
+                share_class_figi = EXCLUDED.share_class_figi,
+                ticker_root = EXCLUDED.ticker_root,
+                ticker_suffix = EXCLUDED.ticker_suffix,
+                type = EXCLUDED.type,
+                currency_name = EXCLUDED.currency_name,
+                locale = EXCLUDED.locale,
+                market = EXCLUDED.market,
+                round_lot = EXCLUDED.round_lot,
+                delisted_utc = EXCLUDED.delisted_utc,
                 is_etf = EXCLUDED.is_etf,
                 is_actively_trading = EXCLUDED.is_actively_trading,
                 updated_at = NOW()
         """
+        
+        # Convertir address dict a JSON string para PostgreSQL
+        address_json = json.dumps(metadata.address) if metadata.address else None
         
         await self.db.execute(
             query,
@@ -260,6 +338,25 @@ class MetadataManager:
             metadata.avg_volume_10d,
             metadata.avg_price_30d,
             metadata.beta,
+            metadata.description,
+            metadata.homepage_url,
+            metadata.phone_number,
+            address_json,
+            metadata.total_employees,
+            metadata.list_date,
+            metadata.logo_url,
+            metadata.icon_url,
+            metadata.cik,
+            metadata.composite_figi,
+            metadata.share_class_figi,
+            metadata.ticker_root,
+            metadata.ticker_suffix,
+            metadata.type,
+            metadata.currency_name,
+            metadata.locale,
+            metadata.market,
+            metadata.round_lot,
+            metadata.delisted_utc,
             metadata.is_etf,
             metadata.is_actively_trading
         )
@@ -281,7 +378,7 @@ class MetadataManager:
             beta=data.get("beta"),
             is_etf=data.get("is_etf", False),
             is_actively_trading=data.get("is_actively_trading", True),
-            updated_at=data.get("updated_at", datetime.now())
+            updated_at=data.get("updated_at", datetime.now(timezone.utc))
         )
     
     def _is_metadata_stale(self, updated_at: datetime) -> bool:
@@ -289,8 +386,17 @@ class MetadataManager:
         if not updated_at:
             return True
         
-        age = datetime.now() - updated_at
+        age = datetime.now(timezone.utc) - updated_at
         return age.days > self.metadata_stale_days
+    
+    def _parse_date(self, date_str: Optional[str]) -> Optional[date]:
+        """Convierte string YYYY-MM-DD a objeto date"""
+        if not date_str:
+            return None
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        except (ValueError, AttributeError):
+            return None
     
     def _map_sic_to_sector(self, sic_description: Optional[str]) -> Optional[str]:
         """Mapea SIC description a sector general"""

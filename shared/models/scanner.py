@@ -265,24 +265,61 @@ class TickerMetadata(BaseModel):
     """
     Reference metadata for a ticker
     Cached in Redis with TTL
+    Expandido con campos completos de Polygon API
     """
+    # Identificación básica
     symbol: str
     company_name: Optional[str] = None
+    
+    # Clasificación
     exchange: Optional[str] = None
     sector: Optional[str] = None
     industry: Optional[str] = None
+    
+    # Capitalización y shares
     market_cap: Optional[int] = None
     float_shares: Optional[int] = None
     shares_outstanding: Optional[int] = None
+    
+    # Métricas de volumen y precio
     avg_volume_30d: Optional[int] = None
     avg_volume_10d: Optional[int] = None
     avg_price_30d: Optional[float] = None
     beta: Optional[float] = None
+    
+    # Información de la compañía
+    description: Optional[str] = None
+    homepage_url: Optional[str] = None
+    phone_number: Optional[str] = None
+    address: Optional[Dict[str, str]] = None  # {address1, city, state, postal_code}
+    total_employees: Optional[int] = None
+    list_date: Optional[str] = None  # Fecha de IPO (YYYY-MM-DD)
+    
+    # Branding
+    logo_url: Optional[str] = None
+    icon_url: Optional[str] = None
+    
+    # Identificadores
+    cik: Optional[str] = None  # SEC Central Index Key
+    composite_figi: Optional[str] = None  # OpenFIGI identifier
+    share_class_figi: Optional[str] = None  # Share Class FIGI
+    ticker_root: Optional[str] = None  # Raíz del ticker
+    ticker_suffix: Optional[str] = None  # Sufijo del ticker
+    
+    # Detalles del activo
+    type: Optional[str] = None  # CS, ETF, ADRC, etc
+    currency_name: Optional[str] = None
+    locale: Optional[str] = None  # us, global
+    market: Optional[str] = None  # stocks, crypto, fx, otc, indices
+    round_lot: Optional[int] = None
+    delisted_utc: Optional[str] = None  # Fecha de delisting (NULL si activo)
+    
+    # Estados
     is_etf: bool = False
     is_actively_trading: bool = True
     updated_at: datetime = Field(default_factory=datetime.now)
     
-    @validator('market_cap', 'float_shares', 'shares_outstanding', 'avg_volume_30d', 'avg_volume_10d', pre=True)
+    @validator('market_cap', 'float_shares', 'shares_outstanding', 'avg_volume_30d', 'avg_volume_10d', 'total_employees', 'round_lot', pre=True)
     def convert_to_int(cls, v):
         """Convert float to int for numeric fields"""
         if v is not None and isinstance(v, float):

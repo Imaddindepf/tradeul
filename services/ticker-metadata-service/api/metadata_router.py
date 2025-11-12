@@ -43,24 +43,8 @@ async def get_metadata(
     if not metadata:
         raise HTTPException(status_code=404, detail=f"Metadata for {symbol} not found")
     
-    # Convertir a dict para respuesta
-    return {
-        "symbol": metadata.symbol,
-        "company_name": metadata.company_name,
-        "exchange": metadata.exchange,
-        "sector": metadata.sector,
-        "industry": metadata.industry,
-        "market_cap": metadata.market_cap,
-        "float_shares": metadata.float_shares,
-        "shares_outstanding": metadata.shares_outstanding,
-        "avg_volume_30d": metadata.avg_volume_30d,
-        "avg_volume_10d": metadata.avg_volume_10d,
-        "avg_price_30d": metadata.avg_price_30d,
-        "beta": metadata.beta,
-        "is_etf": metadata.is_etf,
-        "is_actively_trading": metadata.is_actively_trading,
-        "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None
-    }
+    # Convertir a dict con TODOS los campos
+    return metadata.dict()
 
 
 @router.post("/{symbol}/refresh")
