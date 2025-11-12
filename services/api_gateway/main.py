@@ -354,7 +354,7 @@ async def get_ticker_details(symbol: str):
             raise HTTPException(status_code=404, detail=f"Ticker {symbol} not found")
         
         ticker_data = dict(result)
-        t
+        
         # Guardar en caché (5 segundos)
         await redis_client.setex(
             f"ticker:data:{symbol}",
@@ -393,9 +393,11 @@ async def get_ticker_metadata(symbol: str):
                 )
                 
                 if response.status_code == 200:
+                    logger.info("metadata_service_success", symbol=symbol)
                     return response.json()
                 elif response.status_code == 404:
-                    raise HTTPException(status_code=404, detail=f"Metadata for {symbol} not found")
+                    # El servicio no encontró datos, usar fallback
+                    logger.info("metadata_service_404_using_fallback", symbol=symbol)
                 else:
                     logger.warning(
                         "metadata_service_error",
@@ -406,6 +408,8 @@ async def get_ticker_metadata(symbol: str):
             logger.warning("metadata_service_timeout", symbol=symbol)
         except httpx.ConnectError:
             logger.warning("metadata_service_unavailable", symbol=symbol)
+        except Exception as e:
+            logger.warning("metadata_service_error", symbol=symbol, error=str(e))
         
         # Fallback: Query directo a DB (modo degradado)
         logger.info("using_fallback_db_query", symbol=symbol)
