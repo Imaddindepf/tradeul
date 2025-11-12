@@ -68,8 +68,7 @@ async def lifespan(app: FastAPI):
     scheduler_task = asyncio.create_task(scheduler.run())
     
     logger.info("🔄 Maintenance scheduler started")
-    logger.info(f"⏰ Timezone: {settings.timezone}")
-    logger.info(f"📅 Schedule: Daily maintenance after market close")
+    logger.info(f"📅 Schedule: Daily maintenance after market close (post-market end: {settings.post_market_end})")
     
     yield
     

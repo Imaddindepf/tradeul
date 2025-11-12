@@ -27,6 +27,7 @@ from shared.enums.market_session import MarketSession
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
+from shared.utils.redis_stream_manager import get_stream_manager
 
 # Importar nuevos módulos de categorización
 from gap_calculator import GapCalculator, GapTracker
@@ -40,9 +41,15 @@ class ScannerEngine:
     Core scanner engine
     """
     
-    def __init__(self, redis_client: RedisClient, timescale_client: TimescaleClient):
+    def __init__(
+        self,
+        redis_client: RedisClient,
+        timescale_client: TimescaleClient,
+        snapshot_manager=None  # Optional SnapshotManager
+    ):
         self.redis = redis_client
         self.db = timescale_client
+        self.snapshot_manager = snapshot_manager  # 🔥 SnapshotManager para deltas
         
         # Filters
         self.filters: List[FilterConfig] = []
@@ -896,8 +903,9 @@ class ScannerEngine:
             
             # 4. Publicar SUSCRIPCIONES para nuevos símbolos
             if new_symbols:
+                stream_manager = get_stream_manager()
                 for symbol in new_symbols:
-                    await self.redis.xadd(
+                    await stream_manager.xadd(
                         settings.key_polygon_subscriptions,  # "polygon_ws:subscriptions"
                         {
                             "symbol": symbol,
@@ -905,8 +913,8 @@ class ScannerEngine:
                             "source": "scanner_auto",
                             "session": self.current_session.value,
                             "timestamp": datetime.now().isoformat()
-                        },
-                        maxlen=10000  # Mantener historial razonable
+                        }
+                        # MAXLEN automático según config
                     )
                 
                 logger.info(
@@ -917,8 +925,9 @@ class ScannerEngine:
             
             # 5. Publicar DESUSCRIPCIONES para símbolos removidos
             if removed_symbols:
+                stream_manager = get_stream_manager()
                 for symbol in removed_symbols:
-                    await self.redis.xadd(
+                    await stream_manager.xadd(
                         settings.key_polygon_subscriptions,
                         {
                             "symbol": symbol,
@@ -926,8 +935,8 @@ class ScannerEngine:
                             "source": "scanner_auto",
                             "session": self.current_session.value,
                             "timestamp": datetime.now().isoformat()
-                        },
-                        maxlen=10000
+                        }
+                        # MAXLEN automático según config
                     )
                 
                 logger.info(
@@ -1434,11 +1443,11 @@ class ScannerEngine:
         
         # Publicar a stream
         try:
-            await self.redis.xadd(
+            stream_manager = get_stream_manager()
+            await stream_manager.xadd(
                 settings.stream_ranking_deltas,
-                message,
-                maxlen=20000,
-                approximate=True
+                message
+                # MAXLEN automático según config
             )
             
             # CRÍTICO: Actualizar sequence number en Redis para nuevos clientes
@@ -1538,11 +1547,11 @@ class ScannerEngine:
         
         # Publicar a stream
         try:
-            await self.redis.xadd(
+            stream_manager = get_stream_manager()
+            await stream_manager.xadd(
                 settings.stream_ranking_deltas,
-                message,
-                maxlen=20000,
-                approximate=True
+                message
+                # MAXLEN automático según config
             )
             
             # También guardar en key para consulta directa

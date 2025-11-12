@@ -9,4 +9,5 @@ pandas==2.1.4
 numpy==1.26.3
 structlog==24.1.0
 python-dotenv==1.0.0
+msgpack==1.0.7
 

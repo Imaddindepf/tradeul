@@ -98,6 +98,29 @@ class Settings(BaseSettings):
         return f"postgresql://{self.db_user}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"
     
     # =============================================
+    # TIMESCALEDB (Aliases)
+    # =============================================
+    @property
+    def TIMESCALE_HOST(self) -> str:
+        return self.db_host
+    
+    @property
+    def TIMESCALE_PORT(self) -> int:
+        return self.db_port
+    
+    @property
+    def TIMESCALE_DB(self) -> str:
+        return self.db_name
+    
+    @property
+    def TIMESCALE_USER(self) -> str:
+        return self.db_user
+    
+    @property
+    def TIMESCALE_PASSWORD(self) -> str:
+        return self.db_password
+    
+    # =============================================
     # SERVICES
     # =============================================
     orchestrator_host: str = Field(default="orchestrator", description="Orchestrator host")
@@ -133,13 +156,11 @@ class Settings(BaseSettings):
     initial_universe_size: int = Field(default=11000, description="Initial universe size")
     max_filtered_tickers: int = Field(default=1000, description="Max filtered tickers")
     snapshot_interval: int = Field(default=5, description="Snapshot interval in seconds")
-    
-    # Límites de paginación/resultados
-    default_query_limit: int = Field(default=100, description="Límite por defecto para queries/endpoints")
-    max_query_limit: int = Field(default=500, description="Límite máximo permitido en queries")
-    default_category_limit: int = Field(default=100, description="Límite por defecto para categorías de scanner")
-    max_category_limit: int = Field(default=200, description="Límite máximo para categorías de scanner")
-    default_gappers_limit: int = Field(default=100, description="Límite por defecto para gappers")
+    default_gappers_limit: int = Field(default=100, description="Default number of gappers to return")
+    default_category_limit: int = Field(default=100, description="Default number of tickers per category")
+    default_query_limit: int = Field(default=1000, description="Default query limit for scanner endpoints")
+    max_category_limit: int = Field(default=500, description="Maximum number of tickers per category")
+    max_query_limit: int = Field(default=5000, description="Maximum query limit for scanner endpoints")
     
     # =============================================
     # MARKET HOURS (ET)
@@ -257,4 +278,3 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
-

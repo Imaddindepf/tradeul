@@ -105,7 +105,6 @@ class SyncRedisTask:
                     shares_outstanding,
                     sector,
                     industry,
-                    description,
                     avg_volume_30d
                 FROM ticker_metadata
                 WHERE market_cap IS NOT NULL
@@ -130,7 +129,6 @@ class SyncRedisTask:
                     "shares_outstanding": row['shares_outstanding'],
                     "sector": row['sector'],
                     "industry": row['industry'],
-                    "description": row['description'],
                     "avg_volume_30d": row['avg_volume_30d']
                 }
                 
@@ -169,11 +167,11 @@ class SyncRedisTask:
                 WITH recent_data AS (
                     SELECT 
                         symbol,
-                        date,
+                        trading_date as date,
                         volume,
-                        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+                        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trading_date DESC) as rn
                     FROM market_data_daily
-                    WHERE date >= CURRENT_DATE - INTERVAL '30 days'
+                    WHERE trading_date >= CURRENT_DATE - INTERVAL '30 days'
                 )
                 SELECT 
                     symbol,
@@ -195,7 +193,7 @@ class SyncRedisTask:
             update_query = """
                 UPDATE ticker_metadata
                 SET avg_volume_30d = $2,
-                    metadata_updated_at = NOW()
+                    updated_at = NOW()
                 WHERE symbol = $1
             """
             
@@ -242,7 +240,7 @@ class SyncRedisTask:
             # Limpiar metadata de tickers inactivos
             # (Los que ya no están en ticker_universe)
             active_symbols_query = """
-                SELECT symbol FROM ticker_universe WHERE status = 'active'
+                SELECT symbol FROM ticker_universe WHERE is_active = true
             """
             active_rows = await self.db.fetch(active_symbols_query)
             active_symbols = {row['symbol'] for row in active_rows}

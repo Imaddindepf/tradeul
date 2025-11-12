@@ -129,7 +129,7 @@ class EnrichMetadataTask:
                 SELECT tu.symbol
                 FROM ticker_universe tu
                 LEFT JOIN ticker_metadata tm ON tu.symbol = tm.symbol
-                WHERE tu.status = 'active'
+                WHERE tu.is_active = true
                   AND (
                     tm.symbol IS NULL
                     OR tm.market_cap IS NULL
@@ -166,7 +166,6 @@ class EnrichMetadataTask:
             
             sector = details.get('sic_description') or details.get('sector')
             industry = details.get('industry')
-            description = details.get('description')
             
             # Update database
             await self._update_metadata(
@@ -175,8 +174,7 @@ class EnrichMetadataTask:
                 float_shares=float_shares,
                 shares_outstanding=weighted_shares_outstanding,
                 sector=sector,
-                industry=industry,
-                description=description
+                industry=industry
             )
             
             logger.debug(
@@ -224,16 +222,15 @@ class EnrichMetadataTask:
         float_shares: Optional[int],
         shares_outstanding: Optional[int],
         sector: Optional[str],
-        industry: Optional[str],
-        description: Optional[str]
+        industry: Optional[str]
     ):
         """Actualizar metadata en ticker_metadata"""
         query = """
             INSERT INTO ticker_metadata (
                 symbol, market_cap, float_shares, shares_outstanding,
-                sector, industry, description, metadata_updated_at
+                sector, industry
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6)
             ON CONFLICT (symbol)
             DO UPDATE SET
                 market_cap = COALESCE(EXCLUDED.market_cap, ticker_metadata.market_cap),
@@ -241,15 +238,14 @@ class EnrichMetadataTask:
                 shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, ticker_metadata.shares_outstanding),
                 sector = COALESCE(EXCLUDED.sector, ticker_metadata.sector),
                 industry = COALESCE(EXCLUDED.industry, ticker_metadata.industry),
-                description = COALESCE(EXCLUDED.description, ticker_metadata.description),
-                metadata_updated_at = NOW()
+                updated_at = NOW()
         """
         
         try:
             await self.db.execute(
                 query,
                 symbol, market_cap, float_shares, shares_outstanding,
-                sector, industry, description
+                sector, industry
             )
         except Exception as e:
             logger.error(

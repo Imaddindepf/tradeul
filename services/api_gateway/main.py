@@ -354,7 +354,7 @@ async def get_ticker_details(symbol: str):
             raise HTTPException(status_code=404, detail=f"Ticker {symbol} not found")
         
         ticker_data = dict(result)
-        
+        t
         # Guardar en caché (5 segundos)
         await redis_client.setex(
             f"ticker:data:{symbol}",

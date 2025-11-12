@@ -15,20 +15,7 @@ sys.path.append('/app/services/analytics')
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
-
-# Importar ATRCalculator
-try:
-    from services.analytics.atr_calculator import ATRCalculator
-except ImportError:
-    # Si no está disponible en el path, importar directamente
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "atr_calculator",
-        "/app/services/analytics/atr_calculator.py"
-    )
-    atr_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(atr_module)
-    ATRCalculator = atr_module.ATRCalculator
+from shared.utils.atr_calculator import ATRCalculator
 
 logger = get_logger(__name__)
 

@@ -58,8 +58,46 @@ class LoadOHLCTask:
         )
         
         try:
-            # Obtener últimos 30 días de trading
-            trading_days = get_trading_days(30)
+            # Obtener últimos 30 días de trading potenciales
+            all_trading_days = get_trading_days(30)
+            
+            # 🔍 DETECTAR QUÉ DÍAS YA EXISTEN EN LA BD
+            logger.info("detecting_existing_days_in_db")
+            existing_dates_query = """
+                SELECT DISTINCT trading_date 
+                FROM market_data_daily 
+                WHERE trading_date >= $1 
+                ORDER BY trading_date DESC
+            """
+            oldest_date = min(all_trading_days)
+            existing_rows = await self.db.fetch(existing_dates_query, oldest_date)
+            existing_dates = {row['trading_date'] for row in existing_rows}
+            
+            # Filtrar solo los días FALTANTES
+            trading_days = [d for d in all_trading_days if d not in existing_dates]
+            
+            if existing_dates:
+                logger.info(
+                    "existing_days_found",
+                    existing_count=len(existing_dates),
+                    last_3_dates=sorted([d.isoformat() for d in existing_dates], reverse=True)[:3]
+                )
+            
+            if not trading_days:
+                logger.info("all_days_already_loaded", message="No hay días faltantes")
+                return {
+                    "success": True,
+                    "message": "All days already loaded",
+                    "symbols_processed": 0,
+                    "records_inserted": 0,
+                    "days_skipped": len(existing_dates)
+                }
+            
+            logger.info(
+                "missing_days_detected",
+                missing_count=len(trading_days),
+                missing_dates=[d.isoformat() for d in sorted(trading_days, reverse=True)]
+            )
             
             # Obtener símbolos activos del universo
             symbols = await self._get_active_symbols()
@@ -74,9 +112,8 @@ class LoadOHLCTask:
             logger.info(
                 "ohlc_symbols_loaded",
                 count=len(symbols),
-                days=len(trading_days),
-                start=trading_days[0].isoformat(),
-                end=trading_days[-1].isoformat()
+                days_to_load=len(trading_days),
+                days_skipped=len(existing_dates)
             )
             
             # Procesar en paralelo con límite de concurrencia
@@ -98,13 +135,17 @@ class LoadOHLCTask:
             logger.info(
                 "ohlc_task_completed",
                 symbols_processed=len(symbols),
-                records_inserted=records_inserted
+                records_inserted=records_inserted,
+                days_loaded=len(trading_days),
+                days_skipped=len(existing_dates)
             )
             
             return {
                 "success": True,
                 "symbols_processed": len(symbols),
-                "records_inserted": records_inserted
+                "records_inserted": records_inserted,
+                "days_loaded": len(trading_days),
+                "days_skipped": len(existing_dates)
             }
         
         except Exception as e:
@@ -124,7 +165,7 @@ class LoadOHLCTask:
             query = """
                 SELECT DISTINCT symbol 
                 FROM ticker_universe 
-                WHERE status = 'active'
+                WHERE is_active = true
                 ORDER BY symbol
             """
             rows = await self.db.fetch(query)
@@ -167,9 +208,9 @@ class LoadOHLCTask:
         # Inserción batch con ON CONFLICT (update existentes)
         query = """
             INSERT INTO market_data_daily 
-            (date, symbol, open, high, low, close, volume, vwap, trades_count)
+            (trading_date, symbol, open, high, low, close, volume, vwap, trades_count)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (date, symbol) 
+            ON CONFLICT (trading_date, symbol) 
             DO UPDATE SET
                 open = EXCLUDED.open,
                 high = EXCLUDED.high,

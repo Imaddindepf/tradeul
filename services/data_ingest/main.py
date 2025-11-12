@@ -19,6 +19,10 @@ from shared.models.polygon import PolygonSnapshot, PolygonSnapshotResponse
 from shared.enums.market_session import MarketSession
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger, configure_logging
+from shared.utils.redis_stream_manager import (
+    initialize_stream_manager,
+    get_stream_manager
+)
 
 from snapshot_consumer import SnapshotConsumer
 
@@ -52,6 +56,11 @@ async def lifespan(app: FastAPI):
     redis_client = RedisClient()
     await redis_client.connect()
     
+    # 🔥 Initialize Redis Stream Manager (auto-trimming)
+    stream_manager = initialize_stream_manager(redis_client)
+    await stream_manager.start()
+    logger.info("✅ RedisStreamManager initialized and started")
+    
     # Initialize snapshot consumer
     snapshot_consumer = SnapshotConsumer(redis_client)
     
@@ -68,6 +77,11 @@ async def lifespan(app: FastAPI):
             await background_task
         except asyncio.CancelledError:
             pass
+    
+    # 🔥 Stop Stream Manager
+    stream_manager = get_stream_manager()
+    await stream_manager.stop()
+    logger.info("✅ RedisStreamManager stopped")
     
     if redis_client:
         await redis_client.disconnect()

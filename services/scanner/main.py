@@ -20,6 +20,11 @@ from shared.models.scanner import ScannerResult, ScannerTicker, FilterConfig
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger, configure_logging
+from shared.utils.redis_stream_manager import (
+    initialize_stream_manager,
+    get_stream_manager
+)
+from shared.utils.snapshot_manager import SnapshotManager
 
 from scanner_engine import ScannerEngine
 from scanner_categories import ScannerCategory
@@ -58,8 +63,27 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient()
     await timescale_client.connect()
     
+    # 🔥 Initialize Redis Stream Manager (auto-trimming)
+    stream_manager = initialize_stream_manager(redis_client)
+    await stream_manager.start()
+    logger.info("✅ RedisStreamManager initialized and started")
+    
+    # 🔥 Initialize Snapshot Manager (deltas instead of full snapshots)
+    snapshot_manager = SnapshotManager(
+        redis_client=redis_client,
+        full_snapshot_interval=300,  # 5 min
+        delta_compression_threshold=100,
+        min_price_change_percent=0.001,  # 0.1%
+        min_rvol_change_percent=0.05     # 5%
+    )
+    logger.info("✅ SnapshotManager initialized")
+    
     # Initialize scanner engine
-    scanner_engine = ScannerEngine(redis_client, timescale_client)
+    scanner_engine = ScannerEngine(
+        redis_client,
+        timescale_client,
+        snapshot_manager=snapshot_manager  # Pasar snapshot_manager
+    )
     await scanner_engine.initialize()
     
     logger.info("Scanner Service started (paused)")
@@ -75,6 +99,11 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
+    
+    # 🔥 Stop Stream Manager
+    stream_manager = get_stream_manager()
+    await stream_manager.stop()
+    logger.info("✅ RedisStreamManager stopped")
     
     if timescale_client:
         await timescale_client.disconnect()

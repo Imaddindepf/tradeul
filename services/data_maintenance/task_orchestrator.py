@@ -74,6 +74,32 @@ class TaskOrchestrator:
         
         date_str = target_date.isoformat()
         
+        # 🔥 VERIFICAR SI YA SE COMPLETÓ HOY
+        status_key = f"maintenance:status:{date_str}"
+        existing_state_raw = await self.redis.get(status_key)
+        
+        if existing_state_raw:
+            import json
+            try:
+                existing_state = json.loads(existing_state_raw) if isinstance(existing_state_raw, str) else existing_state_raw
+                
+                # Verificar si todas las tareas están completadas
+                tasks_status = existing_state.get("tasks", {})
+                all_completed = all(
+                    tasks_status.get(task.name) == TaskStatus.COMPLETED
+                    for task in self.tasks
+                )
+                
+                if all_completed:
+                    logger.info(
+                        "maintenance_already_completed",
+                        date=date_str,
+                        completed_at=existing_state.get("completed_at")
+                    )
+                    return True
+            except (json.JSONDecodeError, AttributeError) as e:
+                logger.warning("failed_to_parse_existing_state", error=str(e))
+        
         logger.info(
             "starting_maintenance_cycle",
             date=date_str,
@@ -81,7 +107,6 @@ class TaskOrchestrator:
         )
         
         # Inicializar o recuperar estado
-        status_key = f"maintenance:status:{date_str}"
         state = await self._load_state(status_key, target_date)
         
         cycle_start = datetime.now()
@@ -120,11 +145,15 @@ class TaskOrchestrator:
                 
                 if result.get("success", False):
                     state["tasks"][task_name] = TaskStatus.COMPLETED
+                    
+                    # Excluir duration_seconds de result para evitar duplicados
+                    log_data = {k: v for k, v in result.items() if k != "duration_seconds"}
+                    
                     logger.info(
                         "task_completed",
                         task=task_name,
                         duration_seconds=round(task_duration, 2),
-                        **result
+                        **log_data
                     )
                 else:
                     state["tasks"][task_name] = TaskStatus.FAILED

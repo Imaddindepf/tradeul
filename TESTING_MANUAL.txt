@@ -1,0 +1,364 @@
+================================================================================
+GUÍA DE TESTING MANUAL - FASE 1
+Ticker Metadata Service
+================================================================================
+
+Cuando estés listo para probar el nuevo servicio, sigue estos pasos:
+
+================================================================================
+PASO 1: LEVANTAR INFRAESTRUCTURA BASE
+================================================================================
+
+# Asegúrate de estar en el directorio correcto
+cd /Users/imaddinamsif/Desktop/Tradeul-Amsif
+
+# Levantar Redis y TimescaleDB primero
+docker-compose up -d redis timescaledb
+
+# Esperar 15 segundos
+sleep 15
+
+# Verificar que estén corriendo
+docker-compose ps
+
+# Deberías ver:
+# tradeul_redis       running
+# tradeul_timescale   running
+
+================================================================================
+PASO 2: BUILD Y LEVANTAR NUEVO SERVICIO
+================================================================================
+
+# Build del nuevo servicio
+docker-compose build ticker_metadata
+
+# Levantar el servicio
+docker-compose up -d ticker_metadata
+
+# Ver los logs en tiempo real (Ctrl+C para salir)
+docker logs -f tradeul_ticker_metadata
+
+# Busca estas líneas en los logs:
+# ✓ "ticker_metadata_service_starting"
+# ✓ "redis_connected"
+# ✓ "timescale_connected"
+# ✓ "metadata_manager_initialized"
+# ✓ "ticker_metadata_service_ready"
+
+================================================================================
+PASO 3: RESTART API GATEWAY
+================================================================================
+
+# Para que reconozca el nuevo servicio
+docker-compose restart api_gateway
+
+# Esperar 10 segundos
+sleep 10
+
+================================================================================
+PASO 4: TESTING BÁSICO
+================================================================================
+
+# Test 1: Health Check del nuevo servicio
+curl http://localhost:8010/health
+
+# Debería retornar:
+# {"status":"healthy","service":"ticker-metadata-service","version":"1.0.0",...}
+
+# Test 2: Obtener metadata de Apple
+curl http://localhost:8010/api/v1/metadata/AAPL
+
+# Debería retornar JSON con:
+# - symbol: "AAPL"
+# - company_name: "Apple Inc."
+# - sector: "Technology"
+# - industry: ...
+# - market_cap: ...
+
+# Test 3: Via API Gateway (con fallback)
+curl http://localhost:8000/api/v1/ticker/AAPL/metadata
+
+# Debería retornar lo mismo que Test 2
+
+# Test 4: Stats del servicio
+curl http://localhost:8010/api/v1/metadata/stats/service
+
+# Debería retornar:
+# {"cache_hit_rate": "...", "cache_hits": ..., "api_calls": ...}
+
+================================================================================
+PASO 5: TESTING COMPLETO AUTOMATIZADO
+================================================================================
+
+# Ejecutar el script completo con 11 tests
+./test_ticker_metadata_service.sh
+
+# El script verificará:
+# ✓ Pre-flight checks (Redis, TimescaleDB, servicios)
+# ✓ Health checks
+# ✓ Metadata endpoints (4 símbolos)
+# ✓ Company endpoints
+# ✓ Statistics endpoints
+# ✓ Service stats
+# ✓ API Gateway integration
+# ✓ Cache verification
+# ✓ Fallback behavior
+# ✓ Performance check (10 requests)
+
+================================================================================
+PASO 6: VERIFICAR CACHE EN REDIS
+================================================================================
+
+# Ver keys de cache creados
+docker exec tradeul_redis redis-cli KEYS "ticker:metadata:*"
+
+# Deberías ver algo como:
+# ticker:metadata:AAPL
+# ticker:metadata:TSLA
+# etc.
+
+# Ver contenido de un cache entry
+docker exec tradeul_redis redis-cli GET "ticker:metadata:AAPL"
+
+================================================================================
+PASO 7: TESTING DESDE FRONTEND
+================================================================================
+
+# 1. Asegúrate de que frontend esté corriendo
+docker-compose up -d frontend
+
+# 2. Abre en tu navegador:
+http://localhost:3000/scanner
+
+# 3. Espera a que cargue la tabla con tickers
+
+# 4. Haz click en cualquier símbolo (texto azul en columna Symbol)
+
+# 5. Debería abrir un modal con:
+   ✓ Company Information (nombre, exchange, sector, industria)
+   ✓ Exchange & Classification
+   ✓ Market Capitalization (market cap, float shares)
+   ✓ Average Volume
+   ✓ Price Statistics
+   ✓ Metadata Info (última actualización)
+
+# 6. El modal debería:
+   ✓ Abrirse rápido (< 1 segundo)
+   ✓ Mostrar datos reales del ticker
+   ✓ No mostrar errores
+   ✓ Cerrarse con Escape o botón Close
+
+================================================================================
+PASO 8: VERIFICAR LOGS (Importante)
+================================================================================
+
+# Logs del nuevo servicio
+docker logs tradeul_ticker_metadata --tail=100
+
+# Busca estos eventos (deben ser INFO, no ERROR):
+✓ ticker_metadata_service_starting
+✓ redis_connected
+✓ timescale_connected
+✓ ticker_metadata_service_ready
+✓ metadata_cache_hit (cuando haces requests repetidos)
+✓ metadata_enriched (cuando enriquece desde Polygon)
+
+# NO deberías ver:
+✗ ERROR
+✗ CRITICAL
+✗ Connection failed
+✗ Timeout
+
+# Logs del API Gateway
+docker logs tradeul_api_gateway --tail=50
+
+# Busca:
+✓ Requests a /api/v1/ticker/{symbol}/metadata
+✓ No debería haber errores 500
+
+================================================================================
+PASO 9: TESTING DE FALLBACK
+================================================================================
+
+# Test con servicio funcionando
+curl http://localhost:8000/api/v1/ticker/TSLA/metadata
+# Debería funcionar
+
+# Detener el servicio para probar fallback
+docker-compose stop ticker_metadata
+
+# Test sin servicio (debería usar fallback DB)
+curl http://localhost:8000/api/v1/ticker/TSLA/metadata
+# Debería SEGUIR funcionando (usando DB directamente)
+
+# Verificar logs del gateway (debería ver warning sobre fallback)
+docker logs tradeul_api_gateway --tail=20
+# Busca: "metadata_service_unavailable" o "using_fallback_db_query"
+
+# Levantar de nuevo el servicio
+docker-compose up -d ticker_metadata
+
+================================================================================
+PASO 10: PERFORMANCE CHECK
+================================================================================
+
+# Test de latencia (10 requests)
+time for i in {1..10}; do
+  curl -s http://localhost:8010/api/v1/metadata/AAPL > /dev/null
+done
+
+# Primera request puede ser ~500ms (cold, llama a Polygon)
+# Siguientes requests deberían ser < 10ms (cache hit)
+
+# Ver stats
+curl http://localhost:8010/api/v1/metadata/stats/service
+
+# Cache hit rate debería ser > 70% después de varios requests
+
+================================================================================
+CRITERIOS DE ÉXITO
+================================================================================
+
+Para considerar el testing EXITOSO, TODOS estos deben cumplirse:
+
+✓ Servicio arranca sin errores
+✓ Health check responde HTTP 200
+✓ Metadata endpoint devuelve datos válidos de AAPL
+✓ API Gateway funciona (con servicio running)
+✓ API Gateway fallback funciona (con servicio stopped)
+✓ Frontend modal abre correctamente
+✓ Frontend modal muestra datos reales
+✓ No hay errores en logs (ticker_metadata ni api_gateway)
+✓ Cache funciona (keys en Redis)
+✓ Cache hit rate > 70% (después de varios requests)
+✓ Latencia cache hit < 20ms
+✓ Sistema puede correr 1 hora sin crashes
+
+================================================================================
+SI TODO FUNCIONA CORRECTAMENTE
+================================================================================
+
+¡Felicidades! El servicio funciona. Ahora puedes:
+
+1. MERGE A MAIN:
+   git checkout main
+   git merge feature/ticker-metadata-service --no-ff
+   git push origin main
+
+2. DEPLOY A PRODUCCIÓN (si aplica):
+   ssh production
+   cd ~/tradeul
+   git pull origin main
+   docker-compose up -d --build ticker_metadata
+   docker-compose restart api_gateway
+
+3. MONITOR POR 24-48 HORAS:
+   - docker logs -f tradeul_ticker_metadata
+   - Verificar cache hit rate
+   - Verificar latencias
+   - Verificar que no hay memory leaks
+   - Verificar que frontend funciona sin issues
+
+================================================================================
+SI ALGO FALLA
+================================================================================
+
+Ver: services/ROLLBACK_PLAN.txt
+
+ROLLBACK RÁPIDO (< 2 minutos):
+
+# Opción 1: Detener servicio
+docker-compose stop ticker_metadata
+docker-compose restart api_gateway
+# → Sistema sigue funcionando con fallback
+
+# Opción 2: Volver a main
+git checkout main
+docker-compose up -d --build
+
+================================================================================
+TROUBLESHOOTING COMÚN
+================================================================================
+
+Problema: "Connection refused" al llamar puerto 8010
+Solución:
+  - Verificar servicio está corriendo: docker-compose ps
+  - Verificar logs: docker logs tradeul_ticker_metadata
+  - Verificar Redis y DB están up
+
+Problema: "404 Not Found" para un símbolo
+Solución:
+  - Normal si el símbolo no existe en Polygon
+  - Para AAPL/TSLA/NVDA debería funcionar
+  - Verificar POLYGON_API_KEY en .env
+
+Problema: Frontend modal muestra "Error al cargar metadatos"
+Solución:
+  - Verificar api-gateway está corriendo
+  - Verificar endpoint: curl http://localhost:8000/api/v1/ticker/AAPL/metadata
+  - Ver consola del navegador (F12)
+
+Problema: Latencia muy alta (> 1 segundo)
+Solución:
+  - Primera request es normal (cold start)
+  - Siguientes deberían ser rápidas (cache)
+  - Verificar cache hit rate
+  - Verificar Redis no está sobrecargado
+
+Problema: Service stats muestra muchos errors
+Solución:
+  - Revisar logs detalladamente
+  - Verificar conexión a Polygon API
+  - Verificar rate limiting (no más de 5 req/s a Polygon)
+
+================================================================================
+CONTACTOS Y REFERENCIAS
+================================================================================
+
+Documentación:
+- README_FASE1.txt (quick reference)
+- QUICKSTART_PHASE1.txt (deployment guide)
+- FASE_1_RESUMEN_FINAL.txt (complete summary)
+- services/ticker-metadata-service/README.txt (API docs)
+- services/PHASE_1_COMPLETED.txt (technical details)
+- services/ROLLBACK_PLAN.txt (if things fail)
+
+Scripts:
+- ./test_ticker_metadata_service.sh (automated testing)
+
+Branch:
+- feature/ticker-metadata-service
+- https://github.com/Imaddindepf/tradeul/tree/feature/ticker-metadata-service
+
+Backup:
+- backup/pre-phase-1-migration
+
+================================================================================
+RESUMEN DE COMANDOS RÁPIDOS
+================================================================================
+
+# Setup completo en una línea
+docker-compose up -d redis timescaledb && sleep 15 && \
+docker-compose build ticker_metadata && \
+docker-compose up -d ticker_metadata && sleep 10 && \
+docker-compose restart api_gateway && sleep 10 && \
+curl http://localhost:8010/health
+
+# Testing básico
+curl http://localhost:8010/health
+curl http://localhost:8010/api/v1/metadata/AAPL
+curl http://localhost:8000/api/v1/ticker/AAPL/metadata
+
+# Ver logs
+docker logs -f tradeul_ticker_metadata
+
+# Testing completo
+./test_ticker_metadata_service.sh
+
+# Rollback
+docker-compose stop ticker_metadata && docker-compose restart api_gateway
+
+================================================================================
+¡ÉXITO CON EL TESTING! 🚀
+================================================================================
+

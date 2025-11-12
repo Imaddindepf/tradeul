@@ -55,8 +55,46 @@ class LoadVolumeSlotsTask:
         )
         
         try:
-            # Obtener últimos 10 días de trading
-            trading_days = get_trading_days(10)
+            # Obtener últimos 10 días de trading potenciales
+            all_trading_days = get_trading_days(10)
+            
+            # 🔍 DETECTAR QUÉ DÍAS YA EXISTEN EN LA BD
+            logger.info("detecting_existing_days_in_db")
+            existing_dates_query = """
+                SELECT DISTINCT date 
+                FROM volume_slots 
+                WHERE date >= $1 
+                ORDER BY date DESC
+            """
+            oldest_date = min(all_trading_days)
+            existing_rows = await self.db.fetch(existing_dates_query, oldest_date)
+            existing_dates = {row['date'] for row in existing_rows}
+            
+            # Filtrar solo los días FALTANTES
+            trading_days = [d for d in all_trading_days if d not in existing_dates]
+            
+            if existing_dates:
+                logger.info(
+                    "existing_days_found",
+                    existing_count=len(existing_dates),
+                    last_3_dates=sorted([d.isoformat() for d in existing_dates], reverse=True)[:3]
+                )
+            
+            if not trading_days:
+                logger.info("all_days_already_loaded", message="No hay días faltantes")
+                return {
+                    "success": True,
+                    "message": "All days already loaded",
+                    "symbols_processed": 0,
+                    "records_inserted": 0,
+                    "days_skipped": len(existing_dates)
+                }
+            
+            logger.info(
+                "missing_days_detected",
+                missing_count=len(trading_days),
+                missing_dates=[d.isoformat() for d in sorted(trading_days, reverse=True)]
+            )
             
             # Obtener símbolos activos
             symbols = await self._get_active_symbols()
@@ -71,7 +109,7 @@ class LoadVolumeSlotsTask:
             logger.info(
                 "volume_slots_symbols_loaded",
                 count=len(symbols),
-                days=len(trading_days)
+                days_to_load=len(trading_days)
             )
             
             # Procesar en paralelo
@@ -93,13 +131,17 @@ class LoadVolumeSlotsTask:
             logger.info(
                 "volume_slots_task_completed",
                 symbols_processed=len(symbols),
-                records_inserted=records_inserted
+                records_inserted=records_inserted,
+                days_loaded=len(trading_days),
+                days_skipped=len(existing_dates)
             )
             
             return {
                 "success": True,
                 "symbols_processed": len(symbols),
-                "records_inserted": records_inserted
+                "records_inserted": records_inserted,
+                "days_loaded": len(trading_days),
+                "days_skipped": len(existing_dates)
             }
         
         except Exception as e:
@@ -119,7 +161,7 @@ class LoadVolumeSlotsTask:
             query = """
                 SELECT DISTINCT symbol 
                 FROM ticker_universe 
-                WHERE status = 'active'
+                WHERE is_active = true
                 ORDER BY symbol
             """
             rows = await self.db.fetch(query)
@@ -190,52 +232,80 @@ class LoadVolumeSlotsTask:
         return []
     
     def _convert_to_5min_slots(self, aggs: List[Dict], day: date) -> List[Dict]:
-        """Convertir agregados de 1 min a slots de 5 min"""
-        from collections import defaultdict
+        """
+        Convertir agregados de 1 min a slots de 5 min con VOLUMEN ACUMULADO
         
-        # Agrupar por slot de 5 minutos
-        slots_data = defaultdict(lambda: {"volume": 0, "count": 0})
+        MÉTODO PINESCRIPT (igual que load_massive_parallel.py):
+        - Acumula BARRA POR BARRA (minuto a minuto)
+        - Mantiene el último valor acumulado de cada slot
+        - Extended hours: 4:00-20:00 ET (192 slots)
+        """
+        from zoneinfo import ZoneInfo
+        from datetime import time
         
-        for agg in aggs:
-            # Convertir timestamp a hora ET
-            ts = datetime.fromtimestamp(agg['t'] / 1000)
+        if not aggs:
+            return []
+        
+        TIMEZONE = ZoneInfo("America/New_York")
+        accumulated = 0
+        slots_dict = {}
+        
+        # 🔥 ACUMULACIÓN PINESCRIPT: barra por barra
+        for bar in sorted(aggs, key=lambda x: x['t']):
+            dt = datetime.fromtimestamp(bar['t'] / 1000, tz=TIMEZONE)
+            accumulated += bar.get('v', 0)  # ACUMULAR como PineScript
             
-            # Calcular slot (0-77)
-            # Pre-market: 4:00-9:30 AM = 66 slots (5 min cada uno)
-            # Market: 9:30-16:00 = 78 slots
-            # Usar simplificación: minutos desde medianoche / 5
-            minutes_since_midnight = ts.hour * 60 + ts.minute
-            slot_index = minutes_since_midnight // 5
+            # Extended hours: 4:00-20:00 ET
+            if dt.hour < 4 or dt.hour >= 20:
+                continue
             
-            # Acumular volumen
-            slots_data[slot_index]["volume"] += agg.get('v', 0)
-            slots_data[slot_index]["count"] += 1
+            # Calcular slot (0-191): desde 4:00 AM
+            slot_num = ((dt.hour - 4) * 60 + dt.minute) // 5
+            slot_h = 4 + (slot_num * 5) // 60
+            slot_m = (slot_num * 5) % 60
+            
+            # Guardar el ÚLTIMO valor acumulado de cada slot
+            # (sobreescribe si hay múltiples barras en el mismo slot)
+            slots_dict[slot_num] = {
+                "slot_index": slot_num,
+                "slot_time": time(slot_h, slot_m, 0),  # ← OBJETO time, no string
+                "volume_accumulated": accumulated,  # ← VOLUMEN ACUMULADO total
+                "trades_count": bar.get('n', 0),
+                "avg_price": bar.get('c', 0.0)
+            }
         
-        # Convertir a lista
-        slots = []
-        for slot_idx, data in slots_data.items():
-            if data["volume"] > 0:
-                slots.append({
-                    "slot_index": slot_idx,
-                    "volume": data["volume"]
-                })
-        
-        return slots
+        return list(slots_dict.values())
     
     async def _insert_slots(self, symbol: str, day: date, slots: List[Dict]) -> int:
-        """Insertar slots en la base de datos"""
+        """
+        Insertar slots en la base de datos con volumen ACUMULADO
+        
+        IMPORTANTE: volume_accumulated es el volumen total desde inicio del día
+        hasta ese slot, NO solo el volumen de ese slot de 5 minutos.
+        """
         if not slots:
             return 0
         
         query = """
-            INSERT INTO volume_slots (date, symbol, slot_index, volume)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (date, symbol, slot_index)
-            DO UPDATE SET volume = EXCLUDED.volume
+            INSERT INTO volume_slots (date, symbol, slot_number, slot_time, volume_accumulated, trades_count, avg_price)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (date, symbol, slot_number)
+            DO UPDATE SET 
+                volume_accumulated = EXCLUDED.volume_accumulated,
+                trades_count = EXCLUDED.trades_count,
+                avg_price = EXCLUDED.avg_price
         """
         
         records = [
-            (day, symbol, slot["slot_index"], slot["volume"])
+            (
+                day,
+                symbol,
+                slot["slot_index"],
+                slot["slot_time"],
+                slot["volume_accumulated"],
+                slot.get("trades_count", 0),
+                slot.get("avg_price", 0.0)
+            )
             for slot in slots
         ]
         

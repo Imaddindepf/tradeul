@@ -352,6 +352,33 @@ class RedisClient:
             logger.error("Redis XLEN error", name=name, error=str(e))
             return 0
     
+    async def xtrim(
+        self,
+        name: str,
+        maxlen: int,
+        approximate: bool = True
+    ) -> int:
+        """
+        Trim stream to maximum length
+        
+        Args:
+            name: Stream name
+            maxlen: Maximum length
+            approximate: Use approximate trimming (~)
+        
+        Returns:
+            Number of entries removed
+        """
+        try:
+            return await self.client.xtrim(
+                name,
+                maxlen=maxlen,
+                approximate=approximate
+            )
+        except RedisError as e:
+            logger.error("Redis XTRIM error", name=name, error=str(e))
+            return 0
+    
     async def create_consumer_group(
         self,
         stream_name: str,
