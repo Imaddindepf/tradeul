@@ -35,24 +35,16 @@ async def lifespan(app: FastAPI):
     logger.info("ticker_metadata_service_starting", version="1.0.0")
     
     try:
-        redis_client = RedisClient(
-            host=os.getenv("REDIS_HOST", "redis"),
-            port=int(os.getenv("REDIS_PORT", "6379")),
-            db=int(os.getenv("REDIS_DB", "0"))
-        )
+        # Construir Redis URL
+        redis_url = f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/{os.getenv('REDIS_DB', '0')}"
+        redis_client = RedisClient(redis_url=redis_url)
         await redis_client.connect()
         logger.info("redis_connected")
         
-        timescale_client = TimescaleClient(
-            host=os.getenv("TIMESCALE_HOST", "timescaledb"),
-            port=int(os.getenv("TIMESCALE_PORT", "5432")),
-            database=os.getenv("TIMESCALE_DB", "tradeul"),
-            user=os.getenv("TIMESCALE_USER", "tradeul_user"),
-            password=os.getenv("TIMESCALE_PASSWORD", "tradeul_password_secure_123"),
-            min_size=2,
-            max_size=10
-        )
-        await timescale_client.connect()
+        # Construir TimescaleDB URL
+        timescale_url = f"postgresql://{os.getenv('TIMESCALE_USER', 'tradeul_user')}:{os.getenv('TIMESCALE_PASSWORD', 'tradeul_password_secure_123')}@{os.getenv('TIMESCALE_HOST', 'timescaledb')}:{os.getenv('TIMESCALE_PORT', '5432')}/{os.getenv('TIMESCALE_DB', 'tradeul')}"
+        timescale_client = TimescaleClient(database_url=timescale_url)
+        await timescale_client.connect(min_size=2, max_size=10)
         logger.info("timescale_connected")
         
         metadata_manager = MetadataManager(
@@ -73,11 +65,11 @@ async def lifespan(app: FastAPI):
         logger.info("ticker_metadata_service_shutting_down")
         
         if redis_client:
-            await redis_client.close()
+            await redis_client.disconnect()
             logger.info("redis_disconnected")
         
         if timescale_client:
-            await timescale_client.close()
+            await timescale_client.disconnect()
             logger.info("timescale_disconnected")
         
         logger.info("ticker_metadata_service_stopped")
@@ -99,12 +91,25 @@ app.add_middleware(
 
 @app.get("/health")
 async def health_check():
+    redis_ok = False
+    timescale_ok = False
+    
+    if redis_client and redis_client._client:
+        try:
+            await redis_client._client.ping()
+            redis_ok = True
+        except:
+            pass
+    
+    if timescale_client and timescale_client._pool:
+        timescale_ok = True
+    
     return {
         "status": "healthy",
         "service": "ticker-metadata-service",
         "version": "1.0.0",
-        "redis": redis_client.is_connected() if redis_client else False,
-        "timescale": timescale_client.is_connected() if timescale_client else False
+        "redis": redis_ok,
+        "timescale": timescale_ok
     }
 
 app.include_router(metadata_router.router, prefix="/api/v1/metadata", tags=["Metadata"])
@@ -116,7 +121,7 @@ async def global_exception_handler(request, exc):
     logger.error(
         "unhandled_exception",
         path=request.url.path,
-        error=str(e),
+        error=str(exc),
         exc_info=True
     )
     return JSONResponse(

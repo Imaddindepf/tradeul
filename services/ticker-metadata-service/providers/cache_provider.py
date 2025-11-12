@@ -6,7 +6,7 @@ Maneja cache de metadata en Redis.
 
 import json
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import sys
 sys.path.append('/app')
@@ -39,8 +39,11 @@ class CacheProvider:
             if not cached_data:
                 return None
             
-            # Deserializar
-            data = json.loads(cached_data)
+            # Deserializar (redis.get puede devolver string o dict según configuración)
+            if isinstance(cached_data, str):
+                data = json.loads(cached_data)
+            else:
+                data = cached_data
             
             # Convertir a TickerMetadata
             metadata = TickerMetadata(
@@ -58,7 +61,7 @@ class CacheProvider:
                 beta=data.get("beta"),
                 is_etf=data.get("is_etf", False),
                 is_actively_trading=data.get("is_actively_trading", True),
-                updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now()
+                updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else datetime.now(timezone.utc)
             )
             
             return metadata
