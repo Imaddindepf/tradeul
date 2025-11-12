@@ -362,7 +362,17 @@ class MetadataManager:
         )
     
     def _dict_to_metadata(self, data: Dict[str, Any]) -> TickerMetadata:
-        """Convierte dict de DB a TickerMetadata"""
+        """Convierte dict de DB a TickerMetadata con TODOS los campos"""
+        import json
+        
+        # Parsear address si viene como string JSON
+        address = data.get("address")
+        if address and isinstance(address, str):
+            try:
+                address = json.loads(address)
+            except (json.JSONDecodeError, TypeError):
+                address = None
+        
         return TickerMetadata(
             symbol=data["symbol"],
             company_name=data.get("company_name"),
@@ -376,6 +386,29 @@ class MetadataManager:
             avg_volume_10d=data.get("avg_volume_10d"),
             avg_price_30d=data.get("avg_price_30d"),
             beta=data.get("beta"),
+            
+            # Campos expandidos
+            description=data.get("description"),
+            homepage_url=data.get("homepage_url"),
+            phone_number=data.get("phone_number"),
+            address=address,  # Ya parseado
+            total_employees=data.get("total_employees"),
+            list_date=data.get("list_date"),
+            logo_url=data.get("logo_url"),
+            icon_url=data.get("icon_url"),
+            cik=data.get("cik"),
+            composite_figi=data.get("composite_figi"),
+            share_class_figi=data.get("share_class_figi"),
+            ticker_root=data.get("ticker_root"),
+            ticker_suffix=data.get("ticker_suffix"),
+            type=data.get("type"),
+            currency_name=data.get("currency_name"),
+            locale=data.get("locale"),
+            market=data.get("market"),
+            round_lot=data.get("round_lot"),
+            delisted_utc=data.get("delisted_utc"),
+            
+            # Estados
             is_etf=data.get("is_etf", False),
             is_actively_trading=data.get("is_actively_trading", True),
             updated_at=data.get("updated_at", datetime.now(timezone.utc))

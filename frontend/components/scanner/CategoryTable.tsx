@@ -48,6 +48,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   
   // Estados del modal - usar useRef para evitar re-renders
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [selectedTickerData, setSelectedTickerData] = useState<Ticker | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const modalStateRef = useRef({ symbol: null as string | null, isOpen: false });
 
@@ -445,7 +446,10 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             className="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline transition-colors"
             onClick={(e) => {
               e.stopPropagation();
-              setSelectedSymbol(info.getValue());
+              const symbol = info.getValue();
+              const tickerData = info.row.original; // Obtener datos completos del ticker
+              setSelectedSymbol(symbol);
+              setSelectedTickerData(tickerData);
               setIsModalOpen(true);
             }}
             title="Clic para ver metadatos"
@@ -706,10 +710,12 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
       {typeof window !== 'undefined' && (
         <TickerMetadataModal
           symbol={selectedSymbol}
+          tickerData={selectedTickerData}
           isOpen={isModalOpen}
           onClose={() => {
             setIsModalOpen(false);
             setSelectedSymbol(null);
+            setSelectedTickerData(null);
           }}
         />
       )}

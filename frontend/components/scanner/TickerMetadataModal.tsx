@@ -2,35 +2,36 @@
 
 import { useEffect, useRef, useState, memo } from 'react';
 import { createPortal } from 'react-dom';
-import type { CompanyMetadata } from '@/lib/types';
+import type { CompanyMetadata, Ticker } from '@/lib/types';
 import { getCompanyMetadata } from '@/lib/api';
 import { formatNumber } from '@/lib/formatters';
 
 interface TickerMetadataModalProps {
   symbol: string | null;
+  tickerData: Ticker | null;
   isOpen: boolean;
   onClose: () => void;
 }
 
-function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalProps) {
+function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMetadataModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [metadata, setMetadata] = useState<CompanyMetadata | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
-  // Solo renderizar en el cliente
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Cargar metadatos cuando se abre el modal
   useEffect(() => {
     if (!isOpen || !symbol) return;
 
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setDescriptionExpanded(false);
 
     getCompanyMetadata(symbol)
       .then((data) => {
@@ -49,314 +50,336 @@ function TickerMetadataModal({ symbol, isOpen, onClose }: TickerMetadataModalPro
     return () => {
       cancelled = true;
     };
-  }, [isOpen, symbol]);
+  }, [symbol, isOpen]);
 
-  // Cerrar al presionar Escape (SIN modificar body overflow para evitar reflow)
   useEffect(() => {
-    if (!isOpen) return;
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
   }, [isOpen, onClose]);
 
-  // Cerrar al hacer clic fuera del modal
   useEffect(() => {
-    if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [isOpen, onClose]);
 
-  if (!mounted || !isOpen || !symbol) return null;
+  if (!isOpen || !symbol || !mounted) return null;
 
-  const formatAddress = (addr: any) => {
-    if (!addr) return '-';
-    const parts = [addr.address1, addr.city, addr.state, addr.postal_code].filter(Boolean);
-    return parts.length > 0 ? parts.join(', ') : '-';
+  const formatPrice = (price: number | undefined | null) => {
+    if (price === undefined || price === null) return '-';
+    return `$${price.toFixed(2)}`;
   };
 
-  const sections =
-    metadata
-      ? [
-          {
-            title: 'Company Information',
-            items: [
-              { label: 'Symbol', value: metadata.symbol },
-              { label: 'Company Name', value: metadata.company_name || '-' },
-              { label: 'Type', value: metadata.type || (metadata.is_etf ? 'ETF' : 'Stock') },
-              {
-                label: 'Status',
-                value: metadata.is_actively_trading ? 'Active' : 'Inactive',
-                color: metadata.is_actively_trading ? 'text-emerald-600' : 'text-rose-600',
-              },
-              { label: 'Listed Since', value: metadata.list_date || '-' },
-            ],
-          },
-          {
-            title: 'Exchange & Classification',
-            items: [
-              { label: 'Exchange', value: metadata.exchange || '-' },
-              { label: 'Market', value: metadata.market || '-' },
-              { label: 'Locale', value: metadata.locale?.toUpperCase() || '-' },
-              { label: 'Sector', value: metadata.sector || '-' },
-              { label: 'Industry', value: metadata.industry || '-' },
-            ],
-          },
-          {
-            title: 'Market Capitalization',
-            items: [
-              {
-                label: 'Market Cap',
-                value: metadata.market_cap != null ? `$${formatNumber(metadata.market_cap)}` : '-',
-              },
-              {
-                label: 'Float Shares',
-                value: metadata.float_shares != null ? formatNumber(metadata.float_shares) : '-',
-              },
-              {
-                label: 'Shares Outstanding',
-                value:
-                  metadata.shares_outstanding != null ? formatNumber(metadata.shares_outstanding) : '-',
-              },
-              { label: 'Round Lot', value: metadata.round_lot != null ? formatNumber(metadata.round_lot) : '-' },
-            ],
-          },
-          {
-            title: 'Business Details',
-            items: [
-              {
-                label: 'Employees',
-                value: metadata.total_employees != null ? formatNumber(metadata.total_employees) : '-',
-              },
-              { label: 'Phone', value: metadata.phone_number || '-' },
-              { label: 'Address', value: formatAddress(metadata.address) },
-              { label: 'Website', value: metadata.homepage_url || '-', link: metadata.homepage_url },
-            ],
-          },
-          {
-            title: 'Trading Statistics',
-            items: [
-              {
-                label: 'Avg Volume (30d)',
-                value: metadata.avg_volume_30d != null ? formatNumber(metadata.avg_volume_30d) : '-',
-              },
-              {
-                label: 'Avg Volume (10d)',
-                value: metadata.avg_volume_10d != null ? formatNumber(metadata.avg_volume_10d) : '-',
-              },
-              {
-                label: 'Avg Price (30d)',
-                value:
-                  metadata.avg_price_30d != null ? `$${Number(metadata.avg_price_30d).toFixed(2)}` : '-',
-              },
-              { label: 'Beta', value: metadata.beta != null ? Number(metadata.beta).toFixed(3) : '-' },
-              { label: 'Currency', value: metadata.currency_name?.toUpperCase() || '-' },
-            ],
-          },
-          {
-            title: 'Identifiers',
-            items: [
-              { label: 'CIK', value: metadata.cik || '-' },
-              { label: 'Composite FIGI', value: metadata.composite_figi || '-' },
-              { label: 'Share Class FIGI', value: metadata.share_class_figi || '-' },
-              { label: 'Ticker Root', value: metadata.ticker_root || '-' },
-              { label: 'Ticker Suffix', value: metadata.ticker_suffix || '-' },
-            ],
-          },
-        ]
-      : [];
+  const formatPercent = (percent: number | undefined | null) => {
+    if (percent === undefined || percent === null) return '-';
+    const sign = percent >= 0 ? '+' : '';
+    return `${sign}${percent.toFixed(2)}%`;
+  };
+
+  const calculateFloat = (floatShares: number | null, outstandingShares: number | null) => {
+    if (!floatShares || !outstandingShares) return null;
+    return ((floatShares / outstandingShares) * 100).toFixed(1);
+  };
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm animate-fadeIn"
-      style={{
-        margin: 0,
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        pointerEvents: 'auto',
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      style={{ position: 'fixed' }}
     >
       <div
         ref={modalRef}
-        className="bg-white rounded-lg shadow-2xl max-w-5xl w-full mx-4 max-h-[90vh] overflow-hidden animate-slideUp"
+        className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden bg-white rounded-lg shadow-2xl"
       >
-        {/* Header */}
-        <div className="bg-slate-800 px-6 py-4 flex items-center justify-between border-b border-slate-700">
-          <div className="flex items-center gap-4">
+        {/* Header ultra compacto */}
+        <div className="bg-slate-800 px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-4 flex-1">
             {metadata?.logo_url && (
               <img
                 src={metadata.logo_url}
                 alt={`${symbol} logo`}
-                className="w-12 h-12 object-contain bg-white rounded-lg p-1"
+                className="w-10 h-10 object-contain bg-white rounded p-1"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
               />
             )}
-            <div>
-              <h2 className="text-2xl font-bold text-white">{symbol}</h2>
-              <p className="text-slate-300 text-sm mt-0.5">{metadata?.company_name || 'Company Metadata'}</p>
+            <div className="flex items-center gap-4 flex-1">
+              <span className="text-xl font-bold text-white">{symbol}</span>
+              <span className="text-base font-semibold text-white">
+                {formatPrice(tickerData?.price)}
+              </span>
+              <span
+                className={`text-sm font-medium px-2 py-0.5 rounded ${
+                  (tickerData?.change_percent ?? 0) >= 0
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-rose-500 text-white'
+                }`}
+              >
+                {formatPercent(tickerData?.change_percent)}
+              </span>
+              {metadata?.is_actively_trading !== undefined && (
+                <span
+                  className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                    metadata.is_actively_trading
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {metadata.is_actively_trading ? 'Active' : 'Inactive'}
+                </span>
+              )}
             </div>
           </div>
+
           <button
             onClick={onClose}
-            className="text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg p-2 transition-all duration-200"
+            className="text-slate-300 hover:text-white hover:bg-slate-700 rounded p-1.5 transition-all"
             aria-label="Close"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Content */}
-        <div className="px-6 py-6 overflow-y-auto max-h-[calc(90vh-140px)] custom-scrollbar bg-slate-50">
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(85vh - 60px)' }}>
           {loading && (
             <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-700"></div>
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-slate-900"></div>
             </div>
           )}
 
           {error && (
-            <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 text-rose-700">
-              <p className="font-semibold">Error</p>
-              <p className="text-sm">{error}</p>
+            <div className="m-6 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded">
+              <p className="font-medium">Error al cargar metadatos</p>
+              <p className="text-sm mt-1">{error}</p>
             </div>
           )}
 
           {!loading && !error && metadata && (
-            <>
-              {/* Description Section */}
-              {metadata.description && (
-                <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm mb-4">
-                  <h3 className="text-sm font-bold text-slate-700 mb-3 pb-2 border-b border-slate-200 uppercase tracking-wide">
-                    Company Description
-                  </h3>
-                  <p className="text-sm text-slate-700 leading-relaxed">{metadata.description}</p>
-                </div>
-              )}
-
-              {/* GRID CORRECTAMENTE CERRADA */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {sections.map((section) => (
-                  <div
-                    key={section.title}
-                    className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm"
-                  >
-                    <h3 className="text-sm font-bold text-slate-700 mb-3 pb-2 border-b border-slate-200 uppercase tracking-wide">
-                      {section.title}
-                    </h3>
-                    <div className="space-y-2.5">
-                      {section.items.map((item) => (
-                        <div
-                          key={item.label}
-                          className="flex justify-between items-center gap-2"
-                        >
-                          <span className="text-xs text-slate-600 font-medium">{item.label}</span>
-                          {item.link ? (
-                            <a
-                              href={item.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm font-semibold text-blue-600 hover:text-blue-800 font-mono text-right underline"
-                            >
-                              {item.value}
-                            </a>
-                          ) : (
-                            <span
-                              className={`text-sm font-semibold ${item.color || 'text-slate-900'} font-mono text-right`}
-                            >
-                              {item.value}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+            <div className="p-6 space-y-4">
+              {/* Company Name */}
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">{metadata.company_name || symbol}</h2>
               </div>
 
-              {/* Last Updated Footer */}
-              {metadata.updated_at && (
-                <div className="mt-4 text-xs text-slate-500 text-center border-t border-slate-200 pt-3">
-                  Last updated: {new Date(metadata.updated_at).toLocaleString()}
+              {/* Classification Line */}
+              <div className="flex items-center gap-1 text-sm text-slate-700 flex-wrap">
+                {metadata.sector && (
+                  <>
+                    <span className="font-semibold">Sector:</span>
+                    <span>{metadata.sector}</span>
+                    {(metadata.industry || metadata.exchange) && <span className="text-slate-400 mx-1">|</span>}
+                  </>
+                )}
+                {metadata.industry && (
+                  <>
+                    <span className="font-semibold">Industry:</span>
+                    <span>{metadata.industry}</span>
+                    {metadata.exchange && <span className="text-slate-400 mx-1">|</span>}
+                  </>
+                )}
+                {metadata.exchange && (
+                  <>
+                    <span className="font-semibold">Exchange:</span>
+                    <span>{metadata.exchange}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Market Data Line */}
+              <div className="flex items-center gap-1 text-sm text-slate-700 flex-wrap">
+                {metadata.market_cap && (
+                  <>
+                    <span className="font-semibold">Mkt Cap:</span>
+                    <span>${formatNumber(metadata.market_cap)}</span>
+                    <span className="text-slate-400 mx-1">|</span>
+                  </>
+                )}
+                {metadata.float_shares && metadata.shares_outstanding && (
+                  <>
+                    <span className="font-semibold">Float:</span>
+                    <span>{formatNumber(metadata.float_shares)} ({calculateFloat(metadata.float_shares, metadata.shares_outstanding)}%)</span>
+                    <span className="text-slate-400 mx-1">|</span>
+                  </>
+                )}
+                {metadata.shares_outstanding && (
+                  <>
+                    <span className="font-semibold">Outstanding:</span>
+                    <span>{formatNumber(metadata.shares_outstanding)}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Additional Info Line */}
+              <div className="flex items-center gap-1 text-sm text-slate-700 flex-wrap">
+                {metadata.total_employees && (
+                  <>
+                    <span className="font-semibold">Employees:</span>
+                    <span>{formatNumber(metadata.total_employees)}</span>
+                    <span className="text-slate-400 mx-1">|</span>
+                  </>
+                )}
+                {metadata.list_date && (
+                  <>
+                    <span className="font-semibold">IPO:</span>
+                    <span>{metadata.list_date}</span>
+                    <span className="text-slate-400 mx-1">|</span>
+                  </>
+                )}
+                {metadata.type && (
+                  <>
+                    <span className="font-semibold">Type:</span>
+                    <span>{metadata.type}</span>
+                  </>
+                )}
+              </div>
+
+              {/* Description */}
+              {metadata.description && (
+                <div className="pt-2 border-t border-slate-200">
+                  <p
+                    className={`text-sm text-slate-600 leading-relaxed ${
+                      !descriptionExpanded ? 'line-clamp-2' : ''
+                    }`}
+                  >
+                    {metadata.description}
+                  </p>
+                  {metadata.description.length > 150 && (
+                    <button
+                      onClick={() => setDescriptionExpanded(!descriptionExpanded)}
+                      className="mt-1 text-sm font-semibold text-blue-600 hover:text-blue-800"
+                    >
+                      {descriptionExpanded ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
                 </div>
               )}
-            </>
+
+              {/* Links */}
+              <div className="flex gap-4 pt-2 border-t border-slate-200">
+                <a
+                  href={`https://finviz.com/quote.ashx?t=${symbol}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  Finviz →
+                </a>
+                <a
+                  href={`https://finance.yahoo.com/quote/${symbol}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  Yahoo →
+                </a>
+                {metadata.homepage_url && (
+                  <a
+                    href={metadata.homepage_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Website →
+                  </a>
+                )}
+              </div>
+
+              {/* Detailed Table - Collapsible */}
+              <details className="pt-3 border-t border-slate-200">
+                <summary className="text-sm font-bold text-slate-700 uppercase cursor-pointer hover:text-slate-900">
+                  Detailed Information
+                </summary>
+                <div className="mt-3 space-y-0 text-sm">
+                  {metadata.avg_volume_30d && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">Avg Volume (30d)</span>
+                      <span className="font-medium text-slate-900">{formatNumber(metadata.avg_volume_30d)}</span>
+                    </div>
+                  )}
+                  {metadata.beta !== null && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">Beta</span>
+                      <span className="font-medium text-slate-900">{metadata.beta.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {metadata.phone_number && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">Phone</span>
+                      <span className="font-medium text-slate-900">{metadata.phone_number}</span>
+                    </div>
+                  )}
+                  {metadata.address && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">Address</span>
+                      <span className="font-medium text-slate-900 text-right">
+                        {[metadata.address.city, metadata.address.state].filter(Boolean).join(', ') || '-'}
+                      </span>
+                    </div>
+                  )}
+                  {metadata.cik && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">CIK</span>
+                      <span className="font-medium text-slate-900">{metadata.cik}</span>
+                    </div>
+                  )}
+                  {metadata.currency_name && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">Currency</span>
+                      <span className="font-medium text-slate-900">{metadata.currency_name.toUpperCase()}</span>
+                    </div>
+                  )}
+                  {metadata.market && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">Market</span>
+                      <span className="font-medium text-slate-900">{metadata.market}</span>
+                    </div>
+                  )}
+                  {metadata.round_lot && (
+                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                      <span className="text-slate-600">Round Lot</span>
+                      <span className="font-medium text-slate-900">{metadata.round_lot}</span>
+                    </div>
+                  )}
+                </div>
+              </details>
+
+              {/* Footer */}
+              <div className="pt-3 border-t border-slate-200 text-xs text-slate-500 text-center">
+                Last updated: {new Date(metadata.updated_at).toLocaleString()}
+              </div>
+            </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="bg-white px-6 py-4 flex justify-end border-t border-slate-200">
-          <button
-            onClick={onClose}
-            className="px-5 py-2 bg-slate-700 hover:bg-slate-800 text-white font-medium rounded-lg transition-colors duration-200"
-          >
-            Close
-          </button>
-        </div>
       </div>
-
-      <style jsx>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
-
-        @keyframes slideUp {
-          from {
-            transform: translateY(20px);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
-        }
-
-        .animate-fadeIn {
-          animation: fadeIn 0.2s ease-out;
-        }
-
-        .animate-slideUp {
-          animation: slideUp 0.3s ease-out;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 8px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: #f1f5f9;
-          border-radius: 4px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #cbd5e1;
-          border-radius: 4px;
-        }
-
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #94a3b8;
-        }
-      `}</style>
     </div>
   );
 
-  return createPortal(modalContent, document.body);
+  return createPortal(
+    modalContent,
+    document.getElementById('portal-root') || document.body
+  );
 }
 
 export default memo(TickerMetadataModal);
