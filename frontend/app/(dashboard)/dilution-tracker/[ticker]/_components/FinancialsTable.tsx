@@ -108,9 +108,9 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
   return (
     <div className="space-y-8">
       {sections.map((section) => (
-        <div key={section.title} className="bg-white/50 dark:bg-white/5 rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
-          <div className="bg-gray-500/5 px-6 py-4 border-b border-gray-200/50 dark:border-gray-700/50">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <div key={section.title} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+            <h3 className="text-lg font-semibold text-slate-900">
               {section.title}
             </h3>
           </div>
@@ -118,8 +118,8 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-200/50 dark:border-gray-700/50">
-                  <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[200px]">
+                <tr className="border-b border-slate-200">
+                  <th className="text-left py-4 px-6 text-sm font-semibold text-slate-700 min-w-[200px]">
                     Metric
                   </th>
                   {recentFinancials.map((financial, index) => (

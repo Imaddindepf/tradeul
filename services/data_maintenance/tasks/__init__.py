@@ -15,9 +15,4 @@ __all__ = [
     "LoadOHLCTask",
     "LoadVolumeSlotsTask",
     "CalculateATRTask",
-    "CalculateRVOLHistoricalAveragesTask",
-    "EnrichMetadataTask",
-    "AutoRecoverMissingTickersTask",
-    "SyncRedisTask",
-]
-
+    "CalculateRVOLHis

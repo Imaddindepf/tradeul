@@ -214,4 +214,3 @@ if __name__ == "__main__":
     asyncio.run(analyze_and_save_to_csv(output_file))
     print(f"\n✅ Análisis completado. Ver: {output_file}")
 
-

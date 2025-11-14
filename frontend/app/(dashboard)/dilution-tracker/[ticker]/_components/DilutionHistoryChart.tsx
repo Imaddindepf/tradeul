@@ -114,8 +114,8 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
       </div>
 
       {/* Chart */}
-      <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
-        <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+      <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+        <h4 className="text-lg font-semibold text-slate-900 mb-6">
           Historical Shares Outstanding
         </h4>
         
@@ -159,7 +159,7 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
           </div>
 
           {/* Y-axis labels */}
-          <div className="absolute -left-16 top-0 bottom-0 flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400">
+          <div className="absolute -left-16 top-0 bottom-0 flex flex-col justify-between text-xs text-slate-500">
             <span>{formatShares(maxShares)}</span>
             <span>{formatShares(minShares)}</span>
           </div>
@@ -167,12 +167,12 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
       </div>
 
       {/* Info Box */}
-      <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
         <div className="flex items-start gap-3">
-          <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
-          <div className="text-sm text-blue-900 dark:text-blue-100">
+          <Info className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+          <div className="text-sm text-slate-900">
             <p className="font-medium mb-1">Understanding Dilution</p>
-            <p className="text-blue-700 dark:text-blue-300">
+            <p className="text-slate-600">
               Dilution occurs when a company issues new shares, reducing the ownership percentage of existing shareholders. 
               Positive percentages indicate share count increase, negative indicates buybacks.
             </p>

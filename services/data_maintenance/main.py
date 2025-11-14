@@ -189,27 +189,4 @@ async def trigger_maintenance():
         if scheduler:
             asyncio.create_task(scheduler.orchestrator.run_maintenance_cycle())
             return {
-                "status": "triggered",
-                "message": "Maintenance cycle started"
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "Scheduler not initialized"
-            }
-    
-    except Exception as e:
-        logger.error("manual_trigger_failed", error=str(e))
-        return {
-            "status": "error",
-            "error": str(e)
-        }
-
-
-if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8008,
-        log_level="info"
-    )
+                "st

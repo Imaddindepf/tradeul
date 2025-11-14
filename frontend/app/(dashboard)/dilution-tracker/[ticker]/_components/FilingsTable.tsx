@@ -41,12 +41,12 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
 
   const getCategoryBadge = (category: string) => {
     const colors = {
-      financial: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
-      offering: "bg-purple-500/10 text-purple-700 dark:text-purple-300",
-      ownership: "bg-green-500/10 text-green-700 dark:text-green-300",
-      proxy: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300",
-      disclosure: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
-      other: "bg-gray-500/10 text-gray-700 dark:text-gray-300",
+      financial: "bg-blue-100 text-blue-700",
+      offering: "bg-purple-100 text-purple-700",
+      ownership: "bg-green-100 text-green-700",
+      proxy: "bg-yellow-100 text-yellow-700",
+      disclosure: "bg-orange-100 text-orange-700",
+      other: "bg-slate-100 text-slate-700",
     };
 
     const color = colors[category as keyof typeof colors] || colors.other;
@@ -61,17 +61,17 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
   return (
     <div className="space-y-3">
       {/* Filter pills */}
-      <div className="flex items-center gap-2 flex-wrap pb-4 border-b border-gray-200/50 dark:border-gray-700/50">
-        <button className="px-3 py-1.5 text-sm font-medium bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded-lg">
+      <div className="flex items-center gap-2 flex-wrap pb-4 border-b border-slate-200">
+        <button className="px-3 py-1.5 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg">
           All
         </button>
-        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-white/5 rounded-lg transition-colors">
+        <button className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
           Financial
         </button>
-        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-white/5 rounded-lg transition-colors">
+        <button className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
           Offering
         </button>
-        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-white/5 rounded-lg transition-colors">
+        <button className="px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
           Ownership
         </button>
       </div>

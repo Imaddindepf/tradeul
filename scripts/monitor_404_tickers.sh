@@ -95,4 +95,3 @@ echo ""
 echo "Ver resultados:"
 echo "  cat $OUTPUT_FILE | column -t -s,"
 
-

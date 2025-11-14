@@ -74,39 +74,39 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       {/* Summary Cards */}
       <div className="grid md:grid-cols-3 gap-4">
         {/* Current Cash */}
-        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Current Cash Position</p>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+          <p className="text-sm text-slate-500 mb-2">Current Cash Position</p>
+          <p className="text-3xl font-bold text-slate-900 mb-1">
             {formatCash(data.current_cash)}
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-slate-500">
             Cash + Short-term Investments
           </p>
         </div>
 
         {/* Burn Rate */}
-        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Quarterly Burn Rate</p>
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+          <p className="text-sm text-slate-500 mb-2">Quarterly Burn Rate</p>
           <div className="flex items-center gap-2 mb-1">
-            <p className={`text-3xl font-bold ${isBurningCash ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+            <p className={`text-3xl font-bold ${isBurningCash ? 'text-red-600' : 'text-green-600'}`}>
               {formatCash(Math.abs(data.quarterly_burn_rate))}
             </p>
             {isBurningCash ? (
-              <TrendingDown className="h-6 w-6 text-red-600 dark:text-red-400" />
+              <TrendingDown className="h-6 w-6 text-red-600" />
             ) : (
-              <TrendingUp className="h-6 w-6 text-green-600 dark:text-green-400" />
+              <TrendingUp className="h-6 w-6 text-green-600" />
             )}
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-slate-500">
             {isBurningCash ? 'Negative cash flow' : 'Positive cash flow'}
           </p>
         </div>
 
         {/* Runway */}
-        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Estimated Runway</p>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            {data.estimated_runway_months.toFixed(1)} <span className="text-lg text-gray-500">months</span>
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+          <p className="text-sm text-slate-500 mb-2">Estimated Runway</p>
+          <p className="text-3xl font-bold text-slate-900 mb-2">
+            {data.estimated_runway_months.toFixed(1)} <span className="text-lg text-slate-500">months</span>
           </p>
           <span className={`inline-block text-xs px-2 py-1 rounded font-medium border ${getRiskColor(data.runway_risk_level)}`}>
             {data.runway_risk_level.toUpperCase()} RISK
@@ -115,8 +115,8 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       </div>
 
       {/* Cash Projection Chart */}
-      <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
-        <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+      <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+        <h4 className="text-lg font-semibold text-slate-900 mb-6">
           Cash Position Projection (12 Months)
         </h4>
         
@@ -161,32 +161,32 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
         </div>
 
         {/* Legend */}
-        <div className="flex items-center justify-center gap-6 mt-6 pt-6 border-t border-gray-200/50 dark:border-gray-700/50">
+        <div className="flex items-center justify-center gap-6 mt-6 pt-6 border-t border-slate-200">
           <div className="flex items-center gap-2">
             <div className="h-3 w-3 bg-blue-500 rounded" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Current</span>
+            <span className="text-sm text-slate-600">Current</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="h-3 w-3 bg-blue-300 dark:bg-blue-700 rounded" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Projected</span>
+            <div className="h-3 w-3 bg-blue-300 rounded" />
+            <span className="text-sm text-slate-600">Projected</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="h-3 w-3 bg-red-200 dark:bg-red-900/50 rounded" />
-            <span className="text-sm text-gray-600 dark:text-gray-400">Depleted</span>
+            <div className="h-3 w-3 bg-red-200 rounded" />
+            <span className="text-sm text-slate-600">Depleted</span>
           </div>
         </div>
       </div>
 
       {/* Warning if critical */}
       {data.runway_risk_level === "critical" && (
-        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-6">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6">
           <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+            <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
             <div>
-              <h4 className="font-semibold text-red-900 dark:text-red-100 mb-1">
+              <h4 className="font-semibold text-slate-900 mb-1">
                 Critical Cash Runway
               </h4>
-              <p className="text-sm text-red-700 dark:text-red-300">
+              <p className="text-sm text-slate-600">
                 Company has less than 6 months of cash remaining at current burn rate. High probability of offering or capital raise in near term.
               </p>
             </div>

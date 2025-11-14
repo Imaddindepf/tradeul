@@ -77,4 +77,3 @@ echo "Ver archivo:" >&2
 echo "  cat $OUTPUT_FILE" >&2
 echo "  open $OUTPUT_FILE" >&2
 
-

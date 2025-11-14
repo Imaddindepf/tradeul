@@ -218,8 +218,4 @@ export function Sidebar() {
       </aside>
 
       {/* Spacer for content */}
-      <div className={`hidden lg:block transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`} />
-    </>
-  );
-}
-
+      <div clas

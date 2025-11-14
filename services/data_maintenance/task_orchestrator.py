@@ -273,11 +273,4 @@ class TaskOrchestrator:
     def _format_duration(self, seconds: float) -> str:
         """Formatear duración en formato legible"""
         if seconds < 60:
-            return f"{seconds:.0f}s"
-        elif seconds < 3600:
-            minutes = seconds / 60
-            return f"{minutes:.1f}m"
-        else:
-            hours = seconds / 3600
-            return f"{hours:.1f}h"
-
+            return f"{seconds
