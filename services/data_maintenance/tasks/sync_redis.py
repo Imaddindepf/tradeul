@@ -208,7 +208,7 @@ class SyncRedisTask:
                 # Eliminar campos None
                 data = {k: v for k, v in data.items() if v is not None}
                 
-                pipeline.set(key, json.dumps(data), ex=86400)  # TTL 24h
+                pipeline.set(key, json.dumps(data))  # SIN TTL - persiste siempre
             
             await pipeline.execute()
             
@@ -282,7 +282,7 @@ class SyncRedisTask:
                     "avg_volume_5d": int(row['avg_volume_5d']) if row['avg_volume_5d'] else None
                 }
                 
-                pipeline.set(key, json.dumps(data), ex=86400)  # TTL 24h
+                pipeline.set(key, json.dumps(data))  # SIN TTL - persiste siempre
                 
                 # Actualizar ticker_metadata también
                 if row['avg_volume_30d']:

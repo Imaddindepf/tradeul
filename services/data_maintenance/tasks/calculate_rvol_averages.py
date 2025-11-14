@@ -52,7 +52,7 @@ class CalculateRVOLHistoricalAveragesTask:
         self.lookback_days = 5  # N días históricos (igual que PineScript default)
         self.max_slot = 191  # Slots 0-191 (4:00 AM - 8:00 PM ET)
         self.batch_size = 50  # Procesar símbolos en lotes de 50
-        self.redis_ttl = 28800  # 8 horas TTL en Redis
+        self.redis_ttl = 50400  # 14 horas TTL (cubre todo el día de trading)
     
     async def execute(self, target_date: date) -> Dict:
         """

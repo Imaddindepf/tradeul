@@ -430,14 +430,30 @@ class ScannerEngine:
                 # Enriquecer con gaps (usa prev_close y open del snapshot)
                 ticker = self.enhance_ticker_with_gaps(ticker, snapshot)
                 
+                # DEBUG: Log antes de filtros para IVVD
+                if snapshot.ticker == "IVVD":
+                    logger.info(f"🔍 DEBUG IVVD: Antes de filtros", 
+                               ticker_created=ticker is not None,
+                               rvol=ticker.rvol if ticker else None,
+                               price=ticker.price if ticker else None,
+                               change_percent=ticker.change_percent if ticker else None)
+                
                 # Aplicar filtros configurables
                 # Filtros que requieren metadata: market_cap, sector, industry, exchange
                 # Filtros que NO requieren metadata: RVOL (ya calculado), price, volume, change_percent
                 if not self._passes_all_filters(ticker):
+                    # DEBUG: Log si IVVD es filtrado
+                    if snapshot.ticker == "IVVD":
+                        logger.warning(f"🔍 DEBUG IVVD: EXCLUIDO por filtros")
                     continue  # No cumple filtros, skip
                 
                 # Calcular score (solo si pasó TODOS los filtros)
                 ticker.score = self._calculate_score_inline(ticker)
+                
+                # DEBUG: Log para IVVD después de score
+                if snapshot.ticker == "IVVD":
+                    logger.info(f"🔍 DEBUG IVVD: Pasó filtros, score calculado", 
+                               score=ticker.score, rank=ticker.rank)
                 
                 filtered_and_scored.append(ticker)
             
@@ -623,6 +639,14 @@ class ScannerEngine:
     ) -> Optional[ScannerTicker]:
         """Build scanner ticker inline (sin awaits innecesarios)"""
         try:
+            # DEBUG: Log para IVVD
+            if snapshot.ticker == "IVVD":
+                logger.info(f"🔍 DEBUG IVVD: Construyendo ScannerTicker", 
+                           current_price=snapshot.current_price,
+                           current_volume=snapshot.current_volume,
+                           rvol=rvol,
+                           has_metadata=metadata is not None)
+            
             price = snapshot.current_price
             volume_today = snapshot.current_volume
             

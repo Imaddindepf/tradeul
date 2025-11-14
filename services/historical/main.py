@@ -546,7 +546,7 @@ async def get_rvol_hist_avg(
         # Guardar en Redis HASH (optimizado - mismo formato que bulk)
         hash_key = f"rvol:hist:avg:{sym}:{days}"
         await redis_client.hset(hash_key, str(slot), str(int(avg_vol)))
-        await redis_client.expire(hash_key, 28800)  # 8 horas TTL
+        await redis_client.expire(hash_key, 50400)  # 14 horas TTL
         
         return {"symbol": sym, "slot": slot, "avg": int(avg_vol)}
     except HTTPException:
@@ -615,7 +615,7 @@ async def get_rvol_hist_avg_bulk(
 
         # Guardar SOLO hash (optimizado - 1 clave en lugar de 250)
         await redis_client.hmset(hash_key, mapping, serialize=False)
-        await redis_client.expire(hash_key, 28800)  # 8 horas TTL
+        await redis_client.expire(hash_key, 50400)  # 14 horas TTL
 
         return {"symbol": sym, "days": days, "slots": len(mapping)}
     except HTTPException:

@@ -25,12 +25,6 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    name: 'Dashboard',
-    href: '/',
-    icon: LayoutDashboard,
-    comingSoon: true,
-  },
-  {
     name: 'Escáner',
     href: '/scanner',
     icon: ScanSearch,
@@ -45,6 +39,12 @@ const navItems: NavItem[] = [
     name: 'Alertas',
     href: '/alerts',
     icon: Bell,
+    comingSoon: true,
+  },
+  {
+    name: 'Watchlists',
+    href: '/watchlists',
+    icon: LayoutDashboard,
     comingSoon: true,
   },
   {
