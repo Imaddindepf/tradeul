@@ -447,11 +447,19 @@ async function publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols) {
     const streamName = "polygon_ws:subscriptions";
     let subscribed = 0;
     let unsubscribed = 0;
-    
+
     // Publicar símbolos NUEVOS
+    // MAXLEN 2000: Solo mantener últimos 2000 mensajes (suficiente para estado actual)
+    // Nota: El trimming también se hace automáticamente por RedisStreamManager en Python
+    // pero agregamos MAXLEN aquí para eficiencia inmediata
     for (const symbol of addedSymbols) {
-      await redisCommands.xadd(
+      // Usar comando raw de Redis para MAXLEN
+      await redisCommands.call(
+        "XADD",
         streamName,
+        "MAXLEN",
+        "~",
+        "2000", // Aproximado (~) para mejor rendimiento
         "*",
         "symbol",
         symbol,
@@ -463,11 +471,15 @@ async function publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols) {
       publishedSymbols.add(symbol);
       subscribed++;
     }
-    
+
     // Publicar símbolos ELIMINADOS
     for (const symbol of removedSymbols) {
-      await redisCommands.xadd(
+      await redisCommands.call(
+        "XADD",
         streamName,
+        "MAXLEN",
+        "~",
+        "2000", // Aproximado (~) para mejor rendimiento
         "*",
         "symbol",
         symbol,
@@ -479,7 +491,7 @@ async function publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols) {
       publishedSymbols.delete(symbol);
       unsubscribed++;
     }
-    
+
     if (subscribed > 0 || unsubscribed > 0) {
       logger.info(
         { subscribed, unsubscribed, total: publishedSymbols.size },
@@ -537,14 +549,22 @@ function processDeltaMessage(message) {
       });
 
       logger.info(
-        { list, sequence, count: snapshot.count, added: addedSymbols.length, removed: removedSymbols.length },
+        {
+          list,
+          sequence,
+          count: snapshot.count,
+          added: addedSymbols.length,
+          removed: removedSymbols.length,
+        },
         "📸 Cached snapshot & updated index"
       );
 
       // Publicar cambios incrementales a Polygon WS
-      publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch((err) => {
-        logger.error({ err }, "Failed to publish symbols after snapshot");
-      });
+      publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch(
+        (err) => {
+          logger.error({ err }, "Failed to publish symbols after snapshot");
+        }
+      );
 
       // Broadcast snapshot
       broadcastToListSubscribers(list, snapshot);
@@ -553,17 +573,23 @@ function processDeltaMessage(message) {
       const deltas = JSON.parse(message.deltas || "[]");
 
       // Detectar símbolos añadidos/eliminados de los deltas
-      const addedSymbols = deltas.filter(d => d.action === 'add').map(d => d.symbol);
-      const removedSymbols = deltas.filter(d => d.action === 'remove').map(d => d.symbol);
+      const addedSymbols = deltas
+        .filter((d) => d.action === "add")
+        .map((d) => d.symbol);
+      const removedSymbols = deltas
+        .filter((d) => d.action === "remove")
+        .map((d) => d.symbol);
 
       // Actualizar índice symbol→lists
       updateSymbolToListsIndex(list, deltas);
 
       // Publicar solo los símbolos añadidos/eliminados (incremental)
       if (addedSymbols.length > 0 || removedSymbols.length > 0) {
-        publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch((err) => {
-          logger.error({ err }, "Failed to publish symbols after delta");
-        });
+        publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch(
+          (err) => {
+            logger.error({ err }, "Failed to publish symbols after delta");
+          }
+        );
       }
 
       const deltaMessage = {
@@ -771,7 +797,7 @@ async function processRankingDeltasStream() {
     "reversals",
     "anomalies",
     "new_highs",
-    "new_lows"
+    "new_lows",
   ];
 
   const initialSymbols = new Set();
@@ -788,10 +814,16 @@ async function processRankingDeltasStream() {
           }
           symbolToLists.get(symbol).add(listName);
         });
-        logger.debug({ listName, count: rows.length }, "Loaded initial snapshot");
+        logger.debug(
+          { listName, count: rows.length },
+          "Loaded initial snapshot"
+        );
       }
     } catch (err) {
-      logger.warn({ listName, err: err.message }, "Failed to load initial snapshot");
+      logger.warn(
+        { listName, err: err.message },
+        "Failed to load initial snapshot"
+      );
     }
   }
 

@@ -84,8 +84,13 @@ class RedisClient:
             True if successful
         """
         try:
-            if serialize and not isinstance(value, str):
-                value = json.dumps(value)
+            # Si serialize=False, usar value directamente (puede ser bytes para datos binarios)
+            if serialize:
+                if isinstance(value, bytes):
+                    # Si es bytes y serialize=True, no hacer nada (ya está serializado)
+                    pass
+                elif not isinstance(value, str):
+                    value = json.dumps(value)
             
             if ttl:
                 return await self.client.setex(key, ttl, value)
@@ -112,11 +117,32 @@ class RedisClient:
         """
         try:
             value = await self.client.get(key)
-            if value and deserialize:
+            if value is None:
+                return None
+            
+            # Si deserialize=False, retornar bytes directamente (para datos binarios)
+            if not deserialize:
+                return value
+            
+            # Intentar deserializar JSON si es string
+            if isinstance(value, str):
                 try:
                     return json.loads(value)
                 except json.JSONDecodeError:
                     return value
+            
+            # Si es bytes, intentar decodificar y deserializar
+            # PERO: si deserialize=False, retornar bytes directamente (ya se hizo arriba)
+            if isinstance(value, bytes):
+                # Si llegamos aquí con deserialize=True, intentar decodificar
+                # Pero si falla, retornar bytes para que el caller decida qué hacer
+                try:
+                    decoded = value.decode('utf-8')
+                    return json.loads(decoded)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    # Puede ser datos binarios (comprimidos), retornar bytes
+                    return value
+            
             return value
         except RedisError as e:
             logger.error("Redis GET error", key=key, error=str(e))

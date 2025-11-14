@@ -59,15 +59,21 @@ export function useWebSocket(url: string): UseWebSocketReturn {
           try {
             const message: WebSocketMessage = JSON.parse(event.data);
             
-            // Incrementar contador y crear nuevo objeto con ID único para forzar re-render
-            // Esto asegura que React siempre detecte el cambio
-            messageCounterRef.current += 1;
-            const newMessage = { 
-              ...message, 
-              timestamp: message.timestamp || new Date().toISOString(),
-              _id: messageCounterRef.current // ID único para forzar actualización
-            };
-            setLastMessage(newMessage);
+            // Solo actualizar si el mensaje es diferente (evitar re-renders innecesarios)
+            setLastMessage(prevMessage => {
+              // Si el tipo de mensaje es el mismo y el contenido no cambió, no actualizar
+              if (prevMessage && 
+                  prevMessage.type === message.type && 
+                  JSON.stringify(prevMessage.data) === JSON.stringify(message.data)) {
+                return prevMessage; // No cambiar estado = no re-render
+              }
+              
+              // Mensaje nuevo o diferente: actualizar
+              return {
+                ...message,
+                timestamp: message.timestamp || new Date().toISOString()
+              };
+            });
             
             // Call custom handler if registered
             if (messageHandlerRef.current) {

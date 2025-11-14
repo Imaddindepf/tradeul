@@ -44,7 +44,6 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [isReady, setIsReady] = useState(false);
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
-  const [dataVersion, setDataVersion] = useState(0); // Contador para forzar re-render
   
   // Estados del modal - usar useRef para evitar re-renders
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
@@ -104,9 +103,11 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const applyDeltas = useCallback((deltas: DeltaAction[]) => {
     if (deltas.length === 0) return;
 
+    let hasOrderChanges = false;
+    let newRowChanges = new Map<string, 'up' | 'down'>();
+
     setTickersMap((prevMap) => {
       const newMap = new Map(prevMap);
-      const newRowChanges = new Map<string, 'up' | 'down'>();
 
       deltas.forEach((delta) => {
         switch (delta.action) {
@@ -114,6 +115,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             if (delta.data) {
               delta.data.rank = delta.rank ?? 0;
               newMap.set(delta.symbol, delta.data);
+              hasOrderChanges = true;
+              
               // Marcar como nuevo ticker (animación azul)
               setNewTickers((prev) => new Set(prev).add(delta.symbol));
               setTimeout(() => {
@@ -128,6 +131,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           }
           case 'remove': {
             newMap.delete(delta.symbol);
+            hasOrderChanges = true;
             break;
           }
           case 'update': {
@@ -172,68 +176,43 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         }
       });
 
-      // Forzar re-render
-      setDataVersion((v) => v + 1);
-
-      // Aplicar animaciones de fila SOLO para reranks
-      if (newRowChanges.size > 0) {
-        // Limpiar animaciones existentes
-        setRowChanges((prev) => {
-          const cleaned = new Map(prev);
-          newRowChanges.forEach((_, key) => cleaned.delete(key));
-          return cleaned;
-        });
-        
-        // Aplicar nuevas animaciones
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setRowChanges((prev) => {
-              const merged = new Map(prev);
-              newRowChanges.forEach((value, key) => merged.set(key, value));
-              return merged;
-            });
-
-            setTimeout(() => {
-              setRowChanges((prev) => {
-                const cleaned = new Map(prev);
-                newRowChanges.forEach((_, key) => cleaned.delete(key));
-                return cleaned;
-              });
-            }, 1200);
-          });
-        });
-      }
-
       return newMap;
     });
 
-    setTickerOrder((prevOrder) => {
-      const newOrder = [...prevOrder];
+    // Actualizar orden SOLO si hubo adds/removes
+    if (hasOrderChanges) {
+      setTickerOrder((prevOrder) => {
+        const newOrder = [...prevOrder];
 
-      deltas.forEach((delta) => {
-        if (delta.action === 'add' && !newOrder.includes(delta.symbol)) {
-          newOrder.push(delta.symbol);
-        }
-      });
-
-      deltas.forEach((delta) => {
-        if (delta.action === 'remove') {
-          const index = newOrder.indexOf(delta.symbol);
-          if (index !== -1) newOrder.splice(index, 1);
-        }
-      });
-
-      setTickersMap((currentMap) => {
-        newOrder.sort((a, b) => {
-          const tickerA = currentMap.get(a);
-          const tickerB = currentMap.get(b);
-          return (tickerA?.rank ?? 0) - (tickerB?.rank ?? 0);
+        deltas.forEach((delta) => {
+          if (delta.action === 'add' && !newOrder.includes(delta.symbol)) {
+            newOrder.push(delta.symbol);
+          } else if (delta.action === 'remove') {
+            const index = newOrder.indexOf(delta.symbol);
+            if (index !== -1) newOrder.splice(index, 1);
+          }
         });
-        return currentMap;
-      });
 
-      return newOrder;
-    });
+        // Sort by rank usando prevMap (closure)
+        newOrder.sort((a, b) => {
+          const tickerA = prevOrder.includes(a) ? a : null;
+          const tickerB = prevOrder.includes(b) ? b : null;
+          if (!tickerA) return 1;
+          if (!tickerB) return -1;
+          return prevOrder.indexOf(tickerA) - prevOrder.indexOf(tickerB);
+        });
+
+        return newOrder;
+      });
+    }
+
+    // Aplicar animaciones DESPUÉS del setState
+    if (newRowChanges.size > 0) {
+      requestAnimationFrame(() => {
+        setRowChanges(newRowChanges);
+        setTimeout(() => setRowChanges(new Map()), 1200);
+      });
+    }
 
     setLastUpdateTime(new Date());
   }, []);
@@ -311,9 +290,6 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         newMap.set(symbol, updated);
         aggregateStats.current.applied++;
       });
-
-      // Forzar re-render incrementando versión
-      setDataVersion((v) => v + 1);
 
       return newMap;
     });
@@ -416,7 +392,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
 
   const data = useMemo(() => {
     return tickerOrder.map((symbol) => tickersMap.get(symbol)!).filter(Boolean);
-  }, [tickersMap, tickerOrder, dataVersion]); // dataVersion fuerza recalcular
+  }, [tickersMap, tickerOrder]);
 
   const columns = useMemo(
     () => [
@@ -471,7 +447,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           const price = info.getValue();
           return (
             <div
-              key={`${symbol}-price-${price}-${dataVersion}`}
+              key={`${symbol}-price-${price}`}
               className="font-mono font-semibold px-1 py-0.5 rounded text-slate-900"
             >
               {formatPrice(price)}
@@ -493,7 +469,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           const isPositive = (value || 0) > 0;
           return (
             <div
-              key={`${symbol}-pct-${value}-${dataVersion}`}
+              key={`${symbol}-pct-${value}`}
               className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}
             >
               {formatPercent(value)}
@@ -513,7 +489,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           const symbol = info.row.original.symbol;
           const volume = info.getValue();
           return (
-            <div key={`${symbol}-vol-${volume}-${dataVersion}`} className="font-mono text-slate-700 font-medium">
+            <div key={`${symbol}-vol-${volume}`} className="font-mono text-slate-700 font-medium">
               {formatNumber(volume)}
             </div>
           );
@@ -640,7 +616,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         },
       }),
     ],
-    [dataVersion]
+    []
   );
 
   const table = useReactTable({

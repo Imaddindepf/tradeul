@@ -16,7 +16,7 @@ import httpx
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from shared.config.settings import settings
@@ -277,7 +277,32 @@ async def get_filtered_tickers(
         Lista de tickers filtrados con sus métricas
     """
     try:
-        # Leer últimos mensajes del stream de scanner
+        # Obtener sesión de mercado actual
+        try:
+            async with httpx.AsyncClient() as client:
+                session_response = await client.get("http://market_session:8002/api/session/current", timeout=2.0)
+                if session_response.status_code == 200:
+                    session_data = session_response.json()
+                    current_session = session_data.get('session', 'POST_MARKET')
+                else:
+                    current_session = 'POST_MARKET'
+        except:
+            current_session = 'POST_MARKET'
+        
+        # Leer desde cache del scanner (donde realmente se guardan los tickers)
+        cache_key = f"scanner:filtered_complete:{current_session}"
+        cached_data = await redis_client.get(cache_key, deserialize=True)
+        
+        if cached_data and isinstance(cached_data, list):
+            # Limitar y retornar
+            tickers = cached_data[:limit]
+            return {
+                "tickers": tickers,
+                "count": len(tickers),
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        # Fallback: intentar leer del stream (por compatibilidad)
         messages = await redis_client.read_stream_range(
             "stream:scanner:filtered",
             count=limit
@@ -416,21 +441,15 @@ async def get_ticker_metadata(symbol: str):
         
         query = """
             SELECT 
-                symbol,
-                company_name,
-                exchange,
-                sector,
-                industry,
-                market_cap,
-                float_shares,
-                shares_outstanding,
-                avg_volume_30d,
-                avg_volume_10d,
-                avg_price_30d,
-                beta,
-                is_etf,
-                is_actively_trading,
-                updated_at
+                symbol, company_name, exchange, sector, industry,
+                market_cap, float_shares, shares_outstanding,
+                avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
+                description, homepage_url, phone_number, address,
+                total_employees, list_date,
+                logo_url, icon_url,
+                cik, composite_figi, share_class_figi, ticker_root, ticker_suffix,
+                type, currency_name, locale, market, round_lot, delisted_utc,
+                is_etf, is_actively_trading, updated_at
             FROM ticker_metadata
             WHERE symbol = $1
         """
@@ -453,6 +472,45 @@ async def get_ticker_metadata(symbol: str):
     except Exception as e:
         logger.error("ticker_metadata_error", symbol=symbol, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/proxy/logo")
+async def proxy_logo(url: str):
+    """
+    Proxy para logos de Polygon.io con API key
+    
+    Args:
+        url: URL del logo sin API key
+    
+    Returns:
+        StreamingResponse con la imagen
+    """
+    try:
+        # Agregar API key a la URL
+        separator = "&" if "?" in url else "?"
+        proxied_url = f"{url}{separator}apiKey={settings.POLYGON_API_KEY}"
+        
+        # Hacer request al logo
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(proxied_url)
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=404, detail="Logo not found")
+            
+            # Devolver la imagen como stream
+            return StreamingResponse(
+                iter([response.content]),
+                media_type=response.headers.get("content-type", "image/svg+xml"),
+                headers={
+                    "Cache-Control": "public, max-age=86400",  # Cache 24h
+                }
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("logo_proxy_error", url=url, error=str(e))
+        raise HTTPException(status_code=500, detail="Error fetching logo")
 
 
 @app.get("/api/v1/rvol/{symbol}")

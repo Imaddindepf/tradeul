@@ -18,6 +18,13 @@ services:
       retries: 5
     networks:
       - tradeul_network
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+        reservations:
+          memory: 512M
 
   timescaledb:
     image: timescale/timescaledb:latest-pg15
@@ -43,6 +50,13 @@ services:
       retries: 5
     networks:
       - tradeul_network
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 6G
+        reservations:
+          memory: 2G
 
   # =============================================
   # SERVICIOS CORE
@@ -63,6 +77,13 @@ services:
       - tradeul_network
     ports:
       - "8002:8002"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
 
   data_ingest:
     build:
@@ -79,6 +100,13 @@ services:
       - tradeul_network
     ports:
       - "8003:8003"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          memory: 512M
 
   historical:
     build:
@@ -97,6 +125,13 @@ services:
       - tradeul_network
     ports:
       - "8004:8004"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          memory: 512M
 
   ticker_metadata:
     build:
@@ -119,10 +154,23 @@ services:
     ports:
       - "8010:8010"
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8010/health', timeout=5.0)"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import httpx; httpx.get('http://localhost:8010/health', timeout=5.0)",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
 
   scanner:
     build:
@@ -162,6 +210,13 @@ services:
       - tradeul_network
     ports:
       - "8006:8006"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          memory: 512M
 
   analytics:
     build:
@@ -210,7 +265,9 @@ services:
       resources:
         limits:
           cpus: "1"
-          memory: 1G
+          memory: 2G
+        reservations:
+          memory: 512M
 
   # orchestrator:
   #   build:
@@ -273,6 +330,13 @@ services:
       - tradeul_network
     ports:
       - "8000:8000"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          memory: 512M
 
   # admin_panel:
   #   build:

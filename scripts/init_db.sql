@@ -110,8 +110,8 @@ ALTER TABLE scan_results SET (
 
 SELECT add_compression_policy('scan_results', INTERVAL '7 days', if_not_exists => TRUE);
 
--- Política de retención (eliminar datos >180 días)
-SELECT add_retention_policy('scan_results', INTERVAL '180 days', if_not_exists => TRUE);
+-- Política de retención (eliminar datos >7 días - solo necesitamos datos recientes)
+SELECT add_retention_policy('scan_results', INTERVAL '7 days', if_not_exists => TRUE);
 
 -- =============================================
 -- TABLA: HISTÓRICO DE VOLUMEN POR SLOTS
@@ -131,6 +131,10 @@ CREATE TABLE IF NOT EXISTS volume_slots (
 -- Índices
 CREATE INDEX IF NOT EXISTS idx_volume_slots_symbol ON volume_slots (symbol, date DESC);
 CREATE INDEX IF NOT EXISTS idx_volume_slots_date ON volume_slots (date DESC);
+
+-- Política de retención (eliminar datos >30 días - suficiente para cálculos de RVOL)
+-- Nota: Esta política se aplicará automáticamente si la tabla se convierte a hypertable
+-- Por ahora, se aplicará manualmente o cuando se convierta a hypertable
 
 -- =============================================
 -- TABLA: DATOS OHLC DIARIOS (para ATR y otros indicadores)

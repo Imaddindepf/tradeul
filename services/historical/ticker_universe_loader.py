@@ -153,14 +153,32 @@ class TickerUniverseLoader:
                         page=page,
                         error=str(e)
                     )
-                    break
+                    # NO romper - intentar siguiente página después de esperar
+                    if page > 30:  # Límite de seguridad
+                        logger.error("max_pages_exceeded", pages=30)
+                        break
+                    await asyncio.sleep(5)  # Esperar antes de continuar
+                    # Continuar con siguiente página (si existe next_url)
+                    if next_url:
+                        continue
+                    else:
+                        break
+                
                 except Exception as e:
                     logger.error(
                         "error_fetching_tickers",
                         page=page,
                         error=str(e)
                     )
-                    break
+                    # NO romper - intentar siguiente página
+                    if page > 30:
+                        logger.error("max_pages_exceeded", pages=30)
+                        break
+                    await asyncio.sleep(5)
+                    if next_url:
+                        continue
+                    else:
+                        break
         
         logger.info(
             "fetch_completed",
@@ -299,67 +317,10 @@ class TickerUniverseLoader:
         logger.info("timescaledb_save_completed", saved=saved)
         return saved
     
-    async def update_ticker_metadata(self, tickers: List[PolygonTicker]) -> int:
-        """
-        Actualiza tabla ticker_metadata con datos básicos de Polygon
-        
-        Luego el Historical Service enriquecerá con datos de FMP
-        (market cap, float, etc.)
-        """
-        logger.info("updating_ticker_metadata", count=len(tickers))
-        
-        query = """
-            INSERT INTO ticker_metadata (
-                symbol, 
-                company_name, 
-                exchange, 
-                is_actively_trading,
-                updated_at
-            )
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (symbol) 
-            DO UPDATE SET
-                company_name = EXCLUDED.company_name,
-                exchange = EXCLUDED.exchange,
-                is_actively_trading = EXCLUDED.is_actively_trading,
-                updated_at = EXCLUDED.updated_at
-        """
-        
-        updated = 0
-        batch_size = 1000
-        
-        for i in range(0, len(tickers), batch_size):
-            batch = tickers[i:i + batch_size]
-            
-            try:
-                async with self.timescale.pool.acquire() as conn:
-                    async with conn.transaction():
-                        for ticker in batch:
-                            await conn.execute(
-                                query,
-                                ticker.ticker,
-                                ticker.name,
-                                ticker.primary_exchange or "",
-                                ticker.active,
-                                datetime.utcnow()
-                            )
-                            updated += 1
-                
-                logger.debug(
-                    "metadata_batch_updated",
-                    updated=updated,
-                    total=len(tickers)
-                )
-                
-            except Exception as e:
-                logger.error(
-                    "error_updating_metadata_batch",
-                    batch_start=i,
-                    error=str(e)
-                )
-        
-        logger.info("metadata_update_completed", updated=updated)
-        return updated
+    # ELIMINADO: update_ticker_metadata()
+    # RAZÓN: ticker_metadata ahora es responsabilidad EXCLUSIVA de data_maintenance
+    # Historical SOLO maneja ticker_universe
+    # Ver: AUDITORIA_SERVICIOS.md - Problema #1
     
     async def load_universe(self) -> Dict[str, int]:
         """
@@ -378,8 +339,7 @@ class TickerUniverseLoader:
         stats = {
             "fetched": 0,
             "saved_redis": 0,
-            "saved_timescaledb": 0,
-            "updated_metadata": 0
+            "saved_timescaledb": 0
         }
         
         try:
@@ -394,11 +354,11 @@ class TickerUniverseLoader:
             # 2. Guardar en Redis
             stats["saved_redis"] = await self.save_to_redis(tickers)
             
-            # 3. Guardar en TimescaleDB
+            # 3. Guardar en TimescaleDB (ticker_universe)
             stats["saved_timescaledb"] = await self.save_to_timescaledb(tickers)
             
-            # 4. Actualizar metadata
-            stats["updated_metadata"] = await self.update_ticker_metadata(tickers)
+            # 4. Metadata se enriquece en data_maintenance (no aquí)
+            logger.info("ticker_universe_loaded_metadata_delegated_to_data_maintenance")
             
             logger.info(
                 "universe_load_completed",

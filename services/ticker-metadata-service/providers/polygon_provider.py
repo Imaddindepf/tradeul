@@ -75,3 +75,9 @@ class PolygonProvider:
             logger.error("polygon_exception", symbol=symbol, error=str(e))
             return None
 
+
+
+
+
+
+

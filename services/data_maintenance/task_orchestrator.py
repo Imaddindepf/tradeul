@@ -19,6 +19,7 @@ from shared.utils.logger import get_logger
 from tasks.load_ohlc import LoadOHLCTask
 from tasks.load_volume_slots import LoadVolumeSlotsTask
 from tasks.calculate_atr import CalculateATRTask
+from tasks.calculate_rvol_averages import CalculateRVOLHistoricalAveragesTask
 from tasks.enrich_metadata import EnrichMetadataTask
 from tasks.sync_redis import SyncRedisTask
 
@@ -53,7 +54,8 @@ class TaskOrchestrator:
         self.tasks = [
             LoadOHLCTask(redis_client, timescale_client),
             LoadVolumeSlotsTask(redis_client, timescale_client),
-            CalculateATRTask(redis_client, timescale_client),  # ← NUEVA: Calcular ATR después de cargar OHLC
+            CalculateATRTask(redis_client, timescale_client),  # Calcular ATR después de cargar OHLC
+            CalculateRVOLHistoricalAveragesTask(redis_client, timescale_client),  # Calcular promedios RVOL después de cargar volume_slots
             EnrichMetadataTask(redis_client, timescale_client),
             SyncRedisTask(redis_client, timescale_client),
         ]

@@ -48,6 +48,9 @@ class SyncRedisTask:
         logger.info("redis_sync_task_starting")
         
         try:
+            # 0. Sincronizar universo de tickers (BD → Redis SET)
+            universe_synced = await self._sync_universe()
+            
             # 1. Sincronizar metadata
             metadata_synced = await self._sync_metadata()
             
@@ -59,6 +62,7 @@ class SyncRedisTask:
             
             logger.info(
                 "redis_sync_task_completed",
+                universe_synced=universe_synced,
                 metadata_synced=metadata_synced,
                 volume_avg_synced=volume_avg_synced,
                 caches_cleaned=cleaned
@@ -66,6 +70,7 @@ class SyncRedisTask:
             
             return {
                 "success": True,
+                "universe_synced": universe_synced,
                 "metadata_synced": metadata_synced,
                 "volume_avg_synced": volume_avg_synced,
                 "caches_cleaned": cleaned
@@ -82,6 +87,69 @@ class SyncRedisTask:
                 "error": str(e)
             }
     
+    async def _sync_universe(self) -> int:
+        """
+        Sincronizar ticker_universe de BD a Redis SET
+        
+        Mantiene sincronizado el SET ticker:universe con la BD
+        para que siempre refleje los símbolos activos.
+        """
+        try:
+            logger.info("syncing_ticker_universe")
+            
+            # Obtener todos los símbolos activos de BD
+            query = """
+                SELECT symbol FROM ticker_universe WHERE is_active = true
+            """
+            rows = await self.db.fetch(query)
+            symbols = [row['symbol'] for row in rows]
+            
+            if not symbols:
+                logger.warning("no_active_symbols_in_db")
+                return 0
+            
+            # Limpiar Redis SET anterior
+            await self.redis.client.delete("ticker:universe")
+            
+            # Agregar todos los símbolos al SET en batch
+            pipeline = self.redis.client.pipeline()
+            
+            batch_size = 1000
+            synced = 0
+            
+            for i in range(0, len(symbols), batch_size):
+                batch = symbols[i:i + batch_size]
+                
+                # SADD puede recibir múltiples valores
+                if batch:
+                    pipeline.sadd("ticker:universe", *batch)
+                    synced += len(batch)
+                
+                # Ejecutar cada 1000 símbolos
+                if synced % batch_size == 0:
+                    await pipeline.execute()
+                    pipeline = self.redis.client.pipeline()
+                    logger.debug("universe_batch_synced", synced=synced)
+            
+            # Ejecutar batch final
+            await pipeline.execute()
+            
+            # Verificar resultado
+            redis_count = await self.redis.client.scard("ticker:universe")
+            
+            logger.info(
+                "universe_synced",
+                db_count=len(symbols),
+                redis_count=redis_count,
+                synced=synced
+            )
+            
+            return synced
+            
+        except Exception as e:
+            logger.error("universe_sync_failed", error=str(e))
+            return 0
+    
     async def _sync_metadata(self) -> int:
         """
         Sincronizar metadata de tickers a Redis
@@ -96,19 +164,20 @@ class SyncRedisTask:
         }
         """
         try:
-            # Obtener toda la metadata de TimescaleDB
+            # Obtener toda la metadata de TimescaleDB (TODOS los campos)
             query = """
                 SELECT 
-                    symbol,
-                    market_cap,
-                    float_shares,
-                    shares_outstanding,
-                    sector,
-                    industry,
-                    avg_volume_30d
+                    symbol, company_name, exchange, sector, industry,
+                    market_cap, float_shares, shares_outstanding,
+                    avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
+                    description, homepage_url, phone_number, address,
+                    total_employees, list_date,
+                    logo_url, icon_url,
+                    cik, composite_figi, share_class_figi, ticker_root, ticker_suffix,
+                    type, currency_name, locale, market, round_lot, delisted_utc,
+                    is_etf, is_actively_trading, updated_at
                 FROM ticker_metadata
-                WHERE market_cap IS NOT NULL
-                   OR sector IS NOT NULL
+                WHERE is_actively_trading = true
             """
             
             rows = await self.db.fetch(query)
@@ -121,16 +190,20 @@ class SyncRedisTask:
             pipeline = self.redis.client.pipeline()
             
             for row in rows:
-                key = f"ticker:metadata:{row['symbol']}"
-                data = {
-                    "symbol": row['symbol'],
-                    "market_cap": row['market_cap'],
-                    "float_shares": row['float_shares'],
-                    "shares_outstanding": row['shares_outstanding'],
-                    "sector": row['sector'],
-                    "industry": row['industry'],
-                    "avg_volume_30d": row['avg_volume_30d']
-                }
+                key = f"metadata:ticker:{row['symbol']}"  # ✅ Formato estandarizado
+                
+                # Convertir row a dict y manejar campos especiales
+                data = dict(row)
+                
+                # Convertir datetime a string ISO para serialización JSON
+                if data.get('updated_at'):
+                    data['updated_at'] = data['updated_at'].isoformat()
+                if data.get('delisted_utc'):
+                    data['delisted_utc'] = data['delisted_utc'].isoformat()
+                
+                # Convertir address dict a JSON string si existe
+                if isinstance(data.get('address'), dict):
+                    data['address'] = json.dumps(data['address'])
                 
                 # Eliminar campos None
                 data = {k: v for k, v in data.items() if v is not None}
@@ -246,7 +319,7 @@ class SyncRedisTask:
             active_symbols = {row['symbol'] for row in active_rows}
             
             # Obtener todos los keys de metadata en Redis
-            pattern = "ticker:metadata:*"
+            pattern = "metadata:ticker:*"  # ✅ Formato estandarizado
             cursor = 0
             
             while True:

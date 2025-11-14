@@ -55,6 +55,12 @@ class RedisStreamManager:
             "trim_threshold": 150,
             "trim_interval": 60,
             "approximate": True,
+        },
+        "polygon_ws:subscriptions": {
+            "maxlen": 2000,           # Solo últimos 2000 mensajes (suficiente para estado actual)
+            "trim_threshold": 2500,   # Trim cuando supere 2500
+            "trim_interval": 60,      # Check cada 60s
+            "approximate": True,      # Trim aproximado (más rápido)
         }
     }
     

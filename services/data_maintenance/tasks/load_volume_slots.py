@@ -15,11 +15,9 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
 
-# Importar lógica del script existente
-from scripts.load_massive_parallel import (
-    get_trading_days,
-    POLYGON_API_KEY
-)
+# Importar desde shared/utils
+from shared.utils.trading_days import get_trading_days
+from shared.config.settings import settings
 
 logger = get_logger(__name__)
 
@@ -217,7 +215,7 @@ class LoadVolumeSlotsTask:
                     "adjusted": "true",
                     "sort": "asc",
                     "limit": 50000,
-                    "apiKey": POLYGON_API_KEY
+                    "apiKey": settings.POLYGON_API_KEY
                 },
                 timeout=15.0
             )

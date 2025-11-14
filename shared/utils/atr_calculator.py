@@ -342,6 +342,19 @@ class ATRCalculator:
             data = await self.redis.hget(self.cache_key, symbol)
             logger.info("cache_read_attempt", symbol=symbol, data=data, has_data=bool(data))
             if data:
+                # ✅ VERIFICAR QUE LA FECHA SEA HOY (bug fix)
+                updated_date = data.get('updated')
+                today_str = date.today().isoformat()
+                
+                if updated_date != today_str:
+                    logger.info(
+                        "cache_expired_by_date",
+                        symbol=symbol,
+                        cached_date=updated_date,
+                        today=today_str
+                    )
+                    return None  # Considerar como caché expirado
+                
                 result = {
                     'atr': float(data.get('atr', 0)),
                     'atr_percent': float(data.get('atr_percent', 0)) if data.get('atr_percent') else None
@@ -366,10 +379,17 @@ class ATRCalculator:
             # Leer batch desde HASH: HMGET atr:daily {symbol1} {symbol2} ...
             values = await self.redis.hmget(self.cache_key, symbols)
             results = {}
+            today_str = date.today().isoformat()
             
             for symbol, value in zip(symbols, values):
                 if value:
                     try:
+                        # ✅ VERIFICAR QUE LA FECHA SEA HOY (bug fix)
+                        updated_date = value.get('updated')
+                        if updated_date != today_str:
+                            # Caché expirado, saltar este símbolo
+                            continue
+                        
                         results[symbol] = {
                             'atr': float(value.get('atr', 0)),
                             'atr_percent': float(value.get('atr_percent', 0)) if value.get('atr_percent') else None

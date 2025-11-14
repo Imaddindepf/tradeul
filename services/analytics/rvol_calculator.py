@@ -293,7 +293,7 @@ class RVOLCalculator:
         target_date: date
     ) -> Optional[float]:
         """
-        Obtiene el promedio histórico de volumen para un slot.
+        Obtiene el promedio histórico de volumen acumulado para un slot.
         - Lee de Redis HASH primero (rvol:hist:avg:{SYMBOL}:{DAYS} -> field {slot})
         - En miss, llama al bulk de Historical para precalentar todos los slots del símbolo
           y vuelve a leer el slot concreto desde Redis.
@@ -438,66 +438,6 @@ class RVOLCalculator:
                 error=str(e)
             )
             return 0
-    
-    async def save_today_slots_to_db(self, trading_date: date):
-        """
-        Guarda todos los slots del día en TimescaleDB
-        
-        Se ejecuta al final del día de trading para persistir
-        el histórico de volúmenes por slot.
-        
-        Args:
-            trading_date: Fecha del día de trading
-        """
-        saved_count = 0
-        
-        for symbol, slots in self.volume_cache.volumes.items():
-            for slot_number, volume_accumulated in slots.items():
-                # Obtener hora del slot
-                slot_time = self.slot_manager.get_slot_time(slot_number)
-                
-                # Obtener metadatos adicionales del slot
-                trades_count = self.volume_cache.trades.get(symbol, {}).get(slot_number, 0)
-                vwap = self.volume_cache.vwaps.get(symbol, {}).get(slot_number, 0.0)
-                
-                # Insertar en TimescaleDB
-                query = """
-                    INSERT INTO volume_slots 
-                    (date, symbol, slot_number, slot_time, volume_accumulated, trades_count, avg_price)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    ON CONFLICT (date, symbol, slot_number) 
-                    DO UPDATE SET
-                        volume_accumulated = EXCLUDED.volume_accumulated,
-                        trades_count = EXCLUDED.trades_count,
-                        avg_price = EXCLUDED.avg_price
-                """
-                
-                try:
-                    await self.db.execute(
-                        query,
-                        trading_date,
-                        symbol,
-                        slot_number,
-                        slot_time,
-                        volume_accumulated,
-                        trades_count,
-                        vwap  # Guardamos VWAP de Polygon
-                    )
-                    saved_count += 1
-                except Exception as e:
-                    logger.error(
-                        "error_saving_slot_to_db",
-                        symbol=symbol,
-                        slot=slot_number,
-                        error=str(e)
-                    )
-        
-        logger.info(
-            "slots_saved_to_db",
-            date=str(trading_date),
-            saved_count=saved_count,
-            symbols_count=len(self.volume_cache.volumes)
-        )
     
     async def reset_for_new_day(self):
         """

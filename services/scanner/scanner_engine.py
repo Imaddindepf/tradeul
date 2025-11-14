@@ -214,6 +214,21 @@ class ScannerEngine:
                 logger.debug("No enriched snapshot available yet")
                 return []
             
+            # Si ya es un dict, usarlo directamente
+            if isinstance(enriched_data, dict):
+                pass
+            # Si es string, parsearlo como JSON
+            elif isinstance(enriched_data, str):
+                try:
+                    enriched_data = json.loads(enriched_data)
+                except json.JSONDecodeError as e:
+                    logger.error("Failed to parse snapshot as JSON", error=str(e))
+                    return []
+            else:
+                logger.error("Unexpected data type for snapshot", 
+                           data_type=type(enriched_data).__name__)
+                return []
+            
             # Verificar si ya procesamos este snapshot
             snapshot_timestamp = enriched_data.get('timestamp')
             
@@ -326,6 +341,14 @@ class ScannerEngine:
                     continue
                 try:
                     data = json.loads(raw) if isinstance(raw, str) else raw
+                    
+                    # Parsear address si viene como string JSON
+                    if 'address' in data and isinstance(data['address'], str):
+                        try:
+                            data['address'] = json.loads(data['address'])
+                        except (json.JSONDecodeError, TypeError):
+                            data['address'] = None
+                    
                     meta = TickerMetadata(**data)
                     results[sym] = meta
                     self._metadata_cache_set(sym, meta)
@@ -447,13 +470,28 @@ class ScannerEngine:
             data = await self.redis.get(key, deserialize=True)
             
             if data:
+                # Parsear address si viene como string JSON
+                if 'address' in data and isinstance(data['address'], str):
+                    try:
+                        data['address'] = json.loads(data['address'])
+                    except (json.JSONDecodeError, TypeError):
+                        data['address'] = None
+                
                 return TickerMetadata(**data)
             
             # 2. Fallback a BD si no está en cache
             row = await self.db.get_ticker_metadata(symbol)
             
             if row:
-                metadata = TickerMetadata(**dict(row))
+                row_dict = dict(row)
+                # Parsear address si viene como string JSON desde BD
+                if 'address' in row_dict and isinstance(row_dict['address'], str):
+                    try:
+                        row_dict['address'] = json.loads(row_dict['address'])
+                    except (json.JSONDecodeError, TypeError):
+                        row_dict['address'] = None
+                
+                metadata = TickerMetadata(**row_dict)
                 
                 # Guardar en cache para próximas consultas (TTL 1 hora)
                 await self.redis.set(

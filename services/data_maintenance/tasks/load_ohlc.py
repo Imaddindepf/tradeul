@@ -15,14 +15,7 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
 from shared.config.settings import settings
-
-# Importar lógica del script existente
-from scripts.load_daily_ohlc import (
-    get_trading_days,
-    fetch_daily_bars,
-    POLYGON_API_KEY,
-    MARKET_HOLIDAYS
-)
+from shared.utils.trading_days import get_trading_days
 
 logger = get_logger(__name__)
 

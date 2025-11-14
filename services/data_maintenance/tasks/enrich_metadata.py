@@ -159,9 +159,10 @@ class EnrichMetadataTask:
             weighted_shares_outstanding = details.get('weighted_shares_outstanding')
             share_class_shares_outstanding = details.get('share_class_shares_outstanding')
             
-            # Calcular float (aproximación)
-            # Float = shares outstanding - restricted shares
-            # Como no tenemos restricted, usamos share_class si está disponible
+            # Calcular float y shares_outstanding
+            # Priority: share_class_shares_outstanding > weighted_shares_outstanding
+            # IMPORTANTE: Si solo tenemos weighted, usarlo para AMBOS
+            shares_outstanding = share_class_shares_outstanding or weighted_shares_outstanding
             float_shares = share_class_shares_outstanding or weighted_shares_outstanding
             
             sector = details.get('sic_description') or details.get('sector')
@@ -172,7 +173,7 @@ class EnrichMetadataTask:
                 symbol=symbol,
                 market_cap=market_cap,
                 float_shares=float_shares,
-                shares_outstanding=weighted_shares_outstanding,
+                shares_outstanding=shares_outstanding,  # Ahora siempre tiene valor
                 sector=sector,
                 industry=industry
             )

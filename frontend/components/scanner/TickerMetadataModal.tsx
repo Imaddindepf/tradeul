@@ -21,14 +21,27 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   const [mounted, setMounted] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
+  // Helper para convertir URL de logo a proxy
+  const getProxiedLogoUrl = (logoUrl: string | null | undefined): string | null => {
+    if (!logoUrl) return null;
+    // Usar proxy del API Gateway para agregar API key
+    return `http://localhost:8000/api/v1/proxy/logo?url=${encodeURIComponent(logoUrl)}`;
+  };
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!isOpen || !symbol) return;
+    if (!isOpen || !symbol) {
+      // Limpiar estado cuando se cierra o no hay símbolo
+      setMetadata(null);
+      return;
+    }
 
     let cancelled = false;
+    // Limpiar datos anteriores inmediatamente al cambiar de ticker
+    setMetadata(null);
     setLoading(true);
     setError(null);
     setDescriptionExpanded(false);
@@ -112,16 +125,18 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
         {/* Header ultra compacto */}
         <div className="bg-slate-800 px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4 flex-1">
-            {metadata?.logo_url && (
+            {loading ? (
+              <div className="w-10 h-10 bg-slate-700 rounded animate-pulse" />
+            ) : metadata?.logo_url ? (
               <img
-                src={metadata.logo_url}
+                src={getProxiedLogoUrl(metadata.logo_url) || ''}
                 alt={`${symbol} logo`}
                 className="w-10 h-10 object-contain bg-white rounded p-1"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
               />
-            )}
+            ) : null}
             <div className="flex items-center gap-4 flex-1">
               <span className="text-xl font-bold text-white">{symbol}</span>
               <span className="text-base font-semibold text-white">

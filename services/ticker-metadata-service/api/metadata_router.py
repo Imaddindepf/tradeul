@@ -70,20 +70,10 @@ async def refresh_metadata(symbol: str):
     if not metadata:
         raise HTTPException(status_code=500, detail=f"Failed to refresh metadata for {symbol}")
     
-    return {
-        "symbol": metadata.symbol,
-        "company_name": metadata.company_name,
-        "exchange": metadata.exchange,
-        "sector": metadata.sector,
-        "industry": metadata.industry,
-        "market_cap": metadata.market_cap,
-        "float_shares": metadata.float_shares,
-        "shares_outstanding": metadata.shares_outstanding,
-        "is_etf": metadata.is_etf,
-        "is_actively_trading": metadata.is_actively_trading,
-        "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None,
-        "refreshed": True
-    }
+    # Convertir a dict con TODOS los campos
+    result = metadata.dict()
+    result["refreshed"] = True
+    return result
 
 
 @router.post("/bulk/refresh")

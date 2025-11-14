@@ -590,21 +590,18 @@ class HistoricalLoader:
     # =============================================
     
     async def _save_to_database(self, metadata: TickerMetadata) -> None:
-        """Save ticker metadata to TimescaleDB"""
+        """
+        MODIFICADO: Ya NO guarda en ticker_metadata (responsabilidad de data_maintenance)
+        Solo actualiza ticker_universe para mantener símbolos activos
+        """
         try:
-            # model_dump(mode='json') serializa datetime como string ISO
-            data = metadata.model_dump(mode='json')
-            
-            await self.db.upsert_ticker_metadata(
-                metadata.symbol,
-                data
-            )
-            
-            # Also update ticker_universe table
+            # Solo actualizar ticker_universe (mantener símbolo activo)
             await self._upsert_universe_entry(metadata.symbol)
+            
+            logger.debug("universe_entry_updated", symbol=metadata.symbol)
         
         except Exception as e:
-            logger.error("Error saving to database", symbol=metadata.symbol, error=str(e))
+            logger.error("Error updating universe", symbol=metadata.symbol, error=str(e))
     
     async def _upsert_universe_entry(self, symbol: str) -> None:
         """Update ticker in universe table"""

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 import structlog
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -22,7 +23,7 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
 from rvol_calculator import RVOLCalculator
-from atr_calculator import ATRCalculator
+from shared.utils.atr_calculator import ATRCalculator
 from intraday_tracker import IntradayTracker
 
 # Configurar logger
@@ -177,7 +178,7 @@ async def run_analytics_processing():
             if now.date() != current_date:
                 logger.info("new_trading_day_detected", new_date=str(now.date()))
                 
-                # (Compute-only) No persistimos slots desde Analytics
+                
                 # Resetear caché
                 await rvol_calculator.reset_for_new_day()
                 
@@ -457,26 +458,6 @@ async def admin_reset():
     return {
         "status": "success",
         "message": "Cache reset completed",
-        "timestamp": datetime.now().isoformat()
-    }
-
-
-@app.post("/admin/save-slots")
-async def admin_save_slots():
-    """
-    Endpoint de administración: forzar guardado de slots
-    (Solo para testing/debugging)
-    """
-    if not rvol_calculator:
-        raise HTTPException(status_code=503, detail="Service not ready")
-    
-    current_date = datetime.now().date()
-    await rvol_calculator.save_today_slots_to_db(current_date)
-    
-    return {
-        "status": "success",
-        "message": "Slots saved to database",
-        "date": str(current_date),
         "timestamp": datetime.now().isoformat()
     }
 
