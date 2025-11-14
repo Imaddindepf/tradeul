@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Menu,
   X,
+  BarChart3,
 } from 'lucide-react';
 
 interface NavItem {
@@ -28,6 +29,11 @@ const navItems: NavItem[] = [
     name: 'Escáner',
     href: '/scanner',
     icon: ScanSearch,
+  },
+  {
+    name: 'Dilution Tracker',
+    href: '/dilution-tracker',
+    icon: BarChart3,
   },
   {
     name: 'Analytics',
