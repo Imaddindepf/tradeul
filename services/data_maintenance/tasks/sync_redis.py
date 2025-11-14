@@ -188,29 +188,46 @@ class SyncRedisTask:
             
             # Sincronizar a Redis en batch
             pipeline = self.redis.client.pipeline()
+            synced_count = 0
+            failed_symbols = []
             
             for row in rows:
-                key = f"metadata:ticker:{row['symbol']}"  # ✅ Formato estandarizado
+                try:
+                    key = f"metadata:ticker:{row['symbol']}"  # ✅ Formato estandarizado
+                    
+                    # Convertir row a dict y manejar campos especiales
+                    data = dict(row)
+                    
+                    # Convertir datetime a string ISO para serialización JSON
+                    if data.get('updated_at'):
+                        data['updated_at'] = data['updated_at'].isoformat()
+                    if data.get('delisted_utc'):
+                        data['delisted_utc'] = data['delisted_utc'].isoformat()
+                    
+                    # Convertir address dict a JSON string si existe
+                    if isinstance(data.get('address'), dict):
+                        data['address'] = json.dumps(data['address'])
+                    
+                    # Eliminar campos None
+                    data = {k: v for k, v in data.items() if v is not None}
+                    
+                    # Verificar que JSON es serializable
+                    json_str = json.dumps(data)
+                    
+                    pipeline.set(key, json_str)  # SIN TTL - persiste siempre
+                    synced_count += 1
                 
-                # Convertir row a dict y manejar campos especiales
-                data = dict(row)
-                
-                # Convertir datetime a string ISO para serialización JSON
-                if data.get('updated_at'):
-                    data['updated_at'] = data['updated_at'].isoformat()
-                if data.get('delisted_utc'):
-                    data['delisted_utc'] = data['delisted_utc'].isoformat()
-                
-                # Convertir address dict a JSON string si existe
-                if isinstance(data.get('address'), dict):
-                    data['address'] = json.dumps(data['address'])
-                
-                # Eliminar campos None
-                data = {k: v for k, v in data.items() if v is not None}
-                
-                pipeline.set(key, json.dumps(data))  # SIN TTL - persiste siempre
+                except Exception as e:
+                    failed_symbols.append(row['symbol'])
+                    logger.error(f"failed_to_prepare_metadata", symbol=row['symbol'], error=str(e))
             
-            await pipeline.execute()
+            # Ejecutar pipeline
+            try:
+                await pipeline.execute()
+                logger.info(f"metadata_pipeline_executed", success=synced_count, failed=len(failed_symbols))
+            except Exception as e:
+                logger.error(f"pipeline_execute_failed", error=str(e), failed_symbols=failed_symbols[:10])
+                return 0
             
             logger.info(
                 "metadata_synced_to_redis",

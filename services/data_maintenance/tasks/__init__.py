@@ -8,6 +8,7 @@ from .load_volume_slots import LoadVolumeSlotsTask
 from .calculate_atr import CalculateATRTask
 from .calculate_rvol_averages import CalculateRVOLHistoricalAveragesTask
 from .enrich_metadata import EnrichMetadataTask
+from .auto_recover_missing_tickers import AutoRecoverMissingTickersTask
 from .sync_redis import SyncRedisTask
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "CalculateATRTask",
     "CalculateRVOLHistoricalAveragesTask",
     "EnrichMetadataTask",
+    "AutoRecoverMissingTickersTask",
     "SyncRedisTask",
 ]
 

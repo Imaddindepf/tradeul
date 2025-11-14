@@ -34,6 +34,7 @@ from shared.utils.logger import get_logger
 
 from maintenance_scheduler import MaintenanceScheduler
 from task_orchestrator import TaskOrchestrator
+from realtime_ticker_monitor import RealtimeTickerMonitor
 
 # Logger
 logger = get_logger(__name__)
@@ -67,10 +68,24 @@ async def lifespan(app: FastAPI):
     # Iniciar scheduler en background
     scheduler_task = asyncio.create_task(scheduler.run())
     
+    # Iniciar monitor en tiempo real
+    realtime_monitor = RealtimeTickerMonitor(redis_client, timescale_client)
+    monitor_task = asyncio.create_task(realtime_monitor.start())
+    
     logger.info("🔄 Maintenance scheduler started")
     logger.info(f"📅 Schedule: Daily maintenance after market close (post-market end: {settings.post_market_end})")
+    logger.info("✅ Real-time ticker monitor started (checks every 5 min)")
     
     yield
+    
+    # Detener monitor en tiempo real
+    await realtime_monitor.stop()
+    if monitor_task:
+        monitor_task.cancel()
+        try:
+            await monitor_task
+        except asyncio.CancelledError:
+            pass
     
     # Cleanup
     logger.info("🛑 Shutting down Data Maintenance Service")

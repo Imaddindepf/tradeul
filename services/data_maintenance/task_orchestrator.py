@@ -21,6 +21,7 @@ from tasks.load_volume_slots import LoadVolumeSlotsTask
 from tasks.calculate_atr import CalculateATRTask
 from tasks.calculate_rvol_averages import CalculateRVOLHistoricalAveragesTask
 from tasks.enrich_metadata import EnrichMetadataTask
+from tasks.auto_recover_missing_tickers import AutoRecoverMissingTickersTask
 from tasks.sync_redis import SyncRedisTask
 
 logger = get_logger(__name__)
@@ -57,6 +58,7 @@ class TaskOrchestrator:
             CalculateATRTask(redis_client, timescale_client),  # Calcular ATR después de cargar OHLC
             CalculateRVOLHistoricalAveragesTask(redis_client, timescale_client),  # Calcular promedios RVOL después de cargar volume_slots
             EnrichMetadataTask(redis_client, timescale_client),
+            AutoRecoverMissingTickersTask(redis_client, timescale_client),  # Auto-detectar y agregar tickers nuevos
             SyncRedisTask(redis_client, timescale_client),
         ]
     
