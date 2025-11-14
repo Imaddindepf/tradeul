@@ -19,6 +19,7 @@ from shared.models.scanner import TickerMetadata
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
+from shared.utils.polygon_helpers import normalize_ticker_for_reference_api
 
 logger = get_logger(__name__)
 
@@ -190,9 +191,20 @@ class PolygonDataLoader:
         Obtiene detalles completos de un ticker desde Polygon
         
         Endpoint: GET /v3/reference/tickers/{ticker}
+        
+        Nota: Polygon usa formatos diferentes para preferred stocks:
+        - Market Data API: P mayúscula (BACPM)
+        - Reference API: p minúscula (BACpM)
+        Esta función normaliza automáticamente el formato.
         """
         try:
-            url = f"{self.base_url}/v3/reference/tickers/{symbol}"
+            # Normalizar formato para preferred stocks (P mayúscula → p minúscula)
+            normalized_symbol = normalize_ticker_for_reference_api(symbol)
+            
+            if normalized_symbol != symbol:
+                logger.debug(f"Normalized preferred stock: {symbol} → {normalized_symbol}")
+            
+            url = f"{self.base_url}/v3/reference/tickers/{normalized_symbol}"
             params = {"apiKey": self.api_key}
             
             async with httpx.AsyncClient(timeout=10.0) as client:

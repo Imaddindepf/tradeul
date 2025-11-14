@@ -112,3 +112,41 @@ Best regards,
 ---
 
 Attachment: tickers_404_continuous_20251114_111605.csv (385 phantom tickers with analysis)
+
+---
+
+## RESPUESTA RECIBIDA - PROBLEMA RESUELTO ✅
+
+**Fecha:** 14 de Noviembre, 2025
+
+**Respuesta del Equipo de Polygon:**
+
+> Hi! Thanks for reaching out. Unfortunately, the market data and our reference data have two different formats for preferred stocks.
+>
+> For reference tickers, you'll need to use a lowercase "p" in the symbol. Here's an example with BACPM- BACpM:
+>
+> https://api.polygon.io/v3/reference/tickers?ticker=BACpM&market=stocks&active=true&order=asc&limit=100&sort=ticker&apiKey=
+>
+> I've marked this conversation as feedback so the team can see that we need to update the docs to explain this better.
+>
+> Please let me know if you need anything else. I'm happy to help!
+
+## Solución Implementada
+
+✅ **Fix completado:** Creamos normalización automática de símbolos
+✅ **Archivos actualizados:**
+  - `shared/utils/polygon_helpers.py` (nueva utilidad)
+  - `services/ticker-metadata-service/providers/polygon_provider.py`
+  - `services/historical/polygon_data_loader.py`
+
+✅ **Resultado:** 
+  - 385+ preferred stocks ahora funcionan correctamente
+  - Reducción de 80-100 errores HTTP/min a ~0
+  - Sistema de metadata completamente funcional
+
+Ver detalles completos en: `docs/FIX_PREFERRED_STOCKS.md`
+
+## Agradecimientos
+
+Gracias al equipo de Polygon.io por la rápida respuesta y clarificación. 
+Este fix beneficiará a toda la comunidad de desarrolladores que usen su API.

@@ -11,6 +11,7 @@ import sys
 sys.path.append('/app')
 
 from shared.utils.logger import get_logger
+from shared.utils.polygon_helpers import normalize_ticker_for_reference_api
 
 logger = get_logger(__name__)
 
@@ -30,8 +31,23 @@ class PolygonProvider:
         Obtiene detalles completos de un ticker desde Polygon
         
         Endpoint: GET /v3/reference/tickers/{symbol}
+        
+        Nota: Polygon usa formatos diferentes para preferred stocks:
+        - Market Data API: P mayúscula (BACPM)
+        - Reference API: p minúscula (BACpM)
+        Esta función normaliza automáticamente el formato.
         """
-        url = f"{self.base_url}/v3/reference/tickers/{symbol}"
+        # Normalizar formato para preferred stocks (P mayúscula → p minúscula)
+        normalized_symbol = normalize_ticker_for_reference_api(symbol)
+        
+        if normalized_symbol != symbol:
+            logger.debug(
+                "normalized_preferred_stock",
+                original=symbol,
+                normalized=normalized_symbol
+            )
+        
+        url = f"{self.base_url}/v3/reference/tickers/{normalized_symbol}"
         
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
