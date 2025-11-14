@@ -51,7 +51,7 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
     <div className="space-y-6">
       {/* Summary Cards */}
       <div className="grid md:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/20 rounded-xl p-6 border border-blue-200 dark:border-blue-800">
+        <div className="bg-blue-500/10 rounded-xl p-6 border border-blue-500/20">
           <p className="text-sm text-blue-700 dark:text-blue-300 mb-2 font-medium">Current Shares Outstanding</p>
           <p className="text-3xl font-bold text-blue-900 dark:text-blue-100">
             {formatShares(data.history[data.history.length - 1].shares)}
@@ -60,10 +60,10 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
 
         <div className={`rounded-xl p-6 border ${
           data.dilution_1y > 10 
-            ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
+            ? 'bg-red-500/10 border-red-500/20' 
             : data.dilution_1y > 5
-            ? 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800'
-            : 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+            ? 'bg-yellow-500/10 border-yellow-500/20'
+            : 'bg-green-500/10 border-green-500/20'
         }`}>
           <p className={`text-sm mb-2 font-medium ${
             data.dilution_1y > 10 
@@ -87,10 +87,10 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
 
         <div className={`rounded-xl p-6 border ${
           data.dilution_3y > 25 
-            ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' 
+            ? 'bg-red-500/10 border-red-500/20' 
             : data.dilution_3y > 10
-            ? 'bg-yellow-50 dark:bg-yellow-950/20 border-yellow-200 dark:border-yellow-800'
-            : 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+            ? 'bg-yellow-500/10 border-yellow-500/20'
+            : 'bg-green-500/10 border-green-500/20'
         }`}>
           <p className={`text-sm mb-2 font-medium ${
             data.dilution_3y > 25 
@@ -114,7 +114,7 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
       </div>
 
       {/* Chart */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+      <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
         <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
           Historical Shares Outstanding
         </h4>
@@ -167,7 +167,7 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
       </div>
 
       {/* Info Box */}
-      <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
+      <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
         <div className="flex items-start gap-3">
           <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
           <div className="text-sm text-blue-900 dark:text-blue-100">

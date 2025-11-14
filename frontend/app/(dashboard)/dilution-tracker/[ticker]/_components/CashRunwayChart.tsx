@@ -74,7 +74,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       {/* Summary Cards */}
       <div className="grid md:grid-cols-3 gap-4">
         {/* Current Cash */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Current Cash Position</p>
           <p className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
             {formatCash(data.current_cash)}
@@ -85,7 +85,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
         </div>
 
         {/* Burn Rate */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Quarterly Burn Rate</p>
           <div className="flex items-center gap-2 mb-1">
             <p className={`text-3xl font-bold ${isBurningCash ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
@@ -103,7 +103,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
         </div>
 
         {/* Runway */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Estimated Runway</p>
           <p className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
             {data.estimated_runway_months.toFixed(1)} <span className="text-lg text-gray-500">months</span>
@@ -115,7 +115,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       </div>
 
       {/* Cash Projection Chart */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+      <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
         <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
           Cash Position Projection (12 Months)
         </h4>
@@ -161,7 +161,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
         </div>
 
         {/* Legend */}
-        <div className="flex items-center justify-center gap-6 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-center gap-6 mt-6 pt-6 border-t border-gray-200/50 dark:border-gray-700/50">
           <div className="flex items-center gap-2">
             <div className="h-3 w-3 bg-blue-500 rounded" />
             <span className="text-sm text-gray-600 dark:text-gray-400">Current</span>
@@ -179,7 +179,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
 
       {/* Warning if critical */}
       {data.runway_risk_level === "critical" && (
-        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-xl p-6">
+        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-6">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
             <div>

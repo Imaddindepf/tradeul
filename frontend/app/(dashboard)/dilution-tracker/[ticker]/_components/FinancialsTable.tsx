@@ -108,8 +108,8 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
   return (
     <div className="space-y-8">
       {sections.map((section) => (
-        <div key={section.title} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="bg-gray-50 dark:bg-gray-900/50 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div key={section.title} className="bg-white/50 dark:bg-white/5 rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
+          <div className="bg-gray-500/5 px-6 py-4 border-b border-gray-200/50 dark:border-gray-700/50">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
               {section.title}
             </h3>
@@ -118,7 +118,7 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
+                <tr className="border-b border-gray-200/50 dark:border-gray-700/50">
                   <th className="text-left py-4 px-6 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[200px]">
                     Metric
                   </th>
@@ -144,7 +144,7 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                 {section.rows.map((row, rowIndex) => (
                   <tr
                     key={rowIndex}
-                    className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                    className="border-b border-gray-100/50 dark:border-gray-800/50 hover:bg-white/50 dark:hover:bg-white/5 transition-colors"
                   >
                     <td className="py-4 px-6 text-sm font-medium text-gray-900 dark:text-white">
                       {row.label}

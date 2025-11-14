@@ -41,12 +41,12 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
 
   const getCategoryBadge = (category: string) => {
     const colors = {
-      financial: "bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300",
-      offering: "bg-purple-100 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300",
-      ownership: "bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300",
-      proxy: "bg-yellow-100 dark:bg-yellow-950/50 text-yellow-700 dark:text-yellow-300",
-      disclosure: "bg-orange-100 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300",
-      other: "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300",
+      financial: "bg-blue-500/10 text-blue-700 dark:text-blue-300",
+      offering: "bg-purple-500/10 text-purple-700 dark:text-purple-300",
+      ownership: "bg-green-500/10 text-green-700 dark:text-green-300",
+      proxy: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-300",
+      disclosure: "bg-orange-500/10 text-orange-700 dark:text-orange-300",
+      other: "bg-gray-500/10 text-gray-700 dark:text-gray-300",
     };
 
     const color = colors[category as keyof typeof colors] || colors.other;
@@ -61,17 +61,17 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
   return (
     <div className="space-y-3">
       {/* Filter pills */}
-      <div className="flex items-center gap-2 flex-wrap pb-4 border-b border-gray-200 dark:border-gray-700">
-        <button className="px-3 py-1.5 text-sm font-medium bg-blue-100 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded-lg">
+      <div className="flex items-center gap-2 flex-wrap pb-4 border-b border-gray-200/50 dark:border-gray-700/50">
+        <button className="px-3 py-1.5 text-sm font-medium bg-blue-500/10 text-blue-700 dark:text-blue-300 rounded-lg">
           All
         </button>
-        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-white/5 rounded-lg transition-colors">
           Financial
         </button>
-        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-white/5 rounded-lg transition-colors">
           Offering
         </button>
-        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+        <button className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-white/5 rounded-lg transition-colors">
           Ownership
         </button>
       </div>
@@ -81,16 +81,16 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
         {filings.map((filing) => (
           <div
             key={filing.id}
-            className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-all"
+            className="flex items-center justify-between p-4 bg-white/50 dark:bg-white/5 rounded-lg border border-gray-200/50 dark:border-gray-700/50 hover:border-blue-500/50 transition-all"
           >
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-3 mb-2">
-                <span className="px-3 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white text-sm font-mono font-semibold rounded">
+                <span className="px-3 py-1 bg-white/80 dark:bg-white/10 border border-gray-200/50 dark:border-gray-700/50 text-gray-900 dark:text-white text-sm font-mono font-semibold rounded">
                   {filing.filing_type}
                 </span>
                 {getCategoryBadge(filing.category)}
                 {filing.is_dilutive && (
-                  <span className="text-xs px-2 py-1 bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-300 rounded font-medium">
+                  <span className="text-xs px-2 py-1 bg-red-500/10 text-red-700 dark:text-red-300 rounded font-medium">
                     Dilutive
                   </span>
                 )}
@@ -111,7 +111,7 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
                 href={filing.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"
               >
                 View
                 <ExternalLink className="h-4 w-4" />

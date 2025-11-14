@@ -76,7 +76,7 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
-          <tr className="border-b border-gray-200 dark:border-gray-700">
+          <tr className="border-b border-gray-200/50 dark:border-gray-700/50">
             <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">
               Institution
             </th>
@@ -101,12 +101,12 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
           {holders.map((holder, index) => (
             <tr
               key={`${holder.holder_name}-${index}`}
-              className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+              className="border-b border-gray-100/50 dark:border-gray-800/50 hover:bg-white/50 dark:hover:bg-white/5 transition-colors"
             >
               {/* Institution Name */}
               <td className="py-4 px-4">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-lg bg-gray-500/10 flex items-center justify-center">
                     <Building2 className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                   </div>
                   <div>
@@ -146,7 +146,7 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
 
               {/* Form Type */}
               <td className="py-4 px-4 text-center">
-                <span className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded font-medium">
+                <span className="text-xs px-2 py-1 bg-gray-500/10 text-gray-700 dark:text-gray-300 rounded font-medium">
                   {holder.form_type}
                 </span>
               </td>

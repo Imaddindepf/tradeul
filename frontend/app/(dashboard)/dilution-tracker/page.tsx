@@ -19,13 +19,13 @@ export default function DilutionTrackerPage() {
 
   return (
     <PageContainer>
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950">
+      <div className="min-h-screen">
         {/* Hero Section */}
         <div className="max-w-5xl mx-auto px-6 pt-16 pb-12">
           <div className="text-center space-y-6">
             {/* Icon */}
             <div className="flex justify-center">
-              <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-2xl">
+              <div className="p-4 bg-blue-500/10 rounded-2xl">
                 <BarChart3 className="h-12 w-12 text-blue-600 dark:text-blue-400" />
               </div>
             </div>
@@ -77,8 +77,8 @@ export default function DilutionTrackerPage() {
         <div className="max-w-6xl mx-auto px-6 py-12">
           <div className="grid md:grid-cols-3 gap-6">
             {/* Feature 1 */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 border border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-all duration-200 shadow-sm hover:shadow-md">
-              <div className="h-12 w-12 bg-blue-100 dark:bg-blue-950/50 rounded-xl flex items-center justify-center mb-4">
+            <div className="bg-white/50 dark:bg-white/5 rounded-2xl p-8 border border-gray-200/50 dark:border-gray-700/50 hover:border-blue-500/50 transition-all duration-200 hover:bg-white/80 dark:hover:bg-white/10">
+              <div className="h-12 w-12 bg-blue-500/10 rounded-xl flex items-center justify-center mb-4">
                 <BarChart3 className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -90,8 +90,8 @@ export default function DilutionTrackerPage() {
             </div>
 
             {/* Feature 2 */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 border border-gray-200 dark:border-gray-700 hover:border-green-500 dark:hover:border-green-500 transition-all duration-200 shadow-sm hover:shadow-md">
-              <div className="h-12 w-12 bg-green-100 dark:bg-green-950/50 rounded-xl flex items-center justify-center mb-4">
+            <div className="bg-white/50 dark:bg-white/5 rounded-2xl p-8 border border-gray-200/50 dark:border-gray-700/50 hover:border-green-500/50 transition-all duration-200 hover:bg-white/80 dark:hover:bg-white/10">
+              <div className="h-12 w-12 bg-green-500/10 rounded-xl flex items-center justify-center mb-4">
                 <Clock className="h-6 w-6 text-green-600 dark:text-green-400" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -103,8 +103,8 @@ export default function DilutionTrackerPage() {
             </div>
 
             {/* Feature 3 */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 border border-gray-200 dark:border-gray-700 hover:border-purple-500 dark:hover:border-purple-500 transition-all duration-200 shadow-sm hover:shadow-md">
-              <div className="h-12 w-12 bg-purple-100 dark:bg-purple-950/50 rounded-xl flex items-center justify-center mb-4">
+            <div className="bg-white/50 dark:bg-white/5 rounded-2xl p-8 border border-gray-200/50 dark:border-gray-700/50 hover:border-purple-500/50 transition-all duration-200 hover:bg-white/80 dark:hover:bg-white/10">
+              <div className="h-12 w-12 bg-purple-500/10 rounded-xl flex items-center justify-center mb-4">
                 <TrendingUp className="h-6 w-6 text-purple-600 dark:text-purple-400" />
               </div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -119,7 +119,7 @@ export default function DilutionTrackerPage() {
 
         {/* Additional Info */}
         <div className="max-w-5xl mx-auto px-6 py-12">
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-2xl p-8 border border-blue-200 dark:border-blue-800">
+          <div className="bg-blue-500/5 rounded-2xl p-8 border border-blue-500/20">
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
               Comprehensive Analysis Tools
             </h3>
@@ -159,7 +159,7 @@ export default function DilutionTrackerPage() {
         {/* Recent Searches / Trending */}
         {trendingTickers.length > 0 && (
           <div className="max-w-5xl mx-auto px-6 py-8">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700">
+            <div className="bg-white/50 dark:bg-white/5 rounded-2xl p-6 border border-gray-200/50 dark:border-gray-700/50">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
                 Trending Analysis
@@ -170,8 +170,8 @@ export default function DilutionTrackerPage() {
                     key={ticker.symbol}
                     onClick={() => router.push(`/dilution-tracker/${ticker.symbol}`)}
                     className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 
-                             bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700
-                             rounded-lg transition-colors border border-gray-200 dark:border-gray-600"
+                             bg-white/50 dark:bg-white/5 hover:bg-white dark:hover:bg-white/10
+                             rounded-lg transition-colors border border-gray-200/50 dark:border-gray-700/50"
                   >
                     {ticker.symbol}
                   </button>

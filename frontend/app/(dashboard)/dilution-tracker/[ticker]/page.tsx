@@ -69,14 +69,14 @@ export default function TickerAnalysisPage() {
     <PageContainer>
       <div className="space-y-6">
         {/* Header */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+        <div className="bg-white/50 dark:bg-white/5 rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
           <div className="flex items-start justify-between">
             <div className="space-y-1">
               <div className="flex items-center gap-3">
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
                   {ticker}
                 </h1>
-                <span className="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg">
+                <span className="px-3 py-1 bg-gray-500/10 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg">
                   NASDAQ
                 </span>
               </div>
@@ -88,7 +88,7 @@ export default function TickerAnalysisPage() {
               onClick={fetchTickerData}
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300
-                       bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600
+                       bg-white/50 dark:bg-white/5 hover:bg-white dark:hover:bg-white/10 border border-gray-200/50 dark:border-gray-700/50
                        rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -97,7 +97,7 @@ export default function TickerAnalysisPage() {
           </div>
 
           {/* Quick Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-gray-200/50 dark:border-gray-700/50">
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Market Cap</p>
               <p className="text-lg font-semibold text-gray-900 dark:text-white">--</p>
@@ -118,8 +118,8 @@ export default function TickerAnalysisPage() {
         </div>
 
         {/* Tabs Navigation */}
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+        <div className="bg-white/50 dark:bg-white/5 rounded-xl border border-gray-200/50 dark:border-gray-700/50 overflow-hidden">
+          <div className="flex border-b border-gray-200/50 dark:border-gray-700/50 overflow-x-auto">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -132,8 +132,8 @@ export default function TickerAnalysisPage() {
                     flex items-center gap-2 px-6 py-4 text-sm font-medium whitespace-nowrap
                     border-b-2 transition-all duration-200
                     ${isActive 
-                      ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/20' 
-                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-blue-500/10' 
+                      : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-white/50 dark:hover:bg-white/5'
                     }
                   `}
                 >
@@ -187,7 +187,7 @@ function OverviewTab({ ticker }: { ticker: string }) {
 
       {/* Key Metrics Summary */}
       <div className="grid md:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
             Share Structure
           </h4>
@@ -207,7 +207,7 @@ function OverviewTab({ ticker }: { ticker: string }) {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
             Financial Health
           </h4>
@@ -229,7 +229,7 @@ function OverviewTab({ ticker }: { ticker: string }) {
       </div>
 
       {/* Implementation Notice */}
-      <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6">
+      <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-6">
         <div className="flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
           <div>
@@ -255,7 +255,7 @@ function DilutionTab({ ticker }: { ticker: string }) {
       <DilutionHistoryChart data={mockData} loading={false} />
       
       {/* Completed Offerings Section */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+      <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
           Completed Offerings
         </h3>
@@ -273,7 +273,7 @@ function HoldersTab({ ticker }: { ticker: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-xl p-6 border border-blue-200 dark:border-blue-800">
+      <div className="bg-blue-500/5 rounded-xl p-6 border border-blue-500/20">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
@@ -361,15 +361,15 @@ function RiskCard({ title, score }: { title: string; score: number | null }) {
   const risk = getRiskLevel(score);
   
   const colorClasses = {
-    gray: "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300",
-    red: "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400",
-    orange: "bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400",
-    yellow: "bg-yellow-100 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-400",
-    green: "bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400",
+    gray: "bg-gray-500/10 text-gray-700 dark:text-gray-300",
+    red: "bg-red-500/10 text-red-700 dark:text-red-400",
+    orange: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+    yellow: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+    green: "bg-green-500/10 text-green-700 dark:text-green-400",
   };
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+    <div className="bg-white/50 dark:bg-white/5 rounded-xl p-6 border border-gray-200/50 dark:border-gray-700/50">
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{title}</p>
       <div className="flex items-center justify-between">
         <p className="text-3xl font-bold text-gray-900 dark:text-white">
@@ -380,7 +380,7 @@ function RiskCard({ title, score }: { title: string; score: number | null }) {
         </span>
       </div>
       {score !== null && (
-        <div className="mt-4 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div className="mt-4 h-2 bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden">
           <div
             className={`h-full ${
               risk.color === 'red' ? 'bg-red-500' :
