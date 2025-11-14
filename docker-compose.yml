@@ -172,6 +172,45 @@ services:
         reservations:
           memory: 256M
 
+  dilution_tracker:
+    build:
+      context: .
+      dockerfile: services/dilution-tracker/Dockerfile
+    container_name: tradeul_dilution_tracker
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=dilution-tracker
+      - SERVICE_PORT=8009
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8009:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import httpx; httpx.get('http://localhost:8000/health', timeout=5.0)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
   scanner:
     build:
       context: .
