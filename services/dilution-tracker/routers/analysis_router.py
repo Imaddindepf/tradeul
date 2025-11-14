@@ -13,17 +13,14 @@ from datetime import datetime
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
-from shared.config.settings import get_settings
+from shared.config.settings import settings
 
-from ..strategies.search_tracker import SearchTracker
-from ..models.dilution_models import DilutionMetricsResponse
+from strategies.search_tracker import SearchTracker
+from models.dilution_models import DilutionMetricsResponse
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
-
-# Dependencies
-settings = get_settings()
 
 
 @router.get("/{ticker}")
@@ -44,10 +41,13 @@ async def get_ticker_analysis(ticker: str):
         # TODO: Implementar tracking
         
         # 2. Check cache
-        redis = await RedisClient.get_instance()
+        redis = RedisClient()
+        await redis.connect()
         cache_key = f"dilution:analysis:{ticker}"
         
         cached = await redis.get(cache_key)
+        await redis.disconnect()
+        
         if cached:
             logger.info("cache_hit", ticker=ticker, endpoint="analysis")
             return cached
@@ -134,10 +134,12 @@ async def refresh_ticker_data(ticker: str):
         ticker = ticker.upper()
         
         # Invalidate cache
-        redis = await RedisClient.get_instance()
+        redis = RedisClient()
+        await redis.connect()
         await redis.delete(f"dilution:analysis:{ticker}")
         await redis.delete(f"dilution:financials:{ticker}")
         await redis.delete(f"dilution:holders:{ticker}")
+        await redis.disconnect()
         
         # Trigger background job to fetch new data
         # TODO: Implementar job trigger
@@ -159,8 +161,10 @@ async def get_trending_tickers(limit: int = 50):
     Obtener tickers más buscados (trending)
     """
     try:
-        db = await TimescaleClient.get_instance()
-        redis = await RedisClient.get_instance()
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
         
         tracker = SearchTracker(db, redis)
         trending = await tracker.get_trending_tickers(days=7, limit=limit)

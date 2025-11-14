@@ -12,16 +12,15 @@ from typing import List
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
-from shared.config.settings import get_settings
+from shared.config.settings import settings
 
-from ..strategies.tier_manager import TierManager
-from ..services.fmp_financials import FMPFinancialsService
-from ..services.fmp_holders import FMPHoldersService
-from ..services.fmp_filings import FMPFilingsService
-from ..models.sync_models import SyncTier
+from strategies.tier_manager import TierManager
+from services.fmp_financials import FMPFinancialsService
+from services.fmp_holders import FMPHoldersService
+from services.fmp_filings import FMPFilingsService
+from models.sync_models import SyncTier
 
 logger = get_logger(__name__)
-settings = get_settings()
 
 
 class SyncTier1Job:

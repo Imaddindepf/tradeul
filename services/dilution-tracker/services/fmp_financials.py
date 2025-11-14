@@ -11,8 +11,8 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from shared.utils.logger import get_logger
-from .base_fmp_service import BaseFMPService
-from ..models.financial_models import FinancialStatementCreate, FinancialPeriod
+from services.base_fmp_service import BaseFMPService
+from models.financial_models import FinancialStatementCreate, FinancialPeriod
 
 logger = get_logger(__name__)
 

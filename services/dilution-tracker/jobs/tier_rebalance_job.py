@@ -13,7 +13,7 @@ from shared.utils.timescale_client import TimescaleClient
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 
-from ..strategies.tier_manager import TierManager
+from strategies.tier_manager import TierManager
 
 logger = get_logger(__name__)
 

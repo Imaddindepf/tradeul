@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from shared.utils.logger import get_logger
-from .routers import analysis_router
+from routers import analysis_router
 
 logger = get_logger(__name__)
 
