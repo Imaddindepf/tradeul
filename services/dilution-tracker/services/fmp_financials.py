@@ -173,35 +173,80 @@ class FMPFinancialsService(BaseFMPService):
             elif income_statement:
                 fiscal_year = income_statement.get('calendarYear')
             
-            # Build financial statement
+            # Build financial statement (SUPER COMPLETO)
             statement = FinancialStatementCreate(
                 ticker=ticker,
                 period_date=parsed_date,
                 period_type=period_type,
                 fiscal_year=fiscal_year,
                 
-                # Balance Sheet
+                # Balance Sheet - Assets (COMPLETO)
                 total_assets=self._to_decimal(balance_sheet, 'totalAssets') if balance_sheet else None,
-                total_liabilities=self._to_decimal(balance_sheet, 'totalLiabilities') if balance_sheet else None,
-                stockholders_equity=self._to_decimal(balance_sheet, 'totalStockholdersEquity') if balance_sheet else None,
+                total_current_assets=self._to_decimal(balance_sheet, 'totalCurrentAssets') if balance_sheet else None,
                 cash_and_equivalents=self._to_decimal(balance_sheet, 'cashAndCashEquivalents') if balance_sheet else None,
                 short_term_investments=self._to_decimal(balance_sheet, 'shortTermInvestments') if balance_sheet else None,
-                total_debt=self._to_decimal(balance_sheet, 'totalDebt') if balance_sheet else None,
-                total_current_assets=self._to_decimal(balance_sheet, 'totalCurrentAssets') if balance_sheet else None,
-                total_current_liabilities=self._to_decimal(balance_sheet, 'totalCurrentLiabilities') if balance_sheet else None,
+                receivables=self._to_decimal(balance_sheet, 'netReceivables') if balance_sheet else None,
+                inventories=self._to_decimal(balance_sheet, 'inventory') if balance_sheet else None,
+                other_current_assets=self._to_decimal(balance_sheet, 'otherCurrentAssets') if balance_sheet else None,
+                property_plant_equipment_net=self._to_decimal(balance_sheet, 'propertyPlantEquipmentNet') if balance_sheet else None,
+                goodwill=self._to_decimal(balance_sheet, 'goodwill') if balance_sheet else None,
+                intangible_assets_net=self._to_decimal(balance_sheet, 'intangibleAssets') if balance_sheet else None,
+                other_noncurrent_assets=self._to_decimal(balance_sheet, 'otherNonCurrentAssets') if balance_sheet else None,
                 
-                # Income Statement
+                # Balance Sheet - Liabilities (COMPLETO)
+                total_liabilities=self._to_decimal(balance_sheet, 'totalLiabilities') if balance_sheet else None,
+                total_current_liabilities=self._to_decimal(balance_sheet, 'totalCurrentLiabilities') if balance_sheet else None,
+                accounts_payable=self._to_decimal(balance_sheet, 'accountPayables') if balance_sheet else None,
+                debt_current=self._to_decimal(balance_sheet, 'shortTermDebt') if balance_sheet else None,
+                accrued_liabilities=self._to_decimal(balance_sheet, 'otherCurrentLiabilities') if balance_sheet else None,
+                deferred_revenue_current=self._to_decimal(balance_sheet, 'deferredRevenue') if balance_sheet else None,
+                long_term_debt=self._to_decimal(balance_sheet, 'longTermDebt') if balance_sheet else None,
+                other_noncurrent_liabilities=self._to_decimal(balance_sheet, 'otherNonCurrentLiabilities') if balance_sheet else None,
+                total_debt=self._to_decimal(balance_sheet, 'totalDebt') if balance_sheet else None,
+                
+                # Balance Sheet - Equity (COMPLETO)
+                stockholders_equity=self._to_decimal(balance_sheet, 'totalStockholdersEquity') if balance_sheet else None,
+                common_stock=self._to_decimal(balance_sheet, 'commonStock') if balance_sheet else None,
+                additional_paid_in_capital=self._to_decimal(balance_sheet, 'capitalLeaseObligations') if balance_sheet else None,
+                treasury_stock=None,  # FMP no tiene este campo separado
+                retained_earnings=self._to_decimal(balance_sheet, 'retainedEarnings') if balance_sheet else None,
+                accumulated_other_comprehensive_income=self._to_decimal(balance_sheet, 'accumulatedOtherComprehensiveIncomeLoss') if balance_sheet else None,
+                
+                # Income Statement (COMPLETO)
                 revenue=self._to_decimal(income_statement, 'revenue') if income_statement else None,
+                cost_of_revenue=self._to_decimal(income_statement, 'costOfRevenue') if income_statement else None,
                 gross_profit=self._to_decimal(income_statement, 'grossProfit') if income_statement else None,
+                research_development=self._to_decimal(income_statement, 'researchAndDevelopmentExpenses') if income_statement else None,
+                selling_general_administrative=self._to_decimal(income_statement, 'sellingGeneralAndAdministrativeExpenses') if income_statement else None,
+                other_operating_expenses=self._to_decimal(income_statement, 'otherExpenses') if income_statement else None,
+                total_operating_expenses=self._to_decimal(income_statement, 'operatingExpenses') if income_statement else None,
                 operating_income=self._to_decimal(income_statement, 'operatingIncome') if income_statement else None,
+                interest_expense=self._to_decimal(income_statement, 'interestExpense') if income_statement else None,
+                interest_income=self._to_decimal(income_statement, 'interestIncome') if income_statement else None,
+                other_income_expense=self._to_decimal(income_statement, 'totalOtherIncomeExpensesNet') if income_statement else None,
+                income_before_taxes=self._to_decimal(income_statement, 'incomeBeforeTax') if income_statement else None,
+                income_taxes=self._to_decimal(income_statement, 'incomeTaxExpense') if income_statement else None,
                 net_income=self._to_decimal(income_statement, 'netIncome') if income_statement else None,
                 eps_basic=self._to_decimal(income_statement, 'eps') if income_statement else None,
                 eps_diluted=self._to_decimal(income_statement, 'epsdiluted') if income_statement else None,
+                ebitda=self._to_decimal(income_statement, 'ebitda') if income_statement else None,
                 
-                # Cash Flow
+                # Cash Flow (COMPLETO)
                 operating_cash_flow=self._to_decimal(cash_flow, 'operatingCashFlow') if cash_flow else None,
+                depreciation_amortization=self._to_decimal(cash_flow, 'depreciationAndAmortization') if cash_flow else None,
+                stock_based_compensation=self._to_decimal(cash_flow, 'stockBasedCompensation') if cash_flow else None,
+                change_in_working_capital=self._to_decimal(cash_flow, 'changeInWorkingCapital') if cash_flow else None,
+                other_operating_activities=self._to_decimal(cash_flow, 'otherOperatingActivites') if cash_flow else None,
                 investing_cash_flow=self._to_decimal(cash_flow, 'netCashUsedForInvestingActivites') if cash_flow else None,
+                capital_expenditures=self._to_decimal(cash_flow, 'capitalExpenditure') if cash_flow else None,
+                acquisitions=self._to_decimal(cash_flow, 'acquisitionsNet') if cash_flow else None,
+                other_investing_activities=self._to_decimal(cash_flow, 'otherInvestingActivites') if cash_flow else None,
                 financing_cash_flow=self._to_decimal(cash_flow, 'netCashUsedProvidedByFinancingActivities') if cash_flow else None,
+                debt_issuance_repayment=self._to_decimal(cash_flow, 'debtRepayment') if cash_flow else None,
+                dividends_paid=self._to_decimal(cash_flow, 'dividendsPaid') if cash_flow else None,
+                stock_repurchased=self._to_decimal(cash_flow, 'commonStockRepurchased') if cash_flow else None,
+                other_financing_activities=self._to_decimal(cash_flow, 'otherFinancingActivites') if cash_flow else None,
+                change_in_cash=self._to_decimal(cash_flow, 'netChangeInCash') if cash_flow else None,
                 free_cash_flow=self._to_decimal(cash_flow, 'freeCashFlow') if cash_flow else None,
                 
                 # Shares

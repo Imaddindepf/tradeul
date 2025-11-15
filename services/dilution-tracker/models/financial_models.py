@@ -25,29 +25,74 @@ class FinancialStatementCreate(BaseModel):
     period_type: FinancialPeriod
     fiscal_year: Optional[int] = None
     
-    # Balance Sheet
+    # Balance Sheet - Assets
     total_assets: Optional[Decimal] = None
-    total_liabilities: Optional[Decimal] = None
-    stockholders_equity: Optional[Decimal] = None
+    total_current_assets: Optional[Decimal] = None
     cash_and_equivalents: Optional[Decimal] = None
     short_term_investments: Optional[Decimal] = None
-    total_debt: Optional[Decimal] = None
-    total_current_assets: Optional[Decimal] = None
+    receivables: Optional[Decimal] = None
+    inventories: Optional[Decimal] = None
+    other_current_assets: Optional[Decimal] = None
+    property_plant_equipment_net: Optional[Decimal] = None
+    goodwill: Optional[Decimal] = None
+    intangible_assets_net: Optional[Decimal] = None
+    other_noncurrent_assets: Optional[Decimal] = None
+    
+    # Balance Sheet - Liabilities
+    total_liabilities: Optional[Decimal] = None
     total_current_liabilities: Optional[Decimal] = None
+    accounts_payable: Optional[Decimal] = None
+    debt_current: Optional[Decimal] = None
+    accrued_liabilities: Optional[Decimal] = None
+    deferred_revenue_current: Optional[Decimal] = None
+    long_term_debt: Optional[Decimal] = None
+    other_noncurrent_liabilities: Optional[Decimal] = None
+    total_debt: Optional[Decimal] = None  # Calculado: current + long-term
+    
+    # Balance Sheet - Equity
+    stockholders_equity: Optional[Decimal] = None
+    common_stock: Optional[Decimal] = None
+    additional_paid_in_capital: Optional[Decimal] = None
+    treasury_stock: Optional[Decimal] = None
+    retained_earnings: Optional[Decimal] = None
+    accumulated_other_comprehensive_income: Optional[Decimal] = None
     
     # Income Statement
     revenue: Optional[Decimal] = None
+    cost_of_revenue: Optional[Decimal] = None
     gross_profit: Optional[Decimal] = None
+    research_development: Optional[Decimal] = None
+    selling_general_administrative: Optional[Decimal] = None
+    other_operating_expenses: Optional[Decimal] = None
+    total_operating_expenses: Optional[Decimal] = None
     operating_income: Optional[Decimal] = None
+    interest_expense: Optional[Decimal] = None
+    interest_income: Optional[Decimal] = None
+    other_income_expense: Optional[Decimal] = None
+    income_before_taxes: Optional[Decimal] = None
+    income_taxes: Optional[Decimal] = None
     net_income: Optional[Decimal] = None
     eps_basic: Optional[Decimal] = None
     eps_diluted: Optional[Decimal] = None
+    ebitda: Optional[Decimal] = None
     
-    # Cash Flow
+    # Cash Flow Statement
     operating_cash_flow: Optional[Decimal] = None
+    depreciation_amortization: Optional[Decimal] = None
+    stock_based_compensation: Optional[Decimal] = None
+    change_in_working_capital: Optional[Decimal] = None
+    other_operating_activities: Optional[Decimal] = None
     investing_cash_flow: Optional[Decimal] = None
+    capital_expenditures: Optional[Decimal] = None
+    acquisitions: Optional[Decimal] = None
+    other_investing_activities: Optional[Decimal] = None
     financing_cash_flow: Optional[Decimal] = None
-    free_cash_flow: Optional[Decimal] = None
+    debt_issuance_repayment: Optional[Decimal] = None
+    dividends_paid: Optional[Decimal] = None
+    stock_repurchased: Optional[Decimal] = None
+    other_financing_activities: Optional[Decimal] = None
+    change_in_cash: Optional[Decimal] = None
+    free_cash_flow: Optional[Decimal] = None  # Calculado: OCF - CapEx
     
     # Shares
     shares_outstanding: Optional[int] = None

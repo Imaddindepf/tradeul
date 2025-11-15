@@ -590,7 +590,7 @@ class DataAggregator:
     
     def _format_financials_for_response(self, financials: List[Dict]) -> List[Dict]:
         """
-        Formatear financials para frontend con nombres esperados
+        Formatear financials para frontend con TODOS los campos disponibles
         """
         formatted = []
         for f in financials:
@@ -599,7 +599,7 @@ class DataAggregator:
             investments = f.get('short_term_investments') or 0
             total_cash = cash + investments if (cash or investments) else None
             
-            # Calcular ratios si tenemos datos
+            # Calcular ratios
             current_ratio = None
             if f.get('total_current_assets') and f.get('total_current_liabilities'):
                 if f['total_current_liabilities'] != 0:
@@ -610,21 +610,94 @@ class DataAggregator:
                 if f['stockholders_equity'] != 0:
                     debt_to_equity = float(f['total_debt']) / float(f['stockholders_equity'])
             
+            working_capital = None
+            if f.get('total_current_assets') is not None and f.get('total_current_liabilities') is not None:
+                working_capital = float(f['total_current_assets']) - float(f['total_current_liabilities'])
+            
             formatted.append({
                 "period_date": f['period_date'].isoformat() if hasattr(f['period_date'], 'isoformat') else str(f['period_date']),
                 "period_type": f.get('period_type'),
                 "fiscal_year": f.get('fiscal_year'),
-                "cash": float(f['cash_and_equivalents']) if f.get('cash_and_equivalents') else None,
+                
+                # Balance Sheet - Assets (SUPER COMPLETO)
+                "total_assets": float(f['total_assets']) if f.get('total_assets') else None,
+                "total_current_assets": float(f['total_current_assets']) if f.get('total_current_assets') else None,
+                "cash_and_equivalents": float(f['cash_and_equivalents']) if f.get('cash_and_equivalents') else None,
+                "short_term_investments": float(f['short_term_investments']) if f.get('short_term_investments') else None,
                 "total_cash": float(total_cash) if total_cash else None,
-                "debt": float(f['total_debt']) if f.get('total_debt') else None,
-                "equity": float(f['stockholders_equity']) if f.get('stockholders_equity') else None,
+                "receivables": float(f['receivables']) if f.get('receivables') else None,
+                "inventories": float(f['inventories']) if f.get('inventories') else None,
+                "other_current_assets": float(f['other_current_assets']) if f.get('other_current_assets') else None,
+                "property_plant_equipment_net": float(f['property_plant_equipment_net']) if f.get('property_plant_equipment_net') else None,
+                "goodwill": float(f['goodwill']) if f.get('goodwill') else None,
+                "intangible_assets_net": float(f['intangible_assets_net']) if f.get('intangible_assets_net') else None,
+                "other_noncurrent_assets": float(f['other_noncurrent_assets']) if f.get('other_noncurrent_assets') else None,
+                
+                # Balance Sheet - Liabilities (SUPER COMPLETO)
+                "total_liabilities": float(f['total_liabilities']) if f.get('total_liabilities') else None,
+                "total_current_liabilities": float(f['total_current_liabilities']) if f.get('total_current_liabilities') else None,
+                "accounts_payable": float(f['accounts_payable']) if f.get('accounts_payable') else None,
+                "debt_current": float(f['debt_current']) if f.get('debt_current') else None,
+                "accrued_liabilities": float(f['accrued_liabilities']) if f.get('accrued_liabilities') else None,
+                "deferred_revenue_current": float(f['deferred_revenue_current']) if f.get('deferred_revenue_current') else None,
+                "long_term_debt": float(f['long_term_debt']) if f.get('long_term_debt') else None,
+                "other_noncurrent_liabilities": float(f['other_noncurrent_liabilities']) if f.get('other_noncurrent_liabilities') else None,
+                "total_debt": float(f['total_debt']) if f.get('total_debt') else None,
+                
+                # Balance Sheet - Equity (SUPER COMPLETO)
+                "stockholders_equity": float(f['stockholders_equity']) if f.get('stockholders_equity') else None,
+                "common_stock": float(f['common_stock']) if f.get('common_stock') else None,
+                "additional_paid_in_capital": float(f['additional_paid_in_capital']) if f.get('additional_paid_in_capital') else None,
+                "treasury_stock": float(f['treasury_stock']) if f.get('treasury_stock') else None,
+                "retained_earnings": float(f['retained_earnings']) if f.get('retained_earnings') else None,
+                "accumulated_other_comprehensive_income": float(f['accumulated_other_comprehensive_income']) if f.get('accumulated_other_comprehensive_income') else None,
+                
+                # Income Statement (SUPER COMPLETO)
                 "revenue": float(f['revenue']) if f.get('revenue') else None,
+                "cost_of_revenue": float(f['cost_of_revenue']) if f.get('cost_of_revenue') else None,
+                "gross_profit": float(f['gross_profit']) if f.get('gross_profit') else None,
+                "research_development": float(f['research_development']) if f.get('research_development') else None,
+                "selling_general_administrative": float(f['selling_general_administrative']) if f.get('selling_general_administrative') else None,
+                "other_operating_expenses": float(f['other_operating_expenses']) if f.get('other_operating_expenses') else None,
+                "total_operating_expenses": float(f['total_operating_expenses']) if f.get('total_operating_expenses') else None,
+                "operating_income": float(f['operating_income']) if f.get('operating_income') else None,
+                "interest_expense": float(f['interest_expense']) if f.get('interest_expense') else None,
+                "interest_income": float(f['interest_income']) if f.get('interest_income') else None,
+                "other_income_expense": float(f['other_income_expense']) if f.get('other_income_expense') else None,
+                "income_before_taxes": float(f['income_before_taxes']) if f.get('income_before_taxes') else None,
+                "income_taxes": float(f['income_taxes']) if f.get('income_taxes') else None,
                 "net_income": float(f['net_income']) if f.get('net_income') else None,
+                "eps_basic": float(f['eps_basic']) if f.get('eps_basic') else None,
+                "eps_diluted": float(f['eps_diluted']) if f.get('eps_diluted') else None,
+                "ebitda": float(f['ebitda']) if f.get('ebitda') else None,
+                
+                # Cash Flow Statement (SUPER COMPLETO)
                 "operating_cash_flow": float(f['operating_cash_flow']) if f.get('operating_cash_flow') else None,
+                "depreciation_amortization": float(f['depreciation_amortization']) if f.get('depreciation_amortization') else None,
+                "stock_based_compensation": float(f['stock_based_compensation']) if f.get('stock_based_compensation') else None,
+                "change_in_working_capital": float(f['change_in_working_capital']) if f.get('change_in_working_capital') else None,
+                "other_operating_activities": float(f['other_operating_activities']) if f.get('other_operating_activities') else None,
+                "investing_cash_flow": float(f['investing_cash_flow']) if f.get('investing_cash_flow') else None,
+                "capital_expenditures": float(f['capital_expenditures']) if f.get('capital_expenditures') else None,
+                "acquisitions": float(f['acquisitions']) if f.get('acquisitions') else None,
+                "other_investing_activities": float(f['other_investing_activities']) if f.get('other_investing_activities') else None,
+                "financing_cash_flow": float(f['financing_cash_flow']) if f.get('financing_cash_flow') else None,
+                "debt_issuance_repayment": float(f['debt_issuance_repayment']) if f.get('debt_issuance_repayment') else None,
+                "dividends_paid": float(f['dividends_paid']) if f.get('dividends_paid') else None,
+                "stock_repurchased": float(f['stock_repurchased']) if f.get('stock_repurchased') else None,
+                "other_financing_activities": float(f['other_financing_activities']) if f.get('other_financing_activities') else None,
+                "change_in_cash": float(f['change_in_cash']) if f.get('change_in_cash') else None,
                 "free_cash_flow": float(f['free_cash_flow']) if f.get('free_cash_flow') else None,
-                "shares_outstanding": f.get('weighted_avg_shares_diluted') or f.get('weighted_avg_shares_basic') or f.get('shares_outstanding'),
+                
+                # Shares
+                "shares_outstanding": f.get('shares_outstanding'),
+                "weighted_avg_shares_basic": f.get('weighted_avg_shares_basic'),
+                "weighted_avg_shares_diluted": f.get('weighted_avg_shares_diluted'),
+                
+                # Ratios y Métricas
                 "current_ratio": round(current_ratio, 2) if current_ratio else None,
                 "debt_to_equity_ratio": round(debt_to_equity, 2) if debt_to_equity else None,
+                "working_capital": round(working_capital, 2) if working_capital else None,
             })
         
         return formatted

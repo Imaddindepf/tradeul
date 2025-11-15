@@ -204,28 +204,73 @@ class PolygonFinancialsService:
                 period_type=period_type,
                 fiscal_year=fiscal_year,
                 
-                # Balance Sheet
+                # Balance Sheet - Assets (COMPLETO)
                 total_assets=self._to_decimal(bs.get('total_assets')),
-                total_liabilities=self._to_decimal(bs.get('total_liabilities')),
-                stockholders_equity=self._to_decimal(bs.get('total_equity_attributable_to_parent')),
+                total_current_assets=self._to_decimal(bs.get('total_current_assets')),
                 cash_and_equivalents=self._to_decimal(bs.get('cash_and_equivalents')),
                 short_term_investments=self._to_decimal(bs.get('short_term_investments')),
-                total_debt=self._to_decimal(total_debt),
-                total_current_assets=self._to_decimal(bs.get('total_current_assets')),
-                total_current_liabilities=self._to_decimal(bs.get('total_current_liabilities')),
+                receivables=self._to_decimal(bs.get('receivables')),
+                inventories=self._to_decimal(bs.get('inventories')),
+                other_current_assets=self._to_decimal(bs.get('other_current_assets')),
+                property_plant_equipment_net=self._to_decimal(bs.get('property_plant_equipment_net')),
+                goodwill=self._to_decimal(bs.get('goodwill')),
+                intangible_assets_net=self._to_decimal(bs.get('intangible_assets_net')),
+                other_noncurrent_assets=self._to_decimal(bs.get('other_assets')),
                 
-                # Income Statement
+                # Balance Sheet - Liabilities (COMPLETO)
+                total_liabilities=self._to_decimal(bs.get('total_liabilities')),
+                total_current_liabilities=self._to_decimal(bs.get('total_current_liabilities')),
+                accounts_payable=self._to_decimal(bs.get('accounts_payable')),
+                debt_current=self._to_decimal(bs.get('debt_current')),
+                accrued_liabilities=self._to_decimal(bs.get('accrued_and_other_current_liabilities')),
+                deferred_revenue_current=self._to_decimal(bs.get('deferred_revenue_current')),
+                long_term_debt=self._to_decimal(bs.get('long_term_debt_and_capital_lease_obligations')),
+                other_noncurrent_liabilities=self._to_decimal(bs.get('other_noncurrent_liabilities')),
+                total_debt=self._to_decimal(total_debt),
+                
+                # Balance Sheet - Equity (COMPLETO)
+                stockholders_equity=self._to_decimal(bs.get('total_equity_attributable_to_parent')),
+                common_stock=self._to_decimal(bs.get('common_stock')),
+                additional_paid_in_capital=self._to_decimal(bs.get('additional_paid_in_capital')),
+                treasury_stock=self._to_decimal(bs.get('treasury_stock')),
+                retained_earnings=self._to_decimal(bs.get('retained_earnings_deficit')),
+                accumulated_other_comprehensive_income=self._to_decimal(bs.get('accumulated_other_comprehensive_income')),
+                
+                # Income Statement (COMPLETO)
                 revenue=self._to_decimal(income.get('revenue')),
+                cost_of_revenue=self._to_decimal(income.get('cost_of_revenue')),
                 gross_profit=self._to_decimal(income.get('gross_profit')),
+                research_development=self._to_decimal(income.get('research_development')),
+                selling_general_administrative=self._to_decimal(income.get('selling_general_administrative')),
+                other_operating_expenses=self._to_decimal(income.get('other_operating_expenses')),
+                total_operating_expenses=self._to_decimal(income.get('total_operating_expenses')),
                 operating_income=self._to_decimal(income.get('operating_income')),
+                interest_expense=self._to_decimal(income.get('interest_expense')),
+                interest_income=self._to_decimal(income.get('interest_income')),
+                other_income_expense=self._to_decimal(income.get('other_income_expense')),
+                income_before_taxes=self._to_decimal(income.get('income_before_income_taxes')),
+                income_taxes=self._to_decimal(income.get('income_taxes')),
                 net_income=self._to_decimal(income.get('net_income_loss_attributable_common_shareholders')),
                 eps_basic=self._to_decimal(income.get('basic_earnings_per_share')),
                 eps_diluted=self._to_decimal(income.get('diluted_earnings_per_share')),
+                ebitda=self._to_decimal(income.get('ebitda')),
                 
-                # Cash Flow
+                # Cash Flow Statement (COMPLETO)
                 operating_cash_flow=self._to_decimal(cf.get('net_cash_from_operating_activities')),
+                depreciation_amortization=self._to_decimal(cf.get('depreciation_depletion_and_amortization')),
+                stock_based_compensation=None,  # No disponible directo en Polygon v1
+                change_in_working_capital=self._to_decimal(cf.get('change_in_other_operating_assets_and_liabilities_net')),
+                other_operating_activities=self._to_decimal(cf.get('other_operating_activities')),
                 investing_cash_flow=self._to_decimal(cf.get('net_cash_from_investing_activities')),
+                capital_expenditures=self._to_decimal(cf.get('purchase_of_property_plant_and_equipment')),
+                acquisitions=None,  # No disponible directo
+                other_investing_activities=self._to_decimal(cf.get('other_investing_activities')),
                 financing_cash_flow=self._to_decimal(cf.get('net_cash_from_financing_activities')),
+                debt_issuance_repayment=self._to_decimal(cf.get('long_term_debt_issuances_repayments')),
+                dividends_paid=self._to_decimal(cf.get('dividends')),
+                stock_repurchased=None,  # No disponible directo
+                other_financing_activities=self._to_decimal(cf.get('other_financing_activities')),
+                change_in_cash=self._to_decimal(cf.get('change_in_cash_and_equivalents')),
                 free_cash_flow=self._to_decimal(free_cash_flow),
                 
                 # Shares (CRÍTICO para dilution tracking)

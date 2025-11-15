@@ -186,26 +186,26 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
                 <div className="flex items-center gap-2">
                   <div className="h-3 w-3 bg-blue-400 rounded" />
                   <span className="text-xs text-slate-600 font-medium">Historical</span>
-                </div>
+            </div>
                 <div className="flex items-center gap-2">
                   <div className="h-3 w-3 bg-blue-600 rounded" />
                   <span className="text-xs text-slate-600 font-medium">Latest Quarter</span>
-                </div>
+        </div>
               </>
             ) : (
               <>
-                <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
                   <div className="h-3 w-3 bg-blue-600 rounded" />
                   <span className="text-xs text-slate-600 font-medium">Current</span>
-                </div>
-                <div className="flex items-center gap-2">
+          </div>
+          <div className="flex items-center gap-2">
                   <div className="h-3 w-3 bg-blue-400 rounded" />
                   <span className="text-xs text-slate-600 font-medium">Projected</span>
-                </div>
-                <div className="flex items-center gap-2">
+          </div>
+          <div className="flex items-center gap-2">
                   <div className="h-3 w-3 bg-red-500 rounded" />
                   <span className="text-xs text-slate-600 font-medium">Depleted</span>
-                </div>
+            </div>
               </>
             )}
           </div>
