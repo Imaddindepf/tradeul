@@ -191,9 +191,12 @@ class FMPFilingsService(BaseFMPService):
                 return None
             
             try:
+                # FMP puede retornar "2025-10-16" o "2025-10-16 00:00:00"
+                if ' ' in filing_date_str:
+                    filing_date_str = filing_date_str.split(' ')[0]
                 filing_date = datetime.strptime(filing_date_str, "%Y-%m-%d").date()
-            except:
-                logger.warning("invalid_filing_date", date=filing_date_str)
+            except Exception as e:
+                logger.warning("invalid_filing_date", date=filing_date_str, error=str(e))
                 return None
             
             # Parse report date (optional)

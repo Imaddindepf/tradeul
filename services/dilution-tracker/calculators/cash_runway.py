@@ -6,7 +6,7 @@ Calcula runway de efectivo y proyecciones basado en burn rate
 import sys
 sys.path.append('/app')
 
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -62,7 +62,7 @@ class CashRunwayCalculator:
     
     def calculate_quarterly_burn_rate(
         self,
-        cash_flows: List[Dict]
+        cash_flows: list
     ) -> Optional[Decimal]:
         """
         Calcular burn rate trimestral promedio
@@ -116,7 +116,7 @@ class CashRunwayCalculator:
         current_cash: Decimal,
         quarterly_burn_rate: Decimal,
         months: int = 12
-    ) -> List[Dict]:
+    ) -> list:
         """
         Proyectar posición de efectivo para próximos N meses
         
@@ -189,8 +189,8 @@ class CashRunwayCalculator:
     
     def analyze_burn_trend(
         self,
-        cash_flows: List[Dict]
-    ) -> Dict:
+        cash_flows: list
+    ) -> dict:
         """
         Analizar tendencia de burn rate
         

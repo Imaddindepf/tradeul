@@ -336,4 +336,31 @@ class SyncRedisTask:
             active_symbols = {row['symbol'] for row in active_rows}
             
             # Obtener todos los keys de metadata en Redis
-            pattern = "metadata:ticker:*"  # ✅ Fo
+            pattern = "metadata:ticker:*"  # ✅ Formato estandarizado
+            cursor = 0
+            
+            while True:
+                cursor, keys = await self.redis.client.scan(
+                    cursor,
+                    match=pattern,
+                    count=100
+                )
+                
+                for key in keys:
+                    symbol = key.decode('utf-8').split(':')[-1]
+                    if symbol not in active_symbols:
+                        await self.redis.client.delete(key)
+                        cleaned += 1
+                
+                if cursor == 0:
+                    break
+            
+            if cleaned > 0:
+                logger.info("old_caches_cleaned", count=cleaned)
+            
+            return cleaned
+        
+        except Exception as e:
+            logger.error("cleanup_failed", error=str(e))
+            return 0
+

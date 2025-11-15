@@ -124,3 +124,4 @@ python3 scripts/test_preferred_stocks_fix.py
 
 Gracias al equipo de Polygon.io por la rápida respuesta y clarificación del problema.
 
+

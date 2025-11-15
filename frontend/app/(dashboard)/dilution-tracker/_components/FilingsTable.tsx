@@ -22,10 +22,12 @@ interface FilingsTableProps {
 export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
   if (loading) {
     return (
-      <div className="animate-pulse space-y-3">
-        {[...Array(8)].map((_, i) => (
-          <div key={i} className="h-14 bg-gray-100 dark:bg-gray-800 rounded-lg" />
-        ))}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <div className="animate-pulse space-y-3">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="h-14 bg-slate-100 rounded-lg" />
+          ))}
+        </div>
       </div>
     );
   }

@@ -141,3 +141,4 @@ class RealtimeTickerMonitor:
 # Importar timedelta
 from datetime import timedelta
 
+
