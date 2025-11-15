@@ -67,9 +67,11 @@ class DilutionCalculator:
                 return {
                     'shares_current': None,
                     'shares_1y_ago': None,
-                    'shares_2y_ago': None,
+                    'shares_3y_ago': None,
+                    'shares_5y_ago': None,
                     'dilution_pct_1y': None,
-                    'dilution_pct_2y': None
+                    'dilution_pct_3y': None,
+                    'dilution_pct_5y': None
                 }
             
             # Ordenar por fecha (más reciente primero)
@@ -89,9 +91,11 @@ class DilutionCalculator:
                 return {
                     'shares_current': None,
                     'shares_1y_ago': None,
-                    'shares_2y_ago': None,
+                    'shares_3y_ago': None,
+                    'shares_5y_ago': None,
                     'dilution_pct_1y': None,
-                    'dilution_pct_2y': None
+                    'dilution_pct_3y': None,
+                    'dilution_pct_5y': None
                 }
             
             # Shares actuales (más reciente)
@@ -99,35 +103,32 @@ class DilutionCalculator:
             shares_current = current['shares_outstanding']
             current_date = current['period_date']
             
-            # Buscar shares de ~1 año atrás
-            shares_1y_ago = self._find_shares_n_years_ago(
-                valid_financials, current_date, years=1
-            )
-            
-            # Buscar shares de ~2 años atrás
-            shares_2y_ago = self._find_shares_n_years_ago(
-                valid_financials, current_date, years=2
-            )
+            # Buscar shares históricos
+            shares_1y_ago = self._find_shares_n_years_ago(valid_financials, current_date, years=1)
+            shares_3y_ago = self._find_shares_n_years_ago(valid_financials, current_date, years=3)
+            shares_5y_ago = self._find_shares_n_years_ago(valid_financials, current_date, years=5)
             
             # Calcular dilución
             dilution_1y = None
             if shares_1y_ago:
-                dilution_1y = self.calculate_dilution_percentage(
-                    shares_current, shares_1y_ago
-                )
+                dilution_1y = self.calculate_dilution_percentage(shares_current, shares_1y_ago)
             
-            dilution_2y = None
-            if shares_2y_ago:
-                dilution_2y = self.calculate_dilution_percentage(
-                    shares_current, shares_2y_ago
-                )
+            dilution_3y = None
+            if shares_3y_ago:
+                dilution_3y = self.calculate_dilution_percentage(shares_current, shares_3y_ago)
+            
+            dilution_5y = None
+            if shares_5y_ago:
+                dilution_5y = self.calculate_dilution_percentage(shares_current, shares_5y_ago)
             
             return {
                 'shares_current': shares_current,
                 'shares_1y_ago': shares_1y_ago,
-                'shares_2y_ago': shares_2y_ago,
+                'shares_3y_ago': shares_3y_ago,
+                'shares_5y_ago': shares_5y_ago,
                 'dilution_pct_1y': dilution_1y,
-                'dilution_pct_2y': dilution_2y
+                'dilution_pct_3y': dilution_3y,
+                'dilution_pct_5y': dilution_5y
             }
             
         except Exception as e:

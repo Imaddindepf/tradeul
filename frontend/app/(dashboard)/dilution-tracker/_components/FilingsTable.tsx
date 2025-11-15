@@ -43,7 +43,7 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
 
   const renderFilingRow = (filing: Filing, showInCategory = false) => {
     const tags = getFilingTags(filing);
-    
+
     return (
       <tr key={filing.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
         <td className="py-2.5 px-4">
@@ -54,7 +54,7 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
             {tags.slice(0, showInCategory ? 2 : 3).map((tag, idx) => (
               <span key={idx} className={`px-2 py-0.5 border text-xs font-medium rounded whitespace-nowrap ${tag.color}`}>
                 {tag.label}
-              </span>
+      </span>
             ))}
           </div>
         </td>
@@ -160,9 +160,9 @@ export function FilingsTable({ filings, loading = false }: FilingsTableProps) {
                   </tbody>
                 </table>
               </div>
-            </div>
-          ))}
-        </div>
+          </div>
+        ))}
+      </div>
       )}
     </div>
   );

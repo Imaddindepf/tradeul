@@ -581,7 +581,8 @@ class DataAggregator:
             return {
                 "history": history,
                 "dilution_1y": float(dilution_data.get('dilution_pct_1y')) if dilution_data.get('dilution_pct_1y') else None,
-                "dilution_3y": float(dilution_data.get('dilution_pct_2y')) if dilution_data.get('dilution_pct_2y') else None,
+                "dilution_3y": float(dilution_data.get('dilution_pct_3y')) if dilution_data.get('dilution_pct_3y') else None,
+                "dilution_5y": float(dilution_data.get('dilution_pct_5y')) if dilution_data.get('dilution_pct_5y') else None,
             }
             
         except Exception as e:

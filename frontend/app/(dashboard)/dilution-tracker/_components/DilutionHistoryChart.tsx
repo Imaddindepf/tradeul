@@ -9,6 +9,7 @@ interface DilutionHistoryData {
   }>;
   dilution_1y: number | null;
   dilution_3y: number | null;
+  dilution_5y: number | null;
 }
 
 interface DilutionHistoryChartProps {
@@ -51,12 +52,59 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
     };
   });
 
+  const formatPercent = (value: number | null) => {
+    if (value === null) return 'N/A';
+    return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+  };
+
   return (
     <>
-      {/* Title */}
-      <h4 className="text-base font-semibold text-slate-900 mb-3">
-        Historical Shares Outstanding ({displayHistory.length} quarters)
-      </h4>
+      {/* Title & Metrics */}
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="text-base font-semibold text-slate-900">
+          Historical Shares Outstanding ({displayHistory.length} quarters)
+        </h4>
+        
+        {/* Dilution Metrics */}
+        <div className="flex items-center gap-6 text-sm">
+          <div>
+            <span className="text-slate-500">1-Year:</span>
+            <span className={`ml-2 font-bold ${
+              data.dilution_1y && data.dilution_1y > 0 
+                ? 'text-red-600' 
+                : data.dilution_1y && data.dilution_1y < 0 
+                ? 'text-green-600' 
+                : 'text-slate-600'
+            }`}>
+              {formatPercent(data.dilution_1y)}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500">3-Year:</span>
+            <span className={`ml-2 font-bold ${
+              data.dilution_3y && data.dilution_3y > 0 
+                ? 'text-red-600' 
+                : data.dilution_3y && data.dilution_3y < 0 
+                ? 'text-green-600' 
+                : 'text-slate-600'
+            }`}>
+              {formatPercent(data.dilution_3y)}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500">5-Year:</span>
+            <span className={`ml-2 font-bold ${
+              data.dilution_5y && data.dilution_5y > 0 
+                ? 'text-red-600' 
+                : data.dilution_5y && data.dilution_5y < 0 
+                ? 'text-green-600' 
+                : 'text-slate-600'
+            }`}>
+              {formatPercent(data.dilution_5y)}
+            </span>
+          </div>
+        </div>
+      </div>
       
       {/* Chart profesional con Recharts */}
       <div className="h-64 border border-slate-200 bg-white rounded-lg p-4">
