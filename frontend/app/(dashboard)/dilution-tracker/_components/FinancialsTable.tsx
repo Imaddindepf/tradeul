@@ -230,8 +230,8 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
     
     { section: "Key Metrics", isSectionHeader: true },
     { label: "Working Capital", key: "working_capital" as keyof FinancialStatement, format: formatCurrency },
-    { label: "Current Ratio", key: "current_ratio" as keyof FinancialStatement, format: formatRatio },
-    { label: "Debt/Equity Ratio", key: "debt_to_equity_ratio" as keyof FinancialStatement, format: formatRatio },
+        { label: "Current Ratio", key: "current_ratio" as keyof FinancialStatement, format: formatRatio },
+        { label: "Debt/Equity Ratio", key: "debt_to_equity_ratio" as keyof FinancialStatement, format: formatRatio },
   ];
 
   const cashFlowRows = [
@@ -292,15 +292,15 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
               {tab.label}
             </button>
           ))}
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="text-left py-3 px-6 text-xs font-bold text-slate-700 uppercase tracking-wider sticky left-0 bg-slate-50 z-10 min-w-[220px]">
                   Period
-                </th>
+                  </th>
                 {recentFinancials.map((financial, index) => {
                   const date = new Date(financial.period_date);
                   const quarter = financial.period_type;
@@ -313,8 +313,8 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                     </th>
                   );
                 })}
-              </tr>
-            </thead>
+                </tr>
+              </thead>
             <tbody className="bg-white">
               {getCurrentRows().map((row, rowIndex) => {
                 if (row.isSectionHeader) {
@@ -327,11 +327,11 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                   );
                 }
 
-                if (row.isSubsectionHeader) {
+                if ('isSubsectionHeader' in row && (row as any).isSubsectionHeader) {
                   return (
                     <tr key={rowIndex} className="bg-slate-50 border-t border-slate-200">
                       <td colSpan={recentFinancials.length + 1} className="py-2 px-8 text-xs font-semibold text-slate-600 italic">
-                        {row.subsection}
+                        {(row as any).subsection}
                       </td>
                     </tr>
                   );
@@ -343,20 +343,22 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                       {row.label}
                     </td>
                     {recentFinancials.map((financial, colIndex) => {
-                      const value = financial[row.key!];
+                      if (!('key' in row) || !row.key) return null;
+                      const value = financial[row.key];
                       const isNegative = typeof value === 'number' && value < 0;
-                      const displayValue = row.format!(Math.abs(value as number) as any);
+                      const formatFn = 'format' in row && row.format ? row.format : formatCurrency;
+                      const displayValue = formatFn(Math.abs(value as number) as any);
                       
                       let yoyGrowth = null;
-                      if (row.showGrowth && colIndex < recentFinancials.length - 4) {
-                        const yearAgoValue = recentFinancials[colIndex + 4]?.[row.key!] as number;
+                      if ('showGrowth' in row && (row as any).showGrowth && colIndex < recentFinancials.length - 4) {
+                        const yearAgoValue = recentFinancials[colIndex + 4]?.[row.key] as number;
                         if (yearAgoValue && value) {
                           yoyGrowth = calculateYoYGrowth(value as number, yearAgoValue);
                         }
                       }
 
                       let margin = null;
-                      if (row.showMargin && financial.revenue) {
+                      if ('showMargin' in row && (row as any).showMargin && financial.revenue) {
                         margin = calculateMargin(value as number, financial.revenue);
                       }
                       
@@ -364,14 +366,14 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                         <td key={colIndex} className="py-3 px-4 text-right">
                           <div className="flex flex-col items-end gap-1">
                             <span className={`text-sm tabular-nums ${
-                              isNegative 
+                            isNegative 
                                 ? 'text-red-600' 
                                 : value === 0 || value == null
                                 ? 'text-slate-400'
                                 : row.bold
                                 ? 'text-slate-900 font-semibold'
                                 : 'text-slate-700'
-                            }`}>
+                          }`}>
                               {isNegative && value !== 0 && value !== null ? `(${displayValue})` : displayValue}
                             </span>
                             {yoyGrowth !== null && (
@@ -382,7 +384,7 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                             {margin !== null && (
                               <span className="text-xs text-slate-500">
                                 {margin.toFixed(1)}% margin
-                              </span>
+                          </span>
                             )}
                           </div>
                         </td>
@@ -391,10 +393,10 @@ export function FinancialsTable({ financials, loading = false }: FinancialsTable
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { 
   Search, 
   TrendingUp, 
@@ -17,11 +18,15 @@ import { FilingsTable } from "./_components/FilingsTable";
 import { CashRunwayChart } from "./_components/CashRunwayChart";
 import { DilutionHistoryChart } from "./_components/DilutionHistoryChart";
 import { FinancialsTable } from "./_components/FinancialsTable";
+import { SECDilutionSection } from "./_components/SECDilutionSection";
 import { getTickerAnalysis, validateTicker, type TickerAnalysis } from "@/lib/dilution-api";
 
 type TabType = "overview" | "dilution" | "holders" | "filings" | "financials";
 
 export default function DilutionTrackerPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("dilution");
@@ -30,18 +35,52 @@ export default function DilutionTrackerPage() {
   const [error, setError] = useState<string | null>(null);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
+  // Cargar ticker y tab desde URL al montar el componente
+  useEffect(() => {
+    const tickerFromUrl = searchParams.get('ticker');
+    const tabFromUrl = searchParams.get('tab') as TabType;
+    
+    if (tickerFromUrl) {
+      const ticker = tickerFromUrl.toUpperCase();
+      // Solo actualizar si el ticker es diferente al actual
+      if (ticker !== selectedTicker) {
+        setSearchQuery(ticker);
+        setSelectedTicker(ticker);
+        if (tabFromUrl && ["dilution", "holders", "filings", "financials"].includes(tabFromUrl)) {
+          setActiveTab(tabFromUrl);
+        }
+        fetchTickerData(ticker);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchQuery.trim()) {
-      const ticker = searchQuery.toUpperCase();
-      setError(null);
-      setLoading(true);
-      
+    e.stopPropagation();
+    
+    const trimmedQuery = searchQuery.trim();
+    if (!trimmedQuery) {
+      setError("Por favor ingresa un ticker");
+      return;
+    }
+    
+    const ticker = trimmedQuery.toUpperCase();
+    
+    // Si es el mismo ticker, no hacer nada
+    if (ticker === selectedTicker) {
+      return;
+    }
+    
+    setError(null);
+    setLoading(true);
+    
+    try {
       // Validar ticker primero
       const isValid = await validateTicker(ticker);
       
       if (!isValid) {
-        setError(`Ticker ${ticker} not found in universe. Only tickers from Polygon's universe are available.`);
+        setError(`Ticker ${ticker} no encontrado en el universo. Solo tickers del universo de Polygon están disponibles.`);
         setLoading(false);
         setSelectedTicker(null);
         setTickerData(null);
@@ -50,7 +89,15 @@ export default function DilutionTrackerPage() {
       
       setSelectedTicker(ticker);
       setActiveTab("dilution");
+      
+      // Actualizar URL sin recargar la página
+      router.push(`/dilution-tracker?ticker=${ticker}&tab=dilution`, { scroll: false });
+      
       await fetchTickerData(ticker);
+    } catch (err) {
+      console.error("Error en handleSearch:", err);
+      setError(`Error al buscar ${ticker}. Por favor intenta de nuevo.`);
+      setLoading(false);
     }
   };
 
@@ -100,11 +147,23 @@ export default function DilutionTrackerPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search ticker..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSearch(e as any);
+                    }
+                  }}
+                  placeholder="Buscar ticker (ej: AAPL, TSLA)..."
                   className="w-full pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-lg 
                            focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none
                            bg-white text-slate-900 placeholder:text-slate-400 transition-all"
+                  disabled={loading}
                 />
+                {loading && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <RefreshCw className="h-4 w-4 text-blue-600 animate-spin" />
+                  </div>
+                )}
               </div>
             </form>
 
@@ -280,7 +339,13 @@ export default function DilutionTrackerPage() {
                   return (
                     <button
                       key={tab.id}
-                      onClick={() => setActiveTab(tab.id as TabType)}
+                      onClick={() => {
+                        const newTab = tab.id as TabType;
+                        setActiveTab(newTab);
+                        if (selectedTicker) {
+                          router.push(`/dilution-tracker?ticker=${selectedTicker}&tab=${newTab}`, { scroll: false });
+                        }
+                      }}
                       className={`
                         flex items-center gap-2 px-6 py-4 text-sm font-medium whitespace-nowrap
                         border-b-2 transition-all duration-200
@@ -299,7 +364,7 @@ export default function DilutionTrackerPage() {
 
               {/* Tab Content */}
               <div className="p-4">
-                {activeTab === "dilution" && <DilutionTab data={tickerData} loading={loading} />}
+                {activeTab === "dilution" && <DilutionTab data={tickerData} loading={loading} ticker={selectedTicker} />}
                 {activeTab === "holders" && <HoldersTab data={tickerData} loading={loading} />}
                 {activeTab === "filings" && <FilingsTab data={tickerData} loading={loading} />}
                 {activeTab === "financials" && <FinancialsTab data={tickerData} loading={loading} />}
@@ -314,7 +379,7 @@ export default function DilutionTrackerPage() {
 
 // Tab Components
 
-function DilutionTab({ data, loading }: { data: TickerAnalysis | null; loading: boolean }) {
+function DilutionTab({ data, loading, ticker }: { data: TickerAnalysis | null; loading: boolean; ticker: string }) {
   return (
     <div className="space-y-6">
       {/* Cash Runway */}
@@ -326,6 +391,23 @@ function DilutionTab({ data, loading }: { data: TickerAnalysis | null; loading: 
       <div>
         <DilutionHistoryChart data={data?.dilution_history || null} loading={loading} />
       </div>
+
+      {/* SEC Dilution Profile - Warrants, ATM, Shelf, Completed Offerings */}
+      {!loading && (
+        <>
+          <div className="border-t border-slate-200 pt-6">
+            <div className="mb-4">
+              <h3 className="text-base font-semibold text-slate-900 mb-1">
+                SEC Dilution Profile
+              </h3>
+              <p className="text-sm text-slate-600">
+                Warrants, ATM offerings, shelf registrations, and completed offerings extracted from SEC EDGAR filings
+              </p>
+            </div>
+            <SECDilutionSection ticker={ticker} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

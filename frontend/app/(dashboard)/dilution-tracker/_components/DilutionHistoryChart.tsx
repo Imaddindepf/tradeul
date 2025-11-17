@@ -63,8 +63,8 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
       <div className="flex items-center justify-between mb-4">
         <h4 className="text-base font-semibold text-slate-900">
           Historical Shares Outstanding ({displayHistory.length} quarters)
-        </h4>
-        
+      </h4>
+      
         {/* Dilution Metrics */}
         <div className="flex items-center gap-6 text-sm">
           <div>
@@ -90,7 +90,7 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
             }`}>
               {formatPercent(data.dilution_3y)}
             </span>
-          </div>
+                </div>
           <div>
             <span className="text-slate-500">5-Year:</span>
             <span className={`ml-2 font-bold ${
@@ -102,7 +102,7 @@ export function DilutionHistoryChart({ data, loading = false }: DilutionHistoryC
             }`}>
               {formatPercent(data.dilution_5y)}
             </span>
-          </div>
+              </div>
         </div>
       </div>
       

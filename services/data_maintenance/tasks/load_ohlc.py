@@ -237,7 +237,7 @@ class LoadOHLCTask:
         try:
             resp = await client.get(
                 url, 
-                params={"adjusted": "true", "sort": "asc", "apiKey": POLYGON_API_KEY}, 
+                params={"adjusted": "true", "sort": "asc", "apiKey": settings.POLYGON_API_KEY}, 
                 timeout=10.0
             )
             if resp.status_code == 200:

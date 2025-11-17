@@ -14,7 +14,10 @@ import {
   Menu,
   X,
   BarChart3,
+  Maximize2,
 } from 'lucide-react';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 
 interface NavItem {
   name: string;
@@ -65,9 +68,30 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  const { openWindow } = useFloatingWindow();
 
   const toggleCollapse = () => setCollapsed(!collapsed);
   const toggleMobile = () => setMobileOpen(!mobileOpen);
+
+  const handleOpenFloatingWindow = (item: NavItem) => {
+    if (item.comingSoon) return;
+    
+    if (item.href === '/dilution-tracker') {
+      const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+      const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+      openWindow({
+        title: 'Dilution Tracker',
+        content: <DilutionTrackerContent />,
+        width: 1200,
+        height: 800,
+        x: screenWidth / 2 - 600,
+        y: screenHeight / 2 - 400,
+        minWidth: 800,
+        minHeight: 600,
+      });
+    }
+    // Aquí puedes agregar más ventanas flotantes para otros módulos
+  };
 
   return (
     <>
@@ -142,27 +166,98 @@ export function Sidebar() {
 
                 return (
                   <li key={item.href}>
-                    <Link
-                      href={item.comingSoon ? '#' : item.href}
-                      onClick={(e) => {
-                        if (item.comingSoon) e.preventDefault();
-                        if (!item.comingSoon && mobileOpen) toggleMobile();
-                      }}
-                      className={`
-                        flex items-center gap-3 px-3 py-2.5 rounded-lg
-                        transition-all duration-200
-                        ${collapsed ? 'lg:justify-center' : ''}
-                        ${
-                          isActive && !item.comingSoon
-                            ? 'bg-blue-50 text-blue-600 shadow-sm'
-                            : item.comingSoon
-                            ? 'text-slate-400 cursor-not-allowed'
-                            : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'
-                        }
-                        ${!item.comingSoon && 'active:scale-95'}
-                        group relative
-                      `}
-                    >
+                    {item.href === '/dilution-tracker' && !item.comingSoon ? (
+                      <div className="flex items-center gap-1 group/item">
+                        <Link
+                          href={item.href}
+                          onClick={(e) => {
+                            if (mobileOpen) toggleMobile();
+                          }}
+                          className={`
+                            flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg
+                            transition-all duration-200
+                            ${collapsed ? 'lg:justify-center' : ''}
+                            ${
+                              isActive
+                                ? 'bg-blue-50 text-blue-600 shadow-sm'
+                                : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'
+                            }
+                            active:scale-95
+                            group relative
+                          `}
+                        >
+                          <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'stroke-2' : ''}`} />
+                          
+                          {!collapsed && (
+                            <>
+                              <span className="font-medium text-sm whitespace-nowrap overflow-hidden">
+                                {item.name}
+                              </span>
+                              {item.badge && (
+                                <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-blue-500 text-white text-xs font-medium flex items-center justify-center">
+                                  {item.badge}
+                                </span>
+                              )}
+                            </>
+                          )}
+
+                          {/* Tooltip for collapsed state */}
+                          {collapsed && (
+                            <div className="absolute left-full ml-2 px-3 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 shadow-xl">
+                              {item.name}
+                              <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 w-2 h-2 bg-slate-900 rotate-45" />
+                            </div>
+                          )}
+                        </Link>
+                        
+                        {/* Floating Window Button */}
+                        {!collapsed && (
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleOpenFloatingWindow(item);
+                            }}
+                            className={`
+                              p-1.5 rounded-md
+                              transition-all duration-200
+                              ${
+                                isActive
+                                  ? 'text-blue-600 hover:bg-blue-100'
+                                  : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'
+                              }
+                              opacity-0 group-hover/item:opacity-100
+                              active:scale-95
+                            `}
+                            title="Abrir en ventana flotante"
+                            aria-label="Abrir en ventana flotante"
+                          >
+                            <Maximize2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <Link
+                        href={item.comingSoon ? '#' : item.href}
+                        onClick={(e) => {
+                          if (item.comingSoon) e.preventDefault();
+                          if (!item.comingSoon && mobileOpen) toggleMobile();
+                        }}
+                        className={`
+                          flex items-center gap-3 px-3 py-2.5 rounded-lg
+                          transition-all duration-200
+                          ${collapsed ? 'lg:justify-center' : ''}
+                          ${
+                            isActive && !item.comingSoon
+                              ? 'bg-blue-50 text-blue-600 shadow-sm'
+                              : item.comingSoon
+                              ? 'text-slate-400 cursor-not-allowed'
+                              : 'text-slate-700 hover:bg-slate-50 hover:text-blue-600'
+                          }
+                          ${!item.comingSoon && 'active:scale-95'}
+                          group relative
+                        `}
+                      >
                       <Icon className={`w-5 h-5 shrink-0 ${isActive && !item.comingSoon ? 'stroke-2' : ''}`} />
                       
                       {!collapsed && (
@@ -193,7 +288,8 @@ export function Sidebar() {
                           <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 w-2 h-2 bg-slate-900 rotate-45" />
                         </div>
                       )}
-                    </Link>
+                      </Link>
+                    )}
                   </li>
                 );
               })}

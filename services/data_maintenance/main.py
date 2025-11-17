@@ -22,6 +22,9 @@ from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from pydantic import BaseModel
+from typing import Optional
+from datetime import date
 import uvicorn
 
 # Agregar paths
@@ -180,17 +183,32 @@ async def get_status():
         }
 
 
+class TriggerRequest(BaseModel):
+    target_date: Optional[str] = None  # ISO format: "2025-11-14"
+
+
 @app.post("/trigger")
-async def trigger_maintenance():
-    """Trigger maintenance manually (for testing)"""
+async def trigger_maintenance(request: Optional[TriggerRequest] = None):
+    """Trigger maintenance manually (for testing)
+    
+    Args:
+        request: Optional body with target_date in ISO format (e.g., "2025-11-14")
+                 If not provided, uses yesterday's date
+    """
     try:
-        logger.info("⚡ Manual maintenance trigger requested")
+        target_date = None
+        if request and request.target_date:
+            target_date = date.fromisoformat(request.target_date)
+            logger.info("⚡ Manual maintenance trigger requested", target_date=request.target_date)
+        else:
+            logger.info("⚡ Manual maintenance trigger requested (using default: yesterday)")
         
         if scheduler:
-            asyncio.create_task(scheduler.orchestrator.run_maintenance_cycle())
+            asyncio.create_task(scheduler.orchestrator.run_maintenance_cycle(target_date))
             return {
                 "status": "triggered",
-                "message": "Maintenance cycle started"
+                "message": "Maintenance cycle started",
+                "target_date": target_date.isoformat() if target_date else "yesterday"
             }
         else:
             return {

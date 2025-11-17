@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # =============================================
     polygon_api_key: str = Field(..., description="Polygon.io API key")
     fmp_api_key: str = Field(..., description="FMP API key")
+    grok_api_key: Optional[str] = Field(default=None, description="Grok (X.AI) API key for LLM extraction")
+    sec_api_io: Optional[str] = Field(default=None, description="SEC-API.io API key for complete SEC data")
     
     # Aliases para compatibilidad (mayúsculas)
     @property
@@ -35,6 +37,14 @@ class Settings(BaseSettings):
     @property
     def FMP_API_KEY(self) -> str:
         return self.fmp_api_key
+    
+    @property
+    def GROK_API_KEY(self) -> Optional[str]:
+        return self.grok_api_key
+    
+    @property
+    def SEC_API_IO_KEY(self) -> Optional[str]:
+        return self.sec_api_io
     
     # =============================================
     # REDIS
