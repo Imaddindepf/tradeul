@@ -28,6 +28,8 @@ class ScannerTicker(BaseModel):
     ask: Optional[float] = Field(None, description="Ask price")
     volume: int = Field(..., description="Current volume")
     volume_today: int = Field(..., description="Total volume today")
+    minute_volume: Optional[int] = Field(None, description="Volume in last minute bar (min.v)")
+    last_trade_timestamp: Optional[int] = Field(None, description="Last trade timestamp (nanoseconds)")
     
     # OHLC
     open: Optional[float] = Field(None, description="Open price")
@@ -170,6 +172,10 @@ class FilterParameters(BaseModel):
     # Volume filters
     min_volume: Optional[int] = Field(None, ge=0, description="Minimum volume")
     min_volume_today: Optional[int] = Field(None, ge=0, description="Minimum volume today")
+    min_minute_volume: Optional[int] = Field(None, ge=0, description="Minimum volume in last minute (min.v)")
+    
+    # Data freshness filters
+    max_data_age_seconds: Optional[int] = Field(None, ge=0, description="Max age of last trade in seconds")
     
     # Change filters
     min_change_percent: Optional[float] = Field(None, description="Minimum % change")

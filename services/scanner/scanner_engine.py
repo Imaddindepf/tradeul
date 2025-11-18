@@ -699,6 +699,12 @@ class ScannerEngine:
             if intraday_low and intraday_low > 0:
                 price_from_intraday_low = ((price - intraday_low) / intraday_low) * 100
             
+            # Extract minute volume
+            minute_volume = snapshot.min.v if snapshot.min else None
+            
+            # Extract last trade timestamp (for freshness filtering)
+            last_trade_timestamp = snapshot.lastTrade.t if snapshot.lastTrade else None
+            
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
@@ -707,6 +713,8 @@ class ScannerEngine:
                 ask=snapshot.lastQuote.P if snapshot.lastQuote else None,
                 volume=volume_today,
                 volume_today=volume_today,
+                minute_volume=minute_volume,
+                last_trade_timestamp=last_trade_timestamp,
                 open=day_data.o if day_data else None,
                 high=day_data.h if day_data else None,
                 low=day_data.l if day_data else None,
@@ -839,6 +847,23 @@ class ScannerEngine:
             # Volume filters
             if params.min_volume is not None:
                 if ticker.volume_today < params.min_volume:
+                    return False
+            
+            # Minute volume filter (solo tickers con actividad reciente)
+            if params.min_minute_volume is not None:
+                if ticker.minute_volume is None or ticker.minute_volume < params.min_minute_volume:
+                    return False
+            
+            # Data freshness filter (rechazar tickers con datos muy antiguos)
+            if params.max_data_age_seconds is not None:
+                if ticker.last_trade_timestamp is not None:
+                    current_time_ns = datetime.now().timestamp() * 1_000_000_000
+                    age_ns = current_time_ns - ticker.last_trade_timestamp
+                    age_seconds = age_ns / 1_000_000_000
+                    if age_seconds > params.max_data_age_seconds:
+                        return False
+                else:
+                    # Si no hay last_trade_timestamp, rechazar por seguridad
                     return False
             
             # Change filters
