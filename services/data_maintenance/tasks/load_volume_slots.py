@@ -113,7 +113,7 @@ class LoadVolumeSlotsTask:
             # Procesar en paralelo
             async with httpx.AsyncClient() as client:
                 records_inserted = 0
-                semaphore = asyncio.Semaphore(10)
+                semaphore = asyncio.Semaphore(200)  # Max 200 concurrent (servicio sin rate limits)
                 
                 async def load_with_semaphore(symbol: str):
                     async with semaphore:

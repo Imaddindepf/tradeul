@@ -19,6 +19,7 @@ from services.polygon_financials import PolygonFinancialsService
 from services.fmp_financials import FMPFinancialsService
 from services.fmp_holders import FMPHoldersService
 from services.fmp_filings import FMPFilingsService
+from services.sec_dilution_service import SECDilutionService
 
 from repositories.financial_repository import FinancialRepository
 from repositories.holder_repository import HolderRepository
@@ -49,6 +50,7 @@ class DataAggregator:
         self.fmp_financials = FMPFinancialsService(settings.FMP_API_KEY)
         self.fmp_holders = FMPHoldersService(settings.FMP_API_KEY)
         self.fmp_filings = FMPFilingsService(settings.FMP_API_KEY)
+        self.sec_dilution = SECDilutionService(db, redis)
         
         # Inicializar repositories
         self.financial_repo = FinancialRepository(db)
@@ -98,6 +100,40 @@ class DataAggregator:
             holders = await self._get_or_fetch_holders(ticker)
             filings = await self._get_or_fetch_filings(ticker)
             
+            # 3.5. Obtener dilución SEC (warrants, ATM, shelfs, etc.)
+            sec_dilution_profile = await self.sec_dilution.get_dilution_profile(ticker, force_refresh=force_refresh)
+            sec_dilution_data = None
+            if sec_dilution_profile:
+                # Convertir a dict para JSON serialization (Pydantic v2)
+                try:
+                    # Intentar model_dump (Pydantic v2)
+                    sec_dilution_data = sec_dilution_profile.model_dump()
+                    # Convertir Decimal a float y date a string
+                    sec_dilution_data = self._make_json_serializable(sec_dilution_data)
+                    # Agregar análisis de dilución
+                    sec_dilution_data["dilution_analysis"] = sec_dilution_profile.calculate_potential_dilution()
+                except AttributeError:
+                    # Fallback a dict() (Pydantic v1)
+                    sec_dilution_data = {
+                        "ticker": sec_dilution_profile.ticker,
+                        "company_name": sec_dilution_profile.company_name,
+                        "cik": sec_dilution_profile.cik,
+                        "warrants": [w.model_dump() if hasattr(w, 'model_dump') else w.dict() for w in sec_dilution_profile.warrants],
+                        "atm_offerings": [a.model_dump() if hasattr(a, 'model_dump') else a.dict() for a in sec_dilution_profile.atm_offerings],
+                        "shelf_registrations": [s.model_dump() if hasattr(s, 'model_dump') else s.dict() for s in sec_dilution_profile.shelf_registrations],
+                        "completed_offerings": [c.model_dump() if hasattr(c, 'model_dump') else c.dict() for c in sec_dilution_profile.completed_offerings],
+                        "s1_offerings": [s1.model_dump() if hasattr(s1, 'model_dump') else s1.dict() for s1 in sec_dilution_profile.s1_offerings],
+                        "convertible_notes": [cn.model_dump() if hasattr(cn, 'model_dump') else cn.dict() for cn in sec_dilution_profile.convertible_notes],
+                        "convertible_preferred": [cp.model_dump() if hasattr(cp, 'model_dump') else cp.dict() for cp in sec_dilution_profile.convertible_preferred],
+                        "equity_lines": [el.model_dump() if hasattr(el, 'model_dump') else el.dict() for el in sec_dilution_profile.equity_lines],
+                        "current_price": float(sec_dilution_profile.current_price) if sec_dilution_profile.current_price else None,
+                        "shares_outstanding": sec_dilution_profile.shares_outstanding,
+                        "float_shares": sec_dilution_profile.float_shares,
+                        "dilution_analysis": sec_dilution_profile.calculate_potential_dilution(),
+                        "last_scraped_at": sec_dilution_profile.metadata.last_scraped_at.isoformat() if sec_dilution_profile.metadata.last_scraped_at else None
+                    }
+                    sec_dilution_data = self._make_json_serializable(sec_dilution_data)
+            
             if not summary:
                 logger.warning("no_summary_data", ticker=ticker)
                 return None
@@ -119,6 +155,7 @@ class DataAggregator:
                 "holders": holders,
                 "filings": filings[:50],  # Limitar a 50 más recientes
                 "financials": formatted_financials,
+                "dilution": sec_dilution_data,  # Agregar dilución SEC
             }
             
             # 6. Cachear

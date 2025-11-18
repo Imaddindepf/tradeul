@@ -35,6 +35,10 @@ body {
   .text-balance {
     text-wrap: balance;
   }
+  
+  .animate-fadeIn {
+    animation: fadeIn 0.2s ease-out;
+  }
 }
 
 /* Estilos para la tabla - Asegurar visibilidad de números */

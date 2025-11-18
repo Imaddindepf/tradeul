@@ -60,6 +60,10 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const handleDeltaRef = useRef<((delta: any) => void) | null>(null);
   const handleAggregateRef = useRef<((aggregate: any) => void) | null>(null);
   const aggregateStats = useRef({ received: 0, applied: 0, lastLog: Date.now() });
+  
+  // Refs para funciones que se usan en RAF loops (evita recrear loops)
+  const applyDeltasRef = useRef<((deltas: DeltaAction[]) => void) | null>(null);
+  const applyAggregatesBatchRef = useRef<(() => void) | null>(null);
 
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const ws = useWebSocket(wsUrl);
@@ -93,12 +97,6 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
     setLastUpdateTime(new Date());
     setIsReady(true);
   }, []);
-
-  useEffect(() => {
-    handleSnapshotRef.current = handleSnapshot;
-    handleDeltaRef.current = handleDelta;
-    handleAggregateRef.current = handleAggregate;
-  });
 
   const applyDeltas = useCallback((deltas: DeltaAction[]) => {
     if (deltas.length === 0) return;
@@ -226,12 +224,28 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
     }
 
     if (!delta.deltas || !Array.isArray(delta.deltas)) return;
+    
+    // Límite de buffer para prevenir memory leaks
+    if (deltaBuffer.current.length > 5000) {
+      console.warn(`[${listName}] Delta buffer overflow, clearing old deltas`);
+      deltaBuffer.current = deltaBuffer.current.slice(-1000); // Mantener solo los últimos 1000
+    }
+    
     deltaBuffer.current.push(...delta.deltas);
     setSequence(delta.sequence);
-  }, [isReady, tickersMap, ws, listName]);
+  }, [isReady, tickersMap.size, ws.isConnected, ws.send, listName]); // Usar .size en vez del Map completo
 
   const handleAggregate = useCallback((message: any) => {
     if (!isReady || !message.symbol || !message.data) return;
+
+    // Límite de buffer: si supera 1000 símbolos, limpiar (mantener solo últimos 500)
+    if (aggregateBuffer.current.size > 1000) {
+      console.warn(`[${listName}] Aggregate buffer overflow (${aggregateBuffer.current.size}), clearing old entries`);
+      const entries = Array.from(aggregateBuffer.current.entries());
+      aggregateBuffer.current.clear();
+      // Mantener solo los últimos 500
+      entries.slice(-500).forEach(([k, v]) => aggregateBuffer.current.set(k, v));
+    }
 
     // Solo agregar al buffer (no setState directamente)
     aggregateBuffer.current.set(message.symbol, message);
@@ -293,33 +307,64 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
 
       return newMap;
     });
-  }, [listName]);
+  }, []); // Sin dependencias: usa refs y setState funcional
+
+  // Actualizar refs en cada render (después de definir todas las funciones)
+  useEffect(() => {
+    handleSnapshotRef.current = handleSnapshot;
+    handleDeltaRef.current = handleDelta;
+    handleAggregateRef.current = handleAggregate;
+    applyDeltasRef.current = applyDeltas;
+    applyAggregatesBatchRef.current = applyAggregatesBatch;
+  }); // Sin dependencias: actualiza refs en cada render (patrón correcto)
 
   useEffect(() => {
+    let isActive = true;
     const applyBufferedDeltas = () => {
+      if (!isActive) return;
       if (deltaBuffer.current.length > 0) {
         const toApply = [...deltaBuffer.current];
         deltaBuffer.current = [];
-        applyDeltas(toApply);
+        // Usar ref en lugar de dependencia directa
+        if (applyDeltasRef.current) {
+          applyDeltasRef.current(toApply);
+        }
       }
-      rafId.current = requestAnimationFrame(applyBufferedDeltas);
+      if (isActive) {
+        rafId.current = requestAnimationFrame(applyBufferedDeltas);
+      }
     };
     rafId.current = requestAnimationFrame(applyBufferedDeltas);
     return () => {
-      if (rafId.current) cancelAnimationFrame(rafId.current);
+      isActive = false;
+      if (rafId.current) {
+        cancelAnimationFrame(rafId.current);
+        rafId.current = null;
+      }
     };
-  }, [applyDeltas]);
+  }, []); // Sin dependencias - se ejecuta solo una vez al montar
 
   useEffect(() => {
+    let isActive = true;
     const applyBufferedAggregates = () => {
-      applyAggregatesBatch();
-      aggregateRafId.current = requestAnimationFrame(applyBufferedAggregates);
+      if (!isActive) return;
+      // Usar ref en lugar de dependencia directa
+      if (applyAggregatesBatchRef.current) {
+        applyAggregatesBatchRef.current();
+      }
+      if (isActive) {
+        aggregateRafId.current = requestAnimationFrame(applyBufferedAggregates);
+      }
     };
     aggregateRafId.current = requestAnimationFrame(applyBufferedAggregates);
     return () => {
-      if (aggregateRafId.current) cancelAnimationFrame(aggregateRafId.current);
+      isActive = false;
+      if (aggregateRafId.current) {
+        cancelAnimationFrame(aggregateRafId.current);
+        aggregateRafId.current = null;
+      }
     };
-  }, [applyAggregatesBatch]);
+  }, []); // Sin dependencias - se ejecuta solo una vez al montar
 
   useEffect(() => {
     if (!ws.lastMessage) return;
@@ -376,7 +421,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
     };
   }, [ws.isConnected, listName, ws.send]);
 
-  // Timeout para resync si no llega snapshot
+  // Timeout para resync si no llega snapshot (solo una vez, no en loop)
   useEffect(() => {
     if (!ws.isConnected || isReady) return;
 
@@ -388,7 +433,8 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
     }, 5000); // 5 segundos para dar tiempo a múltiples conexiones
 
     return () => clearTimeout(snapshotTimeout);
-  }, [ws.isConnected, isReady, listName, ws.send]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.isConnected, listName]); // Removido isReady y ws.send para evitar loops
 
   const data = useMemo(() => {
     return tickerOrder.map((symbol) => tickersMap.get(symbol)!).filter(Boolean);

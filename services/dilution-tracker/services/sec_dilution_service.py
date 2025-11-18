@@ -10,13 +10,15 @@ import httpx
 import json
 import re
 import asyncio
+import os
+import tempfile
 from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
 from decimal import Decimal
 from bs4 import BeautifulSoup
 
 from xai_sdk import Client
-from xai_sdk.chat import user, system
+from xai_sdk.chat import user, system, file
 
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.redis_client import RedisClient
@@ -468,19 +470,31 @@ class SECDilutionService:
     
     async def _fetch_all_filings_from_sec_api_io(self, ticker: str) -> List[Dict]:
         """
-        Buscar TODOS los filings usando SEC-API.io (LA MEJOR API - acceso completo)
+        Buscar TODOS los filings usando SEC-API.io Query API (FUENTE DE VERDAD)
         
-        SEC-API.io tiene:
-        - Acceso a TODOS los archivos históricos
-        - Exhibits incluidos
-        - Full-text search
-        - Sin límites de "recent" (va hasta 1994)
+        IMPORTANTE: Usamos el Query API correcto, NO full-text-search.
+        
+        Query API (https://api.sec-api.io):
+        - Filtra por METADATA (ticker, formType, filedAt)
+        - Devuelve TODOS los filings del ticker desde 1993+
+        - Es la fuente primaria para enumerar filings
+        
+        Full-Text Search (NO LO USAMOS AQUÍ):
+        - Busca dentro del CONTENIDO de los filings
+        - Indexa desde 2001
+        - Se usa para buscar palabras clave dentro de documentos
+        
+        Estrategia TOP:
+        1. Query AMPLIA: ticker + fecha, SIN filtrar formType
+        2. Incluye automáticamente 20-F, 6-K, F-1, F-3 (foreign issuers)
+        3. Filtrado inteligente después en memoria
+        4. Ventana desde 2010 (warrants viven 10-15 años)
         
         Args:
             ticker: Ticker symbol
             
         Returns:
-            Lista COMPLETA de todos los filings desde 2015
+            Lista COMPLETA de todos los filings desde 2010
         """
         try:
             sec_api_key = settings.SEC_API_IO_KEY
@@ -491,11 +505,13 @@ class SECDilutionService:
             
             base_url = "https://api.sec-api.io"
             
-            # Construir query para SEC-API.io usando su sintaxis correcta
+            # Query SIMPLE: Solo filtrar ticker y fecha
+            # NO filtrar formType aquí - capturamos TODO y filtramos después
+            # Ventana ampliada a 2010 (vs 2015 anterior)
             query = {
                 "query": {
                     "query_string": {
-                        "query": f'ticker:{ticker} AND filedAt:[2015-01-01 TO *] AND (formType:"10-K" OR formType:"10-Q" OR formType:"8-K" OR formType:"S-3" OR formType:"S-1" OR formType:"424B5" OR formType:"424B3" OR formType:"424B7" OR formType:"S-8")'
+                        "query": f'ticker:{ticker} AND filedAt:[2010-01-01 TO *]'
                     }
                 },
                 "from": "0",
@@ -551,18 +567,9 @@ class SECDilutionService:
             
             logger.info("sec_api_io_search_completed", ticker=ticker, total=len(all_filings))
             
-            # Si encontramos muy pocos resultados (< 20), usar FMP como complemento
-            if len(all_filings) < 20:
-                logger.info("sec_api_io_few_results_using_fmp_complement", ticker=ticker, sec_api_count=len(all_filings))
-                fmp_filings = await self._fetch_all_filings_from_fmp(ticker)
-                
-                # Combinar resultados, evitando duplicados
-                sec_api_urls = {f.get('url', '') for f in all_filings}
-                for fmp_filing in fmp_filings:
-                    if fmp_filing.get('url', '') not in sec_api_urls:
-                        all_filings.append(fmp_filing)
-                
-                logger.info("combined_filings", ticker=ticker, sec_api=len(sec_api_urls), fmp_added=len(all_filings) - len(sec_api_urls), total=len(all_filings))
+            # Ya NO usamos FMP como complemento automático
+            # SEC-API Query API debe devolvernos TODO
+            # FMP solo se usa como fallback en caso de ERROR (catch abajo)
             
             return all_filings
             
@@ -574,19 +581,20 @@ class SECDilutionService:
     
     async def _fetch_all_filings_from_fmp(self, ticker: str) -> List[Dict]:
         """
-        Buscar TODOS los filings desde 2015 usando FMP API
+        Buscar TODOS los filings desde 2010 usando FMP API (FALLBACK)
         
-        FMP tiene MUCHO mejor API que SEC:
-        - Paginación ilimitada
+        Usamos FMP como fallback/sanity check cuando SEC-API falla.
+        
+        FMP ventajas:
+        - Paginación simple
         - Búsqueda por símbolo (no necesita CIK)
-        - Filtros de fecha
         - Metadata estructurada
         
         Args:
             ticker: Ticker symbol
             
         Returns:
-            Lista completa de TODOS los filings desde 2015
+            Lista completa de TODOS los filings desde 2010
         """
         try:
             fmp_api_key = settings.FMP_API_KEY
@@ -625,11 +633,13 @@ class SECDilutionService:
                     
                     # Convertir formato FMP a nuestro formato
                     for filing in filings_batch:
-                        # Filtrar solo desde 2015
+                        # Filtrar solo desde 2010 (consistente con SEC-API)
                         filing_date = filing.get('fillingDate', filing.get('acceptedDate', ''))
-                        if filing_date and filing_date >= '2015-01-01':
+                        if filing_date and filing_date >= '2010-01-01':
+                            # Normalizar tipo de filing (FMP usa "10K" pero necesitamos "10-K")
+                            form_type = self._normalize_form_type(filing.get('type', ''))
                             all_filings.append({
-                                'form_type': filing.get('type', ''),
+                                'form_type': form_type,
                                 'filing_date': filing_date,
                                 'accession_number': filing.get('accessionNumber', ''),
                                 'primary_document': '',  # FMP no lo proporciona
@@ -792,6 +802,86 @@ class SECDilutionService:
             logger.error("fetch_424b_filings_failed", cik=cik, error=str(e))
             return []
     
+    def _normalize_form_type(self, form_type: str) -> str:
+        """
+        Normalizar tipo de filing de FMP al formato estándar SEC
+        
+        FMP usa formatos como "10K", "10Q", "8K", "S3" pero necesitamos "10-K", "10-Q", "8-K", "S-3"
+        """
+        if not form_type:
+            return ''
+        
+        form_type = form_type.strip().upper()
+        
+        # Mapeo de formatos comunes (US y Foreign)
+        normalization_map = {
+            # US Domestic
+            '10K': '10-K',
+            '10-K': '10-K',
+            '10KA': '10-K/A',
+            '10-K/A': '10-K/A',
+            '10Q': '10-Q',
+            '10-Q': '10-Q',
+            '10QA': '10-Q/A',
+            '10-Q/A': '10-Q/A',
+            '8K': '8-K',
+            '8-K': '8-K',
+            '8KA': '8-K/A',
+            '8-K/A': '8-K/A',
+            'S3': 'S-3',
+            'S-3': 'S-3',
+            'S3A': 'S-3/A',
+            'S-3/A': 'S-3/A',
+            'S1': 'S-1',
+            'S-1': 'S-1',
+            'S1A': 'S-1/A',
+            'S-1/A': 'S-1/A',
+            'S8': 'S-8',
+            'S-8': 'S-8',
+            'S11': 'S-11',
+            'S-11': 'S-11',
+            # Foreign Private Issuer
+            '20F': '20-F',
+            '20-F': '20-F',
+            '20FA': '20-F/A',
+            '20-F/A': '20-F/A',
+            '6K': '6-K',
+            '6-K': '6-K',
+            '6KA': '6-K/A',
+            '6-K/A': '6-K/A',
+            'F1': 'F-1',
+            'F-1': 'F-1',
+            'F1A': 'F-1/A',
+            'F-1/A': 'F-1/A',
+            'F3': 'F-3',
+            'F-3': 'F-3',
+            'F3A': 'F-3/A',
+            'F-3/A': 'F-3/A',
+        }
+        
+        # Intentar match exacto primero
+        if form_type in normalization_map:
+            return normalization_map[form_type]
+        
+        # Si ya tiene el formato correcto, retornarlo
+        if '-' in form_type:
+            return form_type
+        
+        # Intentar agregar guión si es un número seguido de letra (ej: "10K" -> "10-K")
+        match = re.match(r'^(\d+)([A-Z]+)(.*)$', form_type)
+        if match:
+            number = match.group(1)
+            letters = match.group(2)
+            rest = match.group(3)
+            normalized = f"{number}-{letters}{rest}"
+            # Verificar si el formato normalizado está en el mapa
+            if normalized in normalization_map:
+                return normalization_map[normalized]
+            return normalized
+        
+        # Si no se puede normalizar, retornar original
+        return form_type
+    
     def _construct_filing_url(self, cik: str, accession_number: str, primary_document: str) -> str:
         """Construir URL del filing"""
         accession_no_dashes = accession_number.replace('-', '')
@@ -799,114 +889,123 @@ class SECDilutionService:
     
     def _filter_relevant_filings(self, filings: List[Dict]) -> List[Dict]:
         """
-        Filtrar filings relevantes para análisis de dilución
+        Filtrar filings relevantes para análisis de dilución TOP
+        
+        CAMBIOS vs versión anterior:
+        - ✅ NO limitar 8-K arbitrariamente a 30 (un 8-K de 2018 puede tener warrant activo)
+        - ✅ INCLUIR 20-F y 6-K (empresas foreign issuer como GLMD)
+        - ✅ NO descartar form types desconocidos (marcar como OTHER)
+        - ✅ Ventana desde 2010 (vs 2015 anterior)
         
         PRIORIDAD DE FILINGS PARA DILUCIÓN:
         
         Tier 1 (CRÍTICOS - Shelf Registrations):
         - S-3, S-3/A, S-3ASR: Universal shelf registrations
         - S-1, S-1/A: Initial registrations (IPO y follow-ons)
+        - F-3, F-3/A: Foreign issuer shelf (equivalente a S-3)
+        - F-1, F-1/A: Foreign issuer initial registration (equivalente a S-1)
         - S-8: Employee stock plans (puede indicar warrants)
         
-        Tier 2 (MUY IMPORTANTES - Financial Reports con Equity Info):
-        - 10-K: Annual report (equity structure completa)
-        - 10-Q: Quarterly report (equity changes)
-        - 10-K/A, 10-Q/A: Amendments
+        Tier 2 (MUY IMPORTANTES - Annual/Quarterly Reports):
+        - 10-K, 10-K/A: Annual report (equity structure completa)
+        - 10-Q, 10-Q/A: Quarterly report (equity changes)
+        - 20-F, 20-F/A: Foreign issuer annual (equivalente a 10-K) 🔥 CRÍTICO
+        - 6-K: Foreign issuer current report (equivalente a 8-K y puede tener 10-Q info) 🔥 CRÍTICO
         
-        Tier 3 (IMPORTANTES - Prospectus Supplements = Offerings Activos):
-        - 424B5: Prospectus supplement (indica offering en curso)
-        - 424B3: Prospectus supplement for warrants/conversions
-        - 424B4: Prospectus for debt/equity offerings
-        - 424B7: Prospectus for warrants
-        - 424B2: Base prospectus supplement
-        - FWP: Free writing prospectus (marketing de offerings)
+        Tier 3 (IMPORTANTES - Prospectus Supplements):
+        - 424B5, 424B3, 424B4, 424B7, 424B2: Offerings activos con detalles
+        - FWP: Free writing prospectus
         
         Tier 4 (ÚTILES - Current Reports):
-        - 8-K: Current report (puede tener offerings, warrant exercises)
-        - 8-K/A: Amendment
+        - 8-K, 8-K/A: Current report (offerings, warrant exercises) 🔥 NO LIMITAR
         
-        Tier 5 (COMPLEMENTARIOS - Proxy & Info Statements):
-        - DEF 14A, DEFM14A: Proxy statements (mergers, equity plans)
-        - DEFR14A, DEFA14A: Additional proxy materials
-        - SC 13D, SC 13G: Beneficial ownership (puede indicar warrants)
-        - SC 13D/A, SC 13G/A: Amendments
+        Tier 5 (COMPLEMENTARIOS):
+        - DEF 14A, DEFM14A, DEFR14A, DEFA14A: Proxy statements
+        - SC 13D, SC 13G: Beneficial ownership
         
-        Tier 6 (TENDER & EXCHANGE):
-        - SC TO-I, SC TO-T: Tender offer statements
-        - SC 14D9: Solicitation/recommendation statements
+        Tier 6 (OTHER):
+        - Cualquier otro tipo no reconocido → NO DESCARTAR, marcar como OTHER
         """
-        # Orden de prioridad completo
-        priority_order = {
-            # Tier 1: Shelf Registrations (CRÍTICOS)
-            'S-3': 1, 'S-3/A': 1, 'S-3ASR': 1,
-            'S-1': 1, 'S-1/A': 1,
-            'S-8': 1,
-            
-            # Tier 2: Financial Reports (MUY IMPORTANTES)
-            '10-K': 2, '10-K/A': 2,
-            '10-Q': 2, '10-Q/A': 2,
-            
-            # Tier 3: Prospectus Supplements (IMPORTANTES)
-            '424B5': 3, '424B3': 3, '424B4': 3, '424B7': 3, '424B2': 3,
-            'FWP': 3,
-            
-            # Tier 4: Current Reports (ÚTILES)
-            '8-K': 4, '8-K/A': 4,
-            
-            # Tier 5: Proxy & Ownership (COMPLEMENTARIOS)
-            'DEF 14A': 5, 'DEFM14A': 5, 'DEFR14A': 5, 'DEFA14A': 5,
-            'SC 13D': 5, 'SC 13G': 5, 'SC 13D/A': 5, 'SC 13G/A': 5,
-            
-            # Tier 6: Tender & Exchange
-            'SC TO-I': 6, 'SC TO-T': 6, 'SC 14D9': 6
-        }
         
-        # NUEVO ENFOQUE SIMPLE: Tomar todos los filings relevantes sin filtrado complejo
         result = []
         forms_used = set()
+        form_type_counts = {}
+        unknown_types = set()  # Para logging de tipos desconocidos
         
-        # Definir año de corte
+        # Año de corte: 2010 (vs 2015 anterior)
         from datetime import date
-        year_2015 = date(2015, 1, 1)
+        year_cutoff = date(2010, 1, 1)
         
-        # Estrategia SIMPLE: Iterar UNA VEZ por todos los filings y seleccionar los relevantes
-        # Incluir S-11 (Real Estate Investment Trust registrations) que puede tener preferred stock
-        relevant_types = ['10-K', '10-K/A', '10-Q', '10-Q/A', 'S-3', 'S-3/A', 'S-1', 'S-1/A', 'S-8', 'S-11',
-                         '424B5', '424B3', '424B7', '424B4', '424B2', 'FWP', '8-K', '8-K/A',
-                         'DEF 14A', 'DEFM14A']
+        # Tipos relevantes AMPLIADOS (incluye TODO lo importante)
+        relevant_types = {
+            # Tier 1: Shelf Registrations (US + Foreign)
+            'S-3', 'S-3/A', 'S-3ASR', 'S-1', 'S-1/A', 'S-8', 'S-11',
+            'F-1', 'F-1/A', 'F-3', 'F-3/A', 'F-4', 'F-4/A',
+            
+            # Tier 2: Annual/Quarterly Reports (US + Foreign)
+            '10-K', '10-K/A', '10-Q', '10-Q/A',
+            '20-F', '20-F/A',  # 🔥 Foreign annual report
+            '6-K', '6-K/A',    # 🔥 Foreign current report
+            
+            # Tier 3: Prospectus Supplements
+            '424B5', '424B3', '424B4', '424B7', '424B2', 'FWP',
+            
+            # Tier 4: Current Reports
+            '8-K', '8-K/A',  # 🔥 NO LIMITAR arbitrariamente
+            
+            # Tier 5: Proxy & Ownership
+            'DEF 14A', 'DEFM14A', 'DEFR14A', 'DEFA14A',
+            'SC 13D', 'SC 13G', 'SC 13D/A', 'SC 13G/A',
+            
+            # Tier 6: Otros
+            'SC TO-I', 'SC TO-T', 'SC 14D9',
+        }
         
-        count_8k = 0
         for f in filings:
             form_type = f['form_type']
             
-            # Verificar si es tipo relevante
-            if form_type not in relevant_types:
-                continue
+            # Contar TODOS los tipos (para analytics)
+            form_type_counts[form_type] = form_type_counts.get(form_type, 0) + 1
             
-            # Verificar fecha (desde 2015)
+            # Verificar fecha
             try:
                 filing_date_str = f['filing_date']
-                # Manejar diferentes formatos de fecha
                 if ' ' in filing_date_str:
-                    filing_date_str = filing_date_str.split(' ')[0]  # "2024-01-01 00:00:00" -> "2024-01-01"
+                    filing_date_str = filing_date_str.split(' ')[0]
                 
                 filing_date = datetime.strptime(filing_date_str, '%Y-%m-%d').date()
                 
-                if filing_date < year_2015:
+                if filing_date < year_cutoff:
                     continue
             except:
+                # Si no tiene fecha válida, skip
                 continue
             
-            # Limitar 8-K a 30 (son muchos y menos útiles)
-            if form_type == '8-K':
-                if count_8k >= 30:
-                    continue
-                count_8k += 1
-            
-            result.append(f)
-            forms_used.add(form_type)
+            # Estrategia nueva: INCLUIR tipos relevantes + marcar unknown como OTHER
+            if form_type in relevant_types:
+                result.append(f)
+                forms_used.add(form_type)
+            else:
+                # NO descartar tipos desconocidos - puede ser importante
+                # Ejemplos: 20FR, 6-KR, FWP/A, etc.
+                unknown_types.add(form_type)
+                # Agregar de todas formas pero marcar internamente
+                f_copy = f.copy()
+                f_copy['_marked_as_other'] = True
+                result.append(f_copy)
         
-        logger.info("filings_filtered", total=len(filings), filtered=len(result), forms_used=list(forms_used))
+        # Log COMPLETO para debugging
+        logger.info("filings_filtered_top", 
+                   total_input=len(filings), 
+                   total_output=len(result), 
+                   forms_used=sorted(list(forms_used)),
+                   unknown_types=sorted(list(unknown_types)),
+                   form_type_counts_top_20=dict(sorted(form_type_counts.items(), key=lambda x: x[1], reverse=True)[:20]),
+                   has_20f='20-F' in forms_used or '20-F/A' in forms_used,
+                   has_6k='6-K' in forms_used or '6-K/A' in forms_used,
+                   count_8k=form_type_counts.get('8-K', 0),
+                   count_20f=form_type_counts.get('20-F', 0) + form_type_counts.get('20-F/A', 0),
+                   count_6k=form_type_counts.get('6-K', 0) + form_type_counts.get('6-K/A', 0))
         
         return result
     
@@ -1120,71 +1219,131 @@ class SECDilutionService:
             all_convertible_preferred = []
             all_equity_lines = []
             
-            # Pass 1: 10-K (MÁS IMPORTANTE - tiene tabla completa de warrants, convertibles, equity)
-            filings_10k = [f for f in filing_contents if f['form_type'] in ['10-K', '10-K/A']][:2]  # 2 más recientes
+            # Pass 1: 10-K y 20-F (MÁS IMPORTANTE - tiene tabla completa de warrants, convertibles, equity)
+            # 20-F es el equivalente para empresas extranjeras
+            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
+            filings_10k = [f for f in filing_contents if f['form_type'] in ['10-K', '10-K/A', '20-F', '20-F/A']]
             if filings_10k:
                 logger.info("multipass_pass1_10k", ticker=ticker, count=len(filings_10k))
-                result_10k = await self._extract_pass_focused(
-                    ticker, company_name, filings_10k, 
-                    focus="10-K equity tables - extract ALL warrant series, convertible notes, convertible preferred, ATM programs, shelf info, and equity lines",
-                    parsed_tables=parsed_tables
-                )
-                if result_10k:
-                    all_warrants.extend(result_10k.get('warrants', []))
-                    all_atm.extend(result_10k.get('atm_offerings', []))
-                    all_shelfs.extend(result_10k.get('shelf_registrations', []))
-                    all_completed.extend(result_10k.get('completed_offerings', []))
-                    all_s1.extend(result_10k.get('s1_offerings', []))
-                    all_convertible_notes.extend(result_10k.get('convertible_notes', []))
-                    all_convertible_preferred.extend(result_10k.get('convertible_preferred', []))
-                    all_equity_lines.extend(result_10k.get('equity_lines', []))
+                # Chunking automático si hay muchos filings
+                chunk_size = 20  # Analizar 20 filings por vez
+                for i in range(0, len(filings_10k), chunk_size):
+                    chunk = filings_10k[i:i+chunk_size]
+                    logger.info("multipass_pass1_10k_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_10k)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
+                    result_10k = await self._extract_pass_focused(
+                        ticker, company_name, chunk, 
+                        focus="10-K equity tables - extract ALL warrant series, convertible notes, convertible preferred, ATM programs, shelf info, and equity lines",
+                        parsed_tables=parsed_tables
+                    )
+                    if result_10k:
+                        logger.info("pass1_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1, 
+                                   warrants=len(result_10k.get('warrants', [])), 
+                                   atm=len(result_10k.get('atm_offerings', [])),
+                                   shelfs=len(result_10k.get('shelf_registrations', [])))
+                    else:
+                        logger.warning("pass1_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
+                    if result_10k:
+                        all_warrants.extend(result_10k.get('warrants', []))
+                        all_atm.extend(result_10k.get('atm_offerings', []))
+                        all_shelfs.extend(result_10k.get('shelf_registrations', []))
+                        all_completed.extend(result_10k.get('completed_offerings', []))
+                        all_s1.extend(result_10k.get('s1_offerings', []))
+                        all_convertible_notes.extend(result_10k.get('convertible_notes', []))
+                        all_convertible_preferred.extend(result_10k.get('convertible_preferred', []))
+                        all_equity_lines.extend(result_10k.get('equity_lines', []))
             
-            # Pass 2: S-3/S-1/S-11 (Shelf Registrations, S-1 Offerings, Preferred Stock)
-            filings_s3 = [f for f in filing_contents if f['form_type'] in ['S-3', 'S-3/A', 'S-1', 'S-1/A', 'S-11']][:5]
+            # Pass 2: S-3/S-1/S-11 y F-3/F-1 (Shelf Registrations, S-1 Offerings, Preferred Stock)
+            # F-3 y F-1 son equivalentes para empresas extranjeras
+            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
+            filings_s3 = [f for f in filing_contents if f['form_type'] in ['S-3', 'S-3/A', 'S-1', 'S-1/A', 'S-11', 'F-3', 'F-3/A', 'F-1', 'F-1/A']]
             if filings_s3:
                 logger.info("multipass_pass2_s3", ticker=ticker, count=len(filings_s3))
-                result_s3 = await self._extract_pass_focused(
-                    ticker, company_name, filings_s3,
-                    focus="S-1 offerings, shelf registrations, and preferred stock registrations (S-11) - extract S-1 offerings with deal sizes and warrant coverage, shelf MAXIMUM registered capacity (NOT actual sales), remaining capacity, expiration, baby shelf restrictions, amounts raised"
-                )
-                if result_s3:
-                    all_shelfs.extend(result_s3.get('shelf_registrations', []))
-                    all_s1.extend(result_s3.get('s1_offerings', []))
-                    all_convertible_preferred.extend(result_s3.get('convertible_preferred', []))
+                # Chunking automático si hay muchos filings
+                chunk_size = 20  # Analizar 20 filings por vez
+                for i in range(0, len(filings_s3), chunk_size):
+                    chunk = filings_s3[i:i+chunk_size]
+                    logger.info("multipass_pass2_s3_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_s3)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
+                    result_s3 = await self._extract_pass_focused(
+                        ticker, company_name, chunk,
+                        focus="S-1 offerings, shelf registrations, and preferred stock registrations (S-11) - extract S-1 offerings with deal sizes and warrant coverage, shelf MAXIMUM registered capacity (NOT actual sales), remaining capacity, expiration, baby shelf restrictions, amounts raised"
+                    )
+                    if result_s3:
+                        logger.info("pass2_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
+                                   shelfs=len(result_s3.get('shelf_registrations', [])),
+                                   s1=len(result_s3.get('s1_offerings', [])))
+                    else:
+                        logger.warning("pass2_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
+                    if result_s3:
+                        all_shelfs.extend(result_s3.get('shelf_registrations', []))
+                        all_s1.extend(result_s3.get('s1_offerings', []))
+                        all_convertible_preferred.extend(result_s3.get('convertible_preferred', []))
             
             # Pass 3: 424B5/424B7 (Prospectus Supplements - detalles de cada offering, S-1 pricing)
-            filings_424b = [f for f in filing_contents if f['form_type'] in ['424B5', '424B3', '424B7', '424B4']][:10]
+            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
+            filings_424b = [f for f in filing_contents if f['form_type'] in ['424B5', '424B3', '424B7', '424B4']]
             if filings_424b:
                 logger.info("multipass_pass3_424b", ticker=ticker, count=len(filings_424b))
-                result_424b = await self._extract_pass_focused(
-                    ticker, company_name, filings_424b,
-                    focus="Prospectus supplements and S-1 pricing - extract S-1 offerings with final pricing and warrant coverage, warrants issued with offerings, offering details, convertible notes details"
-                )
-                if result_424b:
-                    all_warrants.extend(result_424b.get('warrants', []))
-                    all_completed.extend(result_424b.get('completed_offerings', []))
-                    all_s1.extend(result_424b.get('s1_offerings', []))
-                    all_convertible_notes.extend(result_424b.get('convertible_notes', []))
+                # Chunking automático si hay muchos filings
+                # REDUCIDO 20→3 para evitar timeouts (424B son documentos muy grandes)
+                chunk_size = 3  # Analizar 3 filings por vez
+                for i in range(0, len(filings_424b), chunk_size):
+                    chunk = filings_424b[i:i+chunk_size]
+                    logger.info("multipass_pass3_424b_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_424b)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
+                    result_424b = await self._extract_pass_focused(
+                        ticker, company_name, chunk,
+                        focus="Prospectus supplements and S-1 pricing - extract S-1 offerings with final pricing and warrant coverage, warrants issued with offerings, offering details, convertible notes details"
+                    )
+                    if result_424b:
+                        logger.info("pass3_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
+                                   warrants=len(result_424b.get('warrants', [])),
+                                   atm=len(result_424b.get('atm_offerings', [])),
+                                   s1=len(result_424b.get('s1_offerings', [])))
+                    else:
+                        logger.warning("pass3_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
+                    if result_424b:
+                        all_warrants.extend(result_424b.get('warrants', []))
+                        all_atm.extend(result_424b.get('atm_offerings', []))
+                        all_shelfs.extend(result_424b.get('shelf_registrations', []))
+                        all_completed.extend(result_424b.get('completed_offerings', []))
+                        all_s1.extend(result_424b.get('s1_offerings', []))
+                        all_convertible_notes.extend(result_424b.get('convertible_notes', []))
+                        all_convertible_preferred.extend(result_424b.get('convertible_preferred', []))
+                        all_equity_lines.extend(result_424b.get('equity_lines', []))
             
-            # Pass 4: 10-Q recientes (últimos 4 quarters para cambios recientes)
-            # CRÍTICO: 10-Q tiene números REALES de emisión, no capacidad máxima
-            filings_10q = [f for f in filing_contents if f['form_type'] in ['10-Q', '10-Q/A']][:4]
+            # Pass 4: 10-Q y 6-K (CRÍTICO: tiene números REALES de emisión, no capacidad máxima)
+            # 6-K es el equivalente para empresas extranjeras
+            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
+            filings_10q = [f for f in filing_contents if f['form_type'] in ['10-Q', '10-Q/A', '6-K', '6-K/A']]
             if filings_10q:
                 logger.info("multipass_pass4_10q", ticker=ticker, count=len(filings_10q))
-                result_10q = await self._extract_pass_focused(
-                    ticker, company_name, filings_10q,
-                    focus="Recent quarterly reports - extract ACTUAL shares issued/sold (not registration capacity), warrant changes, convertible note conversions, preferred stock conversions, ATM updates, equity line usage. Look for 'we issued X shares', 'we sold X shares', 'proceeds received', actual quarterly numbers"
-                )
-                if result_10q:
-                    all_warrants.extend(result_10q.get('warrants', []))
-                    all_atm.extend(result_10q.get('atm_offerings', []))
-                    all_completed.extend(result_10q.get('completed_offerings', []))
-                    all_convertible_notes.extend(result_10q.get('convertible_notes', []))
-                    all_convertible_preferred.extend(result_10q.get('convertible_preferred', []))
-                    all_equity_lines.extend(result_10q.get('equity_lines', []))
+                # Chunking automático si hay muchos filings (6-K puede tener cientos)
+                # REDUCIDO 30→3 para evitar exceder límite de tokens (10-Q y 6-K son grandes)
+                chunk_size = 3  # Analizar 3 filings por vez
+                for i in range(0, len(filings_10q), chunk_size):
+                    chunk = filings_10q[i:i+chunk_size]
+                    logger.info("multipass_pass4_10q_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_10q)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
+                    result_10q = await self._extract_pass_focused(
+                        ticker, company_name, chunk,
+                        focus="Recent quarterly reports - extract ACTUAL shares issued/sold (not registration capacity), warrant changes, convertible note conversions, preferred stock conversions, ATM updates, equity line usage. Look for 'we issued X shares', 'we sold X shares', 'proceeds received', actual quarterly numbers"
+                    )
+                    if result_10q:
+                        logger.info("pass4_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
+                                   atm=len(result_10q.get('atm_offerings', [])),
+                                   completed=len(result_10q.get('completed_offerings', [])),
+                                   equity_lines=len(result_10q.get('equity_lines', [])))
+                    else:
+                        logger.warning("pass4_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
+                    if result_10q:
+                        all_warrants.extend(result_10q.get('warrants', []))
+                        all_atm.extend(result_10q.get('atm_offerings', []))
+                        all_completed.extend(result_10q.get('completed_offerings', []))
+                        all_convertible_notes.extend(result_10q.get('convertible_notes', []))
+                        all_convertible_preferred.extend(result_10q.get('convertible_preferred', []))
+                        all_equity_lines.extend(result_10q.get('equity_lines', []))
             
             # Pass 5: S-8 (Employee stock plans con posibles warrants)
-            filings_s8 = [f for f in filing_contents if f['form_type'] == 'S-8'][:3]
+            # SIN LÍMITE - analizar TODOS
+            filings_s8 = [f for f in filing_contents if f['form_type'] == 'S-8']
             if filings_s8:
                 logger.info("multipass_pass5_s8", ticker=ticker, count=len(filings_s8))
                 result_s8 = await self._extract_pass_focused(
@@ -1194,27 +1353,85 @@ class SECDilutionService:
                 if result_s8:
                     all_warrants.extend(result_s8.get('warrants', []))
             
-            # Pass 6: 8-K (Current reports - convertibles, equity lines, ATM updates)
-            filings_8k = [f for f in filing_contents if f['form_type'] in ['8-K', '8-K/A']][:5]
+            # Pass 6: 8-K y 6-K (Current reports - convertibles, equity lines, ATM updates)
+            # 6-K es el equivalente para empresas extranjeras
+            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
+            filings_8k = [f for f in filing_contents if f['form_type'] in ['8-K', '8-K/A', '6-K', '6-K/A']]
             if filings_8k:
                 logger.info("multipass_pass6_8k", ticker=ticker, count=len(filings_8k))
-                result_8k = await self._extract_pass_focused(
-                    ticker, company_name, filings_8k,
-                    focus="Current reports - extract convertible notes, convertible preferred, equity lines, ATM agreements, S-1 offerings, warrant issuances"
-                )
-                if result_8k:
-                    all_warrants.extend(result_8k.get('warrants', []))
-                    all_atm.extend(result_8k.get('atm_offerings', []))
-                    all_s1.extend(result_8k.get('s1_offerings', []))
-                    all_convertible_notes.extend(result_8k.get('convertible_notes', []))
-                    all_convertible_preferred.extend(result_8k.get('convertible_preferred', []))
-                    all_equity_lines.extend(result_8k.get('equity_lines', []))
+                # Chunking automático si hay muchos filings (6-K puede tener cientos)
+                chunk_size = 30  # Analizar 30 filings por vez
+                for i in range(0, len(filings_8k), chunk_size):
+                    chunk = filings_8k[i:i+chunk_size]
+                    logger.info("multipass_pass6_8k_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_8k)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
+                    result_8k = await self._extract_pass_focused(
+                        ticker, company_name, chunk,
+                        focus="Current reports - extract convertible notes, convertible preferred, equity lines, ATM agreements, S-1 offerings, warrant issuances"
+                    )
+                    if result_8k:
+                        logger.info("pass6_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
+                                   atm=len(result_8k.get('atm_offerings', [])),
+                                   equity_lines=len(result_8k.get('equity_lines', [])),
+                                   s1=len(result_8k.get('s1_offerings', [])))
+                    else:
+                        logger.warning("pass6_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
+                    if result_8k:
+                        all_warrants.extend(result_8k.get('warrants', []))
+                        all_atm.extend(result_8k.get('atm_offerings', []))
+                        all_s1.extend(result_8k.get('s1_offerings', []))
+                        all_convertible_notes.extend(result_8k.get('convertible_notes', []))
+                        all_convertible_preferred.extend(result_8k.get('convertible_preferred', []))
+                        all_equity_lines.extend(result_8k.get('equity_lines', []))
+            
+            # 🔍 LOG PRE-DEDUP: Ver qué está devolviendo Grok ANTES de deduplicar
+            logger.info(
+                "pre_dedup_counts",
+                ticker=ticker,
+                raw_warrants=len(all_warrants),
+                raw_atm=len(all_atm),
+                raw_shelfs=len(all_shelfs),
+                raw_completed=len(all_completed),
+                raw_s1=len(all_s1),
+                raw_convertible_notes=len(all_convertible_notes),
+                raw_convertible_preferred=len(all_convertible_preferred),
+                raw_equity_lines=len(all_equity_lines),
+            )
+            
+            # 🔧 PROCESO DE LIMPIEZA DE WARRANTS (3 pasos):
+            # 1. Deduplicate inicial
+            warrants_deduped = self._deduplicate_warrants(all_warrants)
+            logger.info("warrants_after_initial_dedup", ticker=ticker, count=len(warrants_deduped))
+            
+            # 2. Filtrar summary rows de 10-Q/10-K (para evitar doble conteo)
+            warrants_filtered = self._filter_summary_warrants(warrants_deduped)
+            summary_count = sum(1 for w in warrants_filtered if w.get('is_summary_row'))
+            logger.info("warrants_summary_filtered", ticker=ticker, 
+                       total=len(warrants_filtered), 
+                       summary_rows=summary_count)
+            
+            # 3. Imputar exercise_price faltantes cuando se puede inferir
+            warrants_imputed = self._impute_missing_exercise_prices(warrants_filtered)
+            
+            # 4. Clasificar estado de warrants (Active, Exercised, Replaced, Historical_Summary)
+            warrants_classified = self._classify_warrant_status(warrants_imputed, ticker)
+            
+            # 5. Deduplicate final (por si el impute creó duplicados con la misma key)
+            warrants_final = self._deduplicate_warrants(warrants_classified)
+            logger.info("warrants_after_final_processing", ticker=ticker, count=len(warrants_final))
+            
+            # 🔧 PROCESO DE LIMPIEZA DE ATM:
+            atm_deduped = self._deduplicate_atm(all_atm, ticker=ticker)
+            atm_classified = self._classify_atm_status(atm_deduped, ticker)
+            
+            # 🔧 PROCESO DE LIMPIEZA DE SHELFS:
+            shelfs_deduped = self._deduplicate_shelfs(all_shelfs)
+            shelfs_classified = self._classify_shelf_status(shelfs_deduped, ticker)
             
             # Deduplicar y combinar
             combined_data = {
-                'warrants': self._deduplicate_warrants(all_warrants),
-                'atm_offerings': self._deduplicate_atm(all_atm),
-                'shelf_registrations': self._deduplicate_shelfs(all_shelfs),
+                'warrants': warrants_final,
+                'atm_offerings': atm_classified,
+                'shelf_registrations': shelfs_classified,
                 'completed_offerings': self._deduplicate_completed(all_completed),
                 's1_offerings': self._deduplicate_s1(all_s1),
                 'convertible_notes': self._deduplicate_convertible_notes(all_convertible_notes),
@@ -1238,7 +1455,95 @@ class SECDilutionService:
             logger.error("multipass_extraction_failed", ticker=ticker, error=str(e))
             return None
     
-    async def _extract_pass_focused(
+    async def _upload_filing_to_grok(
+        self,
+        ticker: str,
+        form_type: str,
+        filing_date: str,
+        filing_content: str
+    ) -> Optional[str]:
+        """
+        Subir un filing como archivo a Grok Files API
+        
+        Args:
+            ticker: Ticker symbol
+            form_type: Tipo de filing (10-K, 424B5, etc.)
+            filing_date: Fecha del filing
+            filing_content: Contenido completo del filing
+            
+        Returns:
+            file_id de Grok o None si falla
+        """
+        try:
+            if not self.grok_api_key:
+                logger.error("grok_api_key_missing_for_file_upload")
+                return None
+            
+            # Crear archivo temporal
+            temp_file = tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='.html',
+                prefix=f'{ticker}_{form_type}_{filing_date}_',
+                delete=False,
+                encoding='utf-8'
+            )
+            
+            try:
+                # Escribir contenido
+                temp_file.write(filing_content)
+                temp_file.close()
+                
+                # Subir a Grok
+                client = Client(api_key=self.grok_api_key)
+                uploaded_file = client.files.upload(temp_file.name)
+                
+                logger.info("filing_uploaded_to_grok", 
+                           ticker=ticker, 
+                           form_type=form_type,
+                           filing_date=filing_date,
+                           file_id=uploaded_file.id,
+                           file_size=uploaded_file.size)
+                
+                return uploaded_file.id
+                
+            finally:
+                # Limpiar archivo temporal del disco
+                try:
+                    os.unlink(temp_file.name)
+                except:
+                    pass
+                    
+        except Exception as e:
+            logger.error("upload_filing_to_grok_failed", 
+                        ticker=ticker, 
+                        form_type=form_type, 
+                        error=str(e))
+            return None
+    
+    async def _cleanup_grok_files(self, file_ids: List[str]):
+        """
+        Limpiar archivos de Grok después de usarlos
+        
+        Args:
+            file_ids: Lista de file_ids a borrar
+        """
+        if not file_ids or not self.grok_api_key:
+            return
+        
+        try:
+            client = Client(api_key=self.grok_api_key)
+            
+            for file_id in file_ids:
+                try:
+                    client.files.delete(file_id)
+                    logger.info("grok_file_deleted", file_id=file_id)
+                except Exception as e:
+                    logger.warning("grok_file_delete_failed", file_id=file_id, error=str(e))
+                    
+        except Exception as e:
+            logger.error("cleanup_grok_files_failed", error=str(e))
+    
+    async def _extract_pass_with_files_api(
         self,
         ticker: str,
         company_name: str,
@@ -1247,14 +1552,174 @@ class SECDilutionService:
         parsed_tables: Optional[Dict] = None
     ) -> Optional[Dict]:
         """
-        Una pasada enfocada de Grok con 1-10 filings específicos
+        Extracción usando Grok Files API - MEJOR PERFORMANCE, SIN LÍMITE DE TOKENS
+        
+        En lugar de incluir el contenido completo en el prompt (límite 131K tokens),
+        subimos los filings como archivos y los referenciamos.
+        
+        VENTAJAS:
+        - NO cuenta contra límite de tokens del prompt
+        - Grok usa herramienta document_search especializada
+        - Podemos procesar MUCHOS MÁS filings simultáneamente
+        - Menos timeouts
         
         Args:
             ticker: Ticker symbol
             company_name: Company name
-            filings: Lista de 1-10 filings para analizar en esta pasada
+            filings: Lista de filings para analizar
+            focus: Descripción de qué buscar
+            parsed_tables: Tablas pre-parseadas (opcional)
+            
+        Returns:
+            Dict con datos extraídos
+        """
+        uploaded_file_ids = []
+        
+        try:
+            if not self.grok_api_key:
+                return None
+            
+            logger.info("extract_with_files_api_started", ticker=ticker, filings_count=len(filings))
+            
+            # 1. SUBIR FILINGS COMO ARCHIVOS
+            file_references = []
+            for f in filings:
+                file_id = await self._upload_filing_to_grok(
+                    ticker=ticker,
+                    form_type=f['form_type'],
+                    filing_date=f['filing_date'],
+                    filing_content=f['content']
+                )
+                
+                if file_id:
+                    uploaded_file_ids.append(file_id)
+                    file_references.append({
+                        'file_id': file_id,
+                        'form_type': f['form_type'],
+                        'filing_date': f['filing_date']
+                    })
+            
+            if not file_references:
+                logger.warning("no_files_uploaded", ticker=ticker)
+                return None
+            
+            logger.info("files_uploaded", ticker=ticker, count=len(file_references))
+            
+            # 2. CONSTRUIR PROMPT CON REFERENCIAS A ARCHIVOS
+            files_list = "\n".join([
+                f"- {ref['form_type']} filed on {ref['filing_date']} (file_id: {ref['file_id']})"
+                for ref in file_references
+            ])
+            
+            prompt = f"""
+You are an EXPERT financial data extraction specialist analyzing SEC EDGAR filings for {company_name} (Ticker: {ticker}).
+
+YOUR MISSION: Extract COMPREHENSIVE dilution data with MAXIMUM detail and accuracy.
+
+THIS IS A FOCUSED ANALYSIS PASS. Your specific task:
+**{focus}**
+
+FILES PROVIDED ({len(file_references)} filings):
+{files_list}
+
+INSTRUCTIONS:
+1. Search through ALL provided files systematically
+2. Extract ALL relevant data for the focus area
+3. Be THOROUGH - don't miss anything
+4. If data is incomplete, use financial knowledge to infer missing details
+5. Return ONLY valid JSON with the extracted data
+
+RETURN FORMAT (JSON only, no markdown):
+{{
+  "warrants": [...],
+  "atm_offerings": [...],
+  "shelf_registrations": [...],
+  "completed_offerings": [...],
+  "s1_offerings": [...],
+  "convertible_notes": [...],
+  "convertible_preferred": [...],
+  "equity_lines": [...]
+}}
+
+Each array should contain objects with relevant fields. Return empty arrays [] if nothing found for a category.
+DO NOT return arrays with null-filled objects.
+"""
+            
+            # 3. LLAMAR A GROK CON ARCHIVOS ADJUNTOS
+            # IMPORTANTE: Files API solo funciona con grok-4 family
+            client = Client(api_key=self.grok_api_key)
+            
+            try:
+                chat = client.chat.create(model="grok-4", temperature=0.1)
+            except:
+                # Fallback a grok-4-fast si grok-4 no está disponible
+                chat = client.chat.create(model="grok-4-fast", temperature=0.1)
+            
+            chat.append(system("You are a financial data extraction expert. Return ONLY valid JSON."))
+            
+            # Crear mensaje con archivos adjuntos
+            file_attachments = [file(fid) for fid in uploaded_file_ids]
+            chat.append(user(prompt, *file_attachments))
+            
+            response = chat.sample()
+            
+            # 🔍 LOG: Ver respuesta RAW de Grok Files API
+            logger.info(
+                "files_api_raw_response",
+                ticker=ticker,
+                focus=focus[:80],
+                raw_content=str(response.content)[:2000],
+                content_type=type(response.content).__name__
+            )
+            
+            # Parse JSON
+            extracted = json.loads(response.content)
+            
+            logger.info("files_api_extraction_success", 
+                       ticker=ticker,
+                       focus=focus[:50],
+                       warrants=len(extracted.get('warrants', [])),
+                       atm=len(extracted.get('atm_offerings', [])),
+                       shelfs=len(extracted.get('shelf_registrations', [])))
+            
+            return extracted
+            
+        except Exception as e:
+            logger.error("extract_with_files_api_failed", 
+                        ticker=ticker, 
+                        focus=focus[:50], 
+                        error=str(e))
+            return None
+            
+        finally:
+            # 4. LIMPIAR ARCHIVOS SIEMPRE (éxito o error)
+            if uploaded_file_ids:
+                await self._cleanup_grok_files(uploaded_file_ids)
+    
+    async def _extract_pass_focused(
+        self,
+        ticker: str,
+        company_name: str,
+        filings: List[Dict],
+        focus: str,
+        parsed_tables: Optional[Dict] = None,
+        use_files_api: bool = False  # 🔧 TEMPORALMENTE FALSE para debug con modo legacy
+    ) -> Optional[Dict]:
+        """
+        Una pasada enfocada de Grok - SIN LÍMITE de filings
+        
+        Analiza TODOS los filings del tipo especificado sin límite de cantidad.
+        Solo hay límite por filing individual para evitar archivos enormes.
+        
+        NUEVO: Soporta Files API de Grok para procesar más documentos sin límite de tokens.
+        
+        Args:
+            ticker: Ticker symbol
+            company_name: Company name
+            filings: Lista de TODOS los filings para analizar en esta pasada (SIN LÍMITE)
             focus: Descripción de qué buscar en esta pasada
             parsed_tables: Tablas pre-parseadas (opcional)
+            use_files_api: Si True, usa Files API de Grok (mejor performance, sin límite tokens)
             
         Returns:
             Dict con datos extraídos de esta pasada
@@ -1263,24 +1728,33 @@ class SECDilutionService:
             if not self.grok_api_key:
                 return None
             
-            # Preparar contenido con límite inteligente por filing
+            # 🚀 MODO FILES API: Subir filings como archivos (MEJOR PERFORMANCE)
+            if use_files_api:
+                return await self._extract_pass_with_files_api(
+                    ticker, company_name, filings, focus, parsed_tables
+                )
+            
+            # MODO LEGACY: Incluir contenido en el prompt (puede tener límites de tokens)
+            
+            # Preparar contenido - SIN LÍMITE TOTAL, solo límite por filing para evitar archivos enormes
             filings_text_parts = []
             total_chars = 0
-            max_chars = 150000  # Límite por pasada (permite análisis profundo de pocos filings)
+            # SIN LÍMITE TOTAL - analizar TODOS los filings (Grok puede manejar mucho más)
             
             for f in filings:
-                if total_chars >= max_chars:
-                    break
-                
-                # Dar más espacio a filings críticos
-                if f['form_type'] in ['10-K', '10-K/A']:
-                    limit = 80000
-                elif f['form_type'] in ['S-3', 'S-3/A']:
-                    limit = 60000
-                elif f['form_type'] in ['424B5', '424B3', '424B7']:
-                    limit = 40000
+                # Dar más espacio a filings críticos, pero sin límite total
+                if f['form_type'] in ['10-K', '10-K/A', '20-F', '20-F/A']:
+                    limit = 200000  # Aumentado para 10-K/20-F (tienen mucha info)
+                elif f['form_type'] in ['S-3', 'S-3/A', 'F-3', 'F-3/A']:
+                    limit = 150000  # Aumentado para S-3/F-3
+                elif f['form_type'] in ['424B5', '424B3', '424B7', '424B4']:
+                    limit = 300000  # AUMENTADO DE 100K→300K para evitar cortar secciones de warrants
+                elif f['form_type'] in ['10-Q', '10-Q/A', '6-K', '6-K/A']:
+                    limit = 100000  # Aumentado para 10-Q/6-K
+                elif f['form_type'] in ['8-K', '8-K/A']:
+                    limit = 50000   # 8-K son más cortos
                 else:
-                    limit = 30000
+                    limit = 80000   # Aumentado para otros tipos
                 
                 content = f['content'][:limit]
                 filings_text_parts.append(
@@ -1289,6 +1763,20 @@ class SECDilutionService:
                 total_chars += len(content)
             
             filings_text = "\n\n".join(filings_text_parts)
+            
+            # 🔍 VERIFICACIÓN DE CONTENIDO (DEBUG)
+            # Verificar que strings clave están presentes en el contenido
+            debug_strings = [
+                "warrant", "ATM", "At-The-Market", "sales agreement", 
+                "equity distribution", "shelf registration", "S-3", "424B"
+            ]
+            found_count = sum(1 for s in debug_strings if s.lower() in filings_text.lower())
+            logger.info("content_verification", 
+                       ticker=ticker,
+                       focus=focus[:50],
+                       text_length=len(filings_text),
+                       debug_keywords_found=f"{found_count}/{len(debug_strings)}",
+                       filings_count=len(filings))
             
             # AGREGAR TODAS LAS SECCIONES PRE-PARSEADAS (mucho más eficiente que HTML completo)
             enhanced_context = ""
@@ -1568,6 +2056,15 @@ RETURN ONLY VALID JSON. Be comprehensive, accurate, and detailed.
             
             response = chat.sample()
             
+            # 🔍 LOG: Ver respuesta RAW de Grok en modo legacy
+            logger.info(
+                "legacy_grok_raw_response",
+                ticker=ticker,
+                focus=focus[:80],
+                raw_content=str(response.content)[:2000],
+                content_type=type(response.content).__name__
+            )
+            
             # Parse JSON
             extracted = json.loads(response.content)
             
@@ -1583,26 +2080,292 @@ RETURN ONLY VALID JSON. Be comprehensive, accurate, and detailed.
             return None
     
     def _deduplicate_warrants(self, warrants: List[Dict]) -> List[Dict]:
-        """Deduplicar warrants por exercise_price + expiration"""
+        """
+        Deduplicar warrants por exercise_price + expiration + potential_new_shares
+        
+        CRÍTICO: NO descartar warrants sin 'outstanding'.
+        Si falta 'outstanding' pero hay 'potential_new_shares', usar ese como fallback.
+        """
         seen = set()
         unique = []
+        
         for w in warrants:
-            key = (w.get('exercise_price'), w.get('expiration_date'), w.get('outstanding'))
-            if key not in seen and w.get('outstanding'):  # Solo si tiene outstanding
+            # 🔧 FIX: Si falta outstanding pero hay potential_new_shares, usarlo como fallback
+            if w.get('outstanding') is None and w.get('potential_new_shares') is not None:
+                w['outstanding'] = w['potential_new_shares']
+            
+            # Key de deduplicación: exercise_price + expiration + outstanding + trozo de notes
+            key = (
+                w.get('exercise_price'),
+                w.get('expiration_date'),
+                w.get('outstanding'),
+                # Añadir trozo de notes para diferenciar series (ej: "Series A" vs "Series B")
+                (w.get('notes') or '')[:40]
+            )
+            
+            # NO descartar por falta de outstanding - solo deduplica por key
+            if key not in seen:
                 seen.add(key)
                 unique.append(w)
+        
         return unique
     
-    def _deduplicate_atm(self, atms: List[Dict]) -> List[Dict]:
+    def _filter_summary_warrants(self, warrants: List[Dict]) -> List[Dict]:
+        """
+        Filtrar warrants "summary" de 10-Q/10-K para evitar doble conteo.
+        
+        Los 10-Q/10-K suelen tener tablas resumen tipo "warrants outstanding as of X date"
+        que agregan todos los warrants. Estos NO deben sumarse al cálculo de dilución
+        porque ya tenemos los warrants detallados por serie de los 424B/8-K.
+        """
+        filtered = []
+        for w in warrants:
+            notes_lower = (w.get('notes') or '').lower()
+            
+            # Detectar si es un resumen de 10-Q/10-K
+            is_summary = (
+                'as of' in notes_lower and 
+                ('outstanding warrants' in notes_lower or 
+                 'weighted average' in notes_lower or
+                 'no specific series' in notes_lower)
+            )
+            
+            if is_summary:
+                w['is_summary_row'] = True
+                w['exclude_from_dilution'] = True
+                logger.info("warrant_marked_as_summary", 
+                           ticker=w.get('ticker'),
+                           outstanding=w.get('outstanding'),
+                           exercise_price=w.get('exercise_price'),
+                           notes_snippet=notes_lower[:80])
+            
+            filtered.append(w)
+        
+        return filtered
+    
+    def _impute_missing_exercise_prices(self, warrants: List[Dict]) -> List[Dict]:
+        """
+        Imputar exercise_price faltantes cuando se puede inferir de otros warrants
+        de la misma serie (mismo issue_date, expiration_date, y tipo).
+        """
+        # Agrupar por (issue_date, expiration_date, snippet de notes)
+        by_key = {}
+        for w in warrants:
+            key = (
+                w.get('issue_date'),
+                w.get('expiration_date'),
+                (w.get('notes') or '')[:60]  # Usar snippet más largo para mejor matching
+            )
+            by_key.setdefault(key, []).append(w)
+        
+        imputed_count = 0
+        for group in by_key.values():
+            # Si al menos uno tiene exercise_price, propágalo a los que no lo tienen
+            prices = {w.get('exercise_price') for w in group if w.get('exercise_price') is not None}
+            
+            if len(prices) == 1:
+                price = list(prices)[0]
+                for w in group:
+                    if w.get('exercise_price') is None:
+                        w['exercise_price'] = price
+                        if 'imputed_fields' not in w:
+                            w['imputed_fields'] = []
+                        w['imputed_fields'].append('exercise_price')
+                        imputed_count += 1
+                        logger.info("exercise_price_imputed",
+                                   ticker=w.get('ticker'),
+                                   outstanding=w.get('outstanding'),
+                                   imputed_price=price,
+                                   issue_date=w.get('issue_date'))
+        
+        if imputed_count > 0:
+            logger.info("total_exercise_prices_imputed", count=imputed_count)
+        
+        return warrants
+    
+    def _classify_warrant_status(self, warrants: List[Dict], ticker: str) -> List[Dict]:
+        """
+        Clasificar warrants por su estado actual: Active, Exercised, Replaced, Historical_Summary.
+        
+        Esto permite al frontend mostrar solo los warrants activos y evitar confusión
+        al usuario cuando suma todos los warrants.
+        """
+        # Primero, identificar inducement/replacement deals
+        inducement_dates = set()
+        replacement_notes_keywords = ['inducement', 'replacement', 'in exchange for', 'existing warrants']
+        
+        for w in warrants:
+            notes_lower = (w.get('notes') or '').lower()
+            if any(keyword in notes_lower for keyword in replacement_notes_keywords):
+                # Este es un warrant de reemplazo, guardar su fecha
+                if w.get('issue_date'):
+                    inducement_dates.add(w['issue_date'])
+        
+        # Clasificar cada warrant
+        for w in warrants:
+            notes_lower = (w.get('notes') or '').lower()
+            
+            # 1. Historical Summary (ya detectado)
+            if w.get('is_summary_row') or w.get('exclude_from_dilution'):
+                w['status'] = 'Historical_Summary'
+                continue
+            
+            # 2. Ejercidos (buscar keywords en notes)
+            exercised_keywords = [
+                'exercised',
+                'fully exercised',
+                'exercise of',
+                'upon exercise',
+                'warrant exercise'
+            ]
+            # Si el warrant menciona "ejercicio" pero es de tipo "Warrant Exercise" en completed_offerings,
+            # probablemente es una nota sobre el ejercicio, no el warrant original
+            if any(keyword in notes_lower for keyword in exercised_keywords):
+                # Verificar si no es una nota sobre un ejercicio futuro/potencial
+                if 'exercise price' not in notes_lower or 'upon exercise' in notes_lower:
+                    w['status'] = 'Exercised'
+                    continue
+            
+            # 3. Reemplazados (warrants que fueron sustituidos por inducement)
+            if w.get('issue_date'):
+                issue_date = w['issue_date']
+                # Si hay un inducement DESPUÉS de este warrant, este fue reemplazado
+                later_inducements = [d for d in inducement_dates if d > issue_date]
+                
+                if later_inducements and not any(keyword in notes_lower for keyword in replacement_notes_keywords):
+                    # Este warrant es ANTERIOR a un inducement y no ES el inducement
+                    # Verificar si las notas sugieren que fue reemplazado
+                    if 'november 2024' in notes_lower or 'series a' in notes_lower:
+                        # Este podría ser uno de los "Existing Warrants" que fueron reemplazados
+                        w['status'] = 'Replaced'
+                        w['notes'] = (w.get('notes') or '') + ' [REPLACED by Inducement Warrants]'
+                        continue
+            
+            # 4. Pre-funded con ejercicio mínimo (técnicamente activos pero casi ejercidos)
+            if w.get('exercise_price') and float(w['exercise_price']) <= 0.01:
+                if 'pre-funded' in notes_lower or 'prefunded' in notes_lower:
+                    w['status'] = 'Active'  # Pero son casi como shares comunes
+                    continue
+            
+            # 5. Por defecto: Active
+            w['status'] = 'Active'
+        
+        # Log estadísticas
+        status_counts = {}
+        for w in warrants:
+            status = w.get('status', 'Unknown')
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        logger.info("warrant_status_classification",
+                   ticker=ticker,
+                   total=len(warrants),
+                   active=status_counts.get('Active', 0),
+                   exercised=status_counts.get('Exercised', 0),
+                   replaced=status_counts.get('Replaced', 0),
+                   historical_summary=status_counts.get('Historical_Summary', 0))
+        
+        return warrants
+    
+    def _classify_shelf_status(self, shelfs: List[Dict], ticker: str) -> List[Dict]:
+        """
+        Clasificar shelf registrations por su estado: Active o Expired.
+        
+        Un shelf está expirado si:
+        - Tiene expiration_date y esa fecha ya pasó
+        """
+        from datetime import datetime, timezone
+        
+        now = datetime.now(timezone.utc)
+        
+        for s in shelfs:
+            exp_date_str = s.get('expiration_date')
+            
+            if exp_date_str:
+                try:
+                    # Parse expiration date
+                    exp_date = datetime.fromisoformat(exp_date_str.replace('Z', '+00:00'))
+                    
+                    if exp_date < now:
+                        s['status'] = 'Expired'
+                    else:
+                        s['status'] = 'Active'
+                except:
+                    # Si no se puede parsear la fecha, asumir Active
+                    s['status'] = 'Active'
+            else:
+                # Sin fecha de expiración, asumir Active
+                s['status'] = 'Active'
+        
+        # Log estadísticas
+        active_count = sum(1 for s in shelfs if s.get('status') == 'Active')
+        expired_count = sum(1 for s in shelfs if s.get('status') == 'Expired')
+        
+        logger.info("shelf_status_classification",
+                   ticker=ticker,
+                   total=len(shelfs),
+                   active=active_count,
+                   expired=expired_count)
+        
+        return shelfs
+    
+    def _classify_atm_status(self, atms: List[Dict], ticker: str) -> List[Dict]:
+        """
+        Clasificar ATM offerings por su estado: Active, Terminated, Replaced.
+        
+        Un ATM está:
+        - Terminated: si status ya dice "Terminated"
+        - Replaced: si status dice "Replaced"
+        - Active: por defecto
+        """
+        for a in atms:
+            # El status puede venir ya del LLM
+            existing_status = a.get('status', '').lower()
+            
+            if 'terminated' in existing_status or 'termination' in existing_status:
+                a['status'] = 'Terminated'
+            elif 'replaced' in existing_status or 'superseded' in existing_status:
+                a['status'] = 'Replaced'
+            else:
+                a['status'] = 'Active'
+        
+        # Log estadísticas
+        status_counts = {}
+        for a in atms:
+            status = a.get('status', 'Unknown')
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        logger.info("atm_status_classification",
+                   ticker=ticker,
+                   total=len(atms),
+                   active=status_counts.get('Active', 0),
+                   terminated=status_counts.get('Terminated', 0),
+                   replaced=status_counts.get('Replaced', 0))
+        
+        return atms
+    
+    def _deduplicate_atm(self, atms: List[Dict], ticker: str = "") -> List[Dict]:
         """Deduplicar ATM por placement_agent + filing_date"""
         seen = set()
         unique = []
         for a in atms:
             key = (a.get('placement_agent'), a.get('filing_date'))
             # Incluir si tiene remaining_capacity O total_capacity (no descartar si falta remaining)
-            if key not in seen and (a.get('remaining_capacity') or a.get('total_capacity')):
-                seen.add(key)
-                unique.append(a)
+            # Si no tiene ninguno pero tiene otros datos, incluirlo también (puede ser un ATM activo sin capacidad específica)
+            has_capacity = a.get('remaining_capacity') or a.get('total_capacity')
+            if key not in seen:
+                if has_capacity:
+                    seen.add(key)
+                    unique.append(a)
+                elif a.get('placement_agent') or a.get('filing_date'):  # Si tiene al menos placement_agent o filing_date, incluirlo
+                    # Usar un key más flexible para evitar duplicados exactos
+                    flexible_key = (a.get('placement_agent', ''), a.get('filing_date', ''))
+                    if flexible_key not in seen:
+                        seen.add(flexible_key)
+                        unique.append(a)
+                        logger.warning("atm_included_without_capacity", ticker=ticker, 
+                                     placement_agent=a.get('placement_agent'),
+                                     filing_date=a.get('filing_date'))
+        logger.info("atm_deduplication", ticker=ticker, total_input=len(atms), total_output=len(unique))
         return unique
     
     def _deduplicate_shelfs(self, shelfs: List[Dict]) -> List[Dict]:
@@ -1639,15 +2402,56 @@ RETURN ONLY VALID JSON. Be comprehensive, accurate, and detailed.
         return unique
     
     def _deduplicate_convertible_notes(self, notes: List[Dict]) -> List[Dict]:
-        """Deduplicar convertible notes por issue_date + principal"""
-        seen = set()
-        unique = []
+        """
+        Deduplicar convertible notes con merge inteligente.
+        
+        Si hay múltiples entries con el mismo issue_date pero campos distintos
+        (ej: uno tiene principal, otro tiene maturity_date), los mergea en uno solo.
+        """
+        merged_by_date = {}
+        
         for n in notes:
-            key = (n.get('issue_date'), n.get('total_principal_amount'))
-            if key not in seen and n.get('issue_date'):
-                seen.add(key)
-                unique.append(n)
-        return unique
+            issue_date = n.get('issue_date')
+            if not issue_date:
+                continue
+            
+            if issue_date not in merged_by_date:
+                merged_by_date[issue_date] = n.copy()
+            else:
+                # Merge inteligente: rellenar campos faltantes en base con los del nuevo
+                base = merged_by_date[issue_date]
+                
+                for field in [
+                    'total_principal_amount',
+                    'remaining_principal_amount',
+                    'conversion_price',
+                    'total_shares_when_converted',
+                    'remaining_shares_when_converted',
+                    'maturity_date',
+                    'convertible_date',
+                    'underwriter_agent',
+                    'filing_url'
+                ]:
+                    if base.get(field) is None and n.get(field) is not None:
+                        base[field] = n[field]
+                
+                # Combinar notes de ambas entradas
+                base_notes = base.get('notes') or ''
+                new_notes = n.get('notes') or ''
+                if base_notes and new_notes and base_notes != new_notes:
+                    # Evitar duplicar texto idéntico
+                    combined = ' / '.join([base_notes, new_notes])
+                    base['notes'] = combined
+                elif new_notes and not base_notes:
+                    base['notes'] = new_notes
+                
+                logger.info("convertible_notes_merged",
+                           issue_date=issue_date,
+                           base_principal=base.get('total_principal_amount'),
+                           merged_fields=[k for k in ['maturity_date', 'conversion_price'] 
+                                         if base.get(k) is not None])
+        
+        return list(merged_by_date.values())
     
     def _deduplicate_convertible_preferred(self, preferred: List[Dict]) -> List[Dict]:
         """Deduplicar convertible preferred por series + issue_date"""
@@ -2115,7 +2919,7 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                    extracted_convertible_preferred=len(extracted_data.get('convertible_preferred', [])),
                    extracted_equity_lines=len(extracted_data.get('equity_lines', [])))
         
-        # Parse warrants
+        # Parse warrants (incluyendo metadatos de calidad de datos y status)
         warrants = [
             WarrantModel(
                 ticker=ticker,
@@ -2124,7 +2928,11 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 exercise_price=w.get('exercise_price'),
                 expiration_date=w.get('expiration_date'),
                 potential_new_shares=w.get('potential_new_shares'),
-                notes=w.get('notes')
+                notes=w.get('notes'),
+                status=w.get('status'),  # Active, Exercised, Replaced, Historical_Summary
+                is_summary_row=w.get('is_summary_row'),
+                exclude_from_dilution=w.get('exclude_from_dilution'),
+                imputed_fields=w.get('imputed_fields')
             )
             for w in extracted_data.get('warrants', [])
         ]
@@ -2166,6 +2974,7 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 filing_url=s.get('filing_url'),
                 expiration_date=s.get('expiration_date'),
                 last_banker=s.get('last_banker'),
+                status=s.get('status'),  # Active, Expired, etc.
                 notes=s.get('notes')
             )
             for s in extracted_data.get('shelf_registrations', [])

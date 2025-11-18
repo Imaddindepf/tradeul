@@ -54,9 +54,9 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 6G
+          memory: 3G
         reservations:
-          memory: 2G
+          memory: 1G
 
   # =============================================
   # SERVICIOS CORE

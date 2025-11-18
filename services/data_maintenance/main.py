@@ -64,6 +64,21 @@ async def lifespan(app: FastAPI):
     
     logger.info("✅ Connected to Redis and TimescaleDB")
     
+    # 🔥 AUTO-RECOVERY: Verificar salud de Redis y recuperar si es necesario
+    from redis_health_checker import RedisHealthChecker
+    
+    health_checker = RedisHealthChecker(redis_client, timescale_client)
+    recovery_result = await health_checker.check_and_recover()
+    
+    if recovery_result.get("needs_recovery"):
+        logger.warning(
+            "⚠️ Redis auto-recovery executed",
+            issues=recovery_result.get("issues_found", []),
+            tasks=recovery_result.get("recovery_results", {}).get("tasks_executed", [])
+        )
+    else:
+        logger.info("✅ Redis health check passed - no recovery needed")
+    
     # Inicializar orchestrator y scheduler
     orchestrator = TaskOrchestrator(redis_client, timescale_client)
     scheduler = MaintenanceScheduler(orchestrator)
@@ -150,7 +165,8 @@ async def health_check():
 async def get_status():
     """Get detailed maintenance status"""
     try:
-        last_run = await redis_client.get("maintenance:last_run")
+        # Obtener el valor como string sin deserializar
+        last_run = await redis_client.get("maintenance:last_run", deserialize=False)
         
         if not last_run:
             return {
@@ -159,15 +175,17 @@ async def get_status():
             }
         
         status_key = f"maintenance:status:{last_run}"
-        status_data = await redis_client.get(status_key)
+        # Obtener el status como string JSON y deserializar manualmente
+        status_str = await redis_client.get(status_key, deserialize=False)
         
-        if status_data:
+        if status_str:
             import json
-            status = json.loads(status_data)
+            status_data = json.loads(status_str) if isinstance(status_str, str) else status_str
+            
             return {
                 "status": "ok",
                 "last_maintenance": last_run,
-                "details": status
+                "details": status_data
             }
         else:
             return {
@@ -176,7 +194,8 @@ async def get_status():
             }
     
     except Exception as e:
-        logger.error("status_check_failed", error=str(e))
+        import traceback
+        logger.error("status_check_failed", error=str(e), traceback=traceback.format_exc())
         return {
             "status": "error",
             "error": str(e)

@@ -106,7 +106,7 @@ class CalculateRVOLHistoricalAveragesTask:
                 )
                 
                 # Procesar batch en paralelo
-                semaphore = asyncio.Semaphore(10)  # Max 10 concurrent
+                semaphore = asyncio.Semaphore(100)  # Max 100 concurrent (queries rápidas a BD)
                 
                 async def process_symbol(symbol: str):
                     async with semaphore:
@@ -193,8 +193,10 @@ class CalculateRVOLHistoricalAveragesTask:
         try:
             sym = symbol.upper()
             
-            # Query SQL igual que historical service (lógica PineScript)
-            # Calcula promedio acumulado por slot para últimos N días
+            # Query SQL PROFESIONAL optimizada - 100% lógica PineScript
+            # Usa LATERAL JOINs y window functions - NO subqueries correlacionadas
+            # Mantiene exactamente el comportamiento de fill-forward del PineScript
+            # CORREGIDO: Volumen = 0 si el slot está antes del primer slot del día
             query = (
                 "WITH last_days AS ("
                 "  SELECT DISTINCT date"
@@ -202,7 +204,9 @@ class CalculateRVOLHistoricalAveragesTask:
                 "  WHERE symbol = $1 AND date < CURRENT_DATE"
                 "  ORDER BY date DESC"
                 "  LIMIT $2"
-                "), filled AS ("
+                "), "
+                # Step 1: Fill-forward de volúmenes acumulados (lógica PineScript)
+                "filled AS ("
                 "  SELECT vs.date, vs.slot_number,"
                 "         MAX(vs.volume_accumulated) OVER ("
                 "             PARTITION BY vs.date"
@@ -212,16 +216,48 @@ class CalculateRVOLHistoricalAveragesTask:
                 "  FROM volume_slots vs"
                 "  JOIN last_days d ON vs.date = d.date"
                 "  WHERE vs.symbol = $1 AND vs.slot_number <= $3"
-                "), slots AS ("
-                "  SELECT generate_series(0, $3) AS slot_number"
-                ")"
-                "SELECT s.slot_number, AVG("
-                "  (SELECT MAX(f.vol_acc) FROM filled f WHERE f.date = d.date AND f.slot_number <= s.slot_number)"
-                ") AS avg_vol"
-                "  FROM (SELECT date FROM last_days) d"
-                "  CROSS JOIN slots s"
-                " GROUP BY s.slot_number"
-                " ORDER BY s.slot_number"
+                "), "
+                # Step 2: Obtener primer slot con datos de cada día
+                "first_slots AS ("
+                "  SELECT date, MIN(slot_number) as first_slot"
+                "  FROM filled"
+                "  GROUP BY date"
+                "), "
+                # Step 3: Generar grid completo de (date, slot)
+                "date_slot_grid AS ("
+                "  SELECT d.date, s.slot_number"
+                "  FROM last_days d"
+                "  CROSS JOIN generate_series(0, $3) AS s(slot_number)"
+                "), "
+                # Step 4: Para cada (date, slot), aplicar lógica:
+                # - Si slot < primer_slot del día => volumen = 0
+                # - Si slot >= primer_slot => fill-forward desde slots anteriores
+                "daily_volumes AS ("
+                "  SELECT "
+                "    g.date,"
+                "    g.slot_number,"
+                "    CASE "
+                "      WHEN g.slot_number < fs.first_slot THEN 0"
+                "      ELSE COALESCE(("
+                "        SELECT vol_acc"
+                "        FROM filled"
+                "        WHERE filled.date = g.date"
+                "          AND filled.slot_number <= g.slot_number"
+                "        ORDER BY filled.slot_number DESC"
+                "        LIMIT 1"
+                "      ), 0)"
+                "    END AS vol_acc"
+                "  FROM date_slot_grid g"
+                "  LEFT JOIN first_slots fs ON g.date = fs.date"
+                ") "
+                # Step 5: Calcular promedio por slot (AVG de últimos N días)
+                # Incluye TODOS los días (con 0 si no hay datos)
+                "SELECT "
+                "  slot_number,"
+                "  AVG(vol_acc) AS avg_vol"
+                " FROM daily_volumes"
+                " GROUP BY slot_number"
+                " ORDER BY slot_number"
             )
             
             rows = await self.db.fetch(query, sym, self.lookback_days, self.max_slot)

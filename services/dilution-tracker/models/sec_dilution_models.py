@@ -19,6 +19,10 @@ class WarrantModel(BaseModel):
     expiration_date: Optional[date] = None
     potential_new_shares: Optional[int] = Field(None, description="Potential shares if all warrants exercised")
     notes: Optional[str] = None
+    status: Optional[str] = Field(None, description="Status: Active, Exercised, Replaced, Historical_Summary")
+    is_summary_row: Optional[bool] = Field(None, description="True if this is an aggregated summary row from 10-Q/10-K")
+    exclude_from_dilution: Optional[bool] = Field(None, description="True if should be excluded from dilution calculation")
+    imputed_fields: Optional[list] = Field(None, description="List of fields that were imputed from other warrants")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -87,6 +91,7 @@ class ShelfRegistrationModel(BaseModel):
     filing_url: Optional[str] = None
     expiration_date: Optional[date] = Field(None, description="Shelf expiration (typically 3 years)")
     last_banker: Optional[str] = Field(None, max_length=255, description="Last investment banker used")
+    status: Optional[str] = Field(None, max_length=50, description="Active, Expired, etc.")
     notes: Optional[str] = None
     
     @validator('ticker')
@@ -276,27 +281,41 @@ class SECDilutionProfile(BaseModel):
                 "total_potential_dilution_pct": None
             }
         
+        # Convertir current_price a float para operaciones matemáticas
+        # (puede venir como Decimal de BD o float de Redis)
+        current_price_float = float(self.current_price)
+        
         # Shares potenciales de warrants
+        # INCLUIR SOLO warrants con status="Active" para evitar doble conteo
+        # Excluir: Replaced, Exercised, Historical_Summary
         warrant_shares = sum(
             w.potential_new_shares or 0 
             for w in self.warrants
+            if not w.exclude_from_dilution and w.status == 'Active'  # Solo Active
         )
         
         # Shares potenciales de ATM (remaining capacity / current price)
         # ATM siempre es para common stock
+        # SOLO contar ATMs con status="Active" (excluir Terminated, Replaced)
         atm_shares = sum(
-            int((a.remaining_capacity or 0) / self.current_price)
+            int((a.remaining_capacity or 0) / current_price_float)
             for a in self.atm_offerings
+            if a.status == 'Active'
         )
         
         # Shares potenciales de shelf - CRÍTICO: Solo common stock shelves
         # NO convertir preferred stock shelves a acciones comunes
-        # S-11 normalmente es preferred stock, no common stock
+        # S-11 normalmente es preferred stock, not common stock
+        # SOLO contar shelfs con status="Active" (excluir Expired)
         shelf_shares = 0
         shelf_capacity_common = 0
         shelf_capacity_preferred = 0
         
         for s in self.shelf_registrations:
+            # Solo contar shelfs activos
+            if s.status != 'Active':
+                continue
+                
             remaining = float(s.remaining_capacity or 0)
             
             # Si es S-11, asumir preferred stock (no diluye common stock directamente)
@@ -322,7 +341,7 @@ class SECDilutionProfile(BaseModel):
             if s.registration_statement and s.registration_statement in ['S-3', 'S-1']:
                 # Conservador: asumir que se usa a un precio 20% más bajo que actual
                 # (las empresas suelen vender a descuento)
-                conservative_price = self.current_price * 0.8
+                conservative_price = current_price_float * 0.8
                 shelf_shares += int(remaining / conservative_price)
                 shelf_capacity_common += remaining
             # Si es desconocido, no contar (más seguro)
@@ -341,7 +360,7 @@ class SECDilutionProfile(BaseModel):
         
         # Shares potenciales de equity lines (remaining capacity / current price)
         equity_line_shares = sum(
-            int((el.remaining_capacity or 0) / self.current_price)
+            int((el.remaining_capacity or 0) / current_price_float)
             for el in self.equity_lines
         )
         

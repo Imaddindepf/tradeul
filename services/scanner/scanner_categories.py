@@ -98,14 +98,12 @@ class ScannerCategorizer:
             elif gap <= self.criteria.GAP_DOWN_MAX:
                 categories.append(ScannerCategory.GAPPERS_DOWN)
         
-        # 2. MOMENTUM (durante market hours, usar gap_from_open)
-        if ticker.session == MarketSession.MARKET_OPEN:
-            if ticker.price_from_high is not None:  # Cambio desde open implícito
-                # Aproximación: Si está cerca del high, tiene momentum up
-                if gap and gap >= self.criteria.MOMENTUM_STRONG:
-                    categories.append(ScannerCategory.MOMENTUM_UP)
-                elif gap and gap <= -self.criteria.MOMENTUM_STRONG:
-                    categories.append(ScannerCategory.MOMENTUM_DOWN)
+        # 2. MOMENTUM (mismo régimen que todas las categorías)
+        if gap is not None:
+            if gap >= self.criteria.MOMENTUM_STRONG:
+                categories.append(ScannerCategory.MOMENTUM_UP)
+            elif gap <= -self.criteria.MOMENTUM_STRONG:
+                categories.append(ScannerCategory.MOMENTUM_DOWN)
         
         # 3. WINNERS / LOSERS
         if gap is not None:

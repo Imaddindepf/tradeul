@@ -641,6 +641,41 @@ class RedisClient:
         async for key in self.client.scan_iter(match=pattern):
             yield key
     
+    async def scan_keys(self, pattern: str) -> List[str]:
+        """Scan and return all keys matching a pattern"""
+        try:
+            keys = []
+            async for key in self.scan_iter(pattern):
+                keys.append(key)
+            return keys
+        except RedisError as e:
+            logger.error("Redis SCAN_KEYS error", pattern=pattern, error=str(e))
+            return []
+    
+    async def dbsize(self) -> int:
+        """Get total number of keys in database"""
+        try:
+            return await self.client.dbsize()
+        except RedisError as e:
+            logger.error("Redis DBSIZE error", error=str(e))
+            return 0
+    
+    async def scard(self, key: str) -> int:
+        """Get the number of elements in a set"""
+        try:
+            return await self.client.scard(key)
+        except RedisError as e:
+            logger.error("Redis SCARD error", key=key, error=str(e))
+            return 0
+    
+    async def hlen(self, key: str) -> int:
+        """Get the number of fields in a hash"""
+        try:
+            return await self.client.hlen(key)
+        except RedisError as e:
+            logger.error("Redis HLEN error", key=key, error=str(e))
+            return 0
+    
     async def delete_pattern(self, pattern: str) -> int:
         """Delete all keys matching a pattern"""
         try:
