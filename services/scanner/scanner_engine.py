@@ -442,9 +442,6 @@ class ScannerEngine:
                 # Filtros que requieren metadata: market_cap, sector, industry, exchange
                 # Filtros que NO requieren metadata: RVOL (ya calculado), price, volume, change_percent
                 if not self._passes_all_filters(ticker):
-                    # DEBUG: Log si IVVD es filtrado
-                    if snapshot.ticker == "IVVD":
-                        logger.warning(f"🔍 DEBUG IVVD: EXCLUIDO por filtros")
                     continue  # No cumple filtros, skip
                 
                 # Calcular score (solo si pasó TODOS los filtros)
@@ -567,6 +564,18 @@ class ScannerEngine:
                 atr = atr_data.get('atr')
                 atr_percent = atr_data.get('atr_percent')
             
+            # Extract intraday high/low (from enriched snapshot)
+            intraday_high = atr_data.get('intraday_high') if atr_data else None
+            intraday_low = atr_data.get('intraday_low') if atr_data else None
+            
+            # Calculate price distance from intraday high/low (includes pre/post market)
+            price_from_intraday_high = None
+            price_from_intraday_low = None
+            if intraday_high and intraday_high > 0:
+                price_from_intraday_high = ((price - intraday_high) / intraday_high) * 100
+            if intraday_low and intraday_low > 0:
+                price_from_intraday_low = ((price - intraday_low) / intraday_low) * 100
+            
             # Build ticker
             return ScannerTicker(
                 symbol=snapshot.ticker,
@@ -580,6 +589,8 @@ class ScannerEngine:
                 open=day_data.o if day_data else None,
                 high=day_data.h if day_data else None,
                 low=day_data.l if day_data else None,
+                intraday_high=intraday_high,
+                intraday_low=intraday_low,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
@@ -599,6 +610,8 @@ class ScannerEngine:
                 atr_percent=atr_percent,
                 price_from_high=price_from_high,
                 price_from_low=price_from_low,
+                price_from_intraday_high=price_from_intraday_high,
+                price_from_intraday_low=price_from_intraday_low,
                 # Context
                 session=self.current_session,
                 score=0.0,  # Will be calculated later
@@ -678,6 +691,14 @@ class ScannerEngine:
             intraday_high = atr_data.get('intraday_high') if atr_data else None
             intraday_low = atr_data.get('intraday_low') if atr_data else None
             
+            # Calculate price distance from intraday high/low (includes pre/post market)
+            price_from_intraday_high = None
+            price_from_intraday_low = None
+            if intraday_high and intraday_high > 0:
+                price_from_intraday_high = ((price - intraday_high) / intraday_high) * 100
+            if intraday_low and intraday_low > 0:
+                price_from_intraday_low = ((price - intraday_low) / intraday_low) * 100
+            
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
@@ -708,6 +729,8 @@ class ScannerEngine:
                 atr_percent=atr_percent,
                 price_from_high=price_from_high,
                 price_from_low=price_from_low,
+                price_from_intraday_high=price_from_intraday_high,
+                price_from_intraday_low=price_from_intraday_low,
                 session=self.current_session,
                 score=0.0,
                 filters_matched=[]

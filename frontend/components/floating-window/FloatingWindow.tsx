@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Rnd } from 'react-rnd';
-import { X, Minus, Maximize2, Square } from 'lucide-react';
+import { X, Minus, Maximize2, Square, ExternalLink } from 'lucide-react';
 import { FloatingWindow as FloatingWindowType, useFloatingWindow } from '@/contexts/FloatingWindowContext';
 
 interface FloatingWindowProps {
@@ -78,6 +78,25 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
 
   const handleClose = () => {
     closeWindow(window.id);
+  };
+
+  const handleOpenNewWindow = () => {
+    // Determinar la URL basándose en el título de la ventana
+    let url = '';
+    if (window.title === 'Dilution Tracker') {
+      url = '/dilution-tracker';
+    }
+    
+    if (url) {
+      const width = 1200;
+      const height = 800;
+      const left = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.width - width) / 2 : 100;
+      const top = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.height - height) / 2 : 100;
+      
+      const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes,menubar=no,toolbar=no,location=no`;
+      
+      globalThis.window.open(url, window.title.replace(/\s+/g, ''), windowFeatures);
+    }
   };
 
   const handleTitleClick = () => {
@@ -192,6 +211,22 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
               ) : (
                 <Maximize2 className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-800" />
               )}
+            </button>
+
+            {/* Open in New Window Button */}
+            <button
+              onMouseDown={(e) => {
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenNewWindow();
+              }}
+              className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
+              aria-label="Abrir en nueva ventana"
+              title="Abrir en nueva ventana"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-600" />
             </button>
 
             {/* Close Button */}

@@ -63,8 +63,10 @@ class ScannerTicker(BaseModel):
     rvol_slot: Optional[float] = Field(None, description="RVOL for current slot")
     atr: Optional[float] = Field(None, description="Average True Range (14 periods)")
     atr_percent: Optional[float] = Field(None, description="ATR as % of price")
-    price_from_high: Optional[float] = Field(None, description="% from day high")
-    price_from_low: Optional[float] = Field(None, description="% from day low")
+    price_from_high: Optional[float] = Field(None, description="% from day high (regular hours)")
+    price_from_low: Optional[float] = Field(None, description="% from day low (regular hours)")
+    price_from_intraday_high: Optional[float] = Field(None, description="% from intraday high (includes pre/post market)")
+    price_from_intraday_low: Optional[float] = Field(None, description="% from intraday low (includes pre/post market)")
     price_vs_vwap: Optional[float] = Field(None, description="Price vs VWAP")
     
     # Session context

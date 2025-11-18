@@ -58,9 +58,9 @@ class CategoryCriteria:
     # VOLUME
     HIGH_VOLUME_MIN = 2.0         # RVOL > 2.0 para high volume
     
-    # PRICE POSITION
-    NEAR_HIGH_THRESHOLD = 0.5     # Dentro del 0.5% del high = nuevo high
-    NEAR_LOW_THRESHOLD = 0.5      # Dentro del 0.5% del low = nuevo low
+    # PRICE POSITION (usando intraday high/low para incluir pre/post market)
+    NEAR_HIGH_THRESHOLD = 2.0     # Dentro del 2% del intraday high = nuevo high
+    NEAR_LOW_THRESHOLD = 2.0      # Dentro del 2% del intraday low = nuevo low
 
 
 class ScannerCategorizer:
@@ -125,14 +125,19 @@ class ScannerCategorizer:
         if rvol and rvol >= self.criteria.HIGH_VOLUME_MIN:
             categories.append(ScannerCategory.HIGH_VOLUME)
         
-        # 6. NEW HIGHS / LOWS
-        if ticker.price_from_high is not None and ticker.price_from_low is not None:
-            # Cerca del high del día
-            if abs(ticker.price_from_high) <= self.criteria.NEAR_HIGH_THRESHOLD:
+        # 6. NEW HIGHS / LOWS (usa intraday high/low para incluir pre/post market)
+        # Priorizar intraday high/low, con fallback a regular hours
+        price_from_high_check = ticker.price_from_intraday_high if ticker.price_from_intraday_high is not None else ticker.price_from_high
+        price_from_low_check = ticker.price_from_intraday_low if ticker.price_from_intraday_low is not None else ticker.price_from_low
+        
+        if price_from_high_check is not None:
+            # Cerca del high del día (intraday o regular)
+            if abs(price_from_high_check) <= self.criteria.NEAR_HIGH_THRESHOLD:
                 categories.append(ScannerCategory.NEW_HIGHS)
-            
-            # Cerca del low del día
-            if abs(ticker.price_from_low) <= self.criteria.NEAR_LOW_THRESHOLD:
+        
+        if price_from_low_check is not None:
+            # Cerca del low del día (intraday o regular)
+            if abs(price_from_low_check) <= self.criteria.NEAR_LOW_THRESHOLD:
                 categories.append(ScannerCategory.NEW_LOWS)
         
         # 7. REVERSALS (cambio de dirección)
@@ -215,12 +220,14 @@ class ScannerCategorizer:
             categorized.sort(key=lambda t: t.volume_today or 0, reverse=True)
         
         elif category == ScannerCategory.NEW_HIGHS:
-            # Ordenar por distancia del high (más cerca = primero)
-            categorized.sort(key=lambda t: abs(t.price_from_high) if t.price_from_high else 999)
+            # Ordenar por distancia del intraday high (más cerca = primero)
+            # Priorizar intraday_high, fallback a regular high
+            categorized.sort(key=lambda t: abs(t.price_from_intraday_high if t.price_from_intraday_high is not None else (t.price_from_high if t.price_from_high is not None else 999)))
         
         elif category == ScannerCategory.NEW_LOWS:
-            # Ordenar por distancia del low (más cerca = primero)
-            categorized.sort(key=lambda t: abs(t.price_from_low) if t.price_from_low else 999)
+            # Ordenar por distancia del intraday low (más cerca = primero)
+            # Priorizar intraday_low, fallback a regular low
+            categorized.sort(key=lambda t: abs(t.price_from_intraday_low if t.price_from_intraday_low is not None else (t.price_from_low if t.price_from_low is not None else 999)))
         
         elif category == ScannerCategory.REVERSALS:
             # Ordenar por score (reversals más significativos)
@@ -285,9 +292,9 @@ class ScannerCategorizer:
             elif category == ScannerCategory.HIGH_VOLUME:
                 categorized.sort(key=lambda t: t.volume_today or 0, reverse=True)
             elif category == ScannerCategory.NEW_HIGHS:
-                categorized.sort(key=lambda t: abs(t.price_from_high) if t.price_from_high else 999)
+                categorized.sort(key=lambda t: abs(t.price_from_intraday_high if t.price_from_intraday_high is not None else (t.price_from_high if t.price_from_high is not None else 999)))
             elif category == ScannerCategory.NEW_LOWS:
-                categorized.sort(key=lambda t: abs(t.price_from_low) if t.price_from_low else 999)
+                categorized.sort(key=lambda t: abs(t.price_from_intraday_low if t.price_from_intraday_low is not None else (t.price_from_low if t.price_from_low is not None else 999)))
             elif category == ScannerCategory.REVERSALS:
                 categorized.sort(key=lambda t: t.score, reverse=True)
             

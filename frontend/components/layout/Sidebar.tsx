@@ -82,12 +82,12 @@ export function Sidebar() {
       openWindow({
         title: 'Dilution Tracker',
         content: <DilutionTrackerContent />,
-        width: 1200,
-        height: 800,
-        x: screenWidth / 2 - 600,
+        width: 600,
+        height: 600,
+        x: screenWidth / 2 - 300,
         y: screenHeight / 2 - 400,
-        minWidth: 800,
-        minHeight: 600,
+        minWidth: 400,
+        minHeight: 300,
       });
     }
     // Aquí puedes agregar más ventanas flotantes para otros módulos
