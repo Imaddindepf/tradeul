@@ -1650,10 +1650,10 @@ DO NOT return arrays with null-filled objects.
             client = Client(api_key=self.grok_api_key)
             
             try:
-                chat = client.chat.create(model="grok-4", temperature=0.1)
+                chat = client.chat.create(model="ggrok-4-fast", temperature=0.1)
             except:
                 # Fallback a grok-4-fast si grok-4 no está disponible
-                chat = client.chat.create(model="grok-4-fast", temperature=0.1)
+                chat = client.chat.create(model="grok-4", temperature=0.1)
             
             chat.append(system("You are a financial data extraction expert. Return ONLY valid JSON."))
             
@@ -2282,15 +2282,34 @@ RETURN ONLY VALID JSON. Be comprehensive, accurate, and detailed.
             
             if exp_date_str:
                 try:
-                    # Parse expiration date
-                    exp_date = datetime.fromisoformat(exp_date_str.replace('Z', '+00:00'))
+                    # Parse expiration date - puede ser string de fecha o datetime
+                    if isinstance(exp_date_str, str):
+                        exp_date = datetime.fromisoformat(exp_date_str.replace('Z', '+00:00'))
+                    else:
+                        # Si ya es datetime/date, convertir a datetime con timezone
+                        exp_date = datetime.combine(exp_date_str, datetime.min.time()).replace(tzinfo=timezone.utc)
+                    
+                    # Asegurar que exp_date tenga timezone
+                    if exp_date.tzinfo is None:
+                        exp_date = exp_date.replace(tzinfo=timezone.utc)
+                    
+                    logger.debug("shelf_expiration_check",
+                               ticker=ticker,
+                               filing_date=s.get('filing_date'),
+                               expiration=str(exp_date),
+                               now=str(now),
+                               is_expired=exp_date < now)
                     
                     if exp_date < now:
                         s['status'] = 'Expired'
                     else:
                         s['status'] = 'Active'
-                except:
+                except Exception as e:
                     # Si no se puede parsear la fecha, asumir Active
+                    logger.warning("shelf_date_parse_failed",
+                                 ticker=ticker,
+                                 exp_date_str=str(exp_date_str),
+                                 error=str(e))
                     s['status'] = 'Active'
             else:
                 # Sin fecha de expiración, asumir Active
