@@ -129,6 +129,10 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     
+    # 🚀 FIX: Cerrar HTTP client global
+    if rvol_calculator:
+        await rvol_calculator.close()
+    
     if redis_client:
         await redis_client.disconnect()
     

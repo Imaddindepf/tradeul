@@ -10,6 +10,8 @@ from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional, Tuple
 import structlog
 from zoneinfo import ZoneInfo
+import httpx
+import re
 
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
@@ -66,6 +68,20 @@ class RVOLCalculator:
         self.hist_cache_prefix = "rvol:hist:avg"
         self.hist_cache_ttl = 28800  # 8 horas (suficiente para día de trading)
         
+        # 🚀 FIX MEMORY LEAK: HTTP Client global reutilizable
+        # Evita crear/destruir 500 clients por ciclo
+        self.http_client = httpx.AsyncClient(
+            timeout=8.0,
+            limits=httpx.Limits(
+                max_connections=20,  # Máximo 20 conexiones concurrentes
+                max_keepalive_connections=5  # Mantener 5 conexiones abiertas
+            )
+        )
+        
+        # Patrón para detectar preferred stocks (BACPM → BACpM)
+        # Fix del documento FIX_PREFERRED_STOCKS.md
+        self.preferred_stock_pattern = re.compile(r'^[A-Z]{3,}P[A-Z]$')
+        
         logger.info(
             "rvol_calculator_initialized",
             slot_size_minutes=slot_size_minutes,
@@ -74,7 +90,8 @@ class RVOLCalculator:
             total_slots=self.slot_manager.total_slots,
             premarket_slots=self.slot_manager.premarket_slots,
             market_slots=self.slot_manager.market_slots,
-            postmarket_slots=self.slot_manager.postmarket_slots
+            postmarket_slots=self.slot_manager.postmarket_slots,
+            http_client_limits="max_connections=20, keepalive=5"
         )
     
     async def update_volume_for_symbol(
@@ -301,6 +318,11 @@ class RVOLCalculator:
         sym = symbol.upper()
         days = self.lookback_days
         
+        # 🛡️ FILTRO: Saltar preferred stocks (no tienen datos históricos consistentes)
+        # Patrón: BACPM, WFCPC, PSAPO (3+ letras base + P + letra)
+        if self.preferred_stock_pattern.match(sym):
+            return None
+        
         # 1) Redis HASH first (optimizado)
         hash_key = f"{self.hist_cache_prefix}:{sym}:{days}"
         try:
@@ -314,16 +336,16 @@ class RVOLCalculator:
             # Si falla hget, continuar con bulk
             pass
 
-        # 2) Miss -> pedir bulk a Historical (precalienta todos los slots del símbolo en UN SOLO HASH)
+        # 2) Miss -> pedir bulk a Historical usando client global reutilizable
         try:
-            import httpx
             historical_host = "http://historical:8004"
             url_bulk = f"{historical_host}/api/rvol/hist-avg/bulk"
             params = {"symbol": sym, "days": days, "max_slot": 250}
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.get(url_bulk, params=params)
-                if resp.status_code not in (200, 201):
-                    return None
+            
+            # 🚀 FIX: Usar client global (NO crear nuevo cada vez)
+            resp = await self.http_client.get(url_bulk, params=params)
+            if resp.status_code not in (200, 201):
+                return None
         except Exception:
             # Si falla el bulk, no insistimos
             return None
