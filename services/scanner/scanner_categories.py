@@ -72,6 +72,9 @@ class ScannerCategorizer:
     """
     
     def __init__(self):
+        """
+        Inicializa el categorizador con criterios configurables
+        """
         self.criteria = CategoryCriteria()
     
     def categorize_ticker(self, ticker: ScannerTicker) -> List[ScannerCategory]:
@@ -125,19 +128,26 @@ class ScannerCategorizer:
         if rvol and rvol >= self.criteria.HIGH_VOLUME_MIN:
             categories.append(ScannerCategory.HIGH_VOLUME)
         
-        # 6. NEW HIGHS / LOWS (usa intraday high/low para incluir pre/post market)
-        # Priorizar intraday high/low, con fallback a regular hours
-        price_from_high_check = ticker.price_from_intraday_high if ticker.price_from_intraday_high is not None else ticker.price_from_high
-        price_from_low_check = ticker.price_from_intraday_low if ticker.price_from_intraday_low is not None else ticker.price_from_low
+        # 6. NEW HIGHS / LOWS - Comparación directa con intraday_high/low de Analytics
+        # intraday_high/low se mantiene correctamente en Analytics (incluye pre/post market)
+        # y se recupera desde Polygon al reiniciar
         
-        if price_from_high_check is not None:
-            # Cerca del high del día (intraday o regular)
-            if abs(price_from_high_check) <= self.criteria.NEAR_HIGH_THRESHOLD:
+        # NEW HIGHS: precio >= 99.9% del máximo intraday
+        if ticker.intraday_high and ticker.intraday_high > 0:
+            # Calcular % del máximo
+            percent_of_high = (ticker.price / ticker.intraday_high) * 100
+            
+            # Estar al 99.9% o más del máximo = está haciendo máximos
+            if percent_of_high >= 99.9:
                 categories.append(ScannerCategory.NEW_HIGHS)
         
-        if price_from_low_check is not None:
-            # Cerca del low del día (intraday o regular)
-            if abs(price_from_low_check) <= self.criteria.NEAR_LOW_THRESHOLD:
+        # NEW LOWS: precio <= 100.1% del mínimo intraday
+        if ticker.intraday_low and ticker.intraday_low > 0:
+            # Calcular % del mínimo
+            percent_of_low = (ticker.price / ticker.intraday_low) * 100
+            
+            # Estar al 100.1% o menos del mínimo = está haciendo mínimos
+            if percent_of_low <= 100.1:
                 categories.append(ScannerCategory.NEW_LOWS)
         
         # 7. REVERSALS (cambio de dirección)

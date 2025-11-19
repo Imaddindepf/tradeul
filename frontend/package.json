@@ -11,6 +11,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.51.0",
     "@tanstack/react-table": "^8.19.0",
+    "@tanstack/react-virtual": "^3.13.12",
     "@types/react-rnd": "^7.4.4",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
@@ -21,6 +22,7 @@
     "react-dom": "^18.3.0",
     "react-rnd": "^10.5.2",
     "recharts": "^3.4.1",
+    "rxjs": "^7.8.2",
     "tailwind-merge": "^2.4.0",
     "zustand": "^4.5.0"
   },

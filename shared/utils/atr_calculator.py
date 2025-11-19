@@ -58,7 +58,7 @@ class ATRCalculator:
         # Caché de ATR en Redis usando HASH (optimizado para RAM)
         # Key: "atr:daily" → HASH {symbol: {"atr": 2.45, "atr_percent": 3.2, "updated": "2025-11-05"}}
         self.cache_key = "atr:daily"  # Una sola clave HASH
-        self.cache_ttl = 28800  # 8 horas (suficiente para trading day)
+        self.cache_ttl = 86400  # 24 horas (cubre día completo de trading)
         
         logger.info(
             "atr_calculator_initialized",

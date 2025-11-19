@@ -441,21 +441,18 @@ class RVOLCalculator:
     
     async def reset_for_new_day(self):
         """
-        Resetea el caché para un nuevo día de trading
+        Resetea el caché EN MEMORIA para un nuevo día de trading
         
-        Se debe llamar al inicio de cada día de trading.
+        NOTA: NO limpia Redis. Los promedios históricos (rvol:hist:avg:*)
+        son gestionados por data_maintenance service, no por analytics.
+        Analytics solo CONSUME esos datos, no los gestiona.
         """
         self.volume_cache.reset()
         
-        # Limpiar caché de promedios históricos en Redis
-        # (para forzar recálculo con nuevos datos)
-        pattern = f"{self.hist_cache_prefix}:*"
-        
-        try:
-            await self.redis.delete_pattern(pattern)
-            logger.info("historical_cache_cleared", pattern=pattern)
-        except Exception as e:
-            logger.warning("error_clearing_historical_cache", error=str(e))
+        # ELIMINADO: Analytics NO debe limpiar promedios históricos de Redis
+        # Eso es responsabilidad de data_maintenance service
+        # pattern = f"{self.hist_cache_prefix}:*"
+        # await self.redis.delete_pattern(pattern)
         
         logger.info("rvol_calculator_reset_for_new_day")
     

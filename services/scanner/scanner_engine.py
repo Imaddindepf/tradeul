@@ -7,6 +7,7 @@ calculates RVOL, applies filters, and publishes results
 import asyncio
 import time
 import json
+import traceback
 from datetime import datetime, time as time_type
 from typing import Optional, List, Dict, Any, Tuple, Set
 import httpx
@@ -429,6 +430,8 @@ class ScannerEngine:
                 
                 # Enriquecer con gaps (usa prev_close y open del snapshot)
                 ticker = self.enhance_ticker_with_gaps(ticker, snapshot)
+                
+                # intraday_high/low ya vienen de Analytics, no necesitamos tracker adicional
                 
                 # DEBUG: Log antes de filtros para IVVD
                 if snapshot.ticker == "IVVD":

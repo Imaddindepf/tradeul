@@ -196,6 +196,181 @@ class GapCalculator:
         return metrics
 
 
+class HighsLowsTracker:
+    """
+    Rastrea máximos y mínimos CONTINUOS durante el día
+    
+    Identifica tickers que están ACTIVAMENTE haciendo nuevos máximos/mínimos,
+    no solo tickers que están "cerca" de sus máximos.
+    
+    Criterios para "nuevo máximo":
+    - Precio actual > máximo anterior registrado
+    - Timestamp del último máximo < 5 minutos (configurable)
+    - Frecuencia de máximos: ej. 3+ máximos en últimos 15 minutos
+    """
+    
+    def __init__(self, max_age_seconds: int = 300):
+        """
+        Args:
+            max_age_seconds: Tiempo máximo desde último máximo para considerarlo "activo" (default: 5 min)
+        """
+        # Storage: {symbol: {high, high_timestamp, high_count, low, low_timestamp, low_count, history}}
+        self.tracking = {}
+        self.max_age_seconds = max_age_seconds
+    
+    def update_ticker(
+        self,
+        symbol: str,
+        price: float,
+        timestamp: datetime,
+        intraday_high: Optional[float] = None,
+        intraday_low: Optional[float] = None
+    ):
+        """
+        Actualiza tracking de máximos/mínimos para un ticker
+        
+        Args:
+            symbol: Símbolo del ticker
+            price: Precio actual
+            timestamp: Timestamp actual
+            intraday_high: Máximo intraday (incluye pre/post)
+            intraday_low: Mínimo intraday (incluye pre/post)
+        """
+        if symbol not in self.tracking:
+            # Inicializar con intraday_high/low existentes (persisten en Redis/DB)
+            # Si no están disponibles, usar el precio actual
+            # IMPORTANTE: Si viene de intraday_high (máximo antiguo), usar timestamp antiguo
+            # para que is_making_new_highs() no piense que acaba de hacer un máximo
+            old_timestamp = timestamp - timedelta(hours=2)  # Timestamp antiguo
+            
+            self.tracking[symbol] = {
+                'high': intraday_high if intraday_high is not None else price,
+                'high_timestamp': old_timestamp if intraday_high is not None else timestamp,
+                'high_count_15min': 0,  # Cuántos máximos en últimos 15 min
+                'low': intraday_low if intraday_low is not None else price,
+                'low_timestamp': old_timestamp if intraday_low is not None else timestamp,
+                'low_count_15min': 0,
+                'history': []  # [(timestamp, 'high'/'low'), ...]
+            }
+        
+        data = self.tracking[symbol]
+        
+        # NUEVO MÁXIMO: precio actual > máximo anterior
+        if price > data['high']:
+            data['high'] = price
+            data['high_timestamp'] = timestamp
+            data['history'].append((timestamp, 'high'))
+            
+            # Contar máximos en últimos 15 minutos
+            recent_highs = [
+                h for h in data['history']
+                if h[1] == 'high' and (timestamp - h[0]).total_seconds() <= 900
+            ]
+            data['high_count_15min'] = len(recent_highs)
+            
+            logger.debug(
+                f"🔥 NEW HIGH: {symbol}",
+                price=price,
+                high_count=data['high_count_15min']
+            )
+        
+        # NUEVO MÍNIMO: precio actual < mínimo anterior
+        if price < data['low']:
+            data['low'] = price
+            data['low_timestamp'] = timestamp
+            data['history'].append((timestamp, 'low'))
+            
+            # Contar mínimos en últimos 15 minutos
+            recent_lows = [
+                h for h in data['history']
+                if h[1] == 'low' and (timestamp - h[0]).total_seconds() <= 900
+            ]
+            data['low_count_15min'] = len(recent_lows)
+            
+            logger.debug(
+                f"❄️ NEW LOW: {symbol}",
+                price=price,
+                low_count=data['low_count_15min']
+            )
+        
+        # Limpiar historial antiguo (> 15 min)
+        cutoff_time = timestamp
+        data['history'] = [
+            h for h in data['history']
+            if (timestamp - h[0]).total_seconds() <= 900
+        ]
+    
+    def is_making_new_highs(self, symbol: str, current_time: datetime) -> bool:
+        """
+        Verifica si un ticker está ACTIVAMENTE haciendo nuevos máximos
+        
+        Criterios:
+        - Último máximo fue hace menos de max_age_seconds (5 min por defecto)
+        - O ha hecho múltiples máximos (2+) en últimos 15 minutos
+        
+        Returns:
+            True si está activamente haciendo máximos
+        """
+        if symbol not in self.tracking:
+            return False
+        
+        data = self.tracking[symbol]
+        
+        # Tiempo desde último máximo
+        time_since_high = (current_time - data['high_timestamp']).total_seconds()
+        
+        # Criterio 1: Máximo reciente (últimos 5 min)
+        if time_since_high <= self.max_age_seconds:
+            return True
+        
+        # Criterio 2: Múltiples máximos en últimos 15 min (momentum fuerte)
+        if data['high_count_15min'] >= 2:
+            return True
+        
+        return False
+    
+    def is_making_new_lows(self, symbol: str, current_time: datetime) -> bool:
+        """
+        Verifica si un ticker está ACTIVAMENTE haciendo nuevos mínimos
+        
+        Returns:
+            True si está activamente haciendo mínimos
+        """
+        if symbol not in self.tracking:
+            return False
+        
+        data = self.tracking[symbol]
+        
+        # Tiempo desde último mínimo
+        time_since_low = (current_time - data['low_timestamp']).total_seconds()
+        
+        # Criterio 1: Mínimo reciente (últimos 5 min)
+        if time_since_low <= self.max_age_seconds:
+            return True
+        
+        # Criterio 2: Múltiples mínimos en últimos 15 min
+        if data['low_count_15min'] >= 2:
+            return True
+        
+        return False
+    
+    def get_stats(self, symbol: str) -> Optional[dict]:
+        """
+        Obtiene estadísticas de máximos/mínimos para un símbolo
+        
+        Returns:
+            Dict con stats o None si no existe
+        """
+        return self.tracking.get(symbol)
+    
+    def clear_for_new_day(self):
+        """
+        Limpia tracking para un nuevo día de trading
+        """
+        self.tracking.clear()
+        logger.info("highs_lows_tracker_cleared_for_new_day")
+
+
 class GapTracker:
     """
     Rastrea gaps durante todo el día

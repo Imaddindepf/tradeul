@@ -80,7 +80,7 @@ export default function DilutionTrackerPage() {
       const isValid = await validateTicker(ticker);
       
       if (!isValid) {
-        setError(`Ticker ${ticker} no encontrado en el universo. Solo tickers del universo de Polygon están disponibles.`);
+        setError(`Ticker ${ticker} no encontrado en el universo. `);
         setLoading(false);
         setSelectedTicker(null);
         setTickerData(null);

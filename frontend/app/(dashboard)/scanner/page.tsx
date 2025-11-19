@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
-import CategoryTable from '@/components/scanner/CategoryTable';
+import CategoryTableV2 from '@/components/scanner/CategoryTableV2';
 import { Settings2 } from 'lucide-react';
 
 type ScannerCategory = {
@@ -246,7 +246,7 @@ export default function ScannerPage() {
         <div className="grid grid-cols-12 gap-4 grid-flow-dense" data-grid-root>
               {activeCategoryData.map((category) => (
                 <div key={category.id} className="col-span-12 lg:col-span-6 m-0 p-0">
-                  <CategoryTable title={category.name} listName={category.id} />
+                  <CategoryTableV2 title={category.name} listName={category.id} />
                 </div>
               ))}
           </div>
