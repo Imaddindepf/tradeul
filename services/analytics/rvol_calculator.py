@@ -478,6 +478,14 @@ class RVOLCalculator:
         
         logger.info("rvol_calculator_reset_for_new_day")
     
+    async def close(self):
+        """
+        Cierra recursos al apagar el servicio
+        """
+        if hasattr(self, 'http_client'):
+            await self.http_client.aclose()
+            logger.info("http_client_closed")
+    
     def get_cache_stats(self) -> Dict:
         """Obtiene estadísticas del caché"""
         return {
