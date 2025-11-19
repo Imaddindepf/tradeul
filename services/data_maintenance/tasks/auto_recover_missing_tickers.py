@@ -417,7 +417,7 @@ class AutoRecoverMissingTickersTask:
                                 'sector': sector,
                                 'industry': industry
                             }
-                            await self.redis.set(f"metadata:ticker:{symbol}", metadata_dict)
+                            await self.redis.set(f"metadata:ticker:{symbol}", metadata_dict, ttl=86400)  # ✅ TTL 24h
                             
                             enriched += 1
                             logger.info(f"metadata_enriched", symbol=symbol)

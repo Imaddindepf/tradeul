@@ -340,14 +340,14 @@ class ATRCalculator:
         try:
             # Leer desde HASH: HGET atr:daily {symbol}
             data = await self.redis.hget(self.cache_key, symbol)
-            logger.info("cache_read_attempt", symbol=symbol, data=data, has_data=bool(data))
+            logger.debug("cache_read_attempt", symbol=symbol, data=data, has_data=bool(data))
             if data:
                 # ✅ VERIFICAR QUE LA FECHA SEA HOY (bug fix)
                 updated_date = data.get('updated')
                 today_str = date.today().isoformat()
                 
                 if updated_date != today_str:
-                    logger.info(
+                    logger.debug(
                         "cache_expired_by_date",
                         symbol=symbol,
                         cached_date=updated_date,
@@ -359,9 +359,9 @@ class ATRCalculator:
                     'atr': float(data.get('atr', 0)),
                     'atr_percent': float(data.get('atr_percent', 0)) if data.get('atr_percent') else None
                 }
-                logger.info("cache_hit", symbol=symbol, result=result)
+                logger.debug("cache_hit", symbol=symbol, result=result)
                 return result
-            logger.info("cache_miss", symbol=symbol)
+            logger.debug("cache_miss", symbol=symbol)
         except Exception as e:
             logger.error("cache_read_error", symbol=symbol, error=str(e))
         

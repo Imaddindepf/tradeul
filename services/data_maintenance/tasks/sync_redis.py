@@ -299,7 +299,8 @@ class SyncRedisTask:
                     "avg_volume_5d": int(row['avg_volume_5d']) if row['avg_volume_5d'] else None
                 }
                 
-                pipeline.set(key, json.dumps(data))  # SIN TTL - persiste siempre
+                pipeline.set(key, json.dumps(data))
+                pipeline.expire(key, 86400)  # ✅ TTL de 24 horas - previene crecimiento infinito
                 
                 # Actualizar ticker_metadata también
                 if row['avg_volume_30d']:
