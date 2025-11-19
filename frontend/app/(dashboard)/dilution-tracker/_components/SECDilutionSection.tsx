@@ -131,56 +131,57 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
 
   return (
     <div className="space-y-6">
-      {/* Summary Stats - Professional Layout */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Total Dilution Card */}
-        <div className="md:col-span-2 bg-white border border-slate-200 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <TrendingDown className="h-5 w-5 text-blue-600" />
-              <h3 className="text-sm font-semibold text-slate-600">Total Potential Dilution</h3>
-            </div>
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors disabled:opacity-50"
-              title="Refresh from SEC EDGAR"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            </button>
+      {/* Summary Stats - Compacto en una sola card */}
+      <div className="bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <TrendingDown className="h-4 w-4 text-blue-600" />
+            <h3 className="text-sm font-semibold text-slate-700">SEC Dilution Summary</h3>
           </div>
-          
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded transition-colors disabled:opacity-50"
+            title="Refresh from SEC EDGAR"
+          >
+            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        
+        <div className="grid grid-cols-3 gap-4">
+          {/* Total Dilution */}
           <div>
-            <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-5xl font-bold text-blue-600">
-                {Number(dilution_analysis.total_potential_dilution_pct).toFixed(1)}%
-              </span>
-            </div>
-            <p className="text-sm text-slate-600">
-              {(Number(dilution_analysis.total_potential_new_shares) / 1_000_000).toFixed(1)}M potential new shares
+            <p className="text-xs text-slate-500 mb-1">Total Potential</p>
+            <p className="text-2xl font-bold text-blue-600">
+              {Number(dilution_analysis.total_potential_dilution_pct).toFixed(1)}%
             </p>
-            <p className="text-xs text-slate-500 mt-3">
-              Based on current price: ${profile.current_price ? Number(profile.current_price).toFixed(2) : 'N/A'}
+            <p className="text-xs text-slate-500 mt-1">
+              {(Number(dilution_analysis.total_potential_new_shares) / 1_000_000).toFixed(1)}M shares
             </p>
           </div>
-        </div>
 
-        {/* Breakdown Cards Compactas */}
-        <div className="bg-white border border-slate-200 rounded-lg p-3">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Warrants</p>
-          <p className="text-xl font-bold text-slate-900">
-            {(Number(dilution_analysis.warrant_shares) / 1_000_000).toFixed(1)}M
-          </p>
-          <p className="text-xs text-slate-500">shares</p>
-        </div>
+          {/* Warrants */}
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Warrants</p>
+            <p className="text-2xl font-bold text-purple-600">
+              {(Number(dilution_analysis.warrant_shares) / 1_000_000).toFixed(1)}M
+            </p>
+            <p className="text-xs text-slate-500 mt-1">shares</p>
+          </div>
 
-        <div className="bg-white border border-slate-200 rounded-lg p-3">
-          <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">ATM + Shelf</p>
-          <p className="text-xl font-bold text-slate-900">
-            {((Number(dilution_analysis.atm_potential_shares) + Number(dilution_analysis.shelf_potential_shares)) / 1_000_000).toFixed(1)}M
-          </p>
-          <p className="text-xs text-slate-500">shares</p>
+          {/* ATM + Shelf */}
+          <div>
+            <p className="text-xs text-slate-500 mb-1">ATM + Shelf</p>
+            <p className="text-2xl font-bold text-orange-600">
+              {((Number(dilution_analysis.atm_potential_shares) + Number(dilution_analysis.shelf_potential_shares)) / 1_000_000).toFixed(1)}M
+            </p>
+            <p className="text-xs text-slate-500 mt-1">shares</p>
+          </div>
         </div>
+        
+        <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-100">
+          Based on current price: ${profile.current_price ? Number(profile.current_price).toFixed(2) : 'N/A'}
+        </p>
       </div>
 
       {/* Cards Grid - Máximo 2 columnas */}
