@@ -1,7 +1,23 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { AlertCircle, ExternalLink, RefreshCw, FileText, TrendingDown, Calendar, DollarSign, Percent } from "lucide-react";
+import { 
+  AlertCircle, 
+  ExternalLink, 
+  RefreshCw, 
+  FileText, 
+  TrendingDown, 
+  Calendar, 
+  DollarSign, 
+  Percent,
+  Zap,
+  Waves,
+  Archive,
+  CheckCircle2,
+  Info,
+  BadgeDollarSign,
+  BarChart3
+} from "lucide-react";
 import { 
   getSECDilutionProfile, 
   refreshSECDilutionProfile,
@@ -215,6 +231,66 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
 }
 
 // =====================================================
+// EDUCATIONAL TOOLTIPS
+// =====================================================
+
+function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'completed' }) {
+  const tooltips = {
+    warrant: {
+      title: "Warrants Outstanding",
+      description: "Right to purchase shares at a fixed exercise price before expiration",
+      impact: "🔴 Immediate dilution when exercised",
+      filing: "Found in: 10-K, 10-Q, 424B5, S-1"
+    },
+    atm: {
+      title: "At-The-Market Offering (424B5)",
+      description: "Company can issue shares on the open market anytime up to $ amount",
+      impact: "🟡 Low immediate impact - Used over time",
+      filing: "Filed after shelf receives EFFECT"
+    },
+    shelf: {
+      title: "Shelf Registration (S-3/S-1)",
+      description: "Allows company to raise funds over next 3 years up to registered amount",
+      impact: "🟢 No immediate impact until used",
+      filing: "Requires EFFECT before use"
+    },
+    completed: {
+      title: "Completed Offerings",
+      description: "Historical offerings that have been priced and closed",
+      impact: "✅ Already executed - Past dilution",
+      filing: "Disclosed in 424B5, 8-K, 10-Q"
+    }
+  };
+
+  const tooltip = tooltips[type];
+  const [show, setShow] = useState(false);
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+        type="button"
+      >
+        <Info className="h-3.5 w-3.5" />
+      </button>
+      
+      {show && (
+        <div className="absolute z-50 left-0 top-full mt-1 w-72 bg-slate-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
+          <div className="font-semibold mb-1">{tooltip.title}</div>
+          <div className="text-slate-300 mb-2">{tooltip.description}</div>
+          <div className="text-slate-400 mb-1">{tooltip.impact}</div>
+          <div className="text-slate-500 text-[10px]">{tooltip.filing}</div>
+          {/* Arrow */}
+          <div className="absolute -top-1 left-4 w-2 h-2 bg-slate-900 transform rotate-45" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =====================================================
 // WARRANTS CARD (Formato Vertical Detallado)
 // =====================================================
 
@@ -229,9 +305,13 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
         
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
-            {/* Header Compacto */}
-            <div className="bg-purple-50 px-4 py-2 border-l-2 border-purple-500">
-              <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+            {/* Header Compacto con Ícono Educativo */}
+            <div className="bg-purple-50 px-4 py-2 border-l-2 border-purple-500 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-purple-600" />
+                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+              </div>
+              <EducationalTooltip type="warrant" />
             </div>
 
             {/* Grid Compacto 2 Columnas */}
@@ -297,9 +377,13 @@ function ATMCard({ offerings }: { offerings: ATMOffering[] }) {
 
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
-            {/* Header Compacto */}
-            <div className="bg-blue-50 px-4 py-2 border-l-2 border-blue-500">
-              <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+            {/* Header Compacto con Ícono Educativo */}
+            <div className="bg-blue-50 px-4 py-2 border-l-2 border-blue-500 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Waves className="h-4 w-4 text-blue-600" />
+                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+              </div>
+              <EducationalTooltip type="atm" />
             </div>
 
             {/* Grid Compacto */}
@@ -371,14 +455,18 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
 
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
-            {/* Header Compacto */}
-            <div className="bg-orange-50 px-4 py-2 border-l-2 border-orange-500 flex items-center gap-2">
-              <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-              {shelf.is_baby_shelf && (
-                <span className="text-xs px-1.5 py-0.5 bg-orange-200 text-orange-800 rounded font-medium">
-                  Baby Shelf
-                </span>
-              )}
+            {/* Header Compacto con Ícono Educativo */}
+            <div className="bg-orange-50 px-4 py-2 border-l-2 border-orange-500 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Archive className="h-4 w-4 text-orange-600" />
+                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+                {shelf.is_baby_shelf && (
+                  <span className="text-xs px-1.5 py-0.5 bg-orange-200 text-orange-800 rounded font-medium">
+                    Baby Shelf
+                  </span>
+                )}
+              </div>
+              <EducationalTooltip type="shelf" />
             </div>
 
             {/* Grid Compacto */}
@@ -448,12 +536,15 @@ function CompletedOfferingsCard({ offerings }: { offerings: CompletedOffering[] 
 
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Percent className="h-4 w-4 text-green-600" />
-        <h4 className="text-sm font-bold text-slate-900">Completed Offerings</h4>
-        <span className="ml-auto text-xs font-medium px-2 py-0.5 bg-green-100 text-green-700 rounded">
-          {offerings.length}
-        </span>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-green-600" />
+          <h4 className="text-sm font-bold text-slate-900">Completed Offerings</h4>
+          <span className="text-xs font-medium px-2 py-0.5 bg-green-100 text-green-700 rounded">
+            {offerings.length}
+          </span>
+        </div>
+        <EducationalTooltip type="completed" />
       </div>
 
       <div className="overflow-x-auto">
