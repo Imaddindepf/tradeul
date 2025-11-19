@@ -1360,7 +1360,8 @@ class SECDilutionService:
             if filings_8k:
                 logger.info("multipass_pass6_8k", ticker=ticker, count=len(filings_8k))
                 # Chunking automático si hay muchos filings (6-K puede tener cientos)
-                chunk_size = 30  # Analizar 30 filings por vez
+                # REDUCIDO 30→5 para evitar exceder límite de tokens (8-K pueden ser muy grandes con exhibits)
+                chunk_size = 5  # Analizar 5 filings por vez
                 for i in range(0, len(filings_8k), chunk_size):
                     chunk = filings_8k[i:i+chunk_size]
                     logger.info("multipass_pass6_8k_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_8k)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
