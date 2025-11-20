@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Settings, Eye, EyeOff, GripVertical, X } from 'lucide-react';
 import type { Table as TanStackTable } from '@tanstack/react-table';
+import { Z_INDEX } from '@/lib/z-index';
 
 interface TableSettingsProps<T> {
   table: TanStackTable<T>;
@@ -12,8 +14,26 @@ export function TableSettings<T>({ table }: TableSettingsProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'visibility' | 'order'>('visibility');
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
+  const [panelPosition, setPanelPosition] = useState({ top: 0, right: 0 });
+  const [mounted, setMounted] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Montar el componente
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Calcular posición del panel basado en el botón
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setPanelPosition({
+        top: rect.bottom + 4, // 4px debajo del botón
+        right: window.innerWidth - rect.right, // Alineado a la derecha del botón
+      });
+    }
+  }, [isOpen]);
 
   const allColumns = table.getAllLeafColumns();
   const columnOrder = table.getState().columnOrder;
@@ -61,24 +81,16 @@ export function TableSettings<T>({ table }: TableSettingsProps<T>) {
     setDraggedColumn(null);
   };
 
-  return (
-    <div className="relative">
-      {/* Botón de configuración */}
-      <button
-        ref={buttonRef}
-        onClick={() => setIsOpen(!isOpen)}
-        className="p-1.5 hover:bg-blue-50 rounded transition-colors text-slate-600 hover:text-blue-600"
-        title="Configurar tabla"
-      >
-        <Settings className="w-4 h-4" />
-      </button>
-
-      {/* Panel desplegable */}
-      {isOpen && (
-        <div
-          ref={panelRef}
-          className="absolute right-0 top-full mt-1 w-72 bg-white shadow-xl rounded-lg border border-gray-200 z-50"
-        >
+  const panelContent = isOpen && mounted && (
+    <div
+      ref={panelRef}
+      className="fixed w-72 bg-white shadow-xl rounded-lg border border-gray-200"
+      style={{ 
+        top: `${panelPosition.top}px`,
+        right: `${panelPosition.right}px`,
+        zIndex: Z_INDEX.NAVBAR_POPOVER 
+      }}
+    >
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50">
             <div className="flex items-center gap-1.5">
@@ -185,20 +197,36 @@ export function TableSettings<T>({ table }: TableSettingsProps<T>) {
             )}
           </div>
 
-          {/* Footer */}
-          <div className="p-2 border-t border-gray-200 bg-gray-50">
-            <button
-              onClick={() => {
-                table.resetColumnVisibility();
-                table.setColumnOrder([]);
-              }}
-              className="w-full px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
-            >
-              Restaurar
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Footer */}
+      <div className="p-2 border-t border-gray-200 bg-gray-50">
+        <button
+          onClick={() => {
+            table.resetColumnVisibility();
+            table.setColumnOrder([]);
+          }}
+          className="w-full px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+        >
+          Restaurar
+        </button>
+      </div>
     </div>
+  );
+
+  return (
+    <>
+      {/* Botón de configuración */}
+      <button
+        ref={buttonRef}
+        onClick={() => setIsOpen(!isOpen)}
+        className="p-1.5 hover:bg-blue-50 rounded transition-colors text-slate-600 hover:text-blue-600"
+        title="Configurar tabla"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
+
+      {/* Panel - Renderizado en portal */}
+      {mounted && typeof document !== 'undefined' && panelContent && 
+        createPortal(panelContent, document.getElementById('portal-root')!)}
+    </>
   );
 }

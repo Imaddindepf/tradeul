@@ -17,7 +17,9 @@ import {
   Maximize2,
 } from 'lucide-react';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useSidebar } from '@/contexts/SidebarContext';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
+import { Z_INDEX } from '@/lib/z-index';
 
 interface NavItem {
   name: string;
@@ -65,7 +67,7 @@ const navItems: NavItem[] = [
 ];
 
 export function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  const { collapsed, setCollapsed } = useSidebar();
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
   const { openWindow } = useFloatingWindow();
@@ -98,7 +100,8 @@ export function Sidebar() {
       {/* Mobile Menu Button */}
       <button
         onClick={toggleMobile}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-lg bg-white shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+        className="lg:hidden fixed top-4 left-4 p-2 rounded-lg bg-white shadow-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+        style={{ zIndex: Z_INDEX.SIDEBAR_MOBILE_BUTTON }}
         aria-label="Toggle menu"
       >
         {mobileOpen ? (
@@ -111,7 +114,8 @@ export function Sidebar() {
       {/* Mobile Overlay */}
       {mobileOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-30"
+          className="lg:hidden fixed inset-0 bg-black/50"
+          style={{ zIndex: Z_INDEX.SIDEBAR_MOBILE_OVERLAY }}
           onClick={toggleMobile}
         />
       )}
@@ -119,19 +123,20 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside
         className={`
-          fixed top-0 left-0 h-screen bg-white border-r border-slate-200 z-40
+          fixed top-0 left-0 h-screen bg-white border-r border-slate-200
           transition-all duration-300 ease-in-out
           ${collapsed ? 'w-20' : 'w-64'}
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0
           shadow-xl lg:shadow-sm
         `}
+        style={{ zIndex: Z_INDEX.SIDEBAR }}
       >
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between p-5 border-b border-slate-200">
-            <div className={`flex items-center gap-3 ${collapsed ? 'lg:justify-center lg:w-full' : ''}`}>
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md">
+          <div className={`flex items-center border-b border-slate-200 ${collapsed ? 'flex-col p-3 gap-2' : 'justify-between p-5'}`}>
+            <div className={`flex items-center gap-3 ${collapsed ? 'lg:justify-center' : ''}`}>
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-md shrink-0">
                 <span className="text-white font-bold text-xl">T</span>
               </div>
               {!collapsed && (
@@ -145,7 +150,7 @@ export function Sidebar() {
             {/* Desktop Collapse Button */}
             <button
               onClick={toggleCollapse}
-              className="hidden lg:flex p-1.5 rounded-md hover:bg-slate-100 transition-colors"
+              className="hidden lg:flex p-1.5 rounded-md hover:bg-slate-100 transition-colors shrink-0"
               aria-label="Toggle sidebar"
             >
               {collapsed ? (
@@ -203,7 +208,10 @@ export function Sidebar() {
 
                           {/* Tooltip for collapsed state */}
                           {collapsed && (
-                            <div className="absolute left-full ml-2 px-3 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 shadow-xl">
+                            <div 
+                              className="absolute left-full ml-2 px-3 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap shadow-xl"
+                              style={{ zIndex: Z_INDEX.TOOLTIP }}
+                            >
                               {item.name}
                               <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 w-2 h-2 bg-slate-900 rotate-45" />
                             </div>
@@ -280,7 +288,10 @@ export function Sidebar() {
 
                       {/* Tooltip for collapsed state */}
                       {collapsed && (
-                        <div className="absolute left-full ml-2 px-3 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 shadow-xl">
+                        <div 
+                          className="absolute left-full ml-2 px-3 py-2 bg-slate-900 text-white text-sm font-medium rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap shadow-xl"
+                          style={{ zIndex: Z_INDEX.TOOLTIP }}
+                        >
                           {item.name}
                           {item.comingSoon && (
                             <span className="ml-2 text-xs text-slate-400">(Próximamente)</span>

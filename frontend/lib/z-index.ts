@@ -49,9 +49,12 @@ export const Z_INDEX = {
   // ============================================================================
   // DROPDOWNS & TOOLTIPS (40-49)
   // ============================================================================
-  /** Dropdowns, select menus, tooltips */
+  /** Dropdowns, select menus, tooltips (DEBAJO de tablas flotantes) */
   DROPDOWN: 40,
   TOOLTIP: 45,
+  
+  /** Popovers del navbar (SOBRE tablas flotantes) */
+  NAVBAR_POPOVER: 8999,
   
   // ============================================================================
   // SECONDARY PANELS & OVERLAYS (50-59)
@@ -75,10 +78,13 @@ export const Z_INDEX = {
   ALERT_MODAL: 70,
   
   // ============================================================================
-  // FLOATING WINDOWS (1000-8999)
+  // FLOATING WINDOWS (100-999)
   // ============================================================================
   /** Base para ventanas flotantes (se incrementa dinámicamente) */
-  FLOATING_WINDOW_BASE: 1000,
+  FLOATING_WINDOW_BASE: 100,
+  
+  /** Botón de configuración del scanner (debe estar sobre tablas) */
+  SCANNER_CONFIG_BUTTON: 900,
   
   /** Manager de ventanas flotantes */
   FLOATING_WINDOW_MANAGER: 8999,

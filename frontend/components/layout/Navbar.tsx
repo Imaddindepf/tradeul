@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { ReactNode } from 'react';
 import { Z_INDEX } from '@/lib/z-index';
+import { useSidebar } from '@/contexts/SidebarContext';
 
 interface NavbarProps {
   children?: ReactNode;
@@ -14,19 +15,21 @@ interface NavbarProps {
  * - Mismo nivel z-index que Sidebar (ambos son navegación global)
  * - Contenido dinámico según la página actual
  * - Se usa en el layout principal
+ * - Se ajusta automáticamente cuando el sidebar colapsa
  */
 export function Navbar({ children }: NavbarProps) {
   const pathname = usePathname();
+  const { sidebarWidth } = useSidebar();
 
   // Determinar la página actual
   const currentPage = pathname?.split('/')[1] || '';
 
   return (
     <nav
-      className="fixed top-0 right-0 h-16 bg-white border-b border-slate-200 shadow-sm"
+      className="fixed top-0 right-0 h-16 bg-white border-b border-slate-200 shadow-sm transition-all duration-300"
       style={{ 
-        left: 'var(--sidebar-width, 256px)', // Ajusta según ancho del sidebar
-        zIndex: Z_INDEX.SIDEBAR, // Mismo nivel que sidebar
+        left: `${sidebarWidth}px`, // Se ajusta dinámicamente cuando el sidebar colapsa
+        zIndex: Z_INDEX.NAVBAR, // Mismo nivel que sidebar
       }}
     >
       <div className="h-full px-6">

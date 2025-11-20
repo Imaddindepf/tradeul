@@ -20,7 +20,7 @@ export function MarketTableLayout({
   rightActions,
 }: MarketTableLayoutProps) {
   return (
-    <div className="flex items-center justify-between px-3 py-2 bg-white border-b-2 border-blue-500">
+    <div className="table-drag-handle flex items-center justify-between px-3 py-2 bg-white border-b-2 border-blue-500 cursor-move">
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           <div className="w-1 h-6 bg-blue-500 rounded-full"></div>
@@ -50,7 +50,11 @@ export function MarketTableLayout({
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div 
+        className="flex items-center gap-3"
+        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         {lastUpdateTime && (
           <div className="flex items-center gap-1.5 text-xs">
             <span className="text-slate-500">Updated</span>

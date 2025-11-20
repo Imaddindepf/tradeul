@@ -6,7 +6,7 @@ export interface MarketStatus {
   market: 'open' | 'closed' | 'extended-hours';
   earlyHours: boolean;
   afterHours: boolean;
-  exchanges: {
+  exchanges?: {
     nasdaq?: string;
     nyse?: string;
     otc?: string;
@@ -95,7 +95,7 @@ export function MarketStatusBadge({ status, compact = false }: MarketStatusBadge
           border ${state.borderColor} ${state.bgColor}
           transition-all duration-300
         `}
-        title={`${state.sublabel} • NYSE: ${status.exchanges.nyse || 'N/A'} • NASDAQ: ${status.exchanges.nasdaq || 'N/A'}`}
+        title={`${state.sublabel} • NYSE: ${status.exchanges?.nyse || 'N/A'} • NASDAQ: ${status.exchanges?.nasdaq || 'N/A'}`}
       >
         {/* Dot animado */}
         {state.animate && (
@@ -150,21 +150,23 @@ export function MarketStatusBadge({ status, compact = false }: MarketStatusBadge
       )}
 
       {/* Exchange status (tooltip on hover) */}
-      <div className={`hidden lg:flex items-center gap-1 text-xs ${state.textColor} opacity-60`}>
-        <span className="font-mono">NYSE</span>
-        <span className={`w-1.5 h-1.5 rounded-full ${
-          status.exchanges.nyse === 'open' ? 'bg-green-500' :
-          status.exchanges.nyse === 'extended-hours' ? 'bg-orange-500' :
-          'bg-gray-400'
-        }`}></span>
-        <span className="mx-1">•</span>
-        <span className="font-mono">NSDQ</span>
-        <span className={`w-1.5 h-1.5 rounded-full ${
-          status.exchanges.nasdaq === 'open' ? 'bg-green-500' :
-          status.exchanges.nasdaq === 'extended-hours' ? 'bg-orange-500' :
-          'bg-gray-400'
-        }`}></span>
-      </div>
+      {status.exchanges && (
+        <div className={`hidden lg:flex items-center gap-1 text-xs ${state.textColor} opacity-60`}>
+          <span className="font-mono">NYSE</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${
+            status.exchanges.nyse === 'open' ? 'bg-green-500' :
+            status.exchanges.nyse === 'extended-hours' ? 'bg-orange-500' :
+            'bg-gray-400'
+          }`}></span>
+          <span className="mx-1">•</span>
+          <span className="font-mono">NSDQ</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${
+            status.exchanges.nasdaq === 'open' ? 'bg-green-500' :
+            status.exchanges.nasdaq === 'extended-hours' ? 'bg-orange-500' :
+            'bg-gray-400'
+          }`}></span>
+        </div>
+      )}
     </div>
   );
 }

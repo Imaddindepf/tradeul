@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock, Circle } from 'lucide-react';
+import { Z_INDEX } from '@/lib/z-index';
 
 // Tipo completo del response de Polygon
 export interface PolygonMarketStatus {
@@ -9,7 +11,7 @@ export interface PolygonMarketStatus {
   serverTime: string;
   earlyHours: boolean;
   afterHours: boolean;
-  exchanges: {
+  exchanges?: {
     nasdaq?: string;
     nyse?: string;
     otc?: string;
@@ -39,6 +41,14 @@ interface MarketStatusPopoverProps {
 export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [showPopover, setShowPopover] = useState(false);
+  const [popoverPosition, setPopoverPosition] = useState({ top: 0, right: 0 });
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Montar el componente
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Actualizar hora cada segundo
   useEffect(() => {
@@ -48,6 +58,17 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
 
     return () => clearInterval(timer);
   }, []);
+
+  // Calcular posición del popover basado en el trigger
+  useEffect(() => {
+    if (showPopover && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPopoverPosition({
+        top: rect.bottom + 8, // 8px debajo del trigger
+        right: window.innerWidth - rect.right, // Alineado a la derecha del trigger
+      });
+    }
+  }, [showPopover]);
 
   // Formato de hora: HH:MM:SS
   const formatTime = (date: Date) => {
@@ -116,10 +137,61 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
 
   const marketState = getMarketState();
 
+  const popoverContent = showPopover && status && mounted && (
+    <div
+      className="fixed w-72 bg-white rounded-lg shadow-2xl border border-slate-200 p-3"
+      style={{
+        top: `${popoverPosition.top}px`,
+        right: `${popoverPosition.right}px`,
+        zIndex: Z_INDEX.NAVBAR_POPOVER
+      }}
+      onMouseEnter={() => setShowPopover(true)}
+      onMouseLeave={() => setShowPopover(false)}
+    >
+      {/* Header */}
+      <div className="mb-3 pb-2 border-b border-slate-200">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-600">Market Status</span>
+          <span className={`text-xs font-bold ${marketState.color}`}>
+            {marketState.label}
+          </span>
+        </div>
+      </div>
+
+      {/* US Stock Exchanges */}
+      {status.exchanges && (
+        <div className="mb-3">
+          <h4 className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
+            US Exchanges
+          </h4>
+          <div className="space-y-1">
+            <StatusItemCompact label="NYSE" status={status.exchanges.nyse} />
+            <StatusItemCompact label="Nasdaq" status={status.exchanges.nasdaq} />
+            <StatusItemCompact label="OTC" status={status.exchanges.otc} />
+          </div>
+        </div>
+      )}
+
+      {/* Currencies */}
+      {status.currencies && (
+        <div>
+          <h4 className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
+            Currencies
+          </h4>
+          <div className="space-y-1">
+            <StatusItemCompact label="Crypto" status={status.currencies.crypto} />
+            <StatusItemCompact label="Forex" status={status.currencies.fx} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="relative">
+    <>
       {/* Trigger - Hora del usuario */}
       <div
+        ref={triggerRef}
         className="flex items-center gap-3 px-4 py-2 rounded-lg border border-slate-200 bg-white hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
         onMouseEnter={() => setShowPopover(true)}
         onMouseLeave={() => setShowPopover(false)}
@@ -135,50 +207,10 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
         </div>
       </div>
 
-      {/* Popover - Market Status Compacto */}
-      {showPopover && status && (
-        <div
-          className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-2xl border border-slate-200 p-3 z-50"
-          onMouseEnter={() => setShowPopover(true)}
-          onMouseLeave={() => setShowPopover(false)}
-        >
-          {/* Header */}
-          <div className="mb-3 pb-2 border-b border-slate-200">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-600">Market Status</span>
-              <span className={`text-xs font-bold ${marketState.color}`}>
-                {marketState.label}
-              </span>
-            </div>
-          </div>
-
-          {/* US Stock Exchanges */}
-          <div className="mb-3">
-            <h4 className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
-              US Exchanges
-            </h4>
-            <div className="space-y-1">
-              <StatusItemCompact label="NYSE" status={status.exchanges.nyse} />
-              <StatusItemCompact label="Nasdaq" status={status.exchanges.nasdaq} />
-              <StatusItemCompact label="OTC" status={status.exchanges.otc} />
-            </div>
-          </div>
-
-          {/* Currencies */}
-          {status.currencies && (
-            <div>
-              <h4 className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
-                Currencies
-              </h4>
-              <div className="space-y-1">
-                <StatusItemCompact label="Crypto" status={status.currencies.crypto} />
-                <StatusItemCompact label="Forex" status={status.currencies.fx} />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      {/* Popover - Renderizado en portal */}
+      {mounted && typeof document !== 'undefined' && popoverContent &&
+        createPortal(popoverContent, document.getElementById('portal-root')!)}
+    </>
   );
 }
 
