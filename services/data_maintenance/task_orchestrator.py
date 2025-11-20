@@ -67,14 +67,26 @@ class TaskOrchestrator:
         Ejecutar ciclo completo de mantenimiento
         
         Args:
-            target_date: Fecha para la cual ejecutar mantenimiento (default: yesterday)
+            target_date: Fecha para la cual ejecutar mantenimiento (default: today if after market close)
         
         Returns:
             True si todas las tareas se completaron exitosamente
         """
         if target_date is None:
             from datetime import timedelta
-            target_date = (datetime.now().date() - timedelta(days=1))
+            from zoneinfo import ZoneInfo
+            
+            # Obtener hora actual en Eastern Time
+            now_et = datetime.now(ZoneInfo("America/New_York"))
+            current_hour = now_et.hour
+            
+            # Si ejecuta después del cierre (16:00+), usar fecha ACTUAL
+            # El mercado de HOY ya cerró, entonces cargamos datos de HOY
+            if current_hour >= 16:
+                target_date = now_et.date()
+            else:
+                # Si ejecuta de madrugada (antes de market open), usar día anterior
+                target_date = now_et.date() - timedelta(days=1)
         
         date_str = target_date.isoformat()
         
