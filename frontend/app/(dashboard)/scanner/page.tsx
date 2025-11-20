@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
-import CategoryTableV2 from '@/components/scanner/CategoryTableV2';
+import { DraggableTable } from '@/components/scanner/DraggableTable';
+import { Navbar, NavbarContent } from '@/components/layout/Navbar';
+import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { Settings2 } from 'lucide-react';
 
 type ScannerCategory = {
@@ -102,32 +104,47 @@ export default function ScannerPage() {
     .map((id) => AVAILABLE_CATEGORIES.find((cat) => cat.id === id))
     .filter(Boolean) as ScannerCategory[];
 
-  return (
-    <main className="min-h-screen bg-white relative">
-      {/* Header - Full Width */}
-      <header className="border-b border-slate-200 bg-white sticky top-0 z-30 shadow-sm w-full">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Escáner de Mercado</h1>
-              <p className="text-sm text-slate-600 mt-0.5">
-                {activeCategories.length} {activeCategories.length === 1 ? 'tabla activa' : 'tablas activas'} • Solo WebSockets de tablas seleccionadas
-              </p>
-            </div>
-            {session && mounted && (
-              <div className={`
-                px-3 py-1.5 rounded-lg text-sm font-medium
-                ${sessionColors[session.current_session as keyof typeof sessionColors]}
-              `}>
-                {session.current_session.replace('_', ' ')}
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
+  // Estado para Z-index de tablas arrastrables
+  const [zIndexes, setZIndexes] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    activeCategoryData.forEach((cat, idx) => {
+      initial[cat.id] = 1000 + idx;
+    });
+    return initial;
+  });
 
-      {/* Content Area */}
-      <div className="relative min-h-screen">
+  const bringToFront = (categoryId: string) => {
+    const maxZ = Math.max(...Object.values(zIndexes));
+    setZIndexes(prev => ({
+      ...prev,
+      [categoryId]: maxZ + 1
+    }));
+  };
+
+  return (
+    <>
+      {/* Navbar Global con Market Status */}
+      <Navbar>
+        <NavbarContent
+          title="Escáner de Mercado"
+          subtitle={`${activeCategories.length} ${activeCategories.length === 1 ? 'tabla activa' : 'tablas activas'}`}
+          statusBadge={session && mounted ? <MarketStatusPopover status={session as any} /> : null}
+          actions={
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              <Settings2 className="h-4 w-4" />
+              <span className="text-sm font-medium">Configurar</span>
+            </button>
+          }
+        />
+      </Navbar>
+
+      {/* Main Content - Con padding-top para el navbar */}
+      <main className="min-h-screen bg-slate-50 relative" style={{ paddingTop: '64px' }}>
+        {/* Content Area */}
+        <div className="relative min-h-screen">
         {/* Overlay cuando panel está abierto - Solo sobre área del scanner */}
         {sidebarOpen && (
           <div
@@ -214,46 +231,35 @@ export default function ScannerPage() {
         </div>
         </div>
 
-        {/* Mini Button - Dentro del área del scanner */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="absolute left-0 top-8 z-[60]
-                     bg-blue-600 hover:bg-blue-700 text-white
-                     rounded-r-lg shadow-lg hover:shadow-xl
-                     flex flex-col items-center justify-center gap-1 py-3 px-2.5
-                     transition-all duration-200"
-          title="Configurar categorías"
-        >
-          <Settings2 className="h-5 w-5" />
-          <div className="text-[10px] font-bold leading-none">
-            {activeCategories.length}
-          </div>
-        </button>
-
-        {/* Tables Grid - No se desplaza */}
-        <div className="w-full px-6 py-6">
+        {/* Draggable Tables Area */}
+        <div className="relative w-full h-[calc(100vh-64px)] overflow-hidden">
           {activeCategoryData.length === 0 ? (
-            <div className="flex items-center justify-center h-[calc(100vh-200px)]">
+            <div className="flex items-center justify-center h-full">
               <div className="text-center text-slate-500">
                 <Settings2 className="h-16 w-16 mx-auto mb-4 text-slate-300" />
                 <p className="text-xl font-semibold text-slate-700">No hay tablas seleccionadas</p>
                 <p className="text-sm mt-2 text-slate-500">
-                  Haz clic en el botón azul del lado izquierdo para configurar
+                  Haz clic en "Configurar" en el navbar para seleccionar categorías
                 </p>
               </div>
             </div>
           ) : (
-        <div className="grid grid-cols-12 gap-4 grid-flow-dense" data-grid-root>
-              {activeCategoryData.map((category) => (
-                <div key={category.id} className="col-span-12 lg:col-span-6 m-0 p-0">
-                  <CategoryTableV2 title={category.name} listName={category.id} />
-                </div>
+            <>
+              {activeCategoryData.map((category, index) => (
+                <DraggableTable
+                  key={category.id}
+                  category={category}
+                  index={index}
+                  zIndex={zIndexes[category.id] || 1000 + index}
+                  onBringToFront={() => bringToFront(category.id)}
+                />
               ))}
-          </div>
+            </>
           )}
         </div>
-      </div>
-    </main>
+        </div>
+      </main>
+    </>
   );
 }
 
