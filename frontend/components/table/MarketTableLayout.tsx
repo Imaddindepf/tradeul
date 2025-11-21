@@ -22,25 +22,25 @@ export function MarketTableLayout({
   rightActions,
   listName,
 }: MarketTableLayoutProps) {
-  
+
   const handleOpenNewWindow = () => {
     if (!listName) return;
-    
+
     // Construir URL completa con origin
     const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
     const url = `${origin}/standalone/scanner/${listName}`;
-    
+
     const width = 1200;
     const height = 800;
     const left = typeof window !== 'undefined' ? (window.screen.width - width) / 2 : 100;
     const top = typeof window !== 'undefined' ? (window.screen.height - height) / 2 : 100;
-    
+
     const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
-    
+
     // Abrir con URL completa
     window.open(url, '_blank', windowFeatures);
   };
-  
+
   return (
     <div className="table-drag-handle flex items-center justify-between px-3 py-2 bg-white border-b-2 border-blue-500 cursor-move">
       <div className="flex items-center gap-4">
@@ -72,7 +72,7 @@ export function MarketTableLayout({
         )}
       </div>
 
-      <div 
+      <div
         className="flex items-center gap-2"
         onMouseDown={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
@@ -85,7 +85,7 @@ export function MarketTableLayout({
             </span>
           </div>
         )}
-        
+
         {/* Botón de abrir en nueva ventana */}
         {listName && (
           <button
@@ -96,7 +96,7 @@ export function MarketTableLayout({
             <ExternalLink className="w-4 h-4 text-slate-600 group-hover:text-blue-600" />
           </button>
         )}
-        
+
         {rightActions}
       </div>
     </div>
