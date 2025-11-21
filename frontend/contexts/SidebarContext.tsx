@@ -12,7 +12,7 @@ const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
-  const sidebarWidth = collapsed ? 80 : 256;
+  const sidebarWidth = collapsed ? 64 : 192; // Más compacto: 192px expandido, 64px colapsado
 
   return (
     <SidebarContext.Provider value={{ collapsed, setCollapsed, sidebarWidth }}>

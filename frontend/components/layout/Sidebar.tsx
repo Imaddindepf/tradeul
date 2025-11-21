@@ -125,7 +125,7 @@ export function Sidebar() {
         className={`
           fixed top-0 left-0 h-screen bg-white border-r border-slate-200
           transition-all duration-300 ease-in-out
-          ${collapsed ? 'w-20' : 'w-64'}
+          ${collapsed ? 'w-16' : 'w-48'}
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
           lg:translate-x-0
           shadow-xl lg:shadow-sm
