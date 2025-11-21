@@ -253,14 +253,17 @@ export default function ScannerPage() {
             </div>
           </div>
 
-          {/* Mini Button - Botón flotante pegado al sidebar */}
+          {/* Mini Button - Botón flotante pegado al borde del sidebar (dinámico) */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="absolute left-0 top-8 bg-blue-600 hover:bg-blue-700 text-white
+            className="fixed top-24 bg-blue-600 hover:bg-blue-700 text-white
                      rounded-r-lg shadow-lg hover:shadow-xl
                      flex flex-col items-center justify-center gap-1 py-3 px-2.5
-                     transition-all duration-200"
-            style={{ zIndex: Z_INDEX.SCANNER_BUTTON }}
+                     transition-all duration-300"
+            style={{ 
+              left: `${sidebarWidth}px`, // Pegado al borde del sidebar (dinámico)
+              zIndex: Z_INDEX.SCANNER_BUTTON 
+            }}
             title="Configurar categorías"
           >
             <Settings2 className="h-5 w-5" />
