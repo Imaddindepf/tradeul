@@ -8,6 +8,7 @@ import { Navbar, NavbarContent } from '@/components/layout/Navbar';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { Settings2 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
+import { useSidebar } from '@/contexts/SidebarContext';
 
 type ScannerCategory = {
   id: string;
@@ -72,6 +73,7 @@ function adaptMarketSession(session: MarketSession) {
 }
 
 export default function ScannerPage() {
+  const { sidebarWidth } = useSidebar(); // Obtener ancho dinámico del sidebar
   const [session, setSession] = useState<MarketSession | null>(null);
   const [mounted, setMounted] = useState(false);
   const [activeCategories, setActiveCategories] = useState<string[]>(DEFAULT_CATEGORIES);
@@ -170,15 +172,16 @@ export default function ScannerPage() {
             />
           )}
 
-          {/* Sliding Panel - Empieza debajo del navbar */}
+          {/* Sliding Panel - Fixed para evitar gaps, dinámico según sidebar */}
           <div
             className={`
-            absolute bottom-0 w-64 bg-white border-r border-slate-200
+            fixed w-64 bg-white border-r border-slate-200
             shadow-2xl transition-all duration-300 ease-out overflow-y-auto
           `}
             style={{
-              top: '64px', // LÍMITE: Empieza debajo del navbar (h-16 = 64px)
-              left: sidebarOpen ? 0 : '-100%',
+              top: '64px', // LÍMITE: Empieza justo debajo del navbar (h-16 = 64px)
+              bottom: 0, // Llega hasta abajo
+              left: sidebarOpen ? `${sidebarWidth}px` : `-256px`, // Pegado al sidebar (dinámico)
               visibility: sidebarOpen ? 'visible' : 'hidden',
               zIndex: Z_INDEX.SCANNER_PANEL
             }}
