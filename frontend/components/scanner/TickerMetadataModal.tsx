@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState, memo } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
 import type { CompanyMetadata, Ticker } from '@/lib/types';
 import { getCompanyMetadata } from '@/lib/api';
 import { formatNumber } from '@/lib/formatters';
+import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 
 interface TickerMetadataModalProps {
   symbol: string | null;
@@ -79,22 +81,6 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
     };
   }, [isOpen, onClose]);
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen, onClose]);
-
   if (!isOpen || !symbol || !mounted) return null;
 
   const formatPrice = (price: number | undefined | null) => {
@@ -114,16 +100,19 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   };
 
   const modalContent = (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      style={{ position: 'fixed' }}
+    <FloatingWindowBase
+      dragHandleClassName="modal-drag-handle"
+      initialSize={{ width: 900, height: 600 }}
+      minWidth={600}
+      minHeight={400}
+      maxWidth={1400}
+      maxHeight={900}
+      enableResizing={true}
+      className="bg-white"
     >
-      <div
-        ref={modalRef}
-        className="relative w-full max-w-4xl max-h-[85vh] overflow-hidden bg-white rounded-lg shadow-2xl"
-      >
-        {/* Header ultra compacto */}
-        <div className="bg-slate-800 px-6 py-3 flex items-center justify-between">
+      <div ref={modalRef} className="h-full w-full overflow-hidden flex flex-col">
+        {/* Header arrastrable - como DraggableTable */}
+        <div className="modal-drag-handle bg-slate-800 px-6 py-3 flex items-center justify-between cursor-move select-none">
           <div className="flex items-center gap-4 flex-1">
             {loading ? (
               <div className="w-10 h-10 bg-slate-700 rounded animate-pulse" />
@@ -143,21 +132,19 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
                 {formatPrice(tickerData?.price)}
               </span>
               <span
-                className={`text-sm font-medium px-2 py-0.5 rounded ${
-                  (tickerData?.change_percent ?? 0) >= 0
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-rose-500 text-white'
-                }`}
+                className={`text-sm font-medium px-2 py-0.5 rounded ${(tickerData?.change_percent ?? 0) >= 0
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-rose-500 text-white'
+                  }`}
               >
                 {formatPercent(tickerData?.change_percent)}
               </span>
               {metadata?.is_actively_trading !== undefined && (
                 <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                    metadata.is_actively_trading
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}
+                  className={`text-xs font-semibold px-2 py-0.5 rounded ${metadata.is_actively_trading
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-slate-100 text-slate-600'
+                    }`}
                 >
                   {metadata.is_actively_trading ? 'Active' : 'Inactive'}
                 </span>
@@ -167,17 +154,15 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
 
           <button
             onClick={onClose}
-            className="text-slate-300 hover:text-white hover:bg-slate-700 rounded p-1.5 transition-all"
-            aria-label="Close"
+            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            title="Cerrar (Esc)"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-5 h-5 text-white" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="overflow-y-auto" style={{ maxHeight: 'calc(85vh - 60px)' }}>
+        {/* Content con scroll */}
+        <div className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-slate-900"></div>
@@ -274,9 +259,8 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
               {metadata.description && (
                 <div className="pt-2 border-t border-slate-200">
                   <p
-                    className={`text-sm text-slate-600 leading-relaxed ${
-                      !descriptionExpanded ? 'line-clamp-2' : ''
-                    }`}
+                    className={`text-sm text-slate-600 leading-relaxed ${!descriptionExpanded ? 'line-clamp-2' : ''
+                      }`}
                   >
                     {metadata.description}
                   </p>
@@ -388,7 +372,7 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
           )}
         </div>
       </div>
-    </div>
+    </FloatingWindowBase>
   );
 
   return createPortal(

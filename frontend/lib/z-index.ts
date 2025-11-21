@@ -1,105 +1,82 @@
 /**
- * Sistema Centralizado de Z-Index
+ * Sistema Profesional de Z-Index
  * ================================
  * 
- * Define una jerarquía clara de capas para evitar conflictos de z-index.
- * SIEMPRE usar estas constantes en lugar de valores hardcodeados.
+ * Arquitectura simple y lógica con 4 capas:
  * 
- * Jerarquía (de menor a mayor):
- * 1. Base (0-9): Elementos base sin posicionamiento especial
- * 2. Sticky Elements (10-19): Headers, footers sticky
- * 3. Navigation (20-39): Sidebars, navbars
- * 4. Dropdowns & Tooltips (40-49): Elementos que flotan sobre contenido
- * 5. Overlays (50-59): Overlays de paneles secundarios
- * 6. Modals (60-79): Modales y diálogos
- * 7. Floating Windows (1000+): Ventanas flotantes con z-index dinámico
- * 8. Toasts & Notifications (9000-9999): Notificaciones y alertas
+ * CAPA 1 (z-50): Navegación Global (Navbar + Sidebar) - Siempre visible
+ * CAPA 2 (z-40): Controles del Scanner - Sobre navegación pero bajo contenido
+ * CAPA 3 (z-10 a z-9999): Contenido Flotante - Todas las ventanas compiten por foco
+ * CAPA 0 (z-0): Base - Dashboard background
  */
 
 export const Z_INDEX = {
   // ============================================================================
-  // BASE LAYER (0-9)
+  // CAPA 0: BASE (z-0)
   // ============================================================================
   BASE: 0,
   
   // ============================================================================
-  // STICKY ELEMENTS (10-19)
+  // CAPA 3: CONTENIDO FLOTANTE (z-10 a z-9999)
   // ============================================================================
-  /** Headers sticky de tablas y listas */
-  TABLE_HEADER: 10,
+  /** 
+   * Inicio para TODO el contenido flotante:
+   * - Tablas del scanner
+   * - Modal de metadata (como ventana flotante)
+   * - Dilution Tracker
+   * - Cualquier otra ventana
+   * 
+   * TODAS compiten por el foco y se apilan dinámicamente
+   */
+  FLOATING_CONTENT_BASE: 10,
+  FLOATING_WINDOW_BASE: 10, // Alias para compatibilidad
   
-  /** Sticky headers de páginas (debajo de navigation) */
-  PAGE_HEADER: 15,
+  /** Límite máximo para contenido flotante */
+  FLOATING_CONTENT_MAX: 9999,
+  FLOATING_WINDOW_MANAGER: 899, // Alias para compatibilidad
   
   // ============================================================================
-  // NAVIGATION (20-39)
+  // CAPA 2: CONTROLES DEL SCANNER (z-40)
   // ============================================================================
-  /** Overlay del mobile menu del sidebar principal */
-  SIDEBAR_MOBILE_OVERLAY: 20,
+  /** Overlay que oscurece el fondo cuando el panel está abierto */
+  SCANNER_PANEL_OVERLAY: 39,
+  
+  /** Panel deslizante de configuración de categorías */
+  SCANNER_PANEL: 40,
+  
+  /** Botón azul para abrir el panel de configuración */
+  SCANNER_BUTTON: 40,
+  
+  /** Popovers de configuración de tablas (columnas, filtros) */
+  TABLE_SETTINGS_POPOVER: 40,
+  
+  // ============================================================================
+  // CAPA 1: NAVEGACIÓN GLOBAL (z-50)
+  // ============================================================================
+  /** Overlay del mobile menu del sidebar */
+  SIDEBAR_MOBILE_OVERLAY: 49,
   
   /** Sidebar principal de navegación */
-  SIDEBAR: 30,
+  SIDEBAR: 50,
   
-  /** Navbar principal (mismo nivel que sidebar - ambos son navegación global) */
-  NAVBAR: 30,
+  /** Navbar principal (mismo nivel que sidebar) */
+  NAVBAR: 50,
   
   /** Botón del mobile menu (debe estar sobre el sidebar) */
-  SIDEBAR_MOBILE_BUTTON: 35,
+  SIDEBAR_MOBILE_BUTTON: 51,
+  
+  /** Popovers del navbar (Market Status, etc.) - sobre el navbar mismo */
+  NAVBAR_POPOVER: 52,
   
   // ============================================================================
-  // DROPDOWNS & TOOLTIPS (40-49)
+  // ELEMENTOS AUXILIARES
   // ============================================================================
-  /** Dropdowns, select menus, tooltips (DEBAJO de tablas flotantes) */
-  DROPDOWN: 40,
-  TOOLTIP: 45,
+  /** Headers sticky dentro de contenedores scrollables */
+  TABLE_HEADER: 5,
   
-  /** Popovers del navbar (SOBRE tablas flotantes) */
-  NAVBAR_POPOVER: 8999,
-  
-  // ============================================================================
-  // SECONDARY PANELS & OVERLAYS (50-59)
-  // ============================================================================
-  /** Overlay de paneles secundarios (como el mini sidebar del scanner) */
-  PANEL_OVERLAY: 50,
-  
-  /** Paneles deslizantes secundarios (mini sidebar del scanner) */
-  SLIDING_PANEL: 55,
-  
-  // ============================================================================
-  // MODALS (60-79)
-  // ============================================================================
-  /** Overlay/backdrop de modales */
-  MODAL_OVERLAY: 60,
-  
-  /** Contenido del modal (debe estar sobre el overlay) */
-  MODAL_CONTENT: 65,
-  
-  /** Modales de confirmación/alertas (sobre otros modales) */
-  ALERT_MODAL: 70,
-  
-  // ============================================================================
-  // FLOATING WINDOWS (100-999)
-  // ============================================================================
-  /** Base para ventanas flotantes (se incrementa dinámicamente) */
-  FLOATING_WINDOW_BASE: 100,
-  
-  /** Botón de configuración del scanner (debe estar sobre tablas) */
-  SCANNER_CONFIG_BUTTON: 900,
-  
-  /** Manager de ventanas flotantes */
-  FLOATING_WINDOW_MANAGER: 8999,
-  
-  // ============================================================================
-  // NOTIFICATIONS (9000-9999)
-  // ============================================================================
-  /** Toasts y notificaciones */
-  TOAST: 9000,
-  
-  /** Notificaciones de sistema críticas */
-  NOTIFICATION: 9500,
-  
-  /** Máximo z-index reservado para elementos críticos */
-  MAX: 9999,
+  /** Tooltips y dropdowns básicos */
+  TOOLTIP: 35,
+  DROPDOWN: 35,
 } as const;
 
 /**
@@ -110,10 +87,39 @@ export function debugZIndex() {
 }
 
 /**
- * Valida que un z-index esté dentro del rango apropiado
+ * Clase global para gestionar el z-index dinámico del contenido flotante
  */
-export function isValidZIndex(value: number, layer: keyof typeof Z_INDEX): boolean {
-  const layerValue = Z_INDEX[layer];
-  return value >= layerValue && value < layerValue + 10;
+class FloatingContentZIndexManager {
+  private currentMaxZ: number = Z_INDEX.FLOATING_CONTENT_BASE;
+  
+  /**
+   * Obtiene un nuevo z-index para contenido flotante
+   */
+  getNext(): number {
+    this.currentMaxZ += 1;
+    
+    // Si llegamos al máximo, reiniciamos
+    if (this.currentMaxZ >= Z_INDEX.FLOATING_CONTENT_MAX) {
+      this.currentMaxZ = Z_INDEX.FLOATING_CONTENT_BASE + 1;
+    }
+    
+    return this.currentMaxZ;
+  }
+  
+  /**
+   * Obtiene el z-index actual más alto
+   */
+  getCurrent(): number {
+    return this.currentMaxZ;
+  }
+  
+  /**
+   * Resetea el contador (útil para testing)
+   */
+  reset(): void {
+    this.currentMaxZ = Z_INDEX.FLOATING_CONTENT_BASE;
+  }
 }
 
+// Instancia global del manager
+export const floatingZIndexManager = new FloatingContentZIndexManager();

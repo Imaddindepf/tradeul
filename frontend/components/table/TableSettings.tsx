@@ -88,7 +88,7 @@ export function TableSettings<T>({ table }: TableSettingsProps<T>) {
       style={{ 
         top: `${panelPosition.top}px`,
         right: `${panelPosition.right}px`,
-        zIndex: Z_INDEX.NAVBAR_POPOVER 
+        zIndex: Z_INDEX.TABLE_SETTINGS_POPOVER 
       }}
     >
           {/* Header */}

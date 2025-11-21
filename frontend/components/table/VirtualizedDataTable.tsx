@@ -92,10 +92,30 @@ export function VirtualizedDataTable<T>({
   >(null);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [hasUserResized, setHasUserResized] = useState(false);
+  
+  // Si showResizeHandles es false, observar el tamaño del contenedor padre
+  useEffect(() => {
+    if (showResizeHandles || !containerRef.current) return;
+    
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setDimensions({ width, height });
+      }
+    });
+    
+    resizeObserver.observe(containerRef.current);
+    
+    return () => resizeObserver.disconnect();
+  }, [showResizeHandles]);
 
   // Get rows from table
   const rows = table.getRowModel().rows;
-  const contentHeight = Math.max(0, dimensions.height - headerHeight);
+  
+  // Si no tiene resize handles, usar calc para el espacio disponible
+  const contentHeight = showResizeHandles 
+    ? Math.max(0, dimensions.height - headerHeight)
+    : undefined; // Usaremos CSS calc en el render
 
   // ============================================================
   // VIRTUALIZATION
@@ -307,10 +327,19 @@ export function VirtualizedDataTable<T>({
     <div
       ref={containerRef}
       className={`relative bg-white overflow-hidden ${className}`}
-      style={{
-        width: '100%',
-        maxWidth: '100%',
-      }}
+      style={
+        showResizeHandles
+          ? {
+              width: '100%',
+              maxWidth: '100%',
+            }
+          : {
+              width: '100%',
+              height: '100%',
+              maxWidth: '100%',
+              maxHeight: '100%',
+            }
+      }
     >
       {/* Header */}
       <div ref={headerRef}>{children}</div>
@@ -319,10 +348,17 @@ export function VirtualizedDataTable<T>({
       <div
         ref={scrollContainerRef}
         className="relative overflow-auto"
-        style={{
-          height: contentHeight,
-          maxHeight: '100%',
-        }}
+        style={
+          showResizeHandles
+            ? {
+                height: contentHeight,
+                maxHeight: '100%',
+              }
+            : {
+                height: `calc(100% - ${headerHeight}px)`,
+                maxHeight: '100%',
+              }
+        }
       >
         {isLoading ? (
           loadingState || (

@@ -145,22 +145,6 @@ export default function ScannerPage() {
     .map((id) => AVAILABLE_CATEGORIES.find((cat) => cat.id === id))
     .filter(Boolean) as ScannerCategory[];
 
-  // Estado para Z-index de tablas arrastrables (usar FLOATING_WINDOW_BASE)
-  const [zIndexes, setZIndexes] = useState<Record<string, number>>(() => {
-    const initial: Record<string, number> = {};
-    activeCategoryData.forEach((cat, idx) => {
-      initial[cat.id] = Z_INDEX.FLOATING_WINDOW_BASE + idx;
-    });
-    return initial;
-  });
-
-  const bringToFront = (categoryId: string) => {
-    const maxZ = Math.max(...Object.values(zIndexes));
-    setZIndexes(prev => ({
-      ...prev,
-      [categoryId]: maxZ + 1
-    }));
-  };
 
   return (
     <>
@@ -181,7 +165,7 @@ export default function ScannerPage() {
           {sidebarOpen && (
             <div
               className="absolute inset-0 bg-black/50 animate-fadeIn"
-              style={{ zIndex: Z_INDEX.PANEL_OVERLAY }}
+              style={{ zIndex: Z_INDEX.SCANNER_PANEL_OVERLAY }}
               onClick={() => setSidebarOpen(false)}
             />
           )}
@@ -195,7 +179,7 @@ export default function ScannerPage() {
             style={{
               left: sidebarOpen ? 0 : '-100%',
               visibility: sidebarOpen ? 'visible' : 'hidden',
-              zIndex: Z_INDEX.SLIDING_PANEL
+              zIndex: Z_INDEX.SCANNER_PANEL
             }}
           >
             <div className="flex flex-col h-full">
@@ -272,7 +256,7 @@ export default function ScannerPage() {
                      rounded-r-lg shadow-lg hover:shadow-xl
                      flex flex-col items-center justify-center gap-1 py-3 px-2.5
                      transition-all duration-200"
-            style={{ zIndex: Z_INDEX.SCANNER_CONFIG_BUTTON }}
+            style={{ zIndex: Z_INDEX.SCANNER_BUTTON }}
             title="Configurar categorías"
           >
             <Settings2 className="h-5 w-5" />
@@ -300,8 +284,8 @@ export default function ScannerPage() {
                     key={category.id}
                     category={category}
                     index={index}
-                    zIndex={zIndexes[category.id] || Z_INDEX.FLOATING_WINDOW_BASE + index}
-                    onBringToFront={() => bringToFront(category.id)}
+                    zIndex={0}
+                    onBringToFront={() => {}}
                   />
                 ))}
               </>

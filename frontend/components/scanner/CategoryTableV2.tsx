@@ -467,14 +467,12 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
     <>
       <VirtualizedDataTable
         table={table}
-        initialHeight={480}
-        minHeight={200}
-        minWidth={400}
+        showResizeHandles={false}
         stickyHeader={true}
         isLoading={!isReady}
-        estimateSize={40} // Altura de cada fila (40px × 10 filas = 400px + header ~80px = 480px total)
-        overscan={10} // Pre-render 10 filas extra
-        enableVirtualization={true} // Activar virtualización
+        estimateSize={40}
+        overscan={10}
+        enableVirtualization={true}
         getRowClassName={(row: Row<Ticker>) => {
           const ticker = row.original;
           const classes: string[] = [];

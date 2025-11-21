@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { floatingZIndexManager } from '@/lib/z-index';
 
 export interface FloatingWindow {
   id: string;
@@ -34,23 +35,24 @@ interface FloatingWindowContextType {
 const FloatingWindowContext = createContext<FloatingWindowContextType | undefined>(undefined);
 
 let windowIdCounter = 0;
-let maxZIndex = 1000;
 
 export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<FloatingWindow[]>([]);
 
   const getMaxZIndex = useCallback(() => {
-    return maxZIndex;
+    return floatingZIndexManager.getCurrent();
   }, []);
 
   const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => {
     const id = `window-${++windowIdCounter}`;
-    maxZIndex += 1;
+    
+    // Usar el manager global para obtener el siguiente z-index
+    const zIndex = floatingZIndexManager.getNext();
     
     const newWindow: FloatingWindow = {
       ...config,
       id,
-      zIndex: maxZIndex,
+      zIndex,
       isMinimized: false,
       isMaximized: false,
     };
@@ -70,8 +72,9 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const bringToFront = useCallback((id: string) => {
-    maxZIndex += 1;
-    updateWindow(id, { zIndex: maxZIndex });
+    // Usar el manager global para obtener el siguiente z-index
+    const zIndex = floatingZIndexManager.getNext();
+    updateWindow(id, { zIndex });
   }, [updateWindow]);
 
   const minimizeWindow = useCallback((id: string) => {
