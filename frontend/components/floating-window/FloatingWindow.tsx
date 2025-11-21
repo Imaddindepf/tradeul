@@ -10,14 +10,10 @@ interface FloatingWindowProps {
 }
 
 export function FloatingWindow({ window }: FloatingWindowProps) {
-  const { closeWindow, minimizeWindow, updateWindow } = useFloatingWindow();
+  const { closeWindow, updateWindow } = useFloatingWindow();
 
   const handleClose = () => {
     closeWindow(window.id);
-  };
-  
-  const handleMinimize = () => {
-    minimizeWindow(window.id);
   };
   
   const handlePositionChange = (position: { x: number; y: number }) => {
@@ -45,10 +41,6 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       
       globalThis.window.open(url, window.title.replace(/\s+/g, ''), windowFeatures);
     }
-  };
-
-  const handleTitleClick = () => {
-    bringToFront(window.id);
   };
 
   // Si está minimizado, no usar FloatingWindowBase
@@ -79,61 +71,20 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       minHeight={window.minHeight || 300}
       maxWidth={window.maxWidth || 1600}
       maxHeight={window.maxHeight || 1000}
-      enableResizing={!window.isMaximized}
+      enableResizing={true}
       onPositionChange={handlePositionChange}
       onSizeChange={handleSizeChange}
       className="bg-white"
     >
       <div className="flex flex-col h-full overflow-hidden">
-        {/* Title Bar */}
-        <div
-          className="window-title-bar flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 cursor-move select-none"
-          onMouseDown={(e) => {
-            // Traer la ventana al frente cuando se hace click en la barra de título
-            bringToFront(window.id);
-            // No prevenir el evento para que react-rnd pueda manejar el drag
-          }}
-        >
+        {/* Title Bar - El foco se maneja automáticamente en FloatingWindowBase */}
+        <div className="window-title-bar flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 cursor-move select-none">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <div className="w-2 h-2 rounded-full bg-blue-500" />
             <h3 className="text-sm font-semibold text-slate-800 truncate">{window.title}</h3>
           </div>
 
           <div className="flex items-center gap-1 ml-4">
-            {/* Minimize Button */}
-            <button
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMinimize();
-              }}
-              className="p-1.5 rounded hover:bg-slate-200 transition-colors group"
-              aria-label="Minimizar"
-            >
-              <Minus className="w-4 h-4 text-slate-600 group-hover:text-slate-800" />
-            </button>
-
-            {/* Maximize/Restore Button */}
-            <button
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMaximize();
-              }}
-              className="p-1.5 rounded hover:bg-slate-200 transition-colors group"
-              aria-label={window.isMaximized ? 'Restaurar' : 'Maximizar'}
-            >
-              {window.isMaximized ? (
-                <Square className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-800" />
-              ) : (
-                <Maximize2 className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-800" />
-              )}
-            </button>
-
             {/* Open in New Window Button */}
             <button
               onMouseDown={(e) => {
