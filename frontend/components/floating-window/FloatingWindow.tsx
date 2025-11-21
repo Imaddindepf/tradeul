@@ -37,9 +37,16 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       const left = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.width - width) / 2 : 100;
       const top = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.height - height) / 2 : 100;
       
-      const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes,menubar=no,toolbar=no,location=no`;
+      // Abrir en nueva ventana del navegador
+      const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
       
-      globalThis.window.open(url, window.title.replace(/\s+/g, ''), windowFeatures);
+      const newWindow = globalThis.window.open(url, '_blank', windowFeatures);
+      
+      // Verificar si se abrió correctamente
+      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+        // El popup fue bloqueado - abrir en nueva pestaña normal
+        globalThis.window.open(url, '_blank');
+      }
     }
   };
 
