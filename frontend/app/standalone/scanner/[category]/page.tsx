@@ -31,11 +31,13 @@ export default function StandaloneTablePage({ params }: StandaloneTablePageProps
   const categoryName = CATEGORY_NAMES[category] || category;
 
   return (
-    <div className="h-screen w-screen overflow-hidden">
-      <CategoryTableV2 
-        title={categoryName}
-        listName={category}
-      />
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-white">
+      <div className="flex-1 min-h-0">
+        <CategoryTableV2 
+          title={categoryName}
+          listName={category}
+        />
+      </div>
     </div>
   );
 }
