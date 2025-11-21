@@ -1,13 +1,6 @@
 'use client';
 
-import { use } from 'react';
 import CategoryTableV2 from '@/components/scanner/CategoryTableV2';
-
-interface StandaloneTablePageProps {
-  params: Promise<{
-    category: string;
-  }>;
-}
 
 const CATEGORY_NAMES: Record<string, string> = {
   'gappers_up': 'Gap Up',
@@ -23,12 +16,18 @@ const CATEGORY_NAMES: Record<string, string> = {
   'reversals': 'Reversals',
 };
 
+interface StandaloneTablePageProps {
+  params: {
+    category: string;
+  };
+}
+
 /**
  * Página standalone para tabla del scanner
  * Se abre en nueva ventana del navegador sin navbar ni sidebar
  */
 export default function StandaloneTablePage({ params }: StandaloneTablePageProps) {
-  const { category } = use(params);
+  const { category } = params;
   const categoryName = CATEGORY_NAMES[category] || category;
 
   return (
