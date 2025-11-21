@@ -153,51 +153,47 @@ export function FloatingWindowBase({
   };
 
   return (
-    <div
-      className="fixed inset-0 pointer-events-none"
-      style={{ zIndex }}
+    <Rnd
+      position={position}
+      size={size}
+      minWidth={minWidth}
+      minHeight={minHeight}
+      maxWidth={maxWidth}
+      maxHeight={maxHeight}
+      dragHandleClassName={dragHandleClassName}
+      enableResizing={
+        enableResizing
+          ? {
+              top: false,
+              right: true,
+              bottom: true,
+              left: false,
+              topRight: false,
+              bottomRight: true,
+              bottomLeft: false,
+              topLeft: false,
+            }
+          : false
+      }
+      onDragStart={handleDragStart}
+      onDragStop={handleDragStop}
+      onResizeStart={handleResizeStart}
+      onResize={handleResize}
+      onResizeStop={handleResizeStop}
+      style={{
+        zIndex: zIndex,
+        position: 'fixed',
+      }}
     >
-      <Rnd
-        position={position}
-        size={size}
-        minWidth={minWidth}
-        minHeight={minHeight}
-        maxWidth={maxWidth}
-        maxHeight={maxHeight}
-        dragHandleClassName={dragHandleClassName}
-        enableResizing={
-          enableResizing
-            ? {
-                top: false,
-                right: true,
-                bottom: true,
-                left: false,
-                topRight: false,
-                bottomRight: true,
-                bottomLeft: false,
-                topLeft: false,
-              }
-            : false
-        }
-        onDragStart={handleDragStart}
-        onDragStop={handleDragStop}
-        onResizeStart={handleResizeStart}
-        onResize={handleResize}
-        onResizeStop={handleResizeStop}
-        style={{
-          pointerEvents: 'auto',
-        }}
+      <div
+        className={`h-full w-full rounded-lg shadow-2xl border-2 transition-all flex flex-col ${
+          isFocused ? focusedBorderColor + ' shadow-2xl' : 'border-slate-200'
+        } ${className}`}
+        onBlur={() => setIsFocused(false)}
       >
-        <div
-          className={`h-full w-full rounded-lg shadow-2xl border-2 transition-all flex flex-col ${
-            isFocused ? focusedBorderColor + ' shadow-2xl' : 'border-slate-200'
-          } ${className}`}
-          onBlur={() => setIsFocused(false)}
-        >
-          {children}
-        </div>
-      </Rnd>
-    </div>
+        {children}
+      </div>
+    </Rnd>
   );
 }
 
