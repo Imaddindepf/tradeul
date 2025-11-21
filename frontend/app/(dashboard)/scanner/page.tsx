@@ -157,10 +157,10 @@ export default function ScannerPage() {
         />
       </Navbar>
 
-      {/* Main Content - Con padding-top para el navbar */}
-      <main className="min-h-screen bg-slate-50 relative" style={{ paddingTop: '64px' }}>
+      {/* Main Content - Sin padding-top porque AppShell ya lo tiene */}
+      <main className="h-[calc(100vh-64px)] bg-slate-50 relative overflow-hidden">
         {/* Content Area */}
-        <div className="relative min-h-screen">
+        <div className="relative h-full">
           {/* Overlay cuando panel está abierto - Solo sobre área del scanner */}
           {sidebarOpen && (
             <div
@@ -267,7 +267,7 @@ export default function ScannerPage() {
           </button>
 
           {/* Draggable Tables Area */}
-          <div className="relative w-full h-[calc(100vh-64px)] overflow-hidden">
+          <div className="relative w-full h-full overflow-hidden">
             {activeCategoryData.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center text-slate-500">
