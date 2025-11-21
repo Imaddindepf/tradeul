@@ -1,83 +1,31 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Rnd } from 'react-rnd';
 import { X, Minus, Maximize2, Square, ExternalLink } from 'lucide-react';
 import { FloatingWindow as FloatingWindowType, useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 
 interface FloatingWindowProps {
   window: FloatingWindowType;
 }
 
 export function FloatingWindow({ window }: FloatingWindowProps) {
-  const { closeWindow, bringToFront, minimizeWindow, maximizeWindow, restoreWindow, updateWindow } = useFloatingWindow();
-  const [isDragging, setIsDragging] = useState(false);
-  const [savedPosition, setSavedPosition] = useState({ x: window.x, y: window.y });
-  const [savedSize, setSavedSize] = useState({ width: window.width, height: window.height });
-  const [screenSize, setScreenSize] = useState({ width: 1920, height: 1080 });
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const updateScreenSize = () => {
-      setScreenSize({ width: globalThis.window.innerWidth, height: globalThis.window.innerHeight });
-    };
-    updateScreenSize();
-    globalThis.window.addEventListener('resize', updateScreenSize);
-    return () => globalThis.window.removeEventListener('resize', updateScreenSize);
-  }, []);
-
-  useEffect(() => {
-    bringToFront(window.id);
-  }, [window.id, bringToFront]);
-
-  const handleDragStart = () => {
-    setIsDragging(true);
-    bringToFront(window.id);
-  };
-
-  const handleDragStop = (_e: any, d: { x: number; y: number }) => {
-    setIsDragging(false);
-    updateWindow(window.id, { x: d.x, y: d.y });
-  };
-
-  const handleResizeStop = (_e: any, _direction: any, ref: HTMLElement, _delta: any, position: { x: number; y: number }) => {
-    updateWindow(window.id, {
-      width: ref.offsetWidth,
-      height: ref.offsetHeight,
-      x: position.x,
-      y: position.y,
-    });
-  };
-
-  const handleMinimize = () => {
-    minimizeWindow(window.id);
-  };
-
-  const handleMaximize = () => {
-    if (window.isMaximized) {
-      restoreWindow(window.id);
-      updateWindow(window.id, {
-        x: savedPosition.x,
-        y: savedPosition.y,
-        width: savedSize.width,
-        height: savedSize.height,
-      });
-    } else {
-      setSavedPosition({ x: window.x, y: window.y });
-      setSavedSize({ width: window.width, height: window.height });
-      maximizeWindow(window.id);
-      updateWindow(window.id, {
-        x: 0,
-        y: 0,
-        width: window.maxWidth || screenSize.width,
-        height: window.maxHeight || screenSize.height,
-      });
-    }
-  };
+  const { closeWindow, minimizeWindow, updateWindow } = useFloatingWindow();
 
   const handleClose = () => {
     closeWindow(window.id);
+  };
+  
+  const handleMinimize = () => {
+    minimizeWindow(window.id);
+  };
+  
+  const handlePositionChange = (position: { x: number; y: number }) => {
+    updateWindow(window.id, position);
+  };
+  
+  const handleSizeChange = (size: { width: number; height: number }) => {
+    updateWindow(window.id, size);
   };
 
   const handleOpenNewWindow = () => {
@@ -103,6 +51,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     bringToFront(window.id);
   };
 
+  // Si está minimizado, no usar FloatingWindowBase
   if (window.isMinimized) {
     return (
       <div
@@ -112,7 +61,6 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           minWidth: '200px',
           padding: '8px 16px',
         }}
-        onClick={() => restoreWindow(window.id)}
       >
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-blue-500" />
@@ -123,47 +71,20 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
   }
 
   return (
-    <Rnd
-      size={{
-        width: window.isMaximized 
-          ? (window.maxWidth || screenSize.width) 
-          : window.width,
-        height: window.isMaximized 
-          ? (window.maxHeight || screenSize.height) 
-          : window.height,
-      }}
-      position={{
-        x: window.isMaximized ? 0 : window.x,
-        y: window.isMaximized ? 0 : window.y,
-      }}
+    <FloatingWindowBase
+      dragHandleClassName="window-title-bar"
+      initialPosition={{ x: window.x, y: window.y }}
+      initialSize={{ width: window.width, height: window.height }}
       minWidth={window.minWidth || 400}
       minHeight={window.minHeight || 300}
-      maxWidth={window.isMaximized ? undefined : (window.maxWidth || screenSize.width)}
-      maxHeight={window.isMaximized ? undefined : (window.maxHeight || screenSize.height)}
-      bounds="window"
-      dragHandleClassName="window-title-bar"
-      onDragStart={handleDragStart}
-      onDragStop={handleDragStop}
-      onResizeStop={handleResizeStop}
-      style={{
-        zIndex: window.zIndex,
-        display: 'flex',
-        flexDirection: 'column',
-        pointerEvents: 'auto',
-      }}
-      disableResizing={window.isMaximized}
+      maxWidth={window.maxWidth || 1600}
+      maxHeight={window.maxHeight || 1000}
       enableResizing={!window.isMaximized}
+      onPositionChange={handlePositionChange}
+      onSizeChange={handleSizeChange}
+      className="bg-white"
     >
-      <div 
-        className="flex flex-col h-full bg-white rounded-lg shadow-2xl border border-slate-200 overflow-hidden"
-        onMouseDown={(e) => {
-          // Solo prevenir propagación si no es en la barra de título (para que el drag funcione)
-          if (!(e.target as HTMLElement).closest('.window-title-bar')) {
-            e.stopPropagation();
-            bringToFront(window.id);
-          }
-        }}
-      >
+      <div className="flex flex-col h-full overflow-hidden">
         {/* Title Bar */}
         <div
           className="window-title-bar flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 cursor-move select-none"
@@ -247,18 +168,11 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         </div>
 
         {/* Content */}
-        <div 
-          className="flex-1 overflow-auto bg-white"
-          onMouseDown={(e) => {
-            // Prevenir que los eventos se propaguen al fondo
-            // Los elementos interactivos dentro funcionarán normalmente
-            e.stopPropagation();
-          }}
-        >
+        <div className="flex-1 overflow-auto bg-white">
           {window.content}
         </div>
       </div>
-    </Rnd>
+    </FloatingWindowBase>
   );
 }
 
