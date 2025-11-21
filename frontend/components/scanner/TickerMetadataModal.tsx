@@ -108,6 +108,7 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
       maxWidth={1400}
       maxHeight={900}
       enableResizing={true}
+      focusedBorderColor="border-green-500"
       className="bg-white"
     >
       <div ref={modalRef} className="h-full w-full overflow-hidden flex flex-col">

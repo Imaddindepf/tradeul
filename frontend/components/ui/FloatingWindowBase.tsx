@@ -31,7 +31,7 @@ export interface FloatingWindowBaseProps {
   /** Clase adicional para el contenedor */
   className?: string;
   
-  /** Estilo del borde cuando tiene foco */
+  /** Estilo del borde cuando tiene foco (default: verde) */
   focusedBorderColor?: string;
   
   /** Callback cuando cambia el tamaño */
@@ -76,7 +76,7 @@ export function FloatingWindowBase({
   maxHeight = 1000,
   enableResizing = true,
   className = '',
-  focusedBorderColor = 'border-blue-500',
+  focusedBorderColor = 'border-green-500',
   onSizeChange,
   onPositionChange,
   stackOffset = 0,
@@ -186,8 +186,8 @@ export function FloatingWindowBase({
       }}
     >
       <div
-        className={`h-full w-full rounded-lg shadow-2xl border-2 transition-all flex flex-col ${
-          isFocused ? focusedBorderColor + ' shadow-2xl' : 'border-slate-200'
+        className={`h-full w-full rounded-lg shadow-2xl border-4 transition-all flex flex-col ${
+          isFocused ? focusedBorderColor + ' shadow-2xl shadow-green-500/50' : 'border-slate-200'
         } ${className}`}
         onBlur={() => setIsFocused(false)}
       >
