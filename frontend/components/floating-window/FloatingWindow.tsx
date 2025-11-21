@@ -62,11 +62,16 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     );
   }
 
+  const handleZIndexChange = (zIndex: number) => {
+    updateWindow(window.id, { zIndex });
+  };
+  
   return (
     <FloatingWindowBase
       dragHandleClassName="window-title-bar"
       initialPosition={{ x: window.x, y: window.y }}
       initialSize={{ width: window.width, height: window.height }}
+      initialZIndex={window.zIndex}
       minWidth={window.minWidth || 400}
       minHeight={window.minHeight || 300}
       maxWidth={window.maxWidth || 1600}
@@ -74,6 +79,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       enableResizing={true}
       onPositionChange={handlePositionChange}
       onSizeChange={handleSizeChange}
+      onZIndexChange={handleZIndexChange}
       className="bg-white"
     >
       <div className="flex flex-col h-full overflow-hidden">

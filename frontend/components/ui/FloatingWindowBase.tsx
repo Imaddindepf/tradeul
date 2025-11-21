@@ -42,6 +42,12 @@ export interface FloatingWindowBaseProps {
   
   /** Offset para posición escalonada (para múltiples ventanas) */
   stackOffset?: number;
+  
+  /** Z-index inicial (opcional, si se proporciona se usa en lugar del manager) */
+  initialZIndex?: number;
+  
+  /** Callback cuando cambia el z-index */
+  onZIndexChange?: (zIndex: number) => void;
 }
 
 /**
@@ -74,6 +80,8 @@ export function FloatingWindowBase({
   onSizeChange,
   onPositionChange,
   stackOffset = 0,
+  initialZIndex,
+  onZIndexChange,
 }: FloatingWindowBaseProps) {
   // Calcular posición inicial centrada o con offset
   const getInitialPosition = () => {
@@ -94,12 +102,15 @@ export function FloatingWindowBase({
   
   const [position, setPosition] = useState(getInitialPosition);
   const [size, setSize] = useState(initialSize);
-  const [zIndex, setZIndex] = useState(() => floatingZIndexManager.getNext());
+  const [zIndex, setZIndex] = useState(() => 
+    initialZIndex !== undefined ? initialZIndex : floatingZIndexManager.getNext()
+  );
   const [isFocused, setIsFocused] = useState(false);
 
   const handleDragStart = () => {
     const newZ = floatingZIndexManager.getNext();
     setZIndex(newZ);
+    onZIndexChange?.(newZ);
     setIsFocused(true);
   };
 
@@ -111,6 +122,7 @@ export function FloatingWindowBase({
   const handleResizeStart = () => {
     const newZ = floatingZIndexManager.getNext();
     setZIndex(newZ);
+    onZIndexChange?.(newZ);
     setIsFocused(true);
   };
 

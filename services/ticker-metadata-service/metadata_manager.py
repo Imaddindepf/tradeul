@@ -265,6 +265,7 @@ class MetadataManager:
     async def _save_to_db(self, metadata: TickerMetadata) -> None:
         """Guarda metadata en TimescaleDB con todos los campos expandidos"""
         import json
+        from datetime import datetime, date as date_type
         
         query = """
             INSERT INTO ticker_metadata (
@@ -324,6 +325,17 @@ class MetadataManager:
         # Convertir address dict a JSON string para PostgreSQL
         address_json = json.dumps(metadata.address) if metadata.address else None
         
+        # Convertir list_date de string a date object si es necesario
+        list_date_value = None
+        if metadata.list_date:
+            if isinstance(metadata.list_date, str):
+                try:
+                    list_date_value = datetime.strptime(metadata.list_date, '%Y-%m-%d').date()
+                except:
+                    list_date_value = None
+            elif isinstance(metadata.list_date, date_type):
+                list_date_value = metadata.list_date
+        
         await self.db.execute(
             query,
             metadata.symbol,
@@ -343,7 +355,7 @@ class MetadataManager:
             metadata.phone_number,
             address_json,
             metadata.total_employees,
-            metadata.list_date,
+            list_date_value,
             metadata.logo_url,
             metadata.icon_url,
             metadata.cik,
