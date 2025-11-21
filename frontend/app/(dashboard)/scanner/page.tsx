@@ -285,7 +285,7 @@ export default function ScannerPage() {
                     category={category}
                     index={index}
                     zIndex={0}
-                    onBringToFront={() => {}}
+                    onBringToFront={() => { }}
                   />
                 ))}
               </>

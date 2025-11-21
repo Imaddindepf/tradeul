@@ -123,9 +123,9 @@ export function DilutionTrackerContent() {
         </div>
       )}
 
-      {/* Content */}
+      {/* Content - flex-1 para ocupar espacio restante */}
       {selectedTicker && tickerData ? (
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto min-h-0">
           {/* Company Header */}
           <div className="bg-white border-b border-slate-200 p-4">
             {/* Company Name */}
