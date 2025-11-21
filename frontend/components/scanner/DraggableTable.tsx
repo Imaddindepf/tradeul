@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo } from 'react';
 import CategoryTableV2 from './CategoryTableV2';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 
@@ -11,17 +11,12 @@ interface DraggableTableProps {
     description: string;
   };
   index: number;
-  zIndex: number;
-  onBringToFront: () => void;
 }
 
 /**
- * Tabla arrastrable del scanner
- * Ahora usa el componente base FloatingWindowBase
+ * Tabla arrastrable del scanner - Optimizada
  */
-export function DraggableTable({ category, index }: DraggableTableProps) {
-  const [size, setSize] = useState({ width: 800, height: 480 });
-  
+function DraggableTableComponent({ category, index }: DraggableTableProps) {
   return (
     <FloatingWindowBase
       dragHandleClassName="table-drag-handle"
@@ -33,7 +28,6 @@ export function DraggableTable({ category, index }: DraggableTableProps) {
       enableResizing={true}
       stackOffset={index * 40}
       className="bg-white"
-      onSizeChange={setSize}
     >
       <CategoryTableV2 
         title={category.name} 
@@ -42,3 +36,5 @@ export function DraggableTable({ category, index }: DraggableTableProps) {
     </FloatingWindowBase>
   );
 }
+
+export const DraggableTable = memo(DraggableTableComponent);

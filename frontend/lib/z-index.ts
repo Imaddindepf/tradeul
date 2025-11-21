@@ -2,11 +2,13 @@
  * Sistema Profesional de Z-Index
  * ================================
  * 
- * Arquitectura simple y lógica con 4 capas:
+ * Arquitectura con 5 capas (de mayor a menor prioridad):
  * 
- * CAPA 1 (z-50): Navegación Global (Navbar + Sidebar) - Siempre visible
- * CAPA 2 (z-40): Controles del Scanner - Sobre navegación pero bajo contenido
- * CAPA 3 (z-10 a z-9999): Contenido Flotante - Todas las ventanas compiten por foco
+ * CAPA 5 (z-10000): Navegación Global (Navbar + Sidebar) - LÍMITE SUPERIOR, nada puede superarlo
+ * CAPA 4 (z-9000): Popovers y controles del Navbar - Sobre el navbar
+ * CAPA 3 (z-5000 a z-8999): Modales - Por debajo del navbar, sobre tablas
+ * CAPA 2 (z-100 a z-4999): Tablas flotantes - Por debajo de modales
+ * CAPA 1 (z-40): Controles del Scanner - Panel de configuración
  * CAPA 0 (z-0): Base - Dashboard background
  */
 
@@ -17,26 +19,7 @@ export const Z_INDEX = {
   BASE: 0,
   
   // ============================================================================
-  // CAPA 3: CONTENIDO FLOTANTE (z-10 a z-9999)
-  // ============================================================================
-  /** 
-   * Inicio para TODO el contenido flotante:
-   * - Tablas del scanner
-   * - Modal de metadata (como ventana flotante)
-   * - Dilution Tracker
-   * - Cualquier otra ventana
-   * 
-   * TODAS compiten por el foco y se apilan dinámicamente
-   */
-  FLOATING_CONTENT_BASE: 10,
-  FLOATING_WINDOW_BASE: 10, // Alias para compatibilidad
-  
-  /** Límite máximo para contenido flotante */
-  FLOATING_CONTENT_MAX: 9999,
-  FLOATING_WINDOW_MANAGER: 899, // Alias para compatibilidad
-  
-  // ============================================================================
-  // CAPA 2: CONTROLES DEL SCANNER (z-40)
+  // CAPA 1: CONTROLES DEL SCANNER (z-40)
   // ============================================================================
   /** Overlay que oscurece el fondo cuando el panel está abierto */
   SCANNER_PANEL_OVERLAY: 39,
@@ -50,33 +33,65 @@ export const Z_INDEX = {
   /** Popovers de configuración de tablas (columnas, filtros) */
   TABLE_SETTINGS_POPOVER: 40,
   
-  // ============================================================================
-  // CAPA 1: NAVEGACIÓN GLOBAL (z-50)
-  // ============================================================================
-  /** Overlay del mobile menu del sidebar */
-  SIDEBAR_MOBILE_OVERLAY: 49,
-  
-  /** Sidebar principal de navegación */
-  SIDEBAR: 50,
-  
-  /** Navbar principal (mismo nivel que sidebar) */
-  NAVBAR: 50,
-  
-  /** Botón del mobile menu (debe estar sobre el sidebar) */
-  SIDEBAR_MOBILE_BUTTON: 51,
-  
-  /** Popovers del navbar (Market Status, etc.) - sobre el navbar mismo */
-  NAVBAR_POPOVER: 52,
-  
-  // ============================================================================
-  // ELEMENTOS AUXILIARES
-  // ============================================================================
   /** Headers sticky dentro de contenedores scrollables */
   TABLE_HEADER: 5,
   
   /** Tooltips y dropdowns básicos */
   TOOLTIP: 35,
   DROPDOWN: 35,
+  
+  // ============================================================================
+  // CAPA 2: TABLAS FLOTANTES (z-100 a z-4999)
+  // ============================================================================
+  /** 
+   * Inicio para tablas flotantes del scanner
+   * - Todas las tablas compiten por foco
+   * - Se apilan dinámicamente
+   */
+  FLOATING_TABLES_BASE: 100,
+  FLOATING_TABLES_MAX: 4999,
+  
+  // ============================================================================
+  // CAPA 3: MODALES (z-5000 a z-8999)
+  // ============================================================================
+  /** 
+   * Inicio para MODALES (ventanas de información):
+   * - Modal de metadata del ticker
+   * - Dilution Tracker
+   * - Cualquier otra ventana modal
+   * 
+   * Los modales están SIEMPRE por encima de las tablas
+   * pero por DEBAJO del navbar
+   */
+  MODAL_BASE: 5000,
+  MODAL_MAX: 8999,
+  
+  // Aliases para compatibilidad con código existente
+  FLOATING_CONTENT_BASE: 100, // Apunta a tablas por defecto
+  FLOATING_WINDOW_BASE: 5000, // Ventanas flotantes = modales
+  FLOATING_CONTENT_MAX: 4999,
+  FLOATING_WINDOW_MANAGER: 899,
+  
+  // ============================================================================
+  // CAPA 4: POPOVERS DEL NAVBAR (z-9000)
+  // ============================================================================
+  /** Popovers del navbar (Market Status, etc.) - sobre el navbar mismo */
+  NAVBAR_POPOVER: 9000,
+  
+  // ============================================================================
+  // CAPA 5: NAVEGACIÓN GLOBAL (z-10000) - LÍMITE SUPERIOR DE LA APP
+  // ============================================================================
+  /** Overlay del mobile menu del sidebar */
+  SIDEBAR_MOBILE_OVERLAY: 9999,
+  
+  /** Sidebar principal de navegación */
+  SIDEBAR: 10000,
+  
+  /** Navbar principal - EL LÍMITE SUPERIOR, nada puede superarlo */
+  NAVBAR: 10000,
+  
+  /** Botón del mobile menu (debe estar sobre el sidebar) */
+  SIDEBAR_MOBILE_BUTTON: 10001,
 } as const;
 
 /**
@@ -90,20 +105,29 @@ export function debugZIndex() {
  * Clase global para gestionar el z-index dinámico del contenido flotante
  */
 class FloatingContentZIndexManager {
-  private currentMaxZ: number = Z_INDEX.FLOATING_CONTENT_BASE;
+  private currentMaxZ: number = Z_INDEX.FLOATING_TABLES_BASE;
   
   /**
-   * Obtiene un nuevo z-index para contenido flotante
+   * Obtiene un nuevo z-index para tablas flotantes
    */
   getNext(): number {
     this.currentMaxZ += 1;
     
-    // Si llegamos al máximo, reiniciamos
-    if (this.currentMaxZ >= Z_INDEX.FLOATING_CONTENT_MAX) {
-      this.currentMaxZ = Z_INDEX.FLOATING_CONTENT_BASE + 1;
+    // Si llegamos al máximo de tablas, reiniciamos
+    if (this.currentMaxZ >= Z_INDEX.FLOATING_TABLES_MAX) {
+      this.currentMaxZ = Z_INDEX.FLOATING_TABLES_BASE + 1;
     }
     
     return this.currentMaxZ;
+  }
+  
+  /**
+   * Obtiene un nuevo z-index para modales (siempre por encima de tablas)
+   */
+  getNextModal(): number {
+    // Los modales usan un rango separado y más alto
+    const modalZ = Z_INDEX.MODAL_BASE + Math.floor(Math.random() * 100);
+    return Math.min(modalZ, Z_INDEX.MODAL_MAX);
   }
   
   /**
@@ -117,7 +141,7 @@ class FloatingContentZIndexManager {
    * Resetea el contador (útil para testing)
    */
   reset(): void {
-    this.currentMaxZ = Z_INDEX.FLOATING_CONTENT_BASE;
+    this.currentMaxZ = Z_INDEX.FLOATING_TABLES_BASE;
   }
 }
 

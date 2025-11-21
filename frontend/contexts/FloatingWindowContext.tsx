@@ -46,8 +46,9 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => {
     const id = `window-${++windowIdCounter}`;
     
-    // Usar el manager global para obtener el siguiente z-index
-    const zIndex = floatingZIndexManager.getNext();
+    // Usar z-index de modal para ventanas flotantes del contexto (como Dilution Tracker)
+    // Estas son ventanas que deben estar por encima de las tablas
+    const zIndex = floatingZIndexManager.getNextModal();
     
     const newWindow: FloatingWindow = {
       ...config,
@@ -72,8 +73,8 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const bringToFront = useCallback((id: string) => {
-    // Usar el manager global para obtener el siguiente z-index
-    const zIndex = floatingZIndexManager.getNext();
+    // Usar z-index de modal para traer al frente
+    const zIndex = floatingZIndexManager.getNextModal();
     updateWindow(id, { zIndex });
   }, [updateWindow]);
 

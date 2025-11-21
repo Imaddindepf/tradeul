@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState, memo } from 'react';
+import { useEffect, useRef, useState, memo, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import type { CompanyMetadata, Ticker } from '@/lib/types';
 import { getCompanyMetadata } from '@/lib/api';
 import { formatNumber } from '@/lib/formatters';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
+import { floatingZIndexManager } from '@/lib/z-index';
 
 interface TickerMetadataModalProps {
   symbol: string | null;
@@ -22,6 +23,9 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+
+  // Obtener z-index alto para modales (DEBE estar antes de cualquier return condicional)
+  const modalZIndex = useMemo(() => floatingZIndexManager.getNextModal(), []);
 
   // Helper para convertir URL de logo a proxy
   const getProxiedLogoUrl = (logoUrl: string | null | undefined): string | null => {
@@ -108,11 +112,12 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
       maxWidth={1400}
       maxHeight={900}
       enableResizing={true}
-      focusedBorderColor="border-green-500"
+      focusedBorderColor="border-blue-500"
       className="bg-white"
+      initialZIndex={modalZIndex}
     >
       <div ref={modalRef} className="h-full w-full overflow-hidden flex flex-col">
-        {/* Header arrastrable - como DraggableTable */}
+        {/* Header arrastrable */}
         <div className="modal-drag-handle bg-slate-800 px-6 py-3 flex items-center justify-between cursor-move select-none">
           <div className="flex items-center gap-4 flex-1">
             {loading ? (

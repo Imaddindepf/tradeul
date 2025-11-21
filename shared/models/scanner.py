@@ -334,6 +334,28 @@ class TickerMetadata(BaseModel):
             return int(v)
         return v
     
+    @validator('address', pre=True)
+    def convert_address(cls, v):
+        """Convert JSON string to dict for address field"""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return None
+        return v
+    
+    @validator('list_date', pre=True)
+    def convert_list_date(cls, v):
+        """Convert date object to string"""
+        if v is None:
+            return None
+        if hasattr(v, 'isoformat'):  # datetime.date or datetime.datetime
+            return v.isoformat()
+        return str(v)
+    
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat(),
