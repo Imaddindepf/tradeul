@@ -500,6 +500,7 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
           count={isReady ? data.length : undefined}
           sequence={isReady ? sequence : undefined}
           lastUpdateTime={lastUpdateTime}
+          listName={listName}
           rightActions={<TableSettings table={table} />}
         />
       </VirtualizedDataTable>

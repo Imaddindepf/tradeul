@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { ExternalLink } from 'lucide-react';
 
 interface MarketTableLayoutProps {
   title: string;
@@ -9,6 +10,7 @@ interface MarketTableLayoutProps {
   sequence?: number;
   lastUpdateTime?: Date | null;
   rightActions?: ReactNode;
+  listName?: string; // Para generar URL standalone
 }
 
 export function MarketTableLayout({
@@ -18,7 +20,27 @@ export function MarketTableLayout({
   sequence,
   lastUpdateTime,
   rightActions,
+  listName,
 }: MarketTableLayoutProps) {
+  
+  const handleOpenNewWindow = () => {
+    if (!listName) return;
+    
+    const url = `/standalone/scanner/${listName}`;
+    const width = 1200;
+    const height = 800;
+    const left = typeof window !== 'undefined' ? (window.screen.width - width) / 2 : 100;
+    const top = typeof window !== 'undefined' ? (window.screen.height - height) / 2 : 100;
+    
+    const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
+    
+    const newWindow = window.open(url, '_blank', windowFeatures);
+    
+    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+      window.open(url, '_blank');
+    }
+  };
+  
   return (
     <div className="table-drag-handle flex items-center justify-between px-3 py-2 bg-white border-b-2 border-blue-500 cursor-move">
       <div className="flex items-center gap-4">
@@ -51,7 +73,7 @@ export function MarketTableLayout({
       </div>
 
       <div 
-        className="flex items-center gap-3"
+        className="flex items-center gap-2"
         onMouseDown={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -63,6 +85,18 @@ export function MarketTableLayout({
             </span>
           </div>
         )}
+        
+        {/* Botón de abrir en nueva ventana */}
+        {listName && (
+          <button
+            onClick={handleOpenNewWindow}
+            className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
+            title="Abrir en nueva ventana"
+          >
+            <ExternalLink className="w-4 h-4 text-slate-600 group-hover:text-blue-600" />
+          </button>
+        )}
+        
         {rightActions}
       </div>
     </div>

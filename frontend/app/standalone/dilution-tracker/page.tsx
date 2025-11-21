@@ -7,10 +7,10 @@ import { DilutionTrackerContent } from '@/components/floating-window/DilutionTra
  * Se abre en nueva ventana del navegador sin navbar ni sidebar
  */
 export default function StandaloneDilutionTrackerPage() {
-  return (
-    <div className="h-screen w-screen overflow-hidden">
-      <DilutionTrackerContent />
-    </div>
-  );
+    return (
+        <div className="h-screen w-screen overflow-hidden">
+            <DilutionTrackerContent />
+        </div>
+    );
 }
 
