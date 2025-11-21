@@ -209,7 +209,13 @@ class SyncRedisTask:
                     # Convertir address dict a JSON string si existe
                     if isinstance(data.get('address'), dict):
                         data['address'] = json.dumps(data['address'])
-                    
+
+                    # Convertir objetos Decimal a float para JSON serialization
+                    from decimal import Decimal
+                    for key, value in data.items():
+                        if isinstance(value, Decimal):
+                            data[key] = float(value)
+
                     # Eliminar campos None
                     data = {k: v for k, v in data.items() if v is not None}
                     
@@ -235,6 +241,16 @@ class SyncRedisTask:
                 "metadata_synced_to_redis",
                 count=len(rows)
             )
+            
+            # CRÍTICO: Forzar BGSAVE para persistir datos inmediatamente
+            try:
+                await self.redis.client.bgsave()
+                logger.info("redis_data_persisted_with_bgsave")
+                
+                # Esperar 2 segundos para que el save inicie
+                await asyncio.sleep(2)
+            except Exception as save_err:
+                logger.error("bgsave_failed", error=str(save_err))
             
             return len(rows)
         

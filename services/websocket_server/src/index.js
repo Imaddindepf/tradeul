@@ -875,6 +875,25 @@ async function processRankingDeltasStream() {
 
       await new Promise((resolve) => setTimeout(resolve, 10));
     } catch (err) {
+      // Auto-healing: Si el consumer group fue borrado, recrearlo
+      if (err.message && err.message.includes('NOGROUP')) {
+        logger.warn({ streamName, consumerGroup }, "🔧 Consumer group missing - auto-recreating");
+        try {
+          await redisCommands.xgroup(
+            "CREATE",
+            streamName,
+            consumerGroup,
+            "0",  // Empezar desde el inicio del stream
+            "MKSTREAM"
+          );
+          logger.info({ streamName, consumerGroup }, "✅ Consumer group recreated");
+          // Reintentar inmediatamente
+          continue;
+        } catch (recreateErr) {
+          logger.error({ err: recreateErr }, "Failed to recreate consumer group");
+        }
+      }
+      
       logger.error({ err, streamName }, "Error in ranking deltas stream");
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -957,6 +976,25 @@ async function processAggregatesStream() {
 
       await new Promise((resolve) => setTimeout(resolve, 10));
     } catch (err) {
+      // Auto-healing: Si el consumer group fue borrado, recrearlo
+      if (err.message && err.message.includes('NOGROUP')) {
+        logger.warn({ streamName, consumerGroup }, "🔧 Consumer group missing - auto-recreating");
+        try {
+          await redisCommands.xgroup(
+            "CREATE",
+            streamName,
+            consumerGroup,
+            "0",  // Empezar desde el inicio del stream
+            "MKSTREAM"
+          );
+          logger.info({ streamName, consumerGroup }, "✅ Consumer group recreated");
+          // Reintentar inmediatamente
+          continue;
+        } catch (recreateErr) {
+          logger.error({ err: recreateErr }, "Failed to recreate consumer group");
+        }
+      }
+      
       logger.error({ err, streamName }, "Error in aggregates stream");
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -1057,6 +1095,18 @@ wss.on("connection", (ws, req) => {
         await sendInitialSnapshot(connectionId, listName);
       }
 
+      // Ping/Pong heartbeat (ignorar, es normal)
+      else if (action === "ping" || action === "pong") {
+        // Responder con pong si es ping
+        if (action === "ping") {
+          sendMessage(connectionId, {
+            type: "pong",
+            timestamp: Date.now()
+          });
+        }
+        // No hacer nada si es pong (es respuesta a nuestro heartbeat)
+      }
+      
       // Acción desconocida
       else {
         logger.warn({ connectionId, action }, "Unknown action");

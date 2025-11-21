@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, X } from 'lucide-react';
 
 interface MarketTableLayoutProps {
   title: string;
@@ -11,6 +11,7 @@ interface MarketTableLayoutProps {
   lastUpdateTime?: Date | null;
   rightActions?: ReactNode;
   listName?: string; // Para generar URL standalone
+  onClose?: () => void;
 }
 
 export function MarketTableLayout({
@@ -21,6 +22,7 @@ export function MarketTableLayout({
   lastUpdateTime,
   rightActions,
   listName,
+  onClose,
 }: MarketTableLayoutProps) {
 
   const handleOpenNewWindow = () => {
@@ -98,6 +100,17 @@ export function MarketTableLayout({
         )}
 
         {rightActions}
+
+        {/* Botón de cerrar tabla */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-red-100 transition-colors group"
+            title="Cerrar tabla"
+          >
+            <X className="w-4 h-4 text-slate-600 group-hover:text-red-600" />
+          </button>
+        )}
       </div>
     </div>
   );

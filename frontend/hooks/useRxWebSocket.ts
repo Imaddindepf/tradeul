@@ -57,7 +57,7 @@ class WebSocketManager {
   // Heartbeat timer
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
-  private constructor() {}
+  private constructor() { }
 
   static getInstance(): WebSocketManager {
     if (!WebSocketManager.instance) {
@@ -109,7 +109,7 @@ class WebSocketManager {
     this.ws$
       .pipe(
         tap((message: any) => {
-          if (this.debug) console.log('📥 [RxWS-Singleton] Message received:', message.type);
+
           this.allMessagesSubject.next(message);
         }),
         tap((message: WebSocketMessage) => {

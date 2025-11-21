@@ -6,9 +6,9 @@ import type { MarketSession } from '@/lib/types';
 import { DraggableTable } from '@/components/scanner/DraggableTable';
 import { Navbar, NavbarContent } from '@/components/layout/Navbar';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
+import { CommandPalette } from '@/components/ui/CommandPalette';
 import { Settings2 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
-import { useSidebar } from '@/contexts/SidebarContext';
 
 type ScannerCategory = {
   id: string;
@@ -73,11 +73,12 @@ function adaptMarketSession(session: MarketSession) {
 }
 
 export default function ScannerPage() {
-  const { sidebarWidth } = useSidebar(); // Obtener ancho dinámico del sidebar
   const [session, setSession] = useState<MarketSession | null>(null);
   const [mounted, setMounted] = useState(false);
   const [activeCategories, setActiveCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandInput, setCommandInput] = useState('');
 
   useEffect(() => {
     setMounted(true);
@@ -95,6 +96,21 @@ export default function ScannerPage() {
         console.error('Error loading saved categories:', e);
       }
     }
+
+    // Handler para Ctrl+K - Enfocar input
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        const input = document.querySelector('input[type="text"]') as HTMLInputElement;
+        if (input) {
+          input.focus();
+          setCommandPaletteOpen(true);
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   useEffect(() => {
@@ -150,14 +166,56 @@ export default function ScannerPage() {
 
   return (
     <>
-      {/* Navbar Global con Market Status */}
+      {/* Navbar con Command Prompt, Logo Centrado y Market Status */}
       <Navbar>
-        <NavbarContent
-          title="Escáner de Mercado"
-          subtitle={`${activeCategories.length} ${activeCategories.length === 1 ? 'tabla activa' : 'tablas activas'}`}
-          statusBadge={session && mounted ? <MarketStatusPopover status={adaptMarketSession(session)} /> : null}
-        />
+        <div className="flex items-center h-full w-full gap-4">
+          {/* Left: Command Prompt Line */}
+          <div className="flex-1 flex items-center gap-2 relative">
+            <span className="text-slate-400 font-mono text-sm select-none">$</span>
+            <input
+              type="text"
+              value={commandInput}
+              onChange={(e) => setCommandInput(e.target.value)}
+              onFocus={() => setCommandPaletteOpen(true)}
+              placeholder="escribir comando..."
+              className="flex-1 px-3 py-2 font-mono text-sm text-slate-900
+                       placeholder:text-slate-400 bg-transparent
+                       border-b-2 border-transparent focus:border-blue-500
+                       outline-none transition-all"
+            />
+            <kbd className="text-xs text-slate-400 font-mono">Ctrl+K</kbd>
+          </div>
+
+          {/* Center: Logo */}
+          <div className="flex items-center gap-3 px-4">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 
+                          flex items-center justify-center shadow-md">
+              <span className="text-white font-bold text-xl">T</span>
+            </div>
+            <div className="flex flex-col justify-center">
+              <h1 className="text-sm font-bold text-slate-900 whitespace-nowrap">Tradeul Scanner</h1>
+              <p className="text-xs text-slate-500">
+                {activeCategories.length} {activeCategories.length === 1 ? 'activa' : 'activas'}
+              </p>
+            </div>
+          </div>
+
+          {/* Right: Market Status */}
+          <div className="flex-1 flex items-center justify-end gap-4">
+            {session && mounted && <MarketStatusPopover status={adaptMarketSession(session)} />}
+          </div>
+        </div>
       </Navbar>
+
+      {/* Command Palette - Integrado debajo del input */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        onSelectCategory={handleToggleCategory}
+        activeCategories={activeCategories}
+        searchValue={commandInput}
+        onSearchChange={setCommandInput}
+      />
 
       {/* Main Content - Sin padding-top porque AppShell ya lo tiene */}
       <main className="h-[calc(100vh-64px)] bg-slate-50 relative overflow-hidden">
@@ -171,106 +229,6 @@ export default function ScannerPage() {
               onClick={() => setSidebarOpen(false)}
             />
           )}
-
-          {/* Sliding Panel - Fixed para evitar gaps, dinámico según sidebar */}
-          <div
-            className={`
-            fixed w-64 bg-white border-r border-slate-200
-            shadow-2xl transition-all duration-300 ease-out overflow-y-auto
-          `}
-            style={{
-              top: '64px', // LÍMITE: Empieza justo debajo del navbar (h-16 = 64px)
-              bottom: 0, // Llega hasta abajo
-              left: sidebarOpen ? `${sidebarWidth}px` : `-256px`, // Pegado al sidebar (dinámico)
-              visibility: sidebarOpen ? 'visible' : 'hidden',
-              zIndex: Z_INDEX.SCANNER_PANEL
-            }}
-          >
-            <div className="flex flex-col h-full">
-              {/* Panel Header - Compacto */}
-              <div className="p-3 border-b border-slate-200 bg-slate-50">
-                <div className="flex items-center justify-between mb-1.5">
-                  <h3 className="text-base font-bold text-slate-900">
-                    Categorías
-                  </h3>
-                  <button
-                    onClick={() => setSidebarOpen(false)}
-                    className="p-1 hover:bg-slate-200 rounded transition-colors"
-                  >
-                    <svg className="h-4 w-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <p className="text-xs text-slate-600">
-                  {activeCategories.length} activas • Solo WS activos
-                </p>
-              </div>
-
-              {/* Categories List */}
-              <div className="flex-1 overflow-y-auto p-3">
-                <div className="space-y-1.5">
-                  {AVAILABLE_CATEGORIES.map((category) => {
-                    const isActive = activeCategories.includes(category.id);
-
-                    return (
-                      <label
-                        key={category.id}
-                        className={`
-                      flex items-start gap-2.5 p-2.5 rounded-md cursor-pointer
-                      transition-all duration-200
-                      ${isActive ? 'bg-blue-50 border border-blue-400' : 'bg-white border border-slate-200'}
-                      hover:border-blue-300 hover:shadow-sm
-                    `}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isActive}
-                          onChange={() => handleToggleCategory(category.id)}
-                          className="mt-0.5 h-4 w-4 text-blue-600 rounded border-slate-300
-                               focus:ring-2 focus:ring-blue-500"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-semibold text-slate-900 leading-tight mb-0.5">
-                            {category.name}
-                          </div>
-                          <div className="text-[10px] text-slate-500 leading-tight">
-                            {category.description}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Panel Footer */}
-              <div className="p-2 border-t border-slate-200 bg-slate-50">
-                <p className="text-[10px] text-slate-400 text-center">
-                  Guardado automático
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Mini Button - Botón flotante pegado al borde del sidebar (dinámico) */}
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="fixed top-24 bg-blue-600 hover:bg-blue-700 text-white
-                     rounded-r-lg shadow-lg hover:shadow-xl
-                     flex flex-col items-center justify-center gap-1 py-3 px-2.5
-                     transition-all duration-300"
-            style={{ 
-              left: `${sidebarWidth}px`, // Pegado al borde del sidebar (dinámico)
-              zIndex: Z_INDEX.SCANNER_BUTTON 
-            }}
-            title="Configurar categorías"
-          >
-            <Settings2 className="h-5 w-5" />
-            <div className="text-[10px] font-bold leading-none">
-              {activeCategories.length}
-            </div>
-          </button>
 
           {/* Draggable Tables Area */}
           <div className="relative w-full h-full overflow-hidden">
@@ -291,8 +249,7 @@ export default function ScannerPage() {
                     key={category.id}
                     category={category}
                     index={index}
-                    zIndex={0}
-                    onBringToFront={() => { }}
+                    onClose={() => handleToggleCategory(category.id)}
                   />
                 ))}
               </>

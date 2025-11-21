@@ -379,8 +379,14 @@ class ScannerEngine:
         # 1. Primera pasada: filtrar por precio y volumen, recopilar símbolos únicos
         valid_snapshots = []
         seen_symbols = set()
-        
+
+        logger.info(f"🎯 _process_snapshots_optimized called with {len(enriched_snapshots)} snapshots")
+
         for snapshot, rvol, atr_data in enriched_snapshots:
+            # DEBUG: Log para MNDR al inicio del bucle
+            if snapshot.ticker == "MNDR":
+                logger.info(f"🚀 MNDR entered processing loop, snapshot={snapshot.ticker}, price={snapshot.current_price}")
+
             # Validaciones tempranas (evita MGET innecesarios)
             cp = snapshot.current_price
             cv = snapshot.current_volume
@@ -390,22 +396,34 @@ class ScannerEngine:
                 logger.info(f"early_filter_check symbol={snapshot.ticker} price={cp} volume={cv} min.av={snapshot.min.av if snapshot.min else 'NO MIN'}")
             
             # Skip: precio inválido o muy bajo
+            if snapshot.ticker == "MNDR":
+                logger.info(f"🔍 MNDR price check: cp={cp}, type={type(cp)}, bool(cp)={bool(cp)}, cp < 0.5 = {cp < 0.5 if cp else 'N/A'}")
             if not cp or cp < 0.5:
                 if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA']:
                     logger.warning(f"rejected_by_price symbol={snapshot.ticker} price={cp}")
                 continue
             
             # Skip: volumen inválido
+            if snapshot.ticker == "MNDR":
+                logger.info(f"🔍 MNDR volume check: cv={cv}, type={type(cv)}, bool(cv)={bool(cv)}, cv <= 0 = {cv <= 0 if cv else 'N/A'}")
             if not cv or cv <= 0:
                 if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA'] or len(valid_snapshots) < 5:
                     logger.warning(f"rejected_by_volume symbol={snapshot.ticker} cv={cv}")
                 continue
-            
+
+            # DEBUG: MNDR llegó hasta aquí
+            if snapshot.ticker == "MNDR":
+                logger.info(f"🎯 MNDR passed volume check, going to deduplication")
+
             # Deduplicar símbolos
             symbol = snapshot.ticker
             if symbol not in seen_symbols:
                 seen_symbols.add(symbol)
                 valid_snapshots.append((snapshot, rvol, atr_data))
+                if symbol == "MNDR":
+                    logger.info(f"✅ MNDR added to valid_snapshots, total_valid={len(valid_snapshots)}")
+            elif symbol == "MNDR":
+                logger.warning(f"⚠️ MNDR already in seen_symbols, skipping duplicate")
         
         # 2. MGET de metadata solo para símbolos válidos
         metadatas = await self._get_metadata_batch_cached(list(seen_symbols))
@@ -432,6 +450,8 @@ class ScannerEngine:
                 # Get metadata (ya fetched con MGET batch)
                 metadata = metadatas.get(symbol)
                 if not metadata:
+                    if symbol == "MNDR":
+                        logger.error(f"❌ MNDR missing metadata, available_symbols={list(metadatas.keys())[:10]}")
                     continue  # Sin metadata, skip
                 
                 # Build ticker completo (incluye cálculos de change_percent, etc)
@@ -439,10 +459,18 @@ class ScannerEngine:
                 # NOTA: RVOL ya viene calculado por Analytics (no usa avg_volume_30d aquí)
                 ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol, atr_data)
                 if not ticker:
+                    if symbol == "MNDR":
+                        logger.error(f"❌ MNDR _build_scanner_ticker_inline returned None")
                     continue
-                
+
+                if symbol == "MNDR":
+                    logger.info(f"✅ MNDR ticker built successfully, price={ticker.price}, rvol={ticker.rvol}")
+
                 # Enriquecer con gaps (usa prev_close y open del snapshot)
                 ticker = self.enhance_ticker_with_gaps(ticker, snapshot)
+
+                if symbol == "MNDR":
+                    logger.info(f"🚀 MNDR after gap enhancement: ticker={ticker is not None}, going to filters")
                 
                 # intraday_high/low ya vienen de Analytics, no necesitamos tracker adicional
                 
@@ -457,9 +485,20 @@ class ScannerEngine:
                 # Aplicar filtros configurables
                 # Filtros que requieren metadata: market_cap, sector, industry, exchange
                 # Filtros que NO requieren metadata: RVOL (ya calculado), price, volume, change_percent
+                if symbol == "MNDR":
+                    logger.info(f"🎯 MNDR checking filters: market_cap={ticker.market_cap}, sector={ticker.sector}, rvol={ticker.rvol}")
+
+                if symbol == "MNDR":
+                    logger.info(f"🚨 MNDR about to call _passes_all_filters")
+
                 if not self._passes_all_filters(ticker):
+                    if symbol == "MNDR":
+                        logger.warning(f"❌ MNDR failed filters")
                     continue  # No cumple filtros, skip
-                
+
+                if symbol == "MNDR":
+                    logger.info(f"✅ MNDR passed all filters, calculating score")
+
                 # Calcular score (solo si pasó TODOS los filtros)
                 ticker.score = self._calculate_score_inline(ticker)
                 
@@ -765,16 +804,24 @@ class ScannerEngine:
     
     def _passes_all_filters(self, ticker: ScannerTicker) -> bool:
         """Verifica si ticker pasa TODOS los filtros (sin await)"""
+        if ticker.symbol == "MNDR":
+            logger.info(f"🔍 MNDR _passes_all_filters called, filters_count={len(self.filters)}")
+
         for filter_config in self.filters:
             if not filter_config.enabled:
                 continue
-            
+
             if not filter_config.applies_to_session(self.current_session):
                 continue
-            
+
+            if ticker.symbol == "MNDR":
+                logger.info(f"🔍 MNDR testing filter: {filter_config.name} (enabled={filter_config.enabled})")
+
             if not self._apply_single_filter(ticker, filter_config):
+                if ticker.symbol == "MNDR":
+                    logger.warning(f"❌ MNDR failed filter: {filter_config.name}")
                 return False  # Falla un filtro
-        
+
         return True  # Pasó todos
     
     def _calculate_score_inline(self, ticker: ScannerTicker) -> float:

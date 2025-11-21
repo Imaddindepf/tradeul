@@ -11,12 +11,13 @@ interface DraggableTableProps {
     description: string;
   };
   index: number;
+  onClose?: () => void;
 }
 
 /**
  * Tabla arrastrable del scanner - Optimizada
  */
-function DraggableTableComponent({ category, index }: DraggableTableProps) {
+function DraggableTableComponent({ category, index, onClose }: DraggableTableProps) {
   return (
     <FloatingWindowBase
       dragHandleClassName="table-drag-handle"
@@ -32,6 +33,7 @@ function DraggableTableComponent({ category, index }: DraggableTableProps) {
       <CategoryTableV2 
         title={category.name} 
         listName={category.id}
+        onClose={onClose}
       />
     </FloatingWindowBase>
   );

@@ -280,6 +280,38 @@ td, th {
   }
 }
 
+/* Animación para Command Palette */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slideDown {
+  animation: slideDown 0.15s ease-out;
+}
+
+/* Animación para Command Palette desde izquierda */
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft 0.25s ease-out;
+}
+
 /* Smooth scroll para toda la app */
 * {
   scroll-behavior: smooth;
@@ -293,5 +325,23 @@ td, th {
   50% {
     opacity: 0.6;
   }
+}
+
+/* Command Palette (cmdk) Styles */
+[cmdk-root] {
+  font-family: inherit;
+}
+
+[cmdk-group-heading] {
+  @apply px-3 py-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider;
+}
+
+[cmdk-item] {
+  @apply outline-none;
+  content-visibility: auto;
+}
+
+[cmdk-separator] {
+  @apply h-px bg-slate-200 my-1;
 }
 

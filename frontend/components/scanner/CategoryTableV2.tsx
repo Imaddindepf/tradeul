@@ -45,38 +45,39 @@ const columnHelper = createColumnHelper<Ticker>();
 interface CategoryTableV2Props {
   title: string;
   listName: string;
+  onClose?: () => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export default function CategoryTableV2({ title, listName }: CategoryTableV2Props) {
+export default function CategoryTableV2({ title, listName, onClose }: CategoryTableV2Props) {
   // ======================================================================
   // STATE (Zustand + local UI state)
   // ======================================================================
-  
+
   // Zustand store selectors
   const initializeList = useTickersStore((state) => state.initializeList);
   const applyDeltas = useTickersStore((state) => state.applyDeltas);
   const updateAggregates = useTickersStore((state) => state.updateAggregates);
   const updateSequence = useTickersStore((state) => state.updateSequence);
   const getList = useTickersStore((state) => state.getList);
-  
+
   // Get tickers for this list (memoized selector)
   const tickers = useTickersStore(selectOrderedTickers(listName));
-  
+
   // Local UI state (no afecta datos)
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [columnVisibility, setColumnVisibility] = useState({});
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
   const [isReady, setIsReady] = useState(false);
-  
+
   // Animaciones (local state)
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
-  
+
   // Modal state
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [selectedTickerData, setSelectedTickerData] = useState<Ticker | null>(null);
@@ -85,20 +86,20 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
   // ======================================================================
   // WEBSOCKET (RxJS Singleton)
   // ======================================================================
-  
+
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const debug = process.env.NODE_ENV === 'development';
-  
+
   // Singleton WebSocket (compartido entre todas las tablas)
   const ws = useRxWebSocket(wsUrl, debug);
-  
+
   // Auto-subscribe/unsubscribe a la lista
   useListSubscription(listName, debug);
 
   // ======================================================================
   // WEBSOCKET HANDLERS
   // ======================================================================
-  
+
   // Handle snapshots
   const handleSnapshot = useCallback(
     (snapshot: any) => {
@@ -107,10 +108,6 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
       // Initialize list in Zustand store
       initializeList(listName, snapshot);
       setIsReady(true);
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`✅ [${listName}] Snapshot initialized:`, snapshot.rows.length, 'tickers');
-      }
     },
     [listName, initializeList]
   );
@@ -152,10 +149,6 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
           }, 1200);
         }
       });
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`🔄 [${listName}] Delta applied:`, delta.deltas.length, 'changes');
-      }
     },
     [listName, isReady, applyDeltas, ws]
   );
@@ -163,7 +156,7 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
   // ======================================================================
   // STREAM SUBSCRIPTIONS
   // ======================================================================
-  
+
   useEffect(() => {
     if (!ws.isConnected) return;
 
@@ -185,9 +178,6 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
     const aggregateSub = ws.aggregates$.subscribe((batch: any) => {
       if (batch.type === 'aggregates_batch' && batch.data instanceof Map) {
         updateAggregates(batch.data);
-        if (debug) {
-          console.log(`📊 [${listName}] Aggregates batch:`, batch.count, 'updates');
-        }
       }
     });
 
@@ -201,7 +191,7 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
   // ======================================================================
   // TABLE CONFIGURATION
   // ======================================================================
-  
+
   // Memoized data (viene directo de Zustand)
   const data = useMemo(() => tickers, [tickers]);
 
@@ -283,9 +273,8 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
           const isPositive = (value || 0) > 0;
           return (
             <div
-              className={`font-mono font-semibold ${
-                isPositive ? 'text-emerald-600' : 'text-rose-600'
-              }`}
+              className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'
+                }`}
             >
               {formatPercent(value)}
             </div>
@@ -322,13 +311,12 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
             <div
               className={`
               font-mono font-semibold
-              ${
-                displayValue > 3
+              ${displayValue > 3
                   ? 'text-blue-700'
                   : displayValue > 1.5
-                  ? 'text-blue-600'
-                  : 'text-slate-500'
-              }
+                    ? 'text-blue-600'
+                    : 'text-slate-500'
+                }
             `}
             >
               {formatRVOL(displayValue)}
@@ -501,6 +489,7 @@ export default function CategoryTableV2({ title, listName }: CategoryTableV2Prop
           sequence={isReady ? sequence : undefined}
           lastUpdateTime={lastUpdateTime}
           listName={listName}
+          onClose={onClose}
           rightActions={<TableSettings table={table} />}
         />
       </VirtualizedDataTable>
