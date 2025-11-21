@@ -54,33 +54,35 @@ class LoadOHLCTask:
             # Obtener últimos 30 días de trading potenciales
             all_trading_days = get_trading_days(30)
             
-            # 🔍 DETECTAR QUÉ DÍAS YA EXISTEN EN LA BD
+            # 🔍 DETECTAR QUÉ DÍAS YA TIENEN DATOS COMPLETOS (>10K símbolos)
             logger.info("detecting_existing_days_in_db")
             existing_dates_query = """
-                SELECT DISTINCT trading_date 
+                SELECT trading_date, COUNT(DISTINCT symbol) as symbol_count
                 FROM market_data_daily 
                 WHERE trading_date >= $1 
+                GROUP BY trading_date
+                HAVING COUNT(DISTINCT symbol) >= 10000
                 ORDER BY trading_date DESC
             """
             oldest_date = min(all_trading_days)
             existing_rows = await self.db.fetch(existing_dates_query, oldest_date)
             existing_dates = {row['trading_date'] for row in existing_rows}
             
-            # Filtrar solo los días FALTANTES
+            # Filtrar solo los días con DATOS COMPLETOS
             trading_days = [d for d in all_trading_days if d not in existing_dates]
             
             if existing_dates:
                 logger.info(
-                    "existing_days_found",
-                    existing_count=len(existing_dates),
+                    "complete_days_found",
+                    count=len(existing_dates),
                     last_3_dates=sorted([d.isoformat() for d in existing_dates], reverse=True)[:3]
                 )
             
             if not trading_days:
-                logger.info("all_days_already_loaded", message="No hay días faltantes")
+                logger.info("all_days_complete", message="Todos los días tienen datos completos (>=10K símbolos)")
                 return {
                     "success": True,
-                    "message": "All days already loaded",
+                    "message": "All days have complete data",
                     "symbols_processed": 0,
                     "records_inserted": 0,
                     "days_skipped": len(existing_dates)
@@ -175,12 +177,18 @@ class LoadOHLCTask:
         trading_days: list
     ) -> int:
         """Cargar OHLC para un símbolo"""
-        start_date = trading_days[0]
-        end_date = trading_days[-1]
+        # trading_days viene en orden descendente (más reciente primero)
+        start_date = trading_days[-1]  # Más antiguo
+        end_date = trading_days[0]      # Más reciente
+        
+        logger.info(f"loading_symbol symbol={symbol} start={start_date} end={end_date} days_count={len(trading_days)}")
         
         bars = await self._fetch_bars(client, symbol, start_date, end_date)
         if not bars:
+            logger.info(f"no_bars_returned symbol={symbol}")
             return 0
+        
+        logger.info(f"bars_received symbol={symbol} count={len(bars)}")
         
         # Preparar datos para inserción
         records = []
@@ -242,8 +250,13 @@ class LoadOHLCTask:
             )
             if resp.status_code == 200:
                 data = resp.json()
-                return data.get('results', [])
+                results = data.get('results', [])
+                if results:
+                    logger.info(f"polygon_success symbol={symbol} bars={len(results)} start={start_date} end={end_date}")
+                return results
+            else:
+                logger.warning(f"polygon_error symbol={symbol} status={resp.status_code} response={resp.text[:100]}")
         except Exception as e:
-            logger.debug(f"Error fetching {symbol}: {e}")
+            logger.error(f"Error fetching {symbol}: {e}")
         return []
 

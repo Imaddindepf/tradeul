@@ -4,7 +4,7 @@ Monitorea el estado del mercado y ejecuta mantenimiento cuando cierra
 """
 
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, date
 from zoneinfo import ZoneInfo
 
 import sys

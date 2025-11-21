@@ -198,11 +198,13 @@ class SyncRedisTask:
                     # Convertir row a dict y manejar campos especiales
                     data = dict(row)
                     
-                    # Convertir datetime a string ISO para serialización JSON
+                    # Convertir datetime/date a string ISO para serialización JSON
                     if data.get('updated_at'):
                         data['updated_at'] = data['updated_at'].isoformat()
                     if data.get('delisted_utc'):
                         data['delisted_utc'] = data['delisted_utc'].isoformat()
+                    if data.get('list_date'):
+                        data['list_date'] = data['list_date'].isoformat()
                     
                     # Convertir address dict a JSON string si existe
                     if isinstance(data.get('address'), dict):

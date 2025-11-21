@@ -253,6 +253,7 @@ class ScannerEngine:
             # Convertir a lista de tuplas (snapshot, rvol, atr_data)
             enriched_snapshots = []
             
+            parsed_count = 0
             for ticker_data in tickers_data:
                 try:
                     # Parsear snapshot
@@ -268,14 +269,18 @@ class ScannerEngine:
                     }
                     
                     enriched_snapshots.append((snapshot, rvol, atr_data))
+                    parsed_count += 1
                 
                 except Exception as e:
-                    logger.error("Error parsing ticker", 
-                                ticker=ticker_data.get('ticker'), 
-                                error=str(e))
+                    if parsed_count < 5:  # Log solo los primeros errores
+                        logger.error("Error parsing ticker", 
+                                    ticker=ticker_data.get('ticker'), 
+                                    error=str(e))
             
             # Guardar timestamp para no reprocesar
             self.last_snapshot_timestamp = snapshot_timestamp
+            
+            logger.info(f"parsed_snapshots total={len(enriched_snapshots)} from_raw={len(tickers_data)}")
             
             return enriched_snapshots
         
@@ -380,12 +385,20 @@ class ScannerEngine:
             cp = snapshot.current_price
             cv = snapshot.current_volume
             
+            # DEBUG logging para tickers específicos o primeros 5
+            if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA'] or len(valid_snapshots) < 5:
+                logger.info(f"early_filter_check symbol={snapshot.ticker} price={cp} volume={cv} min.av={snapshot.min.av if snapshot.min else 'NO MIN'}")
+            
             # Skip: precio inválido o muy bajo
             if not cp or cp < 0.5:
+                if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA']:
+                    logger.warning(f"rejected_by_price symbol={snapshot.ticker} price={cp}")
                 continue
             
             # Skip: volumen inválido
             if not cv or cv <= 0:
+                if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA'] or len(valid_snapshots) < 5:
+                    logger.warning(f"rejected_by_volume symbol={snapshot.ticker} cv={cv}")
                 continue
             
             # Deduplicar símbolos
@@ -812,7 +825,9 @@ class ScannerEngine:
                     passed = False
                     break
             
-            if passed and matched_filters:
+            # Si pasó todos los filtros habilitados, agregarlo
+            # (incluso si matched_filters está vacío porque no hay filtros habilitados)
+            if passed:
                 ticker.filters_matched = matched_filters
                 filtered.append(ticker)
         
