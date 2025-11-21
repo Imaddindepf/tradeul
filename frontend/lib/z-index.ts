@@ -2,13 +2,14 @@
  * Sistema Profesional de Z-Index
  * ================================
  * 
- * Arquitectura con 5 capas (de mayor a menor prioridad):
+ * Arquitectura con 6 capas (de mayor a menor prioridad):
  * 
- * CAPA 5 (z-10000): Navegación Global (Navbar + Sidebar) - LÍMITE SUPERIOR, nada puede superarlo
- * CAPA 4 (z-9000): Popovers y controles del Navbar - Sobre el navbar
- * CAPA 3 (z-5000 a z-8999): Modales - Por debajo del navbar, sobre tablas
- * CAPA 2 (z-100 a z-4999): Tablas flotantes - Por debajo de modales
- * CAPA 1 (z-40): Controles del Scanner - Panel de configuración
+ * CAPA 6 (z-10000): Navegación Global (Navbar + Sidebar) - LÍMITE SUPERIOR ABSOLUTO
+ * CAPA 5 (z-9000): Popovers del Navbar (Market Status, etc)
+ * CAPA 4 (z-8500): Panel de Configuración del Scanner - Por encima de todo excepto navbar/sidebar
+ * CAPA 3 (z-5000 a z-8499): Modales (Ticker Metadata, Dilution Tracker)
+ * CAPA 2 (z-100 a z-4999): Tablas Flotantes del Scanner
+ * CAPA 1 (z-0 a z-99): Elementos auxiliares (tooltips, headers)
  * CAPA 0 (z-0): Base - Dashboard background
  */
 
@@ -19,19 +20,19 @@ export const Z_INDEX = {
   BASE: 0,
   
   // ============================================================================
-  // CAPA 1: CONTROLES DEL SCANNER (z-40)
+  // CAPA 1: CONTROLES DEL SCANNER (z-8500)
   // ============================================================================
   /** Overlay que oscurece el fondo cuando el panel está abierto */
-  SCANNER_PANEL_OVERLAY: 39,
+  SCANNER_PANEL_OVERLAY: 8499,
   
-  /** Panel deslizante de configuración de categorías */
-  SCANNER_PANEL: 40,
+  /** Panel deslizante de configuración de categorías - Por encima de tablas, debajo de sidebar */
+  SCANNER_PANEL: 8500,
   
   /** Botón azul para abrir el panel de configuración */
-  SCANNER_BUTTON: 40,
+  SCANNER_BUTTON: 8500,
   
   /** Popovers de configuración de tablas (columnas, filtros) */
-  TABLE_SETTINGS_POPOVER: 40,
+  TABLE_SETTINGS_POPOVER: 8500,
   
   /** Headers sticky dentro de contenedores scrollables */
   TABLE_HEADER: 5,

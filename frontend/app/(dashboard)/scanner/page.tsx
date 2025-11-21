@@ -170,13 +170,14 @@ export default function ScannerPage() {
             />
           )}
 
-          {/* Sliding Panel - Overlay dentro del scanner */}
+          {/* Sliding Panel - Empieza debajo del navbar */}
           <div
             className={`
-            absolute top-0 bottom-0 w-64 bg-white border-r border-slate-200
+            absolute bottom-0 w-64 bg-white border-r border-slate-200
             shadow-2xl transition-all duration-300 ease-out overflow-y-auto
           `}
             style={{
+              top: '64px', // LÍMITE: Empieza debajo del navbar (h-16 = 64px)
               left: sidebarOpen ? 0 : '-100%',
               visibility: sidebarOpen ? 'visible' : 'hidden',
               zIndex: Z_INDEX.SCANNER_PANEL

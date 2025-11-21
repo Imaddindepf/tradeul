@@ -53,7 +53,7 @@ function FloatingWindowBaseComponent({
     const navbarHeight = 64; // h-16
     const minY = navbarHeight + 20; // 84px - LÍMITE: debajo del navbar
     const minX = sidebarWidth + 20; // después del sidebar (dinámico)
-    
+
     return {
       x: minX + stackOffset,
       y: minY + stackOffset,
