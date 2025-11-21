@@ -2,6 +2,7 @@
 
 import { useState, useRef, ReactNode, MouseEvent, useCallback, memo } from 'react';
 import { floatingZIndexManager } from '@/lib/z-index';
+import { useSidebar } from '@/contexts/SidebarContext';
 
 export interface FloatingWindowBaseProps {
   children: ReactNode;
@@ -44,12 +45,14 @@ function FloatingWindowBaseComponent({
   onSizeChange,
   onPositionChange,
 }: FloatingWindowBaseProps) {
+  // Obtener ancho dinámico del sidebar (80px colapsado, 256px expandido)
+  const { sidebarWidth } = useSidebar();
+
   // Posición inicial segura que respeta los límites del navbar y sidebar
   const getInitialPosition = () => {
     const navbarHeight = 64; // h-16
-    const sidebarWidth = 256;
     const minY = navbarHeight + 20; // 84px - LÍMITE: debajo del navbar
-    const minX = sidebarWidth + 20; // 276px - después del sidebar
+    const minX = sidebarWidth + 20; // después del sidebar (dinámico)
     
     return {
       x: minX + stackOffset,
@@ -103,10 +106,9 @@ function FloatingWindowBaseComponent({
       let newX = startPosX + deltaX;
       let newY = startPosY + deltaY;
 
-      // Límites de la pantalla
+      // Límites de la pantalla (dinámicos según estado del sidebar)
       const navbarHeight = 64; // h-16 = 64px
-      const sidebarWidth = 256; // Ancho del sidebar expandido
-      const minX = sidebarWidth + 10; // Margen después del sidebar
+      const minX = sidebarWidth + 10; // Margen después del sidebar (dinámico: 80px o 256px)
       const minY = navbarHeight + 10; // LÍMITE: Navbar + margen
       const maxX = window.innerWidth - size.width - 10;
       const maxY = window.innerHeight - 100; // Dejar espacio para ver el header
