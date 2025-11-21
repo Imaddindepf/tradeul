@@ -26,27 +26,25 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
 
   const handleOpenNewWindow = () => {
     // Determinar la URL basándose en el título de la ventana
-    let url = '';
+    let path = '';
     if (window.title === 'Dilution Tracker') {
-      url = '/standalone/dilution-tracker'; // Ruta standalone sin navbar/sidebar
+      path = '/standalone/dilution-tracker';
     }
     
-    if (url) {
+    if (path) {
+      // Construir URL completa con origin
+      const origin = typeof globalThis.window !== 'undefined' ? globalThis.window.location.origin : 'http://localhost:3000';
+      const url = `${origin}${path}`;
+      
       const width = 1200;
       const height = 800;
       const left = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.width - width) / 2 : 100;
       const top = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.height - height) / 2 : 100;
       
-      // Abrir en nueva ventana del navegador
+      // Abrir en nueva ventana del navegador con URL completa
       const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
       
-      const newWindow = globalThis.window.open(url, '_blank', windowFeatures);
-      
-      // Verificar si se abrió correctamente
-      if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-        // El popup fue bloqueado - abrir en nueva pestaña normal
-        globalThis.window.open(url, '_blank');
-      }
+      globalThis.window.open(url, '_blank', windowFeatures);
     }
   };
 

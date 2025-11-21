@@ -26,7 +26,10 @@ export function MarketTableLayout({
   const handleOpenNewWindow = () => {
     if (!listName) return;
     
-    const url = `/standalone/scanner/${listName}`;
+    // Construir URL completa con origin
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const url = `${origin}/standalone/scanner/${listName}`;
+    
     const width = 1200;
     const height = 800;
     const left = typeof window !== 'undefined' ? (window.screen.width - width) / 2 : 100;
@@ -34,11 +37,8 @@ export function MarketTableLayout({
     
     const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
     
-    const newWindow = window.open(url, '_blank', windowFeatures);
-    
-    if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-      window.open(url, '_blank');
-    }
+    // Abrir con URL completa
+    window.open(url, '_blank', windowFeatures);
   };
   
   return (
