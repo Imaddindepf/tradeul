@@ -28,7 +28,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     // Determinar la URL basándose en el título de la ventana
     let url = '';
     if (window.title === 'Dilution Tracker') {
-      url = '/dilution-tracker';
+      url = '/standalone/dilution-tracker'; // Ruta standalone sin navbar/sidebar
     }
     
     if (url) {

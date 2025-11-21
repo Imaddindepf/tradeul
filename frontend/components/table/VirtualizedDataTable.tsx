@@ -92,7 +92,7 @@ export function VirtualizedDataTable<T>({
   >(null);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [hasUserResized, setHasUserResized] = useState(false);
-  
+
   // Si showResizeHandles es false, observar el tamaño del contenedor padre
   useEffect(() => {
     if (showResizeHandles || !containerRef.current) return;
@@ -330,8 +330,8 @@ export function VirtualizedDataTable<T>({
       style={
         showResizeHandles
           ? {
-              width: '100%',
-              maxWidth: '100%',
+        width: '100%',
+        maxWidth: '100%',
             }
           : {
               width: '100%',
@@ -351,8 +351,8 @@ export function VirtualizedDataTable<T>({
         style={
           showResizeHandles
             ? {
-                height: contentHeight,
-                maxHeight: '100%',
+          height: contentHeight,
+          maxHeight: '100%',
               }
             : {
                 height: `calc(100% - ${headerHeight}px)`,

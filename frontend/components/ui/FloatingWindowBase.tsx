@@ -117,6 +117,7 @@ export function FloatingWindowBase({
   const handleDragStop = (_e: any, d: { x: number; y: number }) => {
     setPosition(d);
     onPositionChange?.(d);
+    setIsFocused(false); // Quitar foco cuando termina de arrastrar
   };
 
   const handleResizeStart = () => {
@@ -150,6 +151,7 @@ export function FloatingWindowBase({
     setPosition(position);
     onSizeChange?.(newSize);
     onPositionChange?.(position);
+    setIsFocused(false); // Quitar foco cuando termina de redimensionar
   };
 
   return (
