@@ -44,7 +44,20 @@ function FloatingWindowBaseComponent({
   onSizeChange,
   onPositionChange,
 }: FloatingWindowBaseProps) {
-  const [position, setPosition] = useState({ x: 350 + stackOffset, y: 120 + stackOffset });
+  // Posición inicial segura que respeta los límites del navbar y sidebar
+  const getInitialPosition = () => {
+    const navbarHeight = 64; // h-16
+    const sidebarWidth = 256;
+    const minY = navbarHeight + 20; // 84px - LÍMITE: debajo del navbar
+    const minX = sidebarWidth + 20; // 276px - después del sidebar
+    
+    return {
+      x: minX + stackOffset,
+      y: minY + stackOffset,
+    };
+  };
+
+  const [position, setPosition] = useState(getInitialPosition);
   const [size, setSize] = useState(initialSize);
   const [zIndex, setZIndex] = useState(() =>
     initialZIndex !== undefined ? initialZIndex : floatingZIndexManager.getNext()
@@ -64,7 +77,7 @@ function FloatingWindowBaseComponent({
     setIsFocused(true);
   }, [initialZIndex, onZIndexChange]);
 
-  // Drag handler optimizado
+  // Drag handler optimizado con bounds checking
   const handleDragStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (!target.closest(`.${dragHandleClassName}`)) return;
@@ -86,10 +99,23 @@ function FloatingWindowBaseComponent({
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
 
-      const newPos = {
-        x: startPosX + deltaX,
-        y: startPosY + deltaY,
-      };
+      // Calcular nueva posición
+      let newX = startPosX + deltaX;
+      let newY = startPosY + deltaY;
+
+      // Límites de la pantalla
+      const navbarHeight = 64; // h-16 = 64px
+      const sidebarWidth = 256; // Ancho del sidebar expandido
+      const minX = sidebarWidth + 10; // Margen después del sidebar
+      const minY = navbarHeight + 10; // LÍMITE: Navbar + margen
+      const maxX = window.innerWidth - size.width - 10;
+      const maxY = window.innerHeight - 100; // Dejar espacio para ver el header
+
+      // Aplicar restricciones
+      newX = Math.max(minX, Math.min(maxX, newX));
+      newY = Math.max(minY, Math.min(maxY, newY));
+
+      const newPos = { x: newX, y: newY };
 
       setPosition(newPos);
       onPositionChange?.(newPos);
@@ -104,7 +130,7 @@ function FloatingWindowBaseComponent({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [dragHandleClassName, position.x, position.y, bringToFront, onPositionChange]);
+  }, [dragHandleClassName, position.x, position.y, size.width, bringToFront, onPositionChange]);
 
   // Resize handler optimizado
   const handleResizeStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
