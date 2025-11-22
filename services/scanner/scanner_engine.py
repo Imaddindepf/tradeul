@@ -1376,16 +1376,21 @@ class ScannerEngine:
     # =============================================
     
     async def _update_market_session(self) -> None:
-        """Update current market session from Market Session Service"""
+        """Update current market session from Redis (optimizado)"""
         try:
-            url = f"http://{settings.market_session_host}:{settings.market_session_port}/api/session/current"
+            # Leer de Redis directamente (sin HTTP overhead)
+            session_str = await self.redis.get(f"{settings.key_prefix_market}:session:current")
             
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    self.current_session = MarketSession(data["current_session"])
+            if session_str:
+                self.current_session = MarketSession(session_str)
+            else:
+                # Fallback: HTTP si no está en Redis
+                url = f"http://{settings.market_session_host}:{settings.market_session_port}/api/session/current"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get(url)
+                    if response.status_code == 200:
+                        data = response.json()
+                        self.current_session = MarketSession(data["current_session"])
         
         except Exception as e:
             logger.error("Error updating market session", error=str(e))

@@ -131,13 +131,18 @@ async def consume_snapshots_loop():
 
 
 async def get_current_market_session() -> Optional[MarketSession]:
-    """Get current market session from Market Session Service"""
+    """Get current market session from Redis (optimizado)"""
     try:
-        url = f"{settings.get_service_url('market_session')}/api/session/current"
+        # Leer de Redis directamente (sin HTTP overhead)
+        session_str = await redis_client.get(f"{settings.key_prefix_market}:session:current")
         
+        if session_str:
+            return MarketSession(session_str)
+        
+        # Fallback: HTTP si no está en Redis
+        url = f"{settings.get_service_url('market_session')}/api/session/current"
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(url)
-            
             if response.status_code == 200:
                 data = response.json()
                 return MarketSession(data["current_session"])

@@ -425,17 +425,17 @@ class SessionDetector:
         return None
     
     async def _save_session_to_redis(self, status: MarketStatus) -> None:
-        """Save current session to Redis"""
+        """Save current session to Redis (sin TTL - persiste siempre)"""
         await self.redis.set(
             f"{settings.key_prefix_market}:session:current",
-            status.current_session.value,
-            ttl=settings.cache_ttl_market_status
+            status.current_session.value
+            # SIN TTL - persiste hasta próxima actualización
         )
         
         await self.redis.set(
             f"{settings.key_prefix_market}:session:status",
-            status.model_dump(mode='json'),
-            ttl=settings.cache_ttl_market_status
+            status.model_dump(mode='json')
+            # SIN TTL - persiste hasta próxima actualización
         )
     
     async def _publish_session_change_event(self, event: SessionChangeEvent) -> None:
