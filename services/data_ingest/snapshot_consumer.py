@@ -194,7 +194,7 @@ class SnapshotConsumer:
             await self.redis.set(
                 "snapshot:polygon:latest",
                 snapshot_data,
-                ttl=60  # 60 segundos (si no se procesa en 1 min, ya es viejo)
+                ttl=600  # 10 minutos (suficiente para fin de semana + mercado abierto)
             )
             
             # Log de estadísticas de filtro por precio

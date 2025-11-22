@@ -56,28 +56,28 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // ======================================================================
   // STATE (Zustand + local UI state)
   // ======================================================================
-
+  
   // Zustand store selectors
   const initializeList = useTickersStore((state) => state.initializeList);
   const applyDeltas = useTickersStore((state) => state.applyDeltas);
   const updateAggregates = useTickersStore((state) => state.updateAggregates);
   const updateSequence = useTickersStore((state) => state.updateSequence);
   const getList = useTickersStore((state) => state.getList);
-
+  
   // Get tickers for this list (memoized selector)
   const tickers = useTickersStore(selectOrderedTickers(listName));
-
+  
   // Local UI state (no afecta datos)
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [columnVisibility, setColumnVisibility] = useState({});
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
   const [isReady, setIsReady] = useState(false);
-
+  
   // Animaciones (local state)
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
-
+  
   // Modal state
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [selectedTickerData, setSelectedTickerData] = useState<Ticker | null>(null);
@@ -86,20 +86,20 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // ======================================================================
   // WEBSOCKET (RxJS Singleton)
   // ======================================================================
-
+  
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const debug = process.env.NODE_ENV === 'development';
-
+  
   // Singleton WebSocket (compartido entre todas las tablas)
   const ws = useRxWebSocket(wsUrl, debug);
-
+  
   // Auto-subscribe/unsubscribe a la lista
   useListSubscription(listName, debug);
 
   // ======================================================================
   // WEBSOCKET HANDLERS
   // ======================================================================
-
+  
   // Handle snapshots
   const handleSnapshot = useCallback(
     (snapshot: any) => {
@@ -156,7 +156,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // ======================================================================
   // STREAM SUBSCRIPTIONS
   // ======================================================================
-
+  
   useEffect(() => {
     if (!ws.isConnected) return;
 
@@ -191,7 +191,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // ======================================================================
   // TABLE CONFIGURATION
   // ======================================================================
-
+  
   // Memoized data (viene directo de Zustand)
   const data = useMemo(() => tickers, [tickers]);
 
@@ -274,7 +274,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           return (
             <div
               className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'
-                }`}
+              }`}
             >
               {formatPercent(value)}
             </div>
@@ -314,9 +314,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               ${displayValue > 3
                   ? 'text-blue-700'
                   : displayValue > 1.5
-                    ? 'text-blue-600'
-                    : 'text-slate-500'
-                }
+                  ? 'text-blue-600'
+                  : 'text-slate-500'
+              }
             `}
             >
               {formatRVOL(displayValue)}

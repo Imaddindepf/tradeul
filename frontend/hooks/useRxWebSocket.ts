@@ -1,8 +1,11 @@
 /**
- * RxJS WebSocket Hook - Singleton Pattern
+ * RxJS WebSocket Hook - Con SharedWorker para Multi-Tab
  * 
- * IMPORTANTE: Usa una única conexión WebSocket compartida entre todos los componentes.
- * Esto evita múltiples conexiones y el ciclo de reconexión infinito.
+ * V3 OPTIMIZADO:
+ * - Usa SharedWorker internamente (1 conexión WS para todas las tabs)
+ * - Parsing JSON en worker thread (no bloquea UI)
+ * - API idéntica a V2 (componentes no cambian)
+ * - Fallback a WebSocket directo si SharedWorker no disponible
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
@@ -40,6 +43,9 @@ import type { WebSocketMessage } from '@/lib/types';
 class WebSocketManager {
   private static instance: WebSocketManager | null = null;
   private ws$: WebSocketSubject<any> | null = null;
+  private sharedWorker: SharedWorker | null = null;
+  private workerPort: MessagePort | null = null;
+  private useSharedWorker = false;
   private url: string = '';
   private isConnected = new BehaviorSubject<boolean>(false);
   private connectionId = new BehaviorSubject<string | null>(null);
@@ -57,7 +63,10 @@ class WebSocketManager {
   // Heartbeat timer
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
-  private constructor() { }
+  private constructor() {
+    // Detectar si SharedWorker está disponible
+    this.useSharedWorker = typeof SharedWorker !== 'undefined';
+  }
 
   static getInstance(): WebSocketManager {
     if (!WebSocketManager.instance) {
@@ -68,20 +77,34 @@ class WebSocketManager {
 
   connect(url: string, debugMode: boolean = false) {
     // Si ya hay una conexión con la misma URL, no hacer nada
-    if (this.ws$ && this.url === url) {
-      if (debugMode) console.log('🔄 [RxWS-Singleton] Already connected, reusing connection');
+    if ((this.ws$ || this.sharedWorker) && this.url === url) {
+      if (debugMode) console.log('🔄 [RxWS] Already connected, reusing connection');
       return;
     }
 
     this.url = url;
     this.debug = debugMode;
 
+    // Limpiar conexiones anteriores
     if (this.ws$) {
-      if (this.debug) console.log('🔌 [RxWS-Singleton] Closing existing connection');
+      if (this.debug) console.log('🔌 [RxWS] Closing existing connection');
       this.ws$.complete();
+      this.ws$ = null;
     }
 
-    if (this.debug) console.log('🚀 [RxWS-Singleton] Creating new connection to:', url);
+    // PRIORIDAD: Intentar SharedWorker primero
+    if (this.useSharedWorker && typeof window !== 'undefined') {
+      try {
+        this.connectWithSharedWorker(url, debugMode);
+        return;
+      } catch (error) {
+        if (this.debug) console.warn('⚠️ SharedWorker failed, falling back to direct WebSocket:', error);
+        this.useSharedWorker = false; // Disable para futuros intentos
+      }
+    }
+
+    // FALLBACK: WebSocket directo (código original)
+    if (this.debug) console.log('🚀 [RxWS] Creating direct WebSocket to:', url);
 
     const wsConfig: WebSocketSubjectConfig<any> = {
       url,
@@ -155,24 +178,51 @@ class WebSocketManager {
   }
 
   send(message: any) {
-    if (this.ws$ && this.isConnected.value) {
+    if (this.workerPort) {
+      // Enviar a través del SharedWorker
+      this.workerPort.postMessage({
+        action: 'send',
+        payload: message
+      });
+    } else if (this.ws$ && this.isConnected.value) {
+      // Enviar directamente (fallback)
       this.ws$.next(message);
-      if (this.debug) console.log('📤 [RxWS-Singleton] Message sent:', message);
+      if (this.debug) console.log('📤 [RxWS] Message sent:', message);
     } else {
-      if (this.debug) console.warn('⚠️  [RxWS-Singleton] Cannot send, not connected');
+      if (this.debug) console.warn('⚠️ [RxWS] Cannot send, not connected');
     }
   }
 
   subscribe(listName: string) {
     this.subscribers.add(listName);
-    if (this.debug) console.log(`📋 [RxWS-Singleton] Subscribed to list: ${listName} (total: ${this.subscribers.size})`);
-    this.send({ action: 'subscribe_list', list: listName });
+    if (this.debug) console.log(`📋 [RxWS] Subscribed to list: ${listName} (total: ${this.subscribers.size})`);
+
+    if (this.workerPort) {
+      // Suscribir a través del SharedWorker
+      this.workerPort.postMessage({
+        action: 'subscribe_list',
+        list: listName
+      });
+    } else {
+      // Suscribir directamente (fallback)
+      this.send({ action: 'subscribe_list', list: listName });
+    }
   }
 
   unsubscribe(listName: string) {
     this.subscribers.delete(listName);
-    if (this.debug) console.log(`📋 [RxWS-Singleton] Unsubscribed from list: ${listName} (total: ${this.subscribers.size})`);
-    this.send({ action: 'unsubscribe_list', list: listName });
+    if (this.debug) console.log(`📋 [RxWS] Unsubscribed from list: ${listName} (total: ${this.subscribers.size})`);
+
+    if (this.workerPort) {
+      // Desuscribir a través del SharedWorker
+      this.workerPort.postMessage({
+        action: 'unsubscribe_list',
+        list: listName
+      });
+    } else {
+      // Desuscribir directamente (fallback)
+      this.send({ action: 'unsubscribe_list', list: listName });
+    }
   }
 
   private startHeartbeat() {
@@ -180,7 +230,6 @@ class WebSocketManager {
     this.heartbeatTimer = setInterval(() => {
       if (this.isConnected.value) {
         this.send({ action: 'ping' });
-        if (this.debug) console.log('💓 [RxWS-Singleton] Heartbeat sent');
       }
     }, 30000);
   }
@@ -192,11 +241,92 @@ class WebSocketManager {
     }
   }
 
+  private connectWithSharedWorker(url: string, debugMode: boolean) {
+    if (this.debug) console.log('🚀 [RxWS] Using SharedWorker for:', url);
+
+    this.sharedWorker = new SharedWorker('/workers/websocket-shared.js', {
+      name: 'tradeul-websocket'
+    });
+    this.workerPort = this.sharedWorker.port;
+
+    // Configurar handler de mensajes del worker
+    this.workerPort.onmessage = (event) => {
+      const msg = event.data;
+
+      switch (msg.type) {
+        case 'message':
+          // Mensaje del WebSocket parseado en el worker
+          const message = msg.data;
+          this.allMessagesSubject.next(message);
+
+          // Routing a subjects específicos
+          switch (message.type) {
+            case 'snapshot':
+              this.snapshotsSubject.next(message);
+              break;
+            case 'delta':
+              this.deltasSubject.next(message);
+              break;
+            case 'aggregate':
+              this.aggregatesSubject.next(message);
+              break;
+            case 'connected':
+              this.connectionId.next(message.connection_id || null);
+              if (this.debug) console.log('✅ [RxWS-SharedWorker] Connection ID:', message.connection_id);
+              break;
+          }
+          break;
+
+        case 'status':
+          // Estado de conexión del worker
+          this.isConnected.next(msg.isConnected);
+          if (this.debug) {
+            console.log(`📊 [RxWS-SharedWorker] Status: ${msg.isConnected ? 'connected' : 'disconnected'} (${msg.activePorts} tabs)`);
+          }
+          break;
+
+        case 'log':
+          // Logs del worker (solo en debug)
+          if (this.debug) {
+            const emoji = { info: 'ℹ️', warn: '⚠️', error: '❌' }[msg.level] || '📝';
+            console.log(`${emoji} [SharedWorker]`, msg.message, msg.data || '');
+          }
+          break;
+      }
+    };
+
+    this.workerPort.onerror = (error) => {
+      if (this.debug) console.error('❌ [RxWS-SharedWorker] Port error:', error);
+      this.errorsSubject.next(new Error('SharedWorker port error'));
+    };
+
+    this.workerPort.start();
+
+    // Conectar al WebSocket a través del worker
+    this.workerPort.postMessage({
+      action: 'connect',
+      url: url
+    });
+
+    if (this.debug) console.log('✅ [RxWS] SharedWorker initialized');
+  }
+
   disconnect() {
-    if (this.debug) console.log('🔌 [RxWS-Singleton] Disconnecting...');
+    if (this.debug) console.log('🔌 [RxWS] Disconnecting...');
     this.stopHeartbeat();
-    this.ws$?.complete();
-    this.ws$ = null;
+
+    if (this.workerPort) {
+      // Desconectar SharedWorker (solo si somos la última tab)
+      this.workerPort.postMessage({ action: 'disconnect' });
+      this.workerPort = null;
+      this.sharedWorker = null;
+    }
+
+    if (this.ws$) {
+      this.ws$.complete();
+      this.ws$ = null;
+    }
+
     this.isConnected.next(false);
     this.connectionId.next(null);
     this.subscribers.clear();

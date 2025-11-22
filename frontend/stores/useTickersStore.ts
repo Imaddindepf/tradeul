@@ -509,3 +509,41 @@ export const selectConnection = (state: TickersState & TickersActions) => ({
 // Selector para stats
 export const selectStats = (state: TickersState & TickersActions) => state.stats;
 
+// ============================================================================
+// OPTIMIZED HOOKS CON SHALLOW EQUALITY
+// ============================================================================
+
+import { shallow } from 'zustand/shallow';
+
+/**
+ * Hook optimizado para una lista completa
+ * Solo re-renderiza si el ARRAY de tickers cambia (shallow comparison)
+ */
+export function useOrderedTickersOptimized(listName: string) {
+  return useTickersStore(selectOrderedTickers(listName), shallow);
+}
+
+/**
+ * Hook optimizado para un ticker específico
+ * Solo re-renderiza si ESE ticker específico cambia
+ */
+export function useTickerOptimized(listName: string, symbol: string) {
+  return useTickersStore(selectTicker(listName, symbol), shallow);
+}
+
+/**
+ * Hook optimizado para conexión
+ * Solo re-renderiza si cambia isConnected o connectionId
+ */
+export function useConnectionOptimized() {
+  return useTickersStore(selectConnection, shallow);
+}
+
+/**
+ * Hook optimizado para stats
+ * Solo re-renderiza si cambian las estadísticas
+ */
+export function useStatsOptimized() {
+  return useTickersStore(selectStats, shallow);
+}
+

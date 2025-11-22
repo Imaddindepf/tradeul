@@ -113,15 +113,14 @@ async def consume_snapshots_loop():
             session = await get_current_market_session()
             
             if session and session != MarketSession.CLOSED:
-                # Consume snapshot
+                # Mercado abierto: consume rápido
                 await snapshot_consumer.consume_snapshot()
-                
-                # Wait before next snapshot
                 await asyncio.sleep(settings.snapshot_interval)
             else:
-                # Market closed, wait longer
-                logger.debug("Market closed, pausing snapshots")
-                await asyncio.sleep(60)
+                # Mercado cerrado: sigue consumiendo último snapshot pero menos frecuente
+                # Útil para análisis de fin de semana
+                await snapshot_consumer.consume_snapshot()
+                await asyncio.sleep(300)  # Cada 5 minutos en lugar de 1 segundo
         
         except asyncio.CancelledError:
             logger.info("Snapshot consumer loop cancelled")

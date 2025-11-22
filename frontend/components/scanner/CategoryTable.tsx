@@ -44,7 +44,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const [isReady, setIsReady] = useState(false);
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
-
+  
   // Estados del modal - usar useRef para evitar re-renders
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [selectedTickerData, setSelectedTickerData] = useState<Ticker | null>(null);
@@ -60,7 +60,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const handleDeltaRef = useRef<((delta: any) => void) | null>(null);
   const handleAggregateRef = useRef<((aggregate: any) => void) | null>(null);
   const aggregateStats = useRef({ received: 0, applied: 0, lastLog: Date.now() });
-
+  
   // Refs para funciones que se usan en RAF loops (evita recrear loops)
   const applyDeltasRef = useRef<((deltas: DeltaAction[]) => void) | null>(null);
   const applyAggregatesBatchRef = useRef<(() => void) | null>(null);
@@ -114,7 +114,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
               delta.data.rank = delta.rank ?? 0;
               newMap.set(delta.symbol, delta.data);
               hasOrderChanges = true;
-
+              
               // Marcar como nuevo ticker (animación azul)
               setNewTickers((prev) => new Set(prev).add(delta.symbol));
               setTimeout(() => {
@@ -136,7 +136,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             if (delta.data) {
               const oldTicker = newMap.get(delta.symbol);
               delta.data.rank = delta.rank ?? 0;
-
+              
               if (oldTicker) {
                 // Preservar datos en tiempo real de aggregates
                 const merged = {
@@ -158,10 +158,10 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
             if (ticker && delta.new_rank !== undefined && delta.old_rank !== undefined) {
               const oldRank = delta.old_rank;
               const newRank = delta.new_rank;
-
+              
               ticker.rank = newRank;
               newMap.set(delta.symbol, ticker);
-
+              
               // Animación: verde si sube (menor rank = mejor posición), rojo si baja
               if (newRank < oldRank) {
                 newRowChanges.set(delta.symbol, 'up');
@@ -224,13 +224,13 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
     }
 
     if (!delta.deltas || !Array.isArray(delta.deltas)) return;
-
+    
     // Límite de buffer para prevenir memory leaks
     if (deltaBuffer.current.length > 5000) {
       console.warn(`[${listName}] Delta buffer overflow, clearing old deltas`);
       deltaBuffer.current = deltaBuffer.current.slice(-1000); // Mantener solo los últimos 1000
     }
-
+    
     deltaBuffer.current.push(...delta.deltas);
     setSequence(delta.sequence);
   }, [isReady, tickersMap.size, ws.isConnected, ws.send, listName]); // Usar .size en vez del Map completo
@@ -454,7 +454,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         enableSorting: true,
         enableHiding: false, // No se puede ocultar (columna esencial)
         cell: (info) => (
-          <div
+          <div 
             className="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline transition-colors"
             onClick={(e) => {
               e.stopPropagation();
@@ -548,10 +548,10 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
               className={`
               font-mono font-semibold
               ${displayValue > 3
-                  ? 'text-blue-700'
-                  : displayValue > 1.5
-                    ? 'text-blue-600'
-                    : 'text-slate-500'}
+                ? 'text-blue-700'
+                : displayValue > 1.5
+                ? 'text-blue-600'
+                : 'text-slate-500'}
             `}
             >
               {formatRVOL(displayValue)}
@@ -599,19 +599,19 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         const atr_percent = row.atr_percent;
         const prev_close = row.prev_close;
         const change_percent = row.change_percent || 0;
-
+        
         if (!atr_percent || atr_percent === 0 || !prev_close) return null;
-
+        
         // Usar intraday_high/intraday_low (incluye pre/post market)
         // Fallback a high/low si no están disponibles
         const high = row.intraday_high ?? row.high;
         const low = row.intraday_low ?? row.low;
-
+        
         // Si no tenemos high/low (pre-market sin datos), usar gap %
         if (!high || !low) {
           return (Math.abs(change_percent) / atr_percent) * 100;
         }
-
+        
         // Calcular rango usado basado en dirección
         let range_percent;
         if (change_percent >= 0) {
@@ -621,7 +621,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           // Gap down: medir desde cierre previo hasta intraday low
           range_percent = ((prev_close - low) / prev_close) * 100;
         }
-
+        
         return (Math.abs(range_percent) / atr_percent) * 100;
       }, {
         id: 'atr_used',
@@ -635,7 +635,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
         cell: (info) => {
           const value = info.getValue();
           if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
-
+          
           // Colores según el % usado
           let colorClass = 'text-slate-600';
           if (value > 150) {
@@ -647,7 +647,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
           } else if (value > 50) {
             colorClass = 'text-blue-600'; // Uso medio-alto
           }
-
+          
           return <div className={`font-mono ${colorClass}`}>{value.toFixed(0)}%</div>;
         },
       }),
@@ -658,7 +658,7 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
   const table = useReactTable({
     data,
     columns,
-    state: {
+    state: { 
       sorting,
       columnOrder,
       columnVisibility,
@@ -679,45 +679,45 @@ export default function CategoryTable({ title, listName }: CategoryTableProps) {
 
   return (
     <>
-      <BaseDataTable
-        table={table}
-        initialHeight={700}
-        minHeight={200}
-        minWidth={400}
-        stickyHeader={true}
-        isLoading={!isReady}
-        getRowClassName={(row: Row<Ticker>) => {
-          const ticker = row.original;
-          const classes: string[] = [];
-
-          // Animación para nuevos tickers (azul) - tiene prioridad
-          if (newTickers.has(ticker.symbol)) {
-            classes.push('new-ticker-flash');
+    <BaseDataTable
+      table={table}
+      initialHeight={700}
+      minHeight={200}
+      minWidth={400}
+      stickyHeader={true}
+      isLoading={!isReady}
+      getRowClassName={(row: Row<Ticker>) => {
+        const ticker = row.original;
+        const classes: string[] = [];
+        
+        // Animación para nuevos tickers (azul) - tiene prioridad
+        if (newTickers.has(ticker.symbol)) {
+          classes.push('new-ticker-flash');
+        } 
+        // Animaciones de subida/bajada (verde/rojo)
+        else {
+          const rowChange = rowChanges.get(ticker.symbol);
+          if (rowChange === 'up') {
+            classes.push('row-flash-up');
+          } else if (rowChange === 'down') {
+            classes.push('row-flash-down');
           }
-          // Animaciones de subida/bajada (verde/rojo)
-          else {
-            const rowChange = rowChanges.get(ticker.symbol);
-            if (rowChange === 'up') {
-              classes.push('row-flash-up');
-            } else if (rowChange === 'down') {
-              classes.push('row-flash-down');
-            }
-          }
-
-          return classes.join(' ');
-        }}
-        header={
-          <MarketTableLayout
-            title={title}
-            isLive={ws.isConnected}
-            count={isReady ? data.length : undefined}
-            sequence={isReady ? sequence : undefined}
-            lastUpdateTime={lastUpdateTime}
-            rightActions={<TableSettings table={table} />}
-          />
         }
-      />
-
+        
+        return classes.join(' ');
+      }}
+      header={
+        <MarketTableLayout
+          title={title}
+          isLive={ws.isConnected}
+          count={isReady ? data.length : undefined}
+          sequence={isReady ? sequence : undefined}
+          lastUpdateTime={lastUpdateTime}
+          rightActions={<TableSettings table={table} />}
+        />
+      }
+    />
+      
       {/* Modal renderizado fuera usando Portal - no afecta re-renders de tabla */}
       {typeof window !== 'undefined' && (
         <TickerMetadataModal

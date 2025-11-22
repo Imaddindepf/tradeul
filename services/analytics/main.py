@@ -329,7 +329,7 @@ async def run_analytics_processing():
             await redis_client.set(
                 "snapshot:enriched:latest",
                 enriched_snapshot,
-                ttl=60
+                ttl=600  # 10 minutos (suficiente para fin de semana)
             )
             
             # Guardar RVOLs en hash
