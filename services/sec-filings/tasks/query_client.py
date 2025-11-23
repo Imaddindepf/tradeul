@@ -32,7 +32,10 @@ class SECQueryClient:
         if not self.client:
             self.client = httpx.AsyncClient(
                 timeout=30.0,
-                headers={"Authorization": settings.SEC_API_IO}
+                headers={
+                    "Authorization": settings.SEC_API_IO,
+                    "Content-Type": "application/json"
+                }
             )
             print("✅ Query API client created")
     
@@ -84,7 +87,7 @@ class SECQueryClient:
         Returns:
             Dict con response del API o None si hay error
         """
-        url = f"{settings.SEC_QUERY_URL}/v1/filings"
+        url = f"{settings.SEC_QUERY_URL}"
         
         payload = {
             "query": query,
