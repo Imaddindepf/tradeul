@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { ExternalLink, X } from 'lucide-react';
+import { openScannerWindow } from '@/lib/window-injector';
 
 interface MarketTableLayoutProps {
   title: string;
@@ -28,19 +29,26 @@ export function MarketTableLayout({
   const handleOpenNewWindow = () => {
     if (!listName) return;
 
-    // Construir URL completa con origin
-    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-    const url = `${origin}/standalone/scanner/${listName}`;
+    // Patrón Godel Terminal: about:blank + inyección + SharedWorker
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
 
-    const width = 1200;
-    const height = 800;
-    const left = typeof window !== 'undefined' ? (window.screen.width - width) / 2 : 100;
-    const top = typeof window !== 'undefined' ? (window.screen.height - height) / 2 : 100;
+    // URL absoluta del SharedWorker (necesaria para about:blank)
+    const workerUrl = `${window.location.origin}/workers/websocket-shared.js`;
 
-    const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
-
-    // Abrir con URL completa
-    window.open(url, '_blank', windowFeatures);
+    openScannerWindow(
+      {
+        listName,
+        categoryName: title,
+        wsUrl,
+        workerUrl,
+      },
+      {
+        title: `${title} - Tradeul`,
+        width: 1400,
+        height: 900,
+        centered: true,
+      }
+    );
   };
 
   return (

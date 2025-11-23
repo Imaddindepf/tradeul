@@ -381,7 +381,7 @@ class ScannerEngine:
         seen_symbols = set()
 
         logger.info(f"🎯 _process_snapshots_optimized called with {len(enriched_snapshots)} snapshots")
-
+        
         for snapshot, rvol, atr_data in enriched_snapshots:
             # DEBUG: Log para MNDR al inicio del bucle
             if snapshot.ticker == "MNDR":
@@ -410,7 +410,7 @@ class ScannerEngine:
                 if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA'] or len(valid_snapshots) < 5:
                     logger.warning(f"rejected_by_volume symbol={snapshot.ticker} cv={cv}")
                 continue
-
+            
             # DEBUG: MNDR llegó hasta aquí
             if snapshot.ticker == "MNDR":
                 logger.info(f"🎯 MNDR passed volume check, going to deduplication")
@@ -462,7 +462,7 @@ class ScannerEngine:
                     if symbol == "MNDR":
                         logger.error(f"❌ MNDR _build_scanner_ticker_inline returned None")
                     continue
-
+                
                 if symbol == "MNDR":
                     logger.info(f"✅ MNDR ticker built successfully, price={ticker.price}, rvol={ticker.rvol}")
 
@@ -495,7 +495,7 @@ class ScannerEngine:
                     if symbol == "MNDR":
                         logger.warning(f"❌ MNDR failed filters")
                     continue  # No cumple filtros, skip
-
+                
                 if symbol == "MNDR":
                     logger.info(f"✅ MNDR passed all filters, calculating score")
 
@@ -810,10 +810,10 @@ class ScannerEngine:
         for filter_config in self.filters:
             if not filter_config.enabled:
                 continue
-
+            
             if not filter_config.applies_to_session(self.current_session):
                 continue
-
+            
             if ticker.symbol == "MNDR":
                 logger.info(f"🔍 MNDR testing filter: {filter_config.name} (enabled={filter_config.enabled})")
 
@@ -821,7 +821,7 @@ class ScannerEngine:
                 if ticker.symbol == "MNDR":
                     logger.warning(f"❌ MNDR failed filter: {filter_config.name}")
                 return False  # Falla un filtro
-
+        
         return True  # Pasó todos
     
     def _calculate_score_inline(self, ticker: ScannerTicker) -> float:
@@ -1386,11 +1386,11 @@ class ScannerEngine:
             else:
                 # Fallback: HTTP si no está en Redis
                 url = f"http://{settings.market_session_host}:{settings.market_session_port}/api/session/current"
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    response = await client.get(url)
-                    if response.status_code == 200:
-                        data = response.json()
-                        self.current_session = MarketSession(data["current_session"])
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url)
+                if response.status_code == 200:
+                    data = response.json()
+                    self.current_session = MarketSession(data["current_session"])
         
         except Exception as e:
             logger.error("Error updating market session", error=str(e))

@@ -35,8 +35,12 @@ async def lifespan(app: FastAPI):
     logger.info("ticker_metadata_service_starting", version="1.0.0")
     
     try:
-        # Construir Redis URL
-        redis_url = f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/{os.getenv('REDIS_DB', '0')}"
+        # Construir Redis URL con password si existe
+        redis_password = os.getenv('REDIS_PASSWORD', '')
+        if redis_password:
+            redis_url = f"redis://:{redis_password}@{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/{os.getenv('REDIS_DB', '0')}"
+        else:
+            redis_url = f"redis://{os.getenv('REDIS_HOST', 'redis')}:{os.getenv('REDIS_PORT', '6379')}/{os.getenv('REDIS_DB', '0')}"
         redis_client = RedisClient(redis_url=redis_url)
         await redis_client.connect()
         logger.info("redis_connected")

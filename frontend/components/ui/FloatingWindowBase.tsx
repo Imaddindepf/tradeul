@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef, ReactNode, MouseEvent, useCallback, memo } from 'react';
-import { floatingZIndexManager } from '@/lib/z-index';
+import { useState, useRef, ReactNode, MouseEvent, useCallback, memo, useEffect } from 'react';
+import { floatingZIndexManager, Z_INDEX } from '@/lib/z-index';
 
 export interface FloatingWindowBaseProps {
   children: ReactNode;
@@ -58,10 +58,17 @@ function FloatingWindowBaseComponent({
 
   const [position, setPosition] = useState(getInitialPosition);
   const [size, setSize] = useState(initialSize);
-  const [zIndex, setZIndex] = useState(() =>
-    initialZIndex !== undefined ? initialZIndex : floatingZIndexManager.getNext()
-  );
+  const [zIndex, setZIndex] = useState(initialZIndex ?? Z_INDEX.FLOATING_TABLES_BASE);
   const [isFocused, setIsFocused] = useState(false);
+
+  // Establecer z-index solo en el cliente para evitar mismatch SSR
+  useEffect(() => {
+    if (initialZIndex === undefined && zIndex === Z_INDEX.FLOATING_TABLES_BASE) {
+      const newZ = floatingZIndexManager.getNext();
+      setZIndex(newZ);
+      onZIndexChange?.(newZ);
+    }
+  }, []); // Solo ejecutar una vez al montar
 
   const isDraggingRef = useRef(false);
   const isResizingRef = useRef(false);

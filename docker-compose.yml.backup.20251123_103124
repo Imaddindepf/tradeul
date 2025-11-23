@@ -51,7 +51,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradeul_password_secure_123}
       TIMESCALEDB_TELEMETRY: off
     ports:
-      - "127.0.0.1:5432:5432"
+      - "5432:5432"
     volumes:
       - timescale_data:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
@@ -115,7 +115,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8003:8003"
+      - "8003:8003"
     deploy:
       resources:
         limits:
@@ -140,7 +140,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8004:8004"
+      - "8004:8004"
     deploy:
       resources:
         limits:
@@ -168,7 +168,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8010:8010"
+      - "8010:8010"
     healthcheck:
       test:
         [
@@ -248,7 +248,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8005:8005"
+      - "8005:8005"
     deploy:
       resources:
         limits:
@@ -269,7 +269,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8006:8006"
+      - "8006:8006"
     deploy:
       resources:
         limits:
@@ -299,7 +299,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8007:8007"
+      - "8007:8007"
     deploy:
       resources:
         limits:
@@ -327,7 +327,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8008:8008"
+      - "8008:8008"
     environment:
       - TIMEZONE=America/New_York
       - MAINTENANCE_SCHEDULE=MARKET_CLOSE

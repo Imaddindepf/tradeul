@@ -1,7 +1,7 @@
 import type { TickerAnalysis } from './types';
 
 // ENDPOINTS REALES - Dilution Tracker Service (puerto 8009)
-const DILUTION_SERVICE_URL = 'http://localhost:8009';
+const DILUTION_SERVICE_URL = process.env.NEXT_PUBLIC_DILUTION_API_URL || 'http://localhost:8009';
 
 // ============================================================================
 // TYPES
@@ -118,11 +118,11 @@ export async function getTickerAnalysis(symbol: string): Promise<TickerAnalysis>
     // Endpoint REAL: /api/analysis/{ticker} - Devuelve análisis COMPLETO
     // Incluye: summary, cash_runway, dilution_history, holders, filings, financials, dilution (SEC)
     const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/${symbol}`);
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch analysis for ${symbol}`);
     }
-    
+
     const data = await response.json();
     return data;
   } catch (error) {
@@ -135,11 +135,11 @@ export async function getSECDilutionProfile(symbol: string): Promise<SECDilution
   try {
     // Endpoint REAL: /api/sec-dilution/{ticker}/profile
     const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/profile`);
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch SEC dilution profile for ${symbol}`);
     }
-    
+
     const data = await response.json();
     return data;
   } catch (error) {
@@ -152,11 +152,11 @@ export async function refreshSECDilutionProfile(symbol: string): Promise<SECDilu
   try {
     // Endpoint REAL: /api/sec-dilution/{ticker}/profile con parámetro refresh=true
     const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/profile?refresh=true`);
-    
+
     if (!response.ok) {
       throw new Error(`Failed to refresh SEC dilution profile for ${symbol}`);
     }
-    
+
     const data = await response.json();
     return data;
   } catch (error) {

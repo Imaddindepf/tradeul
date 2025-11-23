@@ -27,11 +27,18 @@ const logger = pino({
 const PORT = parseInt(process.env.WS_PORT || "9000", 10);
 const REDIS_HOST = process.env.REDIS_HOST || "redis";
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || "6379", 10);
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
+
+// Configuración base de Redis
+const redisConfig = {
+  host: REDIS_HOST,
+  port: REDIS_PORT,
+  ...(REDIS_PASSWORD && { password: REDIS_PASSWORD }),
+};
 
 // Conexión a Redis (lectura de streams)
 const redis = new Redis({
-  host: REDIS_HOST,
-  port: REDIS_PORT,
+  ...redisConfig,
   retryStrategy: (times) => {
     const delay = Math.min(times * 50, 2000);
     logger.warn({ times, delay }, "Redis retry");
@@ -42,8 +49,7 @@ const redis = new Redis({
 
 // Cliente Redis adicional para comandos normales
 const redisCommands = new Redis({
-  host: REDIS_HOST,
-  port: REDIS_PORT,
+  ...redisConfig,
   retryStrategy: (times) => Math.min(times * 50, 2000),
 });
 

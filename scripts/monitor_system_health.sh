@@ -3,6 +3,17 @@
 # Captura: Redis, Scanner, WebSocket, Analytics
 # Detecta: Pérdida de metadata, streams vacíos, errores
 
+# Cargar variables de entorno
+if [ -f "/opt/tradeul/.env" ]; then
+    export $(grep -v '^#' /opt/tradeul/.env | grep REDIS_PASSWORD | xargs)
+fi
+
+# Configurar redis-cli con auth
+REDIS_CMD="$REDIS_CMD --no-auth-warning"
+if [ -n "$REDIS_PASSWORD" ]; then
+    REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
+fi
+
 DURATION_HOURS=${1:-24}
 DURATION_SECONDS=$((DURATION_HOURS * 3600))
 LOG_FILE="/tmp/tradeul_health_monitor_$(date +%Y%m%d_%H%M%S).log"
@@ -37,18 +48,18 @@ while true; do
     # REDIS METRICS
     # ============================================================================
     
-    METADATA_KEYS=$(docker exec tradeul_redis redis-cli --scan --pattern "metadata:ticker:*" 2>/dev/null | wc -l | tr -d ' ')
-    TOTAL_KEYS=$(docker exec tradeul_redis redis-cli DBSIZE 2>/dev/null | grep -o '[0-9]*' | tr -d ' ')
+    METADATA_KEYS=$($REDIS_CMD --scan --pattern "metadata:ticker:*" 2>/dev/null | wc -l | tr -d ' ')
+    TOTAL_KEYS=$($REDIS_CMD DBSIZE 2>/dev/null | grep -o '[0-9]*' | tr -d ' ')
     
-    REDIS_MEMORY=$(docker exec tradeul_redis redis-cli INFO memory 2>/dev/null | grep "used_memory_human:" | cut -d: -f2 | sed 's/M//' | tr -d '\r')
-    REDIS_UPTIME=$(docker exec tradeul_redis redis-cli INFO server 2>/dev/null | grep uptime_in_seconds | cut -d: -f2 | tr -d '\r')
+    REDIS_MEMORY=$($REDIS_CMD INFO memory 2>/dev/null | grep "used_memory_human:" | cut -d: -f2 | sed 's/M//' | tr -d '\r')
+    REDIS_UPTIME=$($REDIS_CMD INFO server 2>/dev/null | grep uptime_in_seconds | cut -d: -f2 | tr -d '\r')
     
-    EVICTED=$(docker exec tradeul_redis redis-cli INFO stats 2>/dev/null | grep "evicted_keys:" | cut -d: -f2 | tr -d '\r')
-    EXPIRED=$(docker exec tradeul_redis redis-cli INFO stats 2>/dev/null | grep "expired_keys:" | cut -d: -f2 | tr -d '\r')
+    EVICTED=$($REDIS_CMD INFO stats 2>/dev/null | grep "evicted_keys:" | cut -d: -f2 | tr -d '\r')
+    EXPIRED=$($REDIS_CMD INFO stats 2>/dev/null | grep "expired_keys:" | cut -d: -f2 | tr -d '\r')
     
-    FLUSHALL=$(docker exec tradeul_redis redis-cli INFO commandstats 2>/dev/null | grep "cmdstat_flushall:calls=" | grep -o 'calls=[0-9]*' | cut -d= -f2 | tr -d ' \n' || echo "0")
-    FLUSHDB=$(docker exec tradeul_redis redis-cli INFO commandstats 2>/dev/null | grep "cmdstat_flushdb:calls=" | grep -o 'calls=[0-9]*' | cut -d= -f2 | tr -d ' \n' || echo "0")
-    DEL_CALLS=$(docker exec tradeul_redis redis-cli INFO commandstats 2>/dev/null | grep "cmdstat_del:calls=" | grep -o 'calls=[0-9]*' | cut -d= -f2 | tr -d ' \n' || echo "0")
+    FLUSHALL=$($REDIS_CMD INFO commandstats 2>/dev/null | grep "cmdstat_flushall:calls=" | grep -o 'calls=[0-9]*' | cut -d= -f2 | tr -d ' \n' || echo "0")
+    FLUSHDB=$($REDIS_CMD INFO commandstats 2>/dev/null | grep "cmdstat_flushdb:calls=" | grep -o 'calls=[0-9]*' | cut -d= -f2 | tr -d ' \n' || echo "0")
+    DEL_CALLS=$($REDIS_CMD INFO commandstats 2>/dev/null | grep "cmdstat_del:calls=" | grep -o 'calls=[0-9]*' | cut -d= -f2 | tr -d ' \n' || echo "0")
     
     # ============================================================================
     # SCANNER METRICS
@@ -60,7 +71,7 @@ while true; do
     # ANALYTICS METRICS
     # ============================================================================
     
-    SNAPSHOT_COUNT=$(docker exec tradeul_redis redis-cli GET "snapshot:enriched:latest" 2>/dev/null | jq -r '.count' 2>/dev/null || echo "0")
+    SNAPSHOT_COUNT=$($REDIS_CMD GET "snapshot:enriched:latest" 2>/dev/null | jq -r '.count' 2>/dev/null || echo "0")
     
     # ============================================================================
     # WEBSOCKET METRICS
@@ -93,15 +104,15 @@ while true; do
         
         # Capturar snapshot de comandos Redis
         echo "=== Redis CommandStats ===" >> "$LOG_FILE"
-        docker exec tradeul_redis redis-cli INFO commandstats >> "$LOG_FILE"
+        $REDIS_CMD INFO commandstats >> "$LOG_FILE"
         
         # Capturar SlowLog (últimos 100 comandos lentos)
         echo "=== Redis SlowLog (últimos comandos) ===" >> "$LOG_FILE"
-        docker exec tradeul_redis redis-cli SLOWLOG GET 100 >> "$LOG_FILE"
+        $REDIS_CMD SLOWLOG GET 100 >> "$LOG_FILE"
         
         # Capturar persistencia
         echo "=== Redis Persistence Info ===" >> "$LOG_FILE"
-        docker exec tradeul_redis redis-cli INFO persistence >> "$LOG_FILE"
+        $REDIS_CMD INFO persistence >> "$LOG_FILE"
         
         # Capturar últimos logs de servicios
         echo "=== data_maintenance logs ===" >> "$LOG_FILE"
@@ -135,7 +146,7 @@ while true; do
             
             # Capturar estado completo
             echo "=== Full Redis INFO ===" >> "$LOG_FILE"
-            docker exec tradeul_redis redis-cli INFO >> "$LOG_FILE"
+            $REDIS_CMD INFO >> "$LOG_FILE"
         fi
     fi
     
@@ -154,7 +165,7 @@ while true; do
             docker logs tradeul_analytics --tail 100 >> "$LOG_FILE"
             
             echo "=== Redis persistence ===" >> "$LOG_FILE"
-            docker exec tradeul_redis redis-cli INFO persistence >> "$LOG_FILE"
+            $REDIS_CMD INFO persistence >> "$LOG_FILE"
         fi
     fi
     

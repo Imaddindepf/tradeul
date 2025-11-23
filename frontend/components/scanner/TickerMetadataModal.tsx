@@ -31,7 +31,8 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   const getProxiedLogoUrl = (logoUrl: string | null | undefined): string | null => {
     if (!logoUrl) return null;
     // Usar proxy del API Gateway para agregar API key
-    return `http://localhost:8000/api/v1/proxy/logo?url=${encodeURIComponent(logoUrl)}`;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    return `${apiUrl}/api/v1/proxy/logo?url=${encodeURIComponent(logoUrl)}`;
   };
 
   useEffect(() => {

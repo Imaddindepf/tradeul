@@ -2,6 +2,17 @@
 # Script de diagnóstico completo
 # Identifica si el problema está en: Redis, Backend, Frontend, o Red
 
+# Cargar variables de entorno
+if [ -f "/opt/tradeul/.env" ]; then
+    export $(grep -v '^#' /opt/tradeul/.env | grep REDIS_PASSWORD | xargs)
+fi
+
+# Configurar redis-cli con auth
+REDIS_CMD="docker exec tradeul_redis redis-cli --no-auth-warning"
+if [ -n "$REDIS_PASSWORD" ]; then
+    REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
+fi
+
 echo "🔍 Diagnóstico Completo del Sistema Tradeul"
 echo "=========================================="
 echo ""
@@ -14,7 +25,7 @@ EXIT_CODE=0
 echo "📊 1. VERIFICANDO REDIS..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-REDIS_PING=$(docker exec tradeul_redis redis-cli PING 2>/dev/null)
+REDIS_PING=$($REDIS_CMD PING 2>/dev/null)
 if [ "$REDIS_PING" != "PONG" ]; then
     echo "❌ Redis NO responde"
     EXIT_CODE=1
@@ -22,7 +33,7 @@ else
     echo "✅ Redis responde: $REDIS_PING"
 fi
 
-METADATA_COUNT=$(docker exec tradeul_redis redis-cli --scan --pattern "metadata:ticker:*" 2>/dev/null | wc -l | tr -d ' ')
+METADATA_COUNT=$($REDIS_CMD --scan --pattern "metadata:ticker:*" 2>/dev/null | wc -l | tr -d ' ')
 echo "   Metadata keys: $METADATA_COUNT"
 if [ "$METADATA_COUNT" -lt 10000 ]; then
     echo "   ❌ PROBLEMA: Metadata bajo (esperado >12,000)"
@@ -31,7 +42,7 @@ else
     echo "   ✅ Metadata OK"
 fi
 
-SNAPSHOT_ENRICHED=$(docker exec tradeul_redis redis-cli GET "snapshot:enriched:latest" 2>/dev/null | jq -r '.count' 2>/dev/null || echo "0")
+SNAPSHOT_ENRICHED=$($REDIS_CMD GET "snapshot:enriched:latest" 2>/dev/null | jq -r '.count' 2>/dev/null || echo "0")
 echo "   Enriched snapshot: $SNAPSHOT_ENRICHED tickers"
 if [ "$SNAPSHOT_ENRICHED" -lt 1000 ]; then
     echo "   ❌ PROBLEMA: Snapshot enriched vacío o bajo"
@@ -40,7 +51,7 @@ else
     echo "   ✅ Enriched snapshot OK"
 fi
 
-CATEGORIES=$(docker exec tradeul_redis redis-cli --scan --pattern "scanner:category:*" 2>/dev/null | wc -l | tr -d ' ')
+CATEGORIES=$($REDIS_CMD --scan --pattern "scanner:category:*" 2>/dev/null | wc -l | tr -d ' ')
 echo "   Scanner categories: $CATEGORIES"
 if [ "$CATEGORIES" -lt 5 ]; then
     echo "   ❌ PROBLEMA: Pocas categorías guardadas (esperado ~11)"

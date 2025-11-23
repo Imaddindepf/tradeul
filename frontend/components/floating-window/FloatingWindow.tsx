@@ -15,36 +15,34 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
   const handleClose = () => {
     closeWindow(window.id);
   };
-  
+
   const handlePositionChange = (position: { x: number; y: number }) => {
     updateWindow(window.id, position);
   };
-  
+
   const handleSizeChange = (size: { width: number; height: number }) => {
     updateWindow(window.id, size);
   };
 
   const handleOpenNewWindow = () => {
-    // Determinar la URL basándose en el título de la ventana
-    let path = '';
     if (window.title === 'Dilution Tracker') {
-      path = '/standalone/dilution-tracker';
-    }
-    
-    if (path) {
-      // Construir URL completa con origin
-      const origin = typeof globalThis.window !== 'undefined' ? globalThis.window.location.origin : 'http://localhost:3000';
-      const url = `${origin}${path}`;
-      
-      const width = 1200;
-      const height = 800;
-      const left = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.width - width) / 2 : 100;
-      const top = typeof globalThis.window !== 'undefined' ? (globalThis.window.screen.height - height) / 2 : 100;
-      
-      // Abrir en nueva ventana del navegador con URL completa
-      const windowFeatures = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=yes`;
-      
-      globalThis.window.open(url, '_blank', windowFeatures);
+      // Extraer ticker actual del input de búsqueda
+      let currentTicker = '';
+
+      const windowElement = document.getElementById(`floating-window-${window.id}`);
+      if (windowElement) {
+        const searchInput = windowElement.querySelector('input[type="text"]') as HTMLInputElement;
+        if (searchInput && searchInput.value) {
+          currentTicker = searchInput.value.trim().toUpperCase();
+        }
+      }
+
+      // Abrir página standalone (diseño 100% idéntico)
+      const url = currentTicker
+        ? `/standalone/dilution-tracker?ticker=${currentTicker}`
+        : '/standalone/dilution-tracker';
+
+      globalThis.window.open(url, '_blank', 'width=1400,height=900,left=100,top=100,resizable=yes');
     }
   };
 
@@ -70,11 +68,10 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
   const handleZIndexChange = (zIndex: number) => {
     updateWindow(window.id, { zIndex });
   };
-  
+
   return (
     <FloatingWindowBase
       dragHandleClassName="window-title-bar"
-      initialPosition={{ x: window.x, y: window.y }}
       initialSize={{ width: window.width, height: window.height }}
       minWidth={window.minWidth || 400}
       minHeight={window.minHeight || 300}
@@ -86,7 +83,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       onZIndexChange={handleZIndexChange}
       className="bg-white"
     >
-      <div className="flex flex-col h-full overflow-hidden">
+      <div id={`floating-window-${window.id}`} className="flex flex-col h-full overflow-hidden">
         {/* Title Bar - El foco se maneja automáticamente en FloatingWindowBase */}
         <div className="window-title-bar flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 cursor-move select-none">
           <div className="flex items-center gap-2 flex-1 min-w-0">
