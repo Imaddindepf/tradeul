@@ -27,10 +27,10 @@ async def sync_metadata_safe():
         print("🔄 Sincronización segura de metadata a Redis")
         print("=" * 60)
         
-        # Obtener todos los metadata
-        rows = await db.fetch('SELECT * FROM ticker_metadata ORDER BY symbol')
+        # Obtener todos los metadata desde tickers_unified (tabla maestra unificada)
+        rows = await db.fetch('SELECT * FROM tickers_unified ORDER BY symbol')
         total = len(rows)
-        print(f"📊 Total a sincronizar: {total} tickers\n")
+        print(f"📊 Total a sincronizar desde tickers_unified: {total} tickers\n")
         
         synced = 0
         errors = 0

@@ -126,10 +126,9 @@ class EnrichMetadataTask:
         """
         try:
             query = """
-                SELECT tu.symbol
-                FROM ticker_universe tu
-                LEFT JOIN ticker_metadata tm ON tu.symbol = tm.symbol
-                WHERE tu.is_active = true
+                SELECT symbol
+                FROM tickers_unified
+                WHERE is_actively_trading = true
                   AND (
                     tm.symbol IS NULL
                     OR tm.market_cap IS NULL
@@ -225,9 +224,9 @@ class EnrichMetadataTask:
         sector: Optional[str],
         industry: Optional[str]
     ):
-        """Actualizar metadata en ticker_metadata"""
+        """Actualizar metadata en tickers_unified"""
         query = """
-            INSERT INTO ticker_metadata (
+            INSERT INTO tickers_unified (
                 symbol, market_cap, float_shares, shares_outstanding,
                 sector, industry
             )

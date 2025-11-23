@@ -253,33 +253,62 @@ class TickerUniverseLoader:
     
     async def save_to_timescaledb(self, tickers: List[PolygonTicker]) -> int:
         """
-        Guarda tickers en TimescaleDB (tabla ticker_universe)
+        Guarda tickers en TimescaleDB (tabla tickers_unified)
+        
+        MIGRADO: Usa tickers_unified directamente en lugar de ticker_universe
+        Mapeo de campos:
+        - symbol → symbol
+        - is_active → is_actively_trading
+        - last_seen → updated_at
+        - added_at → created_at
         
         Usa UPSERT para actualizar tickers existentes.
         """
-        logger.info("saving_to_timescaledb", count=len(tickers))
+        logger.info("saving_to_timescaledb_unified", count=len(tickers))
         
         if not tickers:
             return 0
         
         # Preparar batch insert
         values = []
+        current_time = datetime.utcnow()
+        
         for ticker in tickers:
             values.append({
                 "symbol": ticker.ticker,
-                "is_active": ticker.active,
-                "last_seen": datetime.utcnow(),
-                "added_at": datetime.utcnow()
+                "company_name": ticker.name,
+                "is_actively_trading": ticker.active,
+                "exchange": ticker.primary_exchange,
+                "type": ticker.type,
+                "market": ticker.market,
+                "locale": ticker.locale,
+                "cik": ticker.cik,
+                "composite_figi": ticker.composite_figi,
+                "share_class_figi": ticker.share_class_figi,
+                "updated_at": current_time,
+                "created_at": current_time
             })
         
-        # UPSERT query
+        # UPSERT query usando tickers_unified
         query = """
-            INSERT INTO ticker_universe (symbol, is_active, last_seen, added_at)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO tickers_unified (
+                symbol, company_name, exchange, type, market, locale,
+                cik, composite_figi, share_class_figi,
+                is_actively_trading, updated_at, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
             ON CONFLICT (symbol) 
             DO UPDATE SET
-                is_active = EXCLUDED.is_active,
-                last_seen = EXCLUDED.last_seen
+                company_name = COALESCE(EXCLUDED.company_name, tickers_unified.company_name),
+                exchange = COALESCE(EXCLUDED.exchange, tickers_unified.exchange),
+                type = COALESCE(EXCLUDED.type, tickers_unified.type),
+                market = COALESCE(EXCLUDED.market, tickers_unified.market),
+                locale = COALESCE(EXCLUDED.locale, tickers_unified.locale),
+                cik = COALESCE(EXCLUDED.cik, tickers_unified.cik),
+                composite_figi = COALESCE(EXCLUDED.composite_figi, tickers_unified.composite_figi),
+                share_class_figi = COALESCE(EXCLUDED.share_class_figi, tickers_unified.share_class_figi),
+                is_actively_trading = EXCLUDED.is_actively_trading,
+                updated_at = NOW()
         """
         
         saved = 0
@@ -295,9 +324,15 @@ class TickerUniverseLoader:
                             await conn.execute(
                                 query,
                                 item["symbol"],
-                                item["is_active"],
-                                item["last_seen"],
-                                item["added_at"]
+                                item["company_name"],
+                                item["exchange"],
+                                item["type"],
+                                item["market"],
+                                item["locale"],
+                                item["cik"],
+                                item["composite_figi"],
+                                item["share_class_figi"],
+                                item["is_actively_trading"]
                             )
                             saved += 1
                 
@@ -377,7 +412,9 @@ class TickerUniverseLoader:
     
     async def get_universe_stats(self) -> Dict[str, Any]:
         """
-        Obtiene estadísticas del universo actual
+        Obtiene estadísticas del universo actual desde tickers_unified
+        
+        MIGRADO: Usa tickers_unified directamente
         """
         stats = {}
         
@@ -387,24 +424,24 @@ class TickerUniverseLoader:
         except:
             stats["redis_count"] = 0
         
-        # TimescaleDB
+        # TimescaleDB (usando tickers_unified)
         try:
             async with self.timescale.pool.acquire() as conn:
-                # Total tickers
+                # Total tickers activos
                 result = await conn.fetchrow(
-                    "SELECT COUNT(*) as total FROM ticker_universe WHERE is_active = true"
+                    "SELECT COUNT(*) as total FROM tickers_unified WHERE is_actively_trading = true"
                 )
                 stats["timescaledb_active"] = result["total"]
                 
                 # Total tickers (incluyendo inactivos)
                 result = await conn.fetchrow(
-                    "SELECT COUNT(*) as total FROM ticker_universe"
+                    "SELECT COUNT(*) as total FROM tickers_unified"
                 )
                 stats["timescaledb_total"] = result["total"]
                 
                 # Última actualización
                 result = await conn.fetchrow(
-                    "SELECT MAX(last_seen) as last_update FROM ticker_universe"
+                    "SELECT MAX(updated_at) as last_update FROM tickers_unified"
                 )
                 stats["last_update"] = result["last_update"]
         except:

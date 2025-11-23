@@ -116,8 +116,8 @@ class RealtimeTickerMonitor:
             
             snapshot_tickers = {t.get('ticker') for t in snapshot.get('tickers', []) if t.get('ticker')}
             
-            # Universo
-            rows = await self.db.fetch("SELECT symbol FROM ticker_universe WHERE is_active = true")
+            # Universo desde tickers_unified
+            rows = await self.db.fetch("SELECT symbol FROM tickers_unified WHERE is_actively_trading = true")
             universe_tickers = {r['symbol'] for r in rows}
             
             # Diferencia

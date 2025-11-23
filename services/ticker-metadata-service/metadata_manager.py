@@ -243,7 +243,11 @@ class MetadataManager:
         return stats
     
     async def _get_from_db(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Obtiene metadata de TimescaleDB con todos los campos"""
+        """
+        Obtiene metadata de tickers_unified con todos los campos (35 campos)
+        
+        MIGRADO: Ahora usa tickers_unified directamente en lugar de la vista ticker_metadata
+        """
         query = """
             SELECT 
                 symbol, company_name, exchange, sector, industry,
@@ -254,8 +258,8 @@ class MetadataManager:
                 logo_url, icon_url,
                 cik, composite_figi, share_class_figi, ticker_root, ticker_suffix,
                 type, currency_name, locale, market, round_lot, delisted_utc,
-                is_etf, is_actively_trading, updated_at
-            FROM ticker_metadata
+                is_etf, is_actively_trading, updated_at, created_at
+            FROM tickers_unified
             WHERE symbol = $1
         """
         
@@ -263,12 +267,16 @@ class MetadataManager:
         return dict(result) if result else None
     
     async def _save_to_db(self, metadata: TickerMetadata) -> None:
-        """Guarda metadata en TimescaleDB con todos los campos expandidos"""
+        """
+        Guarda metadata en tickers_unified con todos los campos expandidos (35 campos)
+        
+        MIGRADO: Ahora usa tickers_unified directamente en lugar de la vista ticker_metadata
+        """
         import json
         from datetime import datetime, date as date_type
         
         query = """
-            INSERT INTO ticker_metadata (
+            INSERT INTO tickers_unified (
                 symbol, company_name, exchange, sector, industry,
                 market_cap, float_shares, shares_outstanding,
                 avg_volume_30d, avg_volume_10d, avg_price_30d, beta,

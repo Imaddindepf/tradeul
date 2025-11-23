@@ -127,8 +127,8 @@ class CalculateATRTask:
         try:
             query = """
                 SELECT symbol
-                FROM ticker_universe
-                WHERE is_active = true
+                FROM tickers_unified
+                WHERE is_actively_trading = true
                 ORDER BY symbol
             """
             

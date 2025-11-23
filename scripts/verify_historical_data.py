@@ -147,7 +147,7 @@ async def verify_historical_data():
             COUNT(CASE WHEN float_shares IS NOT NULL THEN 1 END) as with_float,
             COUNT(CASE WHEN avg_volume_30d IS NOT NULL THEN 1 END) as with_avg_vol,
             MAX(updated_at) as last_update
-        FROM ticker_metadata;
+        FROM tickers_unified;
         """
         
         result = await db.fetchrow(query)

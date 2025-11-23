@@ -169,9 +169,9 @@ class AutoRecoverMissingTickersTask:
             return set()
     
     async def _get_universe_tickers(self) -> Set[str]:
-        """Obtener tickers del universo actual"""
+        """Obtener tickers del universo actual desde tickers_unified"""
         try:
-            query = "SELECT symbol FROM ticker_universe WHERE is_active = true"
+            query = "SELECT symbol FROM tickers_unified WHERE is_actively_trading = true"
             rows = await self.db.fetch(query)
             return {row['symbol'] for row in rows}
         
@@ -215,7 +215,7 @@ class AutoRecoverMissingTickersTask:
         added = 0
         
         query = """
-            INSERT INTO ticker_universe (symbol, is_active, last_seen, added_at)
+            INSERT INTO tickers_unified (symbol, is_actively_trading, updated_at, created_at)
             VALUES ($1, true, NOW(), NOW())
             ON CONFLICT (symbol) DO UPDATE SET
                 is_active = true,
@@ -393,9 +393,9 @@ class AutoRecoverMissingTickersTask:
                             sector = details.get('sic_description') or details.get('sector')
                             industry = details.get('industry')
                             
-                            # Guardar en ticker_metadata
+                            # Guardar en tickers_unified
                             await self.db.execute("""
-                                INSERT INTO ticker_metadata (
+                                INSERT INTO tickers_unified (
                                     symbol, market_cap, float_shares, shares_outstanding,
                                     sector, industry
                                 )

@@ -97,9 +97,9 @@ class SyncRedisTask:
         try:
             logger.info("syncing_ticker_universe")
             
-            # Obtener todos los símbolos activos de BD
+            # Obtener todos los símbolos activos de tickers_unified
             query = """
-                SELECT symbol FROM ticker_universe WHERE is_active = true
+                SELECT symbol FROM tickers_unified WHERE is_actively_trading = true
             """
             rows = await self.db.fetch(query)
             symbols = [row['symbol'] for row in rows]
@@ -176,7 +176,7 @@ class SyncRedisTask:
                     cik, composite_figi, share_class_figi, ticker_root, ticker_suffix,
                     type, currency_name, locale, market, round_lot, delisted_utc,
                     is_etf, is_actively_trading, updated_at
-                FROM ticker_metadata
+                FROM tickers_unified
                 WHERE is_actively_trading = true
             """
             
@@ -297,9 +297,9 @@ class SyncRedisTask:
                 logger.warning("no_volume_data_to_sync")
                 return 0
             
-            # También actualizar ticker_metadata
+            # También actualizar tickers_unified
             update_query = """
-                UPDATE ticker_metadata
+                UPDATE tickers_unified
                 SET avg_volume_30d = $2,
                     updated_at = NOW()
                 WHERE symbol = $1
@@ -347,9 +347,9 @@ class SyncRedisTask:
             cleaned = 0
             
             # Limpiar metadata de tickers inactivos
-            # (Los que ya no están en ticker_universe)
+            # (Los que ya no están en tickers_unified)
             active_symbols_query = """
-                SELECT symbol FROM ticker_universe WHERE is_active = true
+                SELECT symbol FROM tickers_unified WHERE is_actively_trading = true
             """
             active_rows = await self.db.fetch(active_symbols_query)
             active_symbols = {row['symbol'] for row in active_rows}

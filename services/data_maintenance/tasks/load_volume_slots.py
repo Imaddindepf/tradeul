@@ -158,8 +158,8 @@ class LoadVolumeSlotsTask:
         try:
             query = """
                 SELECT DISTINCT symbol 
-                FROM ticker_universe 
-                WHERE is_active = true
+                FROM tickers_unified 
+                WHERE is_actively_trading = true
                 ORDER BY symbol
             """
             rows = await self.db.fetch(query)

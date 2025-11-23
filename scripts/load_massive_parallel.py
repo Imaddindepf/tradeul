@@ -288,10 +288,10 @@ async def main():
                     break
             if not polygon_tickers:
                 # Fallback a BD si Polygon falla
-                rows = await db.fetch("SELECT symbol FROM ticker_universe WHERE is_active = true ORDER BY symbol")
+                rows = await db.fetch("SELECT symbol FROM tickers_unified WHERE is_actively_trading = true ORDER BY symbol")
                 polygon_tickers = [r['symbol'] for r in rows]
         except Exception:
-            rows = await db.fetch("SELECT symbol FROM ticker_universe WHERE is_active = true ORDER BY symbol")
+            rows = await db.fetch("SELECT symbol FROM tickers_unified WHERE is_actively_trading = true ORDER BY symbol")
             polygon_tickers = [r['symbol'] for r in rows]
     
     print(f"   Total: {len(polygon_tickers):,} tickers")

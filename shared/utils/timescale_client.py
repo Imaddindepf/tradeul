@@ -273,9 +273,13 @@ class TimescaleClient:
     # =============================================
     
     async def get_ticker_metadata(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a ticker"""
+        """
+        Get metadata for a ticker from tickers_unified
+        
+        Returns all 35 fields including expanded metadata (description, homepage_url, etc.)
+        """
         query = """
-            SELECT * FROM ticker_metadata
+            SELECT * FROM tickers_unified
             WHERE symbol = $1
         """
         return await self.fetchrow(query, symbol)
@@ -285,9 +289,14 @@ class TimescaleClient:
         symbol: str,
         metadata: Dict[str, Any]
     ) -> None:
-        """Insert or update ticker metadata"""
+        """
+        Insert or update ticker metadata in tickers_unified
+        
+        Supports both basic fields (14) and expanded fields (35 total).
+        Expanded fields are optional and will be NULL if not provided.
+        """
         query = """
-            INSERT INTO ticker_metadata (
+            INSERT INTO tickers_unified (
                 symbol, company_name, exchange, sector, industry,
                 market_cap, float_shares, shares_outstanding,
                 avg_volume_30d, avg_volume_10d, avg_price_30d,

@@ -54,7 +54,7 @@ async def get_metadata_from_fmp(symbol: str, session: httpx.AsyncClient) -> dict
 async def save_metadata(conn: asyncpg.Connection, metadata: dict):
     """Guardar metadata en la base de datos"""
     query = """
-    INSERT INTO ticker_metadata (
+    INSERT INTO tickers_unified (
         symbol, company_name, exchange, sector, industry,
         market_cap, float_shares, shares_outstanding,
         avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
@@ -103,9 +103,9 @@ async def main():
     
     # Obtener símbolos activos que AÚN NO tienen metadata
     symbols_query = """
-        SELECT tu.symbol 
-        FROM ticker_universe tu
-        LEFT JOIN ticker_metadata tm ON tu.symbol = tm.symbol
+        SELECT symbol 
+        FROM tickers_unified
+        WHERE is_actively_trading = true
         WHERE tu.is_active = true AND tm.symbol IS NULL
         ORDER BY tu.symbol
         LIMIT 5000

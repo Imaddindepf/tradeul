@@ -36,9 +36,9 @@ async def main():
         user=DB_USER, password=DB_PASSWORD
     )
     
-    # Obtener tickers con metadata pero sin CIK
+    # Obtener tickers con metadata pero sin CIK desde tickers_unified
     query = """
-    SELECT symbol FROM ticker_metadata 
+    SELECT symbol FROM tickers_unified 
     WHERE (cik IS NULL OR cik = '') 
     AND company_name IS NOT NULL
     ORDER BY market_cap DESC NULLS LAST
@@ -59,7 +59,7 @@ async def main():
                 
                 if cik:
                     await conn.execute(
-                        "UPDATE ticker_metadata SET cik = $1, updated_at = NOW() WHERE symbol = $2",
+                        "UPDATE tickers_unified SET cik = $1, updated_at = NOW() WHERE symbol = $2",
                         cik, symbol
                     )
                     success += 1
