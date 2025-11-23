@@ -43,3 +43,9 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Next.js
+.next/
+out/
+build/
+dist/
