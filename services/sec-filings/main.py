@@ -190,6 +190,92 @@ async def get_filings(
     )
 
 
+@app.get("/api/v1/filings/live", response_model=FilingsListResponse)
+async def get_filings_live(
+    ticker: Optional[str] = QueryParam(None, description="Ticker symbol"),
+    form_type: Optional[str] = QueryParam(None, description="Form type (8-K, 10-K, etc.)"),
+    date_from: Optional[date] = QueryParam(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[date] = QueryParam(None, description="End date (YYYY-MM-DD)"),
+    page_size: int = QueryParam(50, ge=1, le=200, description="Page size (max 200)"),
+    from_index: int = QueryParam(0, ge=0, description="Starting index for pagination"),
+):
+    """
+    Búsqueda DIRECTA en SEC API (sin BD local)
+    
+    Usa esto cuando:
+    - Necesitas datos inmediatos
+    - El backfill no ha procesado esas fechas aún
+    - Quieres datos frescos directo de SEC
+    
+    Ejemplos:
+    - `/api/v1/filings/live?ticker=MNDR`
+    - `/api/v1/filings/live?ticker=CMBM&form_type=8-K`
+    """
+    # Construir query Lucene
+    query_parts = []
+    
+    if ticker:
+        query_parts.append(f"ticker:({ticker})")
+    
+    if form_type:
+        query_parts.append(f"formType:\"{form_type}\"")
+    
+    # Filtro de fechas con timestamps para incluir todo el día
+    # Formato SEC API: filedAt:[2021-09-15T00:00:00 TO 2021-09-15T23:59:59]
+    if date_from and date_to:
+        # Incluir desde las 00:00:00 del date_from hasta las 23:59:59 del date_to
+        query_parts.append(f"filedAt:[{date_from}T00:00:00 TO {date_to}T23:59:59]")
+    elif date_from:
+        # Desde date_from hasta hoy
+        today = datetime.now().date()
+        query_parts.append(f"filedAt:[{date_from}T00:00:00 TO {today}T23:59:59]")
+    elif date_to:
+        # Todo hasta date_to
+        query_parts.append(f"filedAt:[* TO {date_to}T23:59:59]")
+    
+    # Si no hay filtros, traer todo (últimos 50)
+    lucene_query = " AND ".join(query_parts) if query_parts else "*"
+    
+    try:
+        # Query directo a SEC API con paginación
+        response = await query_client.query_filings(lucene_query, from_index, min(page_size, 100))
+        
+        if not response or 'filings' not in response:
+            return FilingsListResponse(
+                filings=[],
+                total=0,
+                page=1,
+                page_size=page_size,
+                message="No filings found"
+            )
+        
+        # Parsear filings
+        filings = []
+        for filing_data in response['filings']:
+            filing = query_client.parse_filing(filing_data)
+            if filing:
+                # Convertir a dict con camelCase
+                filing_dict = filing.model_dump(by_alias=True)
+                filings.append(filing_dict)
+        
+        total = response.get('total', {}).get('value', len(filings))
+        
+        return FilingsListResponse(
+            filings=filings,
+            total=total,
+            page=1,
+            page_size=page_size,
+            message=f"Found {len(filings)} filings (live from SEC API)"
+        )
+    
+    except Exception as e:
+        print(f"❌ Error querying live filings: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching live filings: {str(e)}"
+        )
+
+
 @app.get("/api/v1/filings/{accession_no}", response_model=FilingResponse)
 async def get_filing_by_accession(accession_no: str):
     """Obtener filing por accession number"""

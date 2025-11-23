@@ -3,7 +3,8 @@ Modelos Pydantic para SEC Filings
 """
 from datetime import date, datetime, time
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+from pydantic.alias_generators import to_camel
 
 
 class EntityInfo(BaseModel):
@@ -48,49 +49,52 @@ class SeriesClass(BaseModel):
 class SECFiling(BaseModel):
     """Modelo completo de un SEC Filing"""
     
-    # Identificadores
-    id: str
-    accessionNo: str = Field(..., alias="accessionNo")
-    
-    # Metadata básica
-    formType: str
-    filedAt: datetime
-    ticker: Optional[str] = None
-    cik: str
-    companyName: Optional[str] = None
-    companyNameLong: Optional[str] = None
-    periodOfReport: Optional[date] = None
-    description: Optional[str] = None
-    
-    # Items y clasificaciones
-    items: Optional[List[str]] = None
-    groupMembers: Optional[List[str]] = None
-    
-    # Enlaces
-    linkToFilingDetails: Optional[str] = None
-    linkToTxt: Optional[str] = None
-    linkToHtml: Optional[str] = None
-    linkToXbrl: Optional[str] = None
-    
-    # Fechas especiales
-    effectivenessDate: Optional[date] = None
-    effectivenessTime: Optional[time] = None
-    registrationForm: Optional[str] = None
-    referenceAccessionNo: Optional[str] = None
-    
-    # Datos complejos
-    entities: Optional[List[EntityInfo]] = None
-    documentFormatFiles: Optional[List[DocumentFile]] = None
-    dataFiles: Optional[List[DataFile]] = None
-    seriesAndClassesContractsInformation: Optional[List[SeriesClass]] = None
-    
-    class Config:
-        populate_by_name = True
-        json_encoders = {
+    # Configuración de Pydantic: convierte automáticamente snake_case ↔ camelCase
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,  # Acepta tanto snake_case como camelCase
+        json_encoders={
             datetime: lambda v: v.isoformat(),
             date: lambda v: v.isoformat() if v else None,
             time: lambda v: v.isoformat() if v else None,
         }
+    )
+    
+    # Identificadores (definir en snake_case, serializa a camelCase automáticamente)
+    id: str
+    accession_no: str
+    
+    # Metadata básica
+    form_type: str
+    filed_at: datetime
+    ticker: Optional[str] = None
+    cik: str
+    company_name: Optional[str] = None
+    company_name_long: Optional[str] = None
+    period_of_report: Optional[date] = None
+    description: Optional[str] = None
+    
+    # Items y clasificaciones
+    items: Optional[List[str]] = None
+    group_members: Optional[List[str]] = None
+    
+    # Enlaces
+    link_to_filing_details: Optional[str] = None
+    link_to_txt: Optional[str] = None
+    link_to_html: Optional[str] = None
+    link_to_xbrl: Optional[str] = None
+    
+    # Fechas especiales
+    effectiveness_date: Optional[date] = None
+    effectiveness_time: Optional[time] = None
+    registration_form: Optional[str] = None
+    reference_accession_no: Optional[str] = None
+    
+    # Datos complejos
+    entities: Optional[List[EntityInfo]] = None
+    document_format_files: Optional[List[DocumentFile]] = None
+    data_files: Optional[List[DataFile]] = None
+    series_and_classes_contracts_information: Optional[List[SeriesClass]] = None
 
 
 class FilingResponse(BaseModel):

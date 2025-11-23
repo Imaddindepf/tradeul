@@ -77,33 +77,33 @@ class DatabaseClient:
                 await conn.execute(
                     query,
                     filing.id,
-                    filing.accessionNo,
-                    filing.formType,
-                    filing.filedAt,
+                    filing.accession_no,
+                    filing.form_type,
+                    filing.filed_at,
                     filing.ticker,
                     filing.cik,
-                    filing.companyName,
-                    filing.companyNameLong,
-                    filing.periodOfReport,
+                    filing.company_name,
+                    filing.company_name_long,
+                    filing.period_of_report,
                     filing.description,
                     filing.items or [],
-                    filing.groupMembers or [],
-                    filing.linkToFilingDetails,
-                    filing.linkToTxt,
-                    filing.linkToHtml,
-                    filing.linkToXbrl,
-                    filing.effectivenessDate,
-                    filing.effectivenessTime,
-                    filing.registrationForm,
-                    filing.referenceAccessionNo,
+                    filing.group_members or [],
+                    filing.link_to_filing_details,
+                    filing.link_to_txt,
+                    filing.link_to_html,
+                    filing.link_to_xbrl,
+                    filing.effectiveness_date,
+                    filing.effectiveness_time,
+                    filing.registration_form,
+                    filing.reference_accession_no,
                     orjson.dumps([e.model_dump() for e in (filing.entities or [])]).decode() if filing.entities else None,
-                    orjson.dumps([d.model_dump() for d in (filing.documentFormatFiles or [])]).decode() if filing.documentFormatFiles else None,
-                    orjson.dumps([d.model_dump() for d in (filing.dataFiles or [])]).decode() if filing.dataFiles else None,
-                    orjson.dumps([s.model_dump() for s in (filing.seriesAndClassesContractsInformation or [])]).decode() if filing.seriesAndClassesContractsInformation else None,
+                    orjson.dumps([d.model_dump() for d in (filing.document_format_files or [])]).decode() if filing.document_format_files else None,
+                    orjson.dumps([d.model_dump() for d in (filing.data_files or [])]).decode() if filing.data_files else None,
+                    orjson.dumps([s.model_dump() for s in (filing.series_and_classes_contracts_information or [])]).decode() if filing.series_and_classes_contracts_information else None,
                 )
                 return True
         except Exception as e:
-            print(f"❌ Error inserting filing {filing.accessionNo}: {e}")
+            print(f"❌ Error inserting filing {filing.accession_no}: {e}")
             return False
     
     async def get_filings(
@@ -140,12 +140,15 @@ class DatabaseClient:
             param_count += 1
         
         if filters.date_from:
-            where_clauses.append(f"filed_at >= ${param_count}")
+            # Convertir date a datetime para comparar con timestamptz
+            # date_from a las 00:00:00 UTC
+            where_clauses.append(f"filed_at >= ${param_count}::date")
             params.append(filters.date_from)
             param_count += 1
         
         if filters.date_to:
-            where_clauses.append(f"filed_at <= ${param_count}")
+            # date_to a las 23:59:59 UTC (incluir todo el día)
+            where_clauses.append(f"filed_at < (${param_count}::date + interval '1 day')")
             params.append(filters.date_to)
             param_count += 1
         
@@ -180,14 +183,19 @@ class DatabaseClient:
             # Obtener datos
             rows = await conn.fetch(data_query, *params, filters.page_size, offset)
             
+            # Convertir a diccionarios y parsear campos JSONB
             filings = []
             for row in rows:
                 filing_dict = dict(row)
-                # Convertir datetime a string ISO
-                if filing_dict.get('filed_at'):
-                    filing_dict['filed_at'] = filing_dict['filed_at'].isoformat()
-                if filing_dict.get('period_of_report'):
-                    filing_dict['period_of_report'] = filing_dict['period_of_report'].isoformat()
+                # Parsear campos JSONB (PostgreSQL los devuelve como strings)
+                if filing_dict.get('entities') and isinstance(filing_dict['entities'], str):
+                    filing_dict['entities'] = orjson.loads(filing_dict['entities'])
+                if filing_dict.get('document_format_files') and isinstance(filing_dict['document_format_files'], str):
+                    filing_dict['document_format_files'] = orjson.loads(filing_dict['document_format_files'])
+                if filing_dict.get('data_files') and isinstance(filing_dict['data_files'], str):
+                    filing_dict['data_files'] = orjson.loads(filing_dict['data_files'])
+                if filing_dict.get('series_and_classes_contracts_information') and isinstance(filing_dict['series_and_classes_contracts_information'], str):
+                    filing_dict['series_and_classes_contracts_information'] = orjson.loads(filing_dict['series_and_classes_contracts_information'])
                 filings.append(filing_dict)
             
             return filings, total
@@ -216,10 +224,15 @@ class DatabaseClient:
             row = await conn.fetchrow(query, accession_no)
             if row:
                 filing_dict = dict(row)
-                if filing_dict.get('filed_at'):
-                    filing_dict['filed_at'] = filing_dict['filed_at'].isoformat()
-                if filing_dict.get('period_of_report'):
-                    filing_dict['period_of_report'] = filing_dict['period_of_report'].isoformat()
+                # Parsear campos JSONB
+                if filing_dict.get('entities') and isinstance(filing_dict['entities'], str):
+                    filing_dict['entities'] = orjson.loads(filing_dict['entities'])
+                if filing_dict.get('document_format_files') and isinstance(filing_dict['document_format_files'], str):
+                    filing_dict['document_format_files'] = orjson.loads(filing_dict['document_format_files'])
+                if filing_dict.get('data_files') and isinstance(filing_dict['data_files'], str):
+                    filing_dict['data_files'] = orjson.loads(filing_dict['data_files'])
+                if filing_dict.get('series_and_classes_contracts_information') and isinstance(filing_dict['series_and_classes_contracts_information'], str):
+                    filing_dict['series_and_classes_contracts_information'] = orjson.loads(filing_dict['series_and_classes_contracts_information'])
                 return filing_dict
             return None
     

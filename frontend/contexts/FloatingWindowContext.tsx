@@ -45,11 +45,11 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
 
   const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => {
     const id = `window-${++windowIdCounter}`;
-    
+
     // Usar el mismo sistema de z-index que las tablas del scanner
     // para que todas las ventanas compitan en la misma jerarquía
     const zIndex = floatingZIndexManager.getNext();
-    
+
     const newWindow: FloatingWindow = {
       ...config,
       id,
