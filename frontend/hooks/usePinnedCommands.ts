@@ -8,7 +8,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 const STORAGE_KEY = 'tradeul-pinned-commands';
-const DEFAULT_PINNED = ['sc', 'dt']; // Favoritos por defecto: comandos principales
+const DEFAULT_PINNED = ['sc', 'dt', 'sec']; // Favoritos por defecto: comandos principales
 
 export function usePinnedCommands() {
   const [pinnedCommands, setPinnedCommands] = useState<string[]>([]);
