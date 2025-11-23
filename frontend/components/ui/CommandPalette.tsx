@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Command } from 'cmdk';
 import {
     ScanSearch,
@@ -16,12 +16,12 @@ import {
     Search,
     ArrowUp,
     ArrowDown,
-    ChevronLeft,
     LayoutGrid,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
+import { SettingsContent } from '@/components/settings/SettingsContent';
 
 interface CommandPaletteProps {
     open: boolean;
@@ -42,55 +42,67 @@ type CommandItem = {
     disabled?: boolean;
 };
 
-const SCANNER_COMMANDS: CommandItem[] = [
-    { id: 'gappers_up', label: 'Gap Up', description: 'Gap up ≥ 2%', icon: TrendingUp, shortcut: 'Ctrl+1', group: 'Scanner' },
-    { id: 'gappers_down', label: 'Gap Down', description: 'Gap down ≤ -2%', icon: TrendingDown, shortcut: 'Ctrl+2', group: 'Scanner' },
-    { id: 'momentum_up', label: 'Momentum Alcista', description: 'Cambio ≥ 3%', icon: ArrowUp, shortcut: 'Ctrl+3', group: 'Scanner' },
-    { id: 'momentum_down', label: 'Momentum Bajista', description: 'Cambio ≤ -3%', icon: ArrowDown, shortcut: 'Ctrl+4', group: 'Scanner' },
-    { id: 'winners', label: 'Mayores Ganadores', description: 'Cambio ≥ 5%', icon: Trophy, shortcut: 'Ctrl+5', group: 'Scanner' },
-    { id: 'losers', label: 'Mayores Perdedores', description: 'Cambio ≤ -5%', icon: AlertTriangle, shortcut: 'Ctrl+6', group: 'Scanner' },
-    { id: 'new_highs', label: 'Nuevos Máximos', description: 'Máximos del día', icon: TrendingUp, group: 'Scanner' },
-    { id: 'new_lows', label: 'Nuevos Mínimos', description: 'Mínimos del día', icon: TrendingDown, group: 'Scanner' },
-    { id: 'anomalies', label: 'Anomalías', description: 'RVOL ≥ 3.0', icon: Zap, shortcut: 'Ctrl+7', group: 'Scanner' },
-    { id: 'high_volume', label: 'Alto Volumen', description: 'RVOL ≥ 2.0', icon: BarChart3, group: 'Scanner' },
-    { id: 'reversals', label: 'Reversals', description: 'Cambios de dirección', icon: ScanSearch, group: 'Scanner' },
-];
-
-// Comandos principales (Nivel 1)
+// Sistema de comandos con prefijos tipo terminal
+// Comandos principales (sin prefijo)
 const MAIN_COMMANDS: CommandItem[] = [
-    { id: 'scanner', label: 'SC - Scanner', description: 'Abrir tablas del scanner', icon: LayoutGrid, group: 'Principal' },
-    { id: 'dilution-tracker', label: 'DT - Dilution Tracker', description: 'Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D', group: 'Principal' },
+    { id: 'sc', label: 'SC', description: 'Scanner - Ver todas las tablas', icon: LayoutGrid, group: 'Comandos principales' },
+    { id: 'dt', label: 'DT', description: 'Dilution Tracker - Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D', group: 'Comandos principales' },
+    { id: 'settings', label: 'SET', description: 'Settings - Configuración de la app', icon: Settings, shortcut: 'Ctrl+,', group: 'Comandos principales' },
 ];
 
-const OTHER_COMMANDS: CommandItem[] = [
-    { id: 'analytics', label: 'Analytics', description: 'Próximamente', icon: TrendingUp, group: 'Herramientas', disabled: true },
-    { id: 'alerts', label: 'Alertas', description: 'Próximamente', icon: Bell, group: 'Herramientas', disabled: true },
-    { id: 'settings', label: 'Configuración', description: 'Próximamente', icon: Settings, group: 'Sistema', disabled: true },
+// Comandos del scanner (prefijo SC)
+const SCANNER_COMMANDS: CommandItem[] = [
+    { id: 'gappers_up', label: 'SC Gap Up', description: 'Gap up ≥ 2%', icon: TrendingUp, shortcut: 'Ctrl+1', group: 'Scanner' },
+    { id: 'gappers_down', label: 'SC Gap Down', description: 'Gap down ≤ -2%', icon: TrendingDown, shortcut: 'Ctrl+2', group: 'Scanner' },
+    { id: 'momentum_up', label: 'SC Momentum Alcista', description: 'Cambio ≥ 3%', icon: ArrowUp, shortcut: 'Ctrl+3', group: 'Scanner' },
+    { id: 'momentum_down', label: 'SC Momentum Bajista', description: 'Cambio ≤ -3%', icon: ArrowDown, shortcut: 'Ctrl+4', group: 'Scanner' },
+    { id: 'winners', label: 'SC Mayores Ganadores', description: 'Cambio ≥ 5%', icon: Trophy, shortcut: 'Ctrl+5', group: 'Scanner' },
+    { id: 'losers', label: 'SC Mayores Perdedores', description: 'Cambio ≤ -5%', icon: AlertTriangle, shortcut: 'Ctrl+6', group: 'Scanner' },
+    { id: 'new_highs', label: 'SC Nuevos Máximos', description: 'Máximos del día', icon: TrendingUp, group: 'Scanner' },
+    { id: 'new_lows', label: 'SC Nuevos Mínimos', description: 'Mínimos del día', icon: TrendingDown, group: 'Scanner' },
+    { id: 'anomalies', label: 'SC Anomalías', description: 'RVOL ≥ 3.0', icon: Zap, shortcut: 'Ctrl+7', group: 'Scanner' },
+    { id: 'high_volume', label: 'SC Alto Volumen', description: 'RVOL ≥ 2.0', icon: BarChart3, group: 'Scanner' },
+    { id: 'reversals', label: 'SC Reversals', description: 'Cambios de dirección', icon: ScanSearch, group: 'Scanner' },
 ];
 
 export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCategories = [], searchValue = '', onSearchChange }: CommandPaletteProps) {
-    const search = searchValue;
+    const search = searchValue.toLowerCase().trim();
     const setSearch = onSearchChange || (() => { });
     const { openWindow } = useFloatingWindow();
+    const preventCloseRef = useRef(false);
     
-    // Estado para navegación jerárquica
-    const [mode, setMode] = useState<'main' | 'scanner'>('main');
+    // Detectar qué comandos mostrar basado en el texto escrito
+    const hasScPrefix = search.startsWith('sc');
+    const hasDtPrefix = search.startsWith('dt');
+    const isEmpty = search === '';
+    
+    // Determinar qué comandos mostrar
+    const showMainCommands = isEmpty || (!hasScPrefix && !hasDtPrefix);
+    const showScannerCommands = hasScPrefix;
+    const shouldExecuteDT = hasDtPrefix && search === 'dt';
 
     // Handler para seleccionar comandos (DEBE estar antes de los useEffect)
     const handleSelect = useCallback((value: string) => {
-        const allCommands = [...MAIN_COMMANDS, ...SCANNER_COMMANDS, ...OTHER_COMMANDS];
+        const allCommands = [...MAIN_COMMANDS, ...SCANNER_COMMANDS];
         const command = allCommands.find(c => c.id === value);
         if (command?.disabled) return;
 
-        // Manejar comando scanner (cambiar a submenu)
-        if (value === 'scanner') {
-            setMode('scanner');
-            setSearch('');
+        // Comandos principales SC y DT son solo indicadores, no hacen nada
+        if (value === 'sc') {
+            // Prevenir que handleClickOutside cierre la paleta inmediatamente
+            preventCloseRef.current = true;
+            // Solo poner "SC " en el input para filtrar
+            setSearch('SC ');
+            // Resetear el flag después de un momento
+            setTimeout(() => {
+                preventCloseRef.current = false;
+            }, 200);
+            // NO cerrar la paleta, mantenerla abierta
             return;
         }
 
-        // Manejar dilution tracker
-        if (value === 'dilution-tracker') {
+        // DT ejecuta directamente Dilution Tracker
+        if (value === 'dt') {
             const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
             const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
             openWindow({
@@ -105,80 +117,80 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             });
             setSearch('');
             onOpenChange(false);
-            setMode('main');
             return;
         }
 
-        // Comandos sin implementar
-        if (value === 'settings' || value === 'analytics' || value === 'alerts') {
-            console.log('Comando:', value, '- Próximamente');
+        // Settings ejecuta directamente Settings
+        if (value === 'settings') {
+            const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+            const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+            openWindow({
+                title: 'Settings',
+                content: <SettingsContent />,
+                width: 900,
+                height: 750,
+                x: screenWidth / 2 - 450,
+                y: screenHeight / 2 - 375,
+                minWidth: 700,
+                minHeight: 600,
+            });
             setSearch('');
             onOpenChange(false);
-            setMode('main');
             return;
         }
 
-        // Categorías del scanner (solo en modo scanner)
-        if (mode === 'scanner' && onSelectCategory) {
-            onSelectCategory(value);
+        // Todas las tablas del scanner (tienen prefijo SC en el label)
+        if (command && command.group === 'Scanner') {
+            if (onSelectCategory) {
+                onSelectCategory(value);
+            }
             setSearch('');
             onOpenChange(false);
-            setMode('main');
         }
-    }, [mode, onSelectCategory, onOpenChange, openWindow, setSearch]);
-
-    // Resetear modo al cerrar
-    useEffect(() => {
-        if (!open) {
-            setMode('main');
-        }
-    }, [open]);
+    }, [onSelectCategory, onOpenChange, openWindow, setSearch]);
 
     // Cerrar al hacer clic fuera
     useEffect(() => {
         if (!open) return;
 
         const handleClickOutside = (e: MouseEvent) => {
+            // Si acabamos de seleccionar SC, no cerrar
+            if (preventCloseRef.current) {
+                return;
+            }
+            
             const target = e.target as HTMLElement;
             // No cerrar si se hace clic en el input del navbar o en el command palette
             if (!target.closest('[cmdk-root]') && !target.closest('input[type="text"]')) {
                 setSearch('');
                 onOpenChange(false);
-                setMode('main');
             }
         };
 
         // Pequeño delay para evitar cerrar inmediatamente al abrir
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             document.addEventListener('click', handleClickOutside);
         }, 100);
 
         return () => {
+            clearTimeout(timeoutId);
             document.removeEventListener('click', handleClickOutside);
         };
     }, [open, onOpenChange, setSearch]);
 
-    // Cerrar con Escape o volver atrás
+    // Cerrar con Escape
     useEffect(() => {
         const down = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && open) {
                 e.preventDefault();
-                if (mode === 'scanner') {
-                    // Si estás en submenu, volver al principal
-                    setMode('main');
-                    setSearch('');
-                } else {
-                    // Si estás en principal, cerrar
-                    setSearch('');
-                    onOpenChange(false);
-                    setMode('main');
-                }
+                setSearch('');
+                onOpenChange(false);
             }
         };
 
         document.addEventListener('keydown', down);
         return () => document.removeEventListener('keydown', down);
-    }, [open, mode, onOpenChange, setSearch]);
+    }, [open, onOpenChange, setSearch]);
 
     // Shortcuts globales
     useEffect(() => {
@@ -223,7 +235,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                 }}
             >
                 <Command
-                    className="border-2 border-blue-500 bg-white shadow-2xl overflow-hidden rounded-lg"
+                    className="border border-slate-300 bg-white shadow-lg overflow-hidden"
                     shouldFilter={true}
                 >
                     {/* Input oculto para el filtrado de cmdk - sincronizado con el navbar */}
@@ -233,110 +245,72 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         className="hidden"
                     />
 
-                    {/* Header con breadcrumb */}
-                    <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white">
-                        <div className="flex items-center gap-2">
-                            {mode === 'scanner' && (
-                                <button
-                                    onClick={() => {
-                                        setMode('main');
-                                        setSearch('');
-                                    }}
-                                    className="p-1 hover:bg-slate-200 rounded transition-colors mr-1"
-                                    title="Volver"
-                                >
-                                    <ChevronLeft className="w-4 h-4 text-slate-600" />
-                                </button>
-                            )}
-                            <span className="text-slate-400 font-mono text-xs">$</span>
-                            <h3 className="text-xs font-bold text-slate-700">
-                                {mode === 'main' ? 'Comandos disponibles' : 'Scanner - Tablas'}
-                            </h3>
-                        </div>
+                    {/* Header minimalista */}
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+                        <span className="text-xs text-slate-500 uppercase tracking-wide font-mono">
+                            {hasScPrefix ? 'Scanner' : hasDtPrefix ? 'Dilution Tracker' : 'Commands'}
+                        </span>
                         <button
                             onClick={() => {
                                 onOpenChange(false);
                                 setSearch('');
-                                setMode('main');
                             }}
-                            className="p-1 hover:bg-slate-200 rounded transition-colors"
+                            className="text-slate-400 hover:text-slate-600"
                         >
-                            <X className="w-3.5 h-3.5 text-slate-600" />
+                            <X className="w-3 h-3" />
                         </button>
                     </div>
 
-                    <Command.List className="flex-1 overflow-y-auto p-2" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-                        <Command.Empty className="py-12 text-center text-sm text-slate-500">
+                    <Command.List className="overflow-y-auto p-1" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+                        <Command.Empty className="py-8 text-center text-xs text-slate-400">
                             No se encontraron comandos.
                         </Command.Empty>
 
-                        {/* MODO PRINCIPAL */}
-                        {mode === 'main' && (
-                            <Command.Group heading="COMANDOS PRINCIPALES">
+                        {/* COMANDOS PRINCIPALES (sin prefijo o prefijo desconocido) */}
+                        {showMainCommands && (
+                            <Command.Group>
                                 {MAIN_COMMANDS.map((cmd) => {
-                                    const Icon = cmd.icon;
                                     return (
                                         <Command.Item
                                             key={cmd.id}
-                                            value={`${cmd.label} ${cmd.description} ${cmd.id}`}
+                                            value={cmd.id}
+                                            keywords={[cmd.label, cmd.description, cmd.id]}
                                             onSelect={() => handleSelect(cmd.id)}
-                                            className="flex items-center gap-3 px-3 py-3 rounded-lg cursor-pointer
-                                                       hover:bg-blue-50 data-[selected=true]:bg-blue-50
-                                                       transition-colors group"
+                                            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
+                                                       hover:bg-slate-100 data-[selected=true]:bg-slate-100
+                                                       transition-colors"
                                         >
-                                            <Icon className="w-6 h-6 text-slate-600 group-hover:text-blue-600" />
-                                            <div className="flex-1 min-w-0">
-                                                <span className="text-base font-semibold text-slate-900">
-                                                    {cmd.label}
-                                                </span>
-                                                <p className="text-sm text-slate-500 mt-0.5">{cmd.description}</p>
-                                            </div>
-                                            {cmd.shortcut && (
-                                                <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-slate-500 bg-slate-100 rounded">
-                                                    {cmd.shortcut}
-                                                </kbd>
-                                            )}
+                                            <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
+                                                {cmd.label}
+                                            </span>
+                                            <span className="text-xs text-slate-600">{cmd.description}</span>
                                         </Command.Item>
                                     );
                                 })}
                             </Command.Group>
                         )}
 
-                        {/* MODO SCANNER */}
-                        {mode === 'scanner' && (
-                            <Command.Group heading="TABLAS DEL SCANNER">
+                        {/* COMANDOS DEL SCANNER (prefijo SC) */}
+                        {showScannerCommands && (
+                            <Command.Group>
                                 {SCANNER_COMMANDS.map((cmd) => {
-                                    const Icon = cmd.icon;
-                                    const isActive = activeCategories.includes(cmd.id);
+                                    // Extraer solo el nombre sin el prefijo "SC "
+                                    const cmdName = cmd.label.replace('SC ', '');
 
                                     return (
                                         <Command.Item
                                             key={cmd.id}
-                                            value={`${cmd.label} ${cmd.description} ${cmd.id}`}
+                                            value={cmd.id}
+                                            keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
                                             onSelect={() => handleSelect(cmd.id)}
-                                            className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer
-                                                       hover:bg-blue-50 data-[selected=true]:bg-blue-50
-                                                       transition-colors group"
+                                            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
+                                                       hover:bg-slate-100 data-[selected=true]:bg-slate-100
+                                                       transition-colors"
                                         >
-                                            <Icon className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-medium text-slate-900">
-                                                        {cmd.label}
-                                                    </span>
-                                                    {isActive && (
-                                                        <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-semibold">
-                                                            Activa
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <p className="text-xs text-slate-500">{cmd.description}</p>
-                                            </div>
-                                            {cmd.shortcut && (
-                                                <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-slate-500 bg-slate-100 rounded">
-                                                    {cmd.shortcut}
-                                                </kbd>
-                                            )}
+                                            <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
+                                                {cmdName}
+                                            </span>
+                                            <span className="text-xs text-slate-600">{cmd.description}</span>
                                         </Command.Item>
                                     );
                                 })}
@@ -344,12 +318,9 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         )}
                     </Command.List>
 
-                    {/* Footer con hints */}
-                    <div className="flex items-center justify-between px-4 py-2 border-t border-slate-200 bg-gradient-to-r from-slate-50 to-white text-xs text-slate-500">
-                        <span className="font-mono">↑↓ navegar • Enter seleccionar</span>
-                        <span className="font-mono">
-                            {mode === 'scanner' ? 'Esc volver' : 'Esc cerrar'}
-                        </span>
+                    {/* Footer minimalista */}
+                    <div className="flex items-center justify-end px-3 py-1 border-t border-slate-200 bg-slate-50">
+                        <span className="text-xs text-slate-400 font-mono">Ent</span>
                     </div>
                 </Command>
             </div>

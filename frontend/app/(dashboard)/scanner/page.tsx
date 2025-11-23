@@ -5,10 +5,14 @@ import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
 import { DraggableTable } from '@/components/scanner/DraggableTable';
 import { Navbar, NavbarContent } from '@/components/layout/Navbar';
+import { PinnedCommands } from '@/components/layout/PinnedCommands';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { CommandPalette } from '@/components/ui/CommandPalette';
 import { Settings2 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
+import { SettingsContent } from '@/components/settings/SettingsContent';
 
 type ScannerCategory = {
   id: string;
@@ -79,6 +83,7 @@ export default function ScannerPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandInput, setCommandInput] = useState('');
+  const { openWindow } = useFloatingWindow();
 
   useEffect(() => {
     setMounted(true);
@@ -159,6 +164,51 @@ export default function ScannerPage() {
     });
   };
 
+  // Handler para comandos pinned (solo comandos principales: SC, DT, SET)
+  const handlePinnedCommandClick = (commandId: string) => {
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+    const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+
+    switch (commandId) {
+      case 'sc':
+        // Scanner: Abrir paleta de comandos con "SC " pre-llenado
+        setCommandInput('SC ');
+        setCommandPaletteOpen(true);
+        break;
+
+      case 'dt':
+        // Dilution Tracker: Abrir floating window
+        openWindow({
+          title: 'Dilution Tracker',
+          content: <DilutionTrackerContent />,
+          width: 700,
+          height: 600,
+          x: screenWidth / 2 - 350,
+          y: screenHeight / 2 - 300,
+          minWidth: 500,
+          minHeight: 400,
+        });
+        break;
+
+      case 'settings':
+        // Settings: Abrir floating window
+        openWindow({
+          title: 'Settings',
+          content: <SettingsContent />,
+          width: 900,
+          height: 750,
+          x: screenWidth / 2 - 450,
+          y: screenHeight / 2 - 375,
+          minWidth: 700,
+          minHeight: 600,
+        });
+        break;
+
+      default:
+        console.warn('Comando pinned desconocido:', commandId);
+    }
+  };
+
   const activeCategoryData = activeCategories
     .map((id) => AVAILABLE_CATEGORIES.find((cat) => cat.id === id))
     .filter(Boolean) as ScannerCategory[];
@@ -169,6 +219,12 @@ export default function ScannerPage() {
       {/* Navbar con Command Prompt, Logo Centrado y Market Status */}
       <Navbar>
         <div className="flex items-center h-full w-full gap-4">
+          {/* Logo compacto */}
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 
+                        flex items-center justify-center shadow-sm flex-shrink-0">
+            <span className="text-white font-bold text-base">T</span>
+          </div>
+
           {/* Left: Command Prompt Line */}
           <div className="flex-1 flex items-center gap-2 relative">
             <span className="text-slate-400 font-mono text-sm select-none">$</span>
@@ -186,18 +242,11 @@ export default function ScannerPage() {
             <kbd className="text-xs text-slate-400 font-mono">Ctrl+K</kbd>
           </div>
 
-          {/* Center: Logo */}
-          <div className="flex items-center gap-3 px-4">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 
-                          flex items-center justify-center shadow-md">
-              <span className="text-white font-bold text-xl">T</span>
-            </div>
-            <div className="flex flex-col justify-center">
-              <h1 className="text-sm font-bold text-slate-900 whitespace-nowrap">Tradeul Scanner</h1>
-              <p className="text-xs text-slate-500">
-                {activeCategories.length} {activeCategories.length === 1 ? 'activa' : 'activas'}
-              </p>
-            </div>
+          {/* Center: Pinned Commands (Favoritos del usuario) */}
+          <div className="flex items-center px-4">
+            <PinnedCommands 
+              onCommandClick={handlePinnedCommandClick}
+            />
           </div>
 
           {/* Right: Market Status */}
