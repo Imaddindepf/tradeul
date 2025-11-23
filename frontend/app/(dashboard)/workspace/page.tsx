@@ -13,6 +13,7 @@ import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
+import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 
 type ScannerCategory = {
   id: string;
@@ -187,6 +188,20 @@ export default function ScannerPage() {
           y: screenHeight / 2 - 300,
           minWidth: 500,
           minHeight: 400,
+        });
+        break;
+
+      case 'sec':
+        // SEC Filings: Abrir floating window
+        openWindow({
+          title: 'SEC Filings',
+          content: <SECFilingsContent />,
+          width: 1000,
+          height: 700,
+          x: screenWidth / 2 - 500,
+          y: screenHeight / 2 - 350,
+          minWidth: 800,
+          minHeight: 500,
         });
         break;
 

@@ -7,6 +7,7 @@ import { Pin } from 'lucide-react';
 const AVAILABLE_COMMANDS = [
   { id: 'sc', label: 'SC - Scanner' },
   { id: 'dt', label: 'DT - Dilution Tracker' },
+  { id: 'sec', label: 'SEC - SEC Filings' },
   { id: 'settings', label: 'SET - Settings' },
 ];
 

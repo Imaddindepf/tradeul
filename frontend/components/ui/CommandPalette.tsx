@@ -17,11 +17,13 @@ import {
     ArrowUp,
     ArrowDown,
     LayoutGrid,
+    FileText,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
+import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 
 interface CommandPaletteProps {
     open: boolean;
@@ -47,6 +49,7 @@ type CommandItem = {
 const MAIN_COMMANDS: CommandItem[] = [
     { id: 'sc', label: 'SC', description: 'Scanner - Ver todas las tablas', icon: LayoutGrid, group: 'Comandos principales' },
     { id: 'dt', label: 'DT', description: 'Dilution Tracker - Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D', group: 'Comandos principales' },
+    { id: 'sec', label: 'SEC', description: 'SEC Filings - Filings de la SEC en tiempo real', icon: FileText, shortcut: 'Ctrl+F', group: 'Comandos principales' },
     { id: 'settings', label: 'SET', description: 'Settings - Configuración de la app', icon: Settings, shortcut: 'Ctrl+,', group: 'Comandos principales' },
 ];
 
@@ -133,6 +136,25 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                 y: screenHeight / 2 - 375,
                 minWidth: 700,
                 minHeight: 600,
+            });
+            setSearch('');
+            onOpenChange(false);
+            return;
+        }
+
+        // SEC ejecuta directamente SEC Filings
+        if (value === 'sec') {
+            const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+            const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+            openWindow({
+                title: 'SEC Filings',
+                content: <SECFilingsContent />,
+                width: 1000,
+                height: 700,
+                x: screenWidth / 2 - 500,
+                y: screenHeight / 2 - 350,
+                minWidth: 800,
+                minHeight: 500,
             });
             setSearch('');
             onOpenChange(false);

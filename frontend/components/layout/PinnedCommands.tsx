@@ -13,6 +13,7 @@ interface PinnedCommandsProps {
 const COMMAND_LABELS: Record<string, string> = {
   'sc': 'SC',
   'dt': 'DT',
+  'sec': 'SEC',
   'settings': 'SET',
 };
 
