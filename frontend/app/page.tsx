@@ -91,11 +91,11 @@ export default function Home() {
 
           {/* Quick Action - Scanner */}
           <Link 
-            href="/scanner"
+            href="/workspace"
             className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl font-semibold text-lg shadow-xl hover:shadow-2xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 active:scale-95"
           >
             <ScanSearch className="w-6 h-6" />
-            <span>Ir al Escáner</span>
+            <span>Ir al Workspace</span>
             <ArrowRight className="w-5 h-5" />
           </Link>
         </div>
@@ -104,15 +104,15 @@ export default function Home() {
         <div className="max-w-6xl mx-auto mt-20 grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Scanner Card */}
           <Link 
-            href="/scanner"
+            href="/workspace"
             className="group p-8 bg-white rounded-2xl shadow-lg border-2 border-slate-200 hover:border-blue-500 hover:shadow-2xl transition-all duration-300"
           >
             <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
               <ScanSearch className="w-7 h-7 text-white" />
             </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Escáner de Mercado</h3>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Workspace</h3>
             <p className="text-slate-600 mb-4">
-              Monitorea en tiempo real los mejores movimientos del mercado con nuestro escáner avanzado.
+              Tu espacio de trabajo completo con scanner, dilution tracker y herramientas de análisis en tiempo real.
             </p>
             <div className="flex items-center gap-2 text-blue-600 font-medium group-hover:gap-3 transition-all">
               <span>Explorar ahora</span>
