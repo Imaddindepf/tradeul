@@ -16,6 +16,8 @@ import {
     Search,
     ArrowUp,
     ArrowDown,
+    ChevronLeft,
+    LayoutGrid,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
@@ -54,8 +56,13 @@ const SCANNER_COMMANDS: CommandItem[] = [
     { id: 'reversals', label: 'Reversals', description: 'Cambios de dirección', icon: ScanSearch, group: 'Scanner' },
 ];
 
+// Comandos principales (Nivel 1)
+const MAIN_COMMANDS: CommandItem[] = [
+    { id: 'scanner', label: 'SC - Scanner', description: 'Abrir tablas del scanner', icon: LayoutGrid, group: 'Principal' },
+    { id: 'dilution-tracker', label: 'DT - Dilution Tracker', description: 'Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D', group: 'Principal' },
+];
+
 const OTHER_COMMANDS: CommandItem[] = [
-    { id: 'dilution-tracker', label: 'Dilution Tracker', description: 'Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D', group: 'Herramientas' },
     { id: 'analytics', label: 'Analytics', description: 'Próximamente', icon: TrendingUp, group: 'Herramientas', disabled: true },
     { id: 'alerts', label: 'Alertas', description: 'Próximamente', icon: Bell, group: 'Herramientas', disabled: true },
     { id: 'settings', label: 'Configuración', description: 'Próximamente', icon: Settings, group: 'Sistema', disabled: true },
@@ -65,15 +72,25 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
     const search = searchValue;
     const setSearch = onSearchChange || (() => { });
     const { openWindow } = useFloatingWindow();
+    
+    // Estado para navegación jerárquica
+    const [mode, setMode] = useState<'main' | 'scanner'>('main');
 
     // Handler para seleccionar comandos (DEBE estar antes de los useEffect)
     const handleSelect = useCallback((value: string) => {
-        const command = [...SCANNER_COMMANDS, ...OTHER_COMMANDS].find(c => c.id === value);
+        const allCommands = [...MAIN_COMMANDS, ...SCANNER_COMMANDS, ...OTHER_COMMANDS];
+        const command = allCommands.find(c => c.id === value);
         if (command?.disabled) return;
 
-        // Manejar comandos especiales
+        // Manejar comando scanner (cambiar a submenu)
+        if (value === 'scanner') {
+            setMode('scanner');
+            setSearch('');
+            return;
+        }
+
+        // Manejar dilution tracker
         if (value === 'dilution-tracker') {
-            // Abrir ventana flotante de Dilution Tracker
             const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
             const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
             openWindow({
@@ -86,19 +103,36 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                 minWidth: 500,
                 minHeight: 400,
             });
-        } else if (value === 'settings' || value === 'analytics' || value === 'alerts') {
-            // Comandos que aún no tienen implementación
-            console.log('Comando:', value, '- Próximamente');
-        } else {
-            // Categorías del scanner
-            if (onSelectCategory) {
-                onSelectCategory(value);
-            }
+            setSearch('');
+            onOpenChange(false);
+            setMode('main');
+            return;
         }
 
-        setSearch('');
-        onOpenChange(false);
-    }, [onSelectCategory, onOpenChange, openWindow, setSearch]);
+        // Comandos sin implementar
+        if (value === 'settings' || value === 'analytics' || value === 'alerts') {
+            console.log('Comando:', value, '- Próximamente');
+            setSearch('');
+            onOpenChange(false);
+            setMode('main');
+            return;
+        }
+
+        // Categorías del scanner (solo en modo scanner)
+        if (mode === 'scanner' && onSelectCategory) {
+            onSelectCategory(value);
+            setSearch('');
+            onOpenChange(false);
+            setMode('main');
+        }
+    }, [mode, onSelectCategory, onOpenChange, openWindow, setSearch]);
+
+    // Resetear modo al cerrar
+    useEffect(() => {
+        if (!open) {
+            setMode('main');
+        }
+    }, [open]);
 
     // Cerrar al hacer clic fuera
     useEffect(() => {
@@ -110,6 +144,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             if (!target.closest('[cmdk-root]') && !target.closest('input[type="text"]')) {
                 setSearch('');
                 onOpenChange(false);
+                setMode('main');
             }
         };
 
@@ -123,19 +158,27 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         };
     }, [open, onOpenChange, setSearch]);
 
-    // Cerrar con Escape
+    // Cerrar con Escape o volver atrás
     useEffect(() => {
         const down = (e: KeyboardEvent) => {
             if (e.key === 'Escape' && open) {
                 e.preventDefault();
-                setSearch('');
-                onOpenChange(false);
+                if (mode === 'scanner') {
+                    // Si estás en submenu, volver al principal
+                    setMode('main');
+                    setSearch('');
+                } else {
+                    // Si estás en principal, cerrar
+                    setSearch('');
+                    onOpenChange(false);
+                    setMode('main');
+                }
             }
         };
 
         document.addEventListener('keydown', down);
         return () => document.removeEventListener('keydown', down);
-    }, [open, onOpenChange, setSearch]);
+    }, [open, mode, onOpenChange, setSearch]);
 
     // Shortcuts globales
     useEffect(() => {
@@ -190,16 +233,31 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         className="hidden"
                     />
 
-                    {/* Header simplificado */}
+                    {/* Header con breadcrumb */}
                     <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-white">
                         <div className="flex items-center gap-2">
+                            {mode === 'scanner' && (
+                                <button
+                                    onClick={() => {
+                                        setMode('main');
+                                        setSearch('');
+                                    }}
+                                    className="p-1 hover:bg-slate-200 rounded transition-colors mr-1"
+                                    title="Volver"
+                                >
+                                    <ChevronLeft className="w-4 h-4 text-slate-600" />
+                                </button>
+                            )}
                             <span className="text-slate-400 font-mono text-xs">$</span>
-                            <h3 className="text-xs font-bold text-slate-700">Comandos disponibles</h3>
+                            <h3 className="text-xs font-bold text-slate-700">
+                                {mode === 'main' ? 'Comandos disponibles' : 'Scanner - Tablas'}
+                            </h3>
                         </div>
                         <button
                             onClick={() => {
                                 onOpenChange(false);
                                 setSearch('');
+                                setMode('main');
                             }}
                             className="p-1 hover:bg-slate-200 rounded transition-colors"
                         >
@@ -212,105 +270,86 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                             No se encontraron comandos.
                         </Command.Empty>
 
-                        {/* Scanner Commands */}
-                        <Command.Group heading="SCANNER - Categorías" className="mb-2">
-                            {SCANNER_COMMANDS.map((cmd) => {
-                                const Icon = cmd.icon;
-                                const isActive = activeCategories.includes(cmd.id);
-
-                                return (
-                                    <Command.Item
-                                        key={cmd.id}
-                                        value={`${cmd.label} ${cmd.description} ${cmd.id}`}
-                                        onSelect={() => handleSelect(cmd.id)}
-                                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer
-                             hover:bg-blue-50 data-[selected=true]:bg-blue-50
-                             transition-colors group"
-                                    >
-                                        <Icon className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium text-slate-900">
+                        {/* MODO PRINCIPAL */}
+                        {mode === 'main' && (
+                            <Command.Group heading="COMANDOS PRINCIPALES">
+                                {MAIN_COMMANDS.map((cmd) => {
+                                    const Icon = cmd.icon;
+                                    return (
+                                        <Command.Item
+                                            key={cmd.id}
+                                            value={`${cmd.label} ${cmd.description} ${cmd.id}`}
+                                            onSelect={() => handleSelect(cmd.id)}
+                                            className="flex items-center gap-3 px-3 py-3 rounded-lg cursor-pointer
+                                                       hover:bg-blue-50 data-[selected=true]:bg-blue-50
+                                                       transition-colors group"
+                                        >
+                                            <Icon className="w-6 h-6 text-slate-600 group-hover:text-blue-600" />
+                                            <div className="flex-1 min-w-0">
+                                                <span className="text-base font-semibold text-slate-900">
                                                     {cmd.label}
                                                 </span>
-                                                {isActive && (
-                                                    <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-semibold">
-                                                        Activa
-                                                    </span>
-                                                )}
+                                                <p className="text-sm text-slate-500 mt-0.5">{cmd.description}</p>
                                             </div>
-                                            <p className="text-xs text-slate-500">{cmd.description}</p>
-                                        </div>
-                                        {cmd.shortcut && (
-                                            <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-slate-500 bg-slate-100 rounded">
-                                                {cmd.shortcut}
-                                            </kbd>
-                                        )}
-                                    </Command.Item>
-                                );
-                            })}
-                        </Command.Group>
+                                            {cmd.shortcut && (
+                                                <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-slate-500 bg-slate-100 rounded">
+                                                    {cmd.shortcut}
+                                                </kbd>
+                                            )}
+                                        </Command.Item>
+                                    );
+                                })}
+                            </Command.Group>
+                        )}
 
-                        {/* Other Commands */}
-                        <Command.Group heading="HERRAMIENTAS" className="mb-2">
-                            {OTHER_COMMANDS.filter(c => c.group === 'Herramientas').map((cmd) => {
-                                const Icon = cmd.icon;
+                        {/* MODO SCANNER */}
+                        {mode === 'scanner' && (
+                            <Command.Group heading="TABLAS DEL SCANNER">
+                                {SCANNER_COMMANDS.map((cmd) => {
+                                    const Icon = cmd.icon;
+                                    const isActive = activeCategories.includes(cmd.id);
 
-                                return (
-                                    <Command.Item
-                                        key={cmd.id}
-                                        value={`${cmd.label} ${cmd.description} ${cmd.id}`}
-                                        onSelect={() => handleSelect(cmd.id)}
-                                        disabled={cmd.disabled}
-                                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg
-                             ${cmd.disabled
-                                                ? 'opacity-50 cursor-not-allowed'
-                                                : 'cursor-pointer hover:bg-blue-50 data-[selected=true]:bg-blue-50'
-                                            } transition-colors group`}
-                                    >
-                                        <Icon className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
-                                        <div className="flex-1 min-w-0">
-                                            <span className="text-sm font-medium text-slate-900">
-                                                {cmd.label}
-                                            </span>
-                                            <p className="text-xs text-slate-500">{cmd.description}</p>
-                                        </div>
-                                    </Command.Item>
-                                );
-                            })}
-                        </Command.Group>
-
-                        {/* System Commands */}
-                        <Command.Group heading="SISTEMA">
-                            {OTHER_COMMANDS.filter(c => c.group === 'Sistema').map((cmd) => {
-                                const Icon = cmd.icon;
-
-                                return (
-                                    <Command.Item
-                                        key={cmd.id}
-                                        value={`${cmd.label} ${cmd.description} ${cmd.id}`}
-                                        onSelect={() => handleSelect(cmd.id)}
-                                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer
-                             hover:bg-blue-50 data-[selected=true]:bg-blue-50
-                             transition-colors group"
-                                    >
-                                        <Icon className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
-                                        <div className="flex-1 min-w-0">
-                                            <span className="text-sm font-medium text-slate-900">
-                                                {cmd.label}
-                                            </span>
-                                            <p className="text-xs text-slate-500">{cmd.description}</p>
-                                        </div>
-                                    </Command.Item>
-                                );
-                            })}
-                        </Command.Group>
+                                    return (
+                                        <Command.Item
+                                            key={cmd.id}
+                                            value={`${cmd.label} ${cmd.description} ${cmd.id}`}
+                                            onSelect={() => handleSelect(cmd.id)}
+                                            className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer
+                                                       hover:bg-blue-50 data-[selected=true]:bg-blue-50
+                                                       transition-colors group"
+                                        >
+                                            <Icon className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-medium text-slate-900">
+                                                        {cmd.label}
+                                                    </span>
+                                                    {isActive && (
+                                                        <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-semibold">
+                                                            Activa
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-slate-500">{cmd.description}</p>
+                                            </div>
+                                            {cmd.shortcut && (
+                                                <kbd className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-xs font-mono text-slate-500 bg-slate-100 rounded">
+                                                    {cmd.shortcut}
+                                                </kbd>
+                                            )}
+                                        </Command.Item>
+                                    );
+                                })}
+                            </Command.Group>
+                        )}
                     </Command.List>
 
                     {/* Footer con hints */}
                     <div className="flex items-center justify-between px-4 py-2 border-t border-slate-200 bg-gradient-to-r from-slate-50 to-white text-xs text-slate-500">
                         <span className="font-mono">↑↓ navegar • Enter seleccionar</span>
-                        <span className="font-mono">Esc cerrar</span>
+                        <span className="font-mono">
+                            {mode === 'scanner' ? 'Esc volver' : 'Esc cerrar'}
+                        </span>
                     </div>
                 </Command>
             </div>
