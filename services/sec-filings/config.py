@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     """Configuración del servicio"""
     
     # SEC API
-    SEC_API_KEY: str = os.getenv("SEC_API_KEY", "")
+    SEC_API_IO: str = os.getenv("SEC_API_IO", "")
     SEC_STREAM_URL: str = "wss://stream.sec-api.io"
     SEC_QUERY_URL: str = "https://api.sec-api.io"
     
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     @property
     def sec_stream_ws_url(self) -> str:
         """URL del WebSocket de SEC Stream API"""
-        return f"{self.SEC_STREAM_URL}?apiKey={self.SEC_API_KEY}"
+        return f"{self.SEC_STREAM_URL}?apiKey={self.SEC_API_IO}"
     
     class Config:
         env_file = ".env"

@@ -32,7 +32,7 @@ class SECQueryClient:
         if not self.client:
             self.client = httpx.AsyncClient(
                 timeout=30.0,
-                headers={"Authorization": settings.SEC_API_KEY}
+                headers={"Authorization": settings.SEC_API_IO}
             )
             print("✅ Query API client created")
     

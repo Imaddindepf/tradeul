@@ -44,14 +44,14 @@ async def lifespan(app: FastAPI):
     
     # Iniciar Stream API si está habilitado
     stream_task = None
-    if settings.STREAM_ENABLED and settings.SEC_API_KEY:
+    if settings.STREAM_ENABLED and settings.SEC_API_IO:
         print("📡 Starting Stream API client...")
         stream_task = asyncio.create_task(stream_client.run())
     else:
         print("⚠️ Stream API disabled (no API key or disabled in config)")
     
     # Hacer backfill inicial si está habilitado
-    if settings.BACKFILL_ENABLED and settings.SEC_API_KEY:
+    if settings.BACKFILL_ENABLED and settings.SEC_API_IO:
         print(f"🔄 Starting initial backfill ({settings.BACKFILL_DAYS_BACK} days)...")
         asyncio.create_task(
             query_client.backfill_recent(settings.BACKFILL_DAYS_BACK)

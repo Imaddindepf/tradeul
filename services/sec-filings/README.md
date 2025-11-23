@@ -29,7 +29,7 @@ Servicio de streaming y backfill de SEC EDGAR filings en tiempo real.
 Obtén tu API key de [sec-api.io](https://sec-api.io) y agrégala al `.env`:
 
 ```bash
-SEC_API_KEY=tu_api_key_aqui
+SEC_API_IO=tu_api_key_aqui
 ```
 
 ### 2. Levantar servicio
@@ -199,7 +199,7 @@ curl "http://localhost:8012/api/v1/stats/by-form-type/8-K"
 
 ```bash
 # SEC API
-SEC_API_KEY=your_api_key_here
+SEC_API_IO=your_api_key_here
 
 # Database
 POSTGRES_HOST=timescaledb

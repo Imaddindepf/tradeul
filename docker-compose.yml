@@ -422,7 +422,7 @@ services:
     env_file:
       - .env
     environment:
-      - SEC_API_KEY=${SEC_API_KEY}
+      - SEC_API_IO=${SEC_API_IO}
       - POSTGRES_HOST=timescaledb
       - POSTGRES_PORT=5432
       - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
