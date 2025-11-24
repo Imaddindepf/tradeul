@@ -1067,8 +1067,25 @@ class ScannerEngine:
             tickers: Lista de tickers filtrados (top 500-1000)
         """
         try:
-            # 1. Obtener símbolos actuales (top filtered)
-            current_symbols = {t.symbol for t in tickers}
+            # 1. Obtener símbolos SOLO de los que están en categorías (no todos los filtrados)
+            # Esto evita suscribir a 1,000 tickers cuando solo 400 están en rankings
+            all_category_names = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 
+                                 'winners', 'losers', 'high_volume', 'new_highs', 'new_lows', 
+                                 'anomalies', 'reversals']
+            
+            category_symbols = set()
+            for category_name in all_category_names:
+                category_key = f"scanner:category:{category_name}"
+                try:
+                    category_data = await self.redis.get(category_key, deserialize=True)
+                    if category_data and isinstance(category_data, list):
+                        for ticker in category_data:
+                            if ticker.get('symbol'):
+                                category_symbols.add(ticker['symbol'])
+                except:
+                    pass
+            
+            current_symbols = category_symbols if category_symbols else {t.symbol for t in tickers[:500]}
             
             # 2. Detectar NUEVOS símbolos (entraron al ranking)
             new_symbols = current_symbols - self._previous_filtered_symbols

@@ -275,19 +275,36 @@ async def manage_subscriptions():
     except Exception as e:
         logger.debug("consumer_group_already_exists", error=str(e))
     
-    # IMPORTANTE: Leer ÚLTIMAS suscripciones del stream (más recientes = más relevantes)
-    # En lugar de leer TODO el stream (10K+ mensajes), leemos los últimos 2000
+    # BOOTSTRAP: Leer tickers activos desde el SET (estado actual del scanner)
+    # Este es el estado de verdad - más confiable que reconstruir desde stream
     try:
-        # Leer últimos 2000 mensajes del stream (los más recientes)
+        # Primero: Leer SET con tickers actualmente en categorías del scanner
+        active_tickers_raw = await redis_client.client.smembers('polygon_ws:active_tickers')
+        active_tickers = {t.decode() if isinstance(t, bytes) else t for t in active_tickers_raw}
+        
+        if active_tickers:
+            desired_subscriptions.update(active_tickers)
+            logger.info(
+                "bootstrap_from_active_tickers_set",
+                total_tickers=len(desired_subscriptions),
+                examples=sorted(list(desired_subscriptions))[:10]
+            )
+        else:
+            logger.warning(
+                "active_tickers_set_empty",
+                message="Scanner no ha procesado tickers aún o mercado cerrado"
+            )
+        
+        # Segundo: Procesar últimos 500 mensajes del stream para cambios muy recientes
+        # (esto captura cambios que ocurrieron mientras leíamos el SET)
         results = await redis_client.read_stream_range(
             stream_name=input_stream,
-            count=2000,
-            start="-",  # Desde el principio
-            end="+"     # Hasta el final
+            count=500,  # Solo últimos 500 (cambios recientes)
+            start="-",
+            end="+"
         )
         
         if results:
-            # Procesar en orden inverso (más recientes primero) para tener estado actualizado
             for message_id, data in reversed(results):
                 symbol = data.get('symbol', '').upper()
                 action = data.get('action', '').lower()
@@ -298,18 +315,12 @@ async def manage_subscriptions():
                     desired_subscriptions.discard(symbol)
             
             logger.info(
-                "initialized_from_recent_subscriptions",
-                total_tickers=len(desired_subscriptions),
-                messages_processed=len(results),
-                examples=sorted(list(desired_subscriptions))[:10]
-            )
-        else:
-            logger.warning(
-                "no_subscription_messages_found",
-                message="Esperando primer ciclo de Scanner"
+                "applied_recent_changes_from_stream",
+                stream_messages=len(results),
+                final_total=len(desired_subscriptions)
             )
     except Exception as e:
-        logger.error("error_initializing_subscriptions", error=str(e))
+        logger.error("error_bootstrapping_subscriptions", error=str(e))
     
     while True:
         try:

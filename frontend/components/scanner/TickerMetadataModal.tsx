@@ -24,14 +24,14 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
-  
+
   // Estado en tiempo real del ticker
   const [livePrice, setLivePrice] = useState<number | null>(null);
   const [liveChangePercent, setLiveChangePercent] = useState<number | null>(null);
 
   // Obtener z-index alto para modales (DEBE estar antes de cualquier return condicional)
   const modalZIndex = useMemo(() => floatingZIndexManager.getNextModal(), []);
-  
+
   // WebSocket para updates en tiempo real (SharedWorker compartido)
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const ws = useRxWebSocket(wsUrl, false);
@@ -101,6 +101,27 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
     
     return () => subscription.unsubscribe();
   }, [isOpen, symbol, ws.isConnected, ws.aggregates$, tickerData?.prev_close]);
+
+  // Page Visibility: Refrescar datos cuando vuelve de tab inactiva
+  useEffect(() => {
+    if (!isOpen || !symbol) return;
+    
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Tab activa - refrescar metadata
+        setLoading(true);
+        getCompanyMetadata(symbol)
+          .then(data => {
+            setMetadata(data);
+            setLoading(false);
+          })
+          .catch(() => setLoading(false));
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isOpen, symbol]);
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {

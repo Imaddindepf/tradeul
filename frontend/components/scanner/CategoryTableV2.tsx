@@ -154,6 +154,24 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   );
 
   // ======================================================================
+  // ======================================================================
+  // PAGE VISIBILITY (profesional: resync cuando vuelve de tab inactiva)
+  // ======================================================================
+  
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && ws.isConnected) {
+        // Tab volvió a ser activa - pedir resync para datos frescos
+        console.log(`🔄 Tab activa - resyncing ${listName}`);
+        ws.send({ action: 'resync', list: listName });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [listName, ws]);
+
+  // ======================================================================
   // STREAM SUBSCRIPTIONS
   // ======================================================================
 
