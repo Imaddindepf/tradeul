@@ -572,57 +572,57 @@ function injectScannerContent(
           <div class="flex-1 overflow-auto bg-white">
             <table class="w-full border-collapse">
               <thead class="bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                <tr>
-                  <th class="px-3 py-3 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider" style="width:40px">#</th>
-                  <th onclick="handleSort('symbol')" class="px-3 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:75px">
+                <tr style="height:24px;line-height:24px">
+                  <th class="px-1 py-0.5 text-center text-[10px] font-semibold text-slate-600 uppercase tracking-wide" style="width:40px;height:24px;line-height:24px">#</th>
+                  <th onclick="handleSort('symbol')" class="px-1 py-0.5 text-left text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:75px;height:24px;line-height:24px">
                     <div class="flex items-center gap-1">
                       Symbol
                       <span class="sort-icon">\${getSortIcon('symbol')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('price')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:80px">
+                  <th onclick="handleSort('price')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:80px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       Price
                       <span class="sort-icon">\${getSortIcon('price')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('change_percent')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:85px">
+                  <th onclick="handleSort('change_percent')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:85px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       Gap %
                       <span class="sort-icon">\${getSortIcon('change_percent')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('volume_today')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:90px">
+                  <th onclick="handleSort('volume_today')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:90px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       Volume
                       <span class="sort-icon">\${getSortIcon('volume_today')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('rvol')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:70px">
+                  <th onclick="handleSort('rvol')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:70px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       RVOL
                       <span class="sort-icon">\${getSortIcon('rvol')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('market_cap')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:100px">
+                  <th onclick="handleSort('market_cap')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:100px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       Market Cap
                       <span class="sort-icon">\${getSortIcon('market_cap')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('float_shares')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:90px">
+                  <th onclick="handleSort('float_shares')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:90px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       Float
                       <span class="sort-icon">\${getSortIcon('float_shares')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('atr_percent')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:70px">
+                  <th onclick="handleSort('atr_percent')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:70px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       ATR%
                       <span class="sort-icon">\${getSortIcon('atr_percent')}</span>
                     </div>
                   </th>
-                  <th onclick="handleSort('atr_used')" class="px-3 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors" style="width:85px">
+                  <th onclick="handleSort('atr_used')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:85px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       ATR Used
                       <span class="sort-icon">\${getSortIcon('atr_used')}</span>
@@ -698,33 +698,33 @@ function injectScannerContent(
       }
       
       return \`
-        <tr id="row-\${ticker.symbol}" class="hover:bg-slate-50 transition-colors duration-150 border-b border-slate-100">
-          <td class="px-3 py-2.5 text-center font-semibold text-slate-400">\${rank}</td>
-          <td class="px-3 py-2.5">
-            <div class="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline transition-colors">\${ticker.symbol}</div>
+        <tr id="row-\${ticker.symbol}" class="hover:bg-slate-50 transition-colors" style="height:18px;line-height:18px">
+          <td class="px-1 text-center text-slate-400 text-[10px]" style="height:18px;line-height:18px;padding:0 4px">\${rank}</td>
+          <td class="px-1 text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline">\${ticker.symbol}</span>
           </td>
-          <td class="px-3 py-2.5 text-right">
-            <div class="price-cell font-mono font-semibold px-1 py-0.5 rounded text-slate-900">\${formatPrice(ticker.price)}</div>
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="price-cell font-mono font-semibold text-slate-900">\${formatPrice(ticker.price)}</span>
           </td>
-          <td class="px-3 py-2.5 text-right">
-            <div class="change-cell font-mono font-semibold \${isPositive ? 'text-emerald-600' : 'text-rose-600'}">\${formatPercent(gapPercent)}</div>
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="change-cell font-mono font-semibold" style="color:\${isPositive ? '#10b981' : '#ef4444'}">\${formatPercent(gapPercent)}</span>
           </td>
-          <td class="px-3 py-2.5 text-right">
-            <div class="font-mono text-slate-700 font-medium">\${formatNumber(volume)}</div>
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="font-mono text-slate-700">\${formatNumber(volume)}</span>
           </td>
-          <td class="px-3 py-2.5 text-right">
-            <div class="font-mono font-semibold \${rvolColor}">\${formatRVOL(rvol)}</div>
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="font-mono font-semibold" style="color:\${rvolColor === 'text-blue-700' ? '#1d4ed8' : rvolColor === 'text-blue-600' ? '#2563eb' : '#64748b'}">\${formatRVOL(rvol)}</span>
           </td>
-          <td class="px-3 py-2.5 text-right">
-            <div class="font-mono text-slate-600">\${formatNumber(ticker.market_cap)}</div>
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="font-mono text-slate-600">\${formatNumber(ticker.market_cap)}</span>
           </td>
-          <td class="px-3 py-2.5 text-right">
-            <div class="font-mono text-slate-600">\${formatNumber(ticker.float_shares)}</div>
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="font-mono text-slate-600">\${formatNumber(ticker.float_shares)}</span>
           </td>
-          <td class="px-3 py-2.5 text-right">
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
             \${atrPercentHtml}
           </td>
-          <td class="px-3 py-2.5 text-right">
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
             \${atrUsedHtml}
           </td>
         </tr>

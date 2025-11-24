@@ -44,7 +44,7 @@ interface VirtualizedDataTableProps<T> {
   loadingState?: ReactNode;
   onResize?: (dimensions: { width: number; height: number }) => void;
   getRowClassName?: (row: Row<T>) => string;
-  
+
   // Virtualization config
   estimateSize?: number; // Altura estimada de cada fila
   overscan?: number; // Número de filas fuera del viewport a pre-renderizar
@@ -96,24 +96,24 @@ export function VirtualizedDataTable<T>({
   // Si showResizeHandles es false, observar el tamaño del contenedor padre
   useEffect(() => {
     if (showResizeHandles || !containerRef.current) return;
-    
+
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         setDimensions({ width, height });
       }
     });
-    
+
     resizeObserver.observe(containerRef.current);
-    
+
     return () => resizeObserver.disconnect();
   }, [showResizeHandles]);
 
   // Get rows from table
   const rows = table.getRowModel().rows;
-  
+
   // Si no tiene resize handles, usar calc para el espacio disponible
-  const contentHeight = showResizeHandles 
+  const contentHeight = showResizeHandles
     ? Math.max(0, dimensions.height - headerHeight)
     : undefined; // Usaremos CSS calc en el render
 
@@ -252,10 +252,9 @@ export function VirtualizedDataTable<T>({
         className={`
           absolute right-0 top-0 h-full cursor-col-resize
           transition-all duration-200
-          ${
-            isHovered || header.column.getIsResizing()
-              ? 'w-1 bg-blue-500'
-              : 'w-px bg-slate-200 hover:bg-blue-400'
+          ${isHovered || header.column.getIsResizing()
+            ? 'w-1 bg-blue-500'
+            : 'w-px bg-slate-200 hover:bg-blue-400'
           }
           ${header.column.getIsResizing() ? 'bg-blue-600' : ''}
           group
@@ -270,11 +269,10 @@ export function VirtualizedDataTable<T>({
           absolute top-1/2 -translate-y-1/2 -right-1 w-2 h-12 
           flex items-center justify-center
           transition-opacity duration-200
-          ${
-            isHovered || header.column.getIsResizing()
+          ${isHovered || header.column.getIsResizing()
               ? 'opacity-100'
               : 'opacity-0 group-hover:opacity-100'
-          }
+            }
         `}
         >
           <div className="w-0.5 h-4 bg-blue-500 rounded-full"></div>
@@ -330,15 +328,15 @@ export function VirtualizedDataTable<T>({
       style={
         showResizeHandles
           ? {
-        width: '100%',
-        maxWidth: '100%',
-            }
+            width: '100%',
+            maxWidth: '100%',
+          }
           : {
-              width: '100%',
-              height: '100%',
-              maxWidth: '100%',
-              maxHeight: '100%',
-            }
+            width: '100%',
+            height: '100%',
+            maxWidth: '100%',
+            maxHeight: '100%',
+          }
       }
     >
       {/* Header */}
@@ -351,13 +349,13 @@ export function VirtualizedDataTable<T>({
         style={
           showResizeHandles
             ? {
-          height: contentHeight,
-          maxHeight: '100%',
-              }
+              height: contentHeight,
+              maxHeight: '100%',
+            }
             : {
-                height: `calc(100% - ${headerHeight}px)`,
-                maxHeight: '100%',
-              }
+              height: `calc(100% - ${headerHeight}px)`,
+              maxHeight: '100%',
+            }
         }
       >
         {isLoading ? (
@@ -379,9 +377,8 @@ export function VirtualizedDataTable<T>({
           <table className="w-full border-collapse table-fixed">
             {/* Header */}
             <thead
-              className={`bg-white border-b border-slate-200 ${
-                stickyHeader ? 'sticky top-0 z-20 shadow-sm' : ''
-              }`}
+              className={`bg-white border-b border-slate-200 ${stickyHeader ? 'sticky top-0 z-20 shadow-sm' : ''
+                }`}
             >
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id}>
@@ -419,19 +416,15 @@ export function VirtualizedDataTable<T>({
                           table.setColumnOrder(newOrder);
                         }
                       }}
-                      className={`
-                        relative text-left font-semibold text-slate-600 uppercase tracking-wider border-r border-slate-100 last:border-r-0 bg-slate-50
-                        ${scale === 'xs' ? 'px-2 py-1.5 text-[10px]' : ''}
-                        ${scale === 'sm' ? 'px-2.5 py-2 text-[11px]' : ''}
-                        ${scale === 'md' ? 'px-3 py-2.5 text-xs' : ''}
-                        ${scale === 'lg' ? 'px-4 py-3 text-xs' : ''}
-                        cursor-move hover:bg-slate-100 transition-colors
-                      `}
+                      className="relative text-left font-semibold text-slate-600 uppercase tracking-wide border-r border-slate-100 last:border-r-0 bg-slate-50 cursor-move hover:bg-slate-100 transition-colors text-[10px]"
                       style={{
                         width: header.getSize(),
                         minWidth: header.column.columnDef.minSize || 50,
                         maxWidth: header.column.columnDef.maxSize || 600,
                         position: 'relative',
+                        height: '24px',
+                        lineHeight: '24px',
+                        padding: '0 4px',
                       }}
                     >
                       {header.isPlaceholder ? null : (
@@ -454,8 +447,8 @@ export function VirtualizedDataTable<T>({
                                   asc: <ArrowUp className="w-3 h-3" />,
                                   desc: <ArrowDown className="w-3 h-3" />,
                                 }[header.column.getIsSorted() as string] ?? (
-                                  <ArrowUpDown className="w-3 h-3 opacity-40" />
-                                )}
+                                    <ArrowUpDown className="w-3 h-3 opacity-40" />
+                                  )}
                               </span>
                             )}
                           </div>
@@ -488,9 +481,8 @@ export function VirtualizedDataTable<T>({
                   <tr
                     key={row.id}
                     data-index={virtualRow.index}
-                    className={`hover:bg-slate-50 transition-colors duration-150 border-b border-slate-100 ${
-                      getRowClassName ? getRowClassName(row) : ''
-                    }`}
+                    className={`hover:bg-slate-50 transition-colors duration-150 border-b border-slate-100 ${getRowClassName ? getRowClassName(row) : ''
+                      }`}
                     style={{
                       position: enableVirtualization && rows.length > 20 ? 'absolute' : 'relative',
                       top: enableVirtualization && rows.length > 20 ? 0 : undefined,
@@ -505,18 +497,15 @@ export function VirtualizedDataTable<T>({
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className={`
-                          text-slate-900
-                          ${scale === 'xs' ? 'px-2 py-1.5 text-[11px]' : ''}
-                          ${scale === 'sm' ? 'px-2.5 py-2 text-xs' : ''}
-                          ${scale === 'md' ? 'px-3 py-2.5 text-sm' : ''}
-                          ${scale === 'lg' ? 'px-4 py-3 text-sm' : ''}
-                        `}
+                        className="text-[10px]"
                         style={{
                           width: cell.column.getSize(),
                           maxWidth: cell.column.getSize(),
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
+                          height: '18px',
+                          lineHeight: '18px',
+                          padding: '0 4px',
                         }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}

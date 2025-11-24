@@ -72,6 +72,7 @@ function FloatingWindowBaseComponent({
 
   const isDraggingRef = useRef(false);
   const isResizingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Traer al frente - memoizado
   const bringToFront = useCallback(() => {
@@ -82,6 +83,19 @@ function FloatingWindowBaseComponent({
     }
     setIsFocused(true);
   }, [initialZIndex, onZIndexChange]);
+
+  // Detectar clicks fuera para quitar foco (solo si no está dragging/resizing)
+  useEffect(() => {
+    const handleClickOutside = (e: globalThis.MouseEvent) => {
+      if (isDraggingRef.current || isResizingRef.current) return;
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsFocused(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Drag handler optimizado con bounds checking
   const handleDragStart = useCallback((e: MouseEvent<HTMLDivElement>) => {
@@ -128,7 +142,7 @@ function FloatingWindowBaseComponent({
 
     const handleMouseUp = () => {
       isDraggingRef.current = false;
-      setIsFocused(false);
+      // No quitar el foco al soltar el drag
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -167,7 +181,7 @@ function FloatingWindowBaseComponent({
 
     const handleMouseUp = () => {
       isResizingRef.current = false;
-      setIsFocused(false);
+      // No quitar el foco al soltar el resize
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
@@ -178,6 +192,7 @@ function FloatingWindowBaseComponent({
 
   return (
     <div
+      ref={containerRef}
       style={{
         position: 'fixed',
         top: `${position.y}px`,
@@ -188,8 +203,10 @@ function FloatingWindowBaseComponent({
       }}
       className={`rounded-lg shadow-2xl border-4 transition-shadow flex flex-col ${isFocused ? focusedBorderColor + ' shadow-blue-500/50' : 'border-slate-200'
         } ${className}`}
-      onMouseDown={handleDragStart}
-      onClick={bringToFront}
+      onMouseDown={(e) => {
+        handleDragStart(e);
+        bringToFront();
+      }}
     >
       {/* Contenido */}
       <div className="h-full w-full overflow-hidden flex flex-col">

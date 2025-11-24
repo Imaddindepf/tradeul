@@ -52,7 +52,7 @@ export function TickerSearch({
         }
 
         abortControllerRef.current = new AbortController();
-        
+
         setLoading(true);
         setError(null);
         
@@ -201,14 +201,14 @@ export function TickerSearch({
                         <AlertCircle className="w-3 h-3 text-red-500" title={error} />
                     )}
                     {value && !loading && (
-                        <button
-                            type="button"
-                            onClick={handleClear}
+                    <button
+                        type="button"
+                        onClick={handleClear}
                             className="text-slate-400 hover:text-slate-600 p-0.5"
-                        >
-                            <X className="w-3 h-3" />
-                        </button>
-                    )}
+                    >
+                        <X className="w-3 h-3" />
+                    </button>
+                )}
                 </div>
             </div>
 
@@ -237,15 +237,15 @@ export function TickerSearch({
                                 </span>
                                 {ticker.exchange && (
                                     <span className="text-[10px] text-slate-400 font-mono uppercase">
-                                        {ticker.exchange}
-                                    </span>
+                                    {ticker.exchange}
+                                </span>
                                 )}
                             </div>
                         </button>
                     ))}
                 </div>
             )}
-            
+
             {/* Empty state cuando se busca pero no hay resultados */}
             {isOpen && !loading && !error && value.length >= 1 && results.length === 0 && (
                 <div
