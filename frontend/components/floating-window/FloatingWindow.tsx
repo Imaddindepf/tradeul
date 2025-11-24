@@ -37,12 +37,20 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         }
       }
 
-      // Abrir página standalone (diseño 100% idéntico)
-      const url = currentTicker
-        ? `/standalone/dilution-tracker?ticker=${currentTicker}`
-        : '/standalone/dilution-tracker';
-
-      globalThis.window.open(url, '_blank', 'width=1400,height=900,left=100,top=100,resizable=yes');
+      // Usar window-injector para about:blank (como scanner)
+      const { openDilutionTrackerWindow } = require('@/lib/window-injector');
+      openDilutionTrackerWindow(
+        {
+          ticker: currentTicker || undefined,
+          apiBaseUrl: window.location.origin
+        },
+        {
+          title: `Dilution Tracker${currentTicker ? ` - ${currentTicker}` : ''}`,
+          width: 1400,
+          height: 900,
+          centered: true
+        }
+      );
     }
   };
 

@@ -230,14 +230,12 @@ function injectScannerContent(
         
         workerPort.onmessage = (event) => {
           const msg = event.data;
-          console.log('📨 [Scanner Window] Message from worker:', msg.type, msg);
           
           switch (msg.type) {
             case 'message':
               handleWebSocketMessage(msg.data);
               break;
             case 'status':
-              console.log('🔌 [Scanner Window] Connection status:', msg.isConnected ? 'ONLINE ✅' : 'OFFLINE ❌');
               updateConnectionStatus(msg.isConnected);
               
               // Re-renderizar para actualizar el status en el header
@@ -296,7 +294,6 @@ function injectScannerContent(
     
     function handleSnapshot(snapshot) {
       const rows = snapshot.rows || [];
-      console.log('📸 Snapshot:', rows.length, 'tickers');
       
       tickersData.clear();
       tickerOrder = [];
@@ -310,11 +307,11 @@ function injectScannerContent(
     }
     
     function handleDelta(delta) {
-      if (!delta.actions) return;
+      if (!delta.deltas || !Array.isArray(delta.deltas)) return;
       
       let needsRender = false;
       
-      delta.actions.forEach(action => {
+      delta.deltas.forEach(action => {
         switch (action.action) {
           case 'add':
             if (action.data) {
@@ -334,6 +331,7 @@ function injectScannerContent(
             if (action.data) {
               const existing = tickersData.get(action.symbol);
               tickersData.set(action.symbol, { ...existing, ...action.data });
+              needsRender = true;
             }
             break;
           case 'rerank':
@@ -353,10 +351,31 @@ function injectScannerContent(
       const ticker = tickersData.get(aggregate.symbol);
       if (!ticker) return;
       
-      ticker.price = aggregate.data.close ?? ticker.price;
+      // Actualizar datos del ticker
+      const aggData = aggregate.data;
+      ticker.price = aggData.c ?? aggData.close ?? ticker.price;
+      ticker.volume_today = aggData.av ?? ticker.volume_today;
+      ticker.high = aggData.h ?? ticker.high;
+      ticker.low = aggData.l ?? ticker.low;
       
-      const cell = document.querySelector(\`#row-\${aggregate.symbol} .price-cell\`);
-      if (cell) cell.textContent = formatPrice(ticker.price);
+      // Recalcular change_percent si tenemos prev_close
+      if (ticker.prev_close && ticker.price) {
+        ticker.change_percent = ((ticker.price - ticker.prev_close) / ticker.prev_close) * 100;
+      }
+      
+      // Actualizar celda de precio
+      const priceCell = document.querySelector(\`#row-\${aggregate.symbol} .price-cell\`);
+      if (priceCell) {
+        priceCell.textContent = formatPrice(ticker.price);
+      }
+      
+      // Actualizar celda de change_percent
+      const changeCell = document.querySelector(\`#row-\${aggregate.symbol} .change-cell\`);
+      if (changeCell && ticker.change_percent !== null) {
+        const isPositive = ticker.change_percent >= 0;
+        changeCell.textContent = formatPercent(ticker.change_percent);
+        changeCell.className = \`font-mono font-semibold \${isPositive ? 'text-emerald-600' : 'text-rose-600'}\`;
+      }
     }
     
     function updateConnectionStatus(connected) {
@@ -688,7 +707,7 @@ function injectScannerContent(
             <div class="price-cell font-mono font-semibold px-1 py-0.5 rounded text-slate-900">\${formatPrice(ticker.price)}</div>
           </td>
           <td class="px-3 py-2.5 text-right">
-            <div class="font-mono font-semibold \${isPositive ? 'text-emerald-600' : 'text-rose-600'}">\${formatPercent(gapPercent)}</div>
+            <div class="change-cell font-mono font-semibold \${isPositive ? 'text-emerald-600' : 'text-rose-600'}">\${formatPercent(gapPercent)}</div>
           </td>
           <td class="px-3 py-2.5 text-right">
             <div class="font-mono text-slate-700 font-medium">\${formatNumber(volume)}</div>
@@ -757,4 +776,134 @@ function injectScannerContent(
   targetWindow.document.close();
 
   console.log('✅ [WindowInjector] Injected');
+}
+
+// ============================================================================
+// DILUTION TRACKER WINDOW
+// ============================================================================
+
+export interface DilutionTrackerWindowData {
+  ticker?: string;
+  apiBaseUrl: string;
+}
+
+export function openDilutionTrackerWindow(
+  data: DilutionTrackerWindowData,
+  config: WindowConfig
+): Window | null {
+  const {
+    width = 1400,
+    height = 900,
+    centered = true,
+  } = config;
+
+  const left = centered ? (window.screen.width - width) / 2 : 100;
+  const top = centered ? (window.screen.height - height) / 2 : 100;
+
+  const windowFeatures = [
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+    'resizable=yes',
+    'scrollbars=yes',
+    'status=yes',
+  ].join(',');
+
+  const newWindow = window.open('about:blank', '_blank', windowFeatures);
+
+  if (!newWindow) {
+    console.error('❌ Window blocked');
+    return null;
+  }
+
+  injectDilutionTrackerContent(newWindow, data, config);
+
+  return newWindow;
+}
+
+function injectDilutionTrackerContent(
+  targetWindow: Window,
+  data: DilutionTrackerWindowData,
+  config: WindowConfig
+): void {
+  const { title } = config;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    * {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    
+    body {
+      font-family: Inter, sans-serif;
+      color: #171717;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body class="bg-white">
+  <div id="root" class="h-screen flex flex-col">
+    <div class="flex items-center justify-center h-full bg-slate-50">
+      <div class="text-center">
+        <div class="animate-spin rounded-full h-14 w-14 border-b-4 border-blue-600 mx-auto mb-4"></div>
+        <p class="text-slate-900 font-semibold text-base">Cargando Dilution Tracker...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CONFIG = ${JSON.stringify(data)};
+    
+    // Renderizar iframe con la página standalone
+    const tickerParam = CONFIG.ticker ? \`?ticker=\${CONFIG.ticker}\` : '';
+    const iframeSrc = \`\${CONFIG.apiBaseUrl}/standalone/dilution-tracker\${tickerParam}\`;
+    
+    document.getElementById('root').innerHTML = \`
+      <iframe 
+        src="\${iframeSrc}" 
+        style="width:100%;height:100%;border:0;display:block;" 
+        title="Dilution Tracker"
+      ></iframe>
+    \`;
+    
+    console.log('✅ Dilution Tracker loaded in about:blank');
+  </script>
+</body>
+</html>
+  `;
+
+  targetWindow.document.open();
+  targetWindow.document.write(htmlContent);
+  targetWindow.document.close();
+
+  console.log('✅ [WindowInjector] Dilution Tracker injected');
 }
