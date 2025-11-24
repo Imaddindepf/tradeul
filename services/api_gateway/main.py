@@ -396,6 +396,55 @@ async def get_ticker_details(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/metadata/search")
+async def search_tickers(
+    q: str = Query(..., description="Search query", min_length=1),
+    limit: int = Query(10, ge=1, le=50, description="Max results")
+):
+    """
+    Proxy para búsqueda de tickers (ticker-metadata-service)
+    
+    Args:
+        q: Query string (symbol o company name)
+        limit: Máximo de resultados
+    
+    Returns:
+        Lista de tickers que coinciden con la búsqueda
+    """
+    try:
+        # Proxy a ticker-metadata-service
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                f"http://ticker_metadata:8010/api/v1/metadata/search",
+                params={"q": q, "limit": limit}
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(
+                    "metadata_search_error",
+                    query=q,
+                    status=response.status_code
+                )
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Search failed: {response.text}"
+                )
+    
+    except httpx.TimeoutException:
+        logger.error("metadata_search_timeout", query=q)
+        raise HTTPException(status_code=504, detail="Search timeout")
+    except httpx.ConnectError:
+        logger.error("metadata_search_unavailable", query=q)
+        raise HTTPException(status_code=503, detail="Metadata service unavailable")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("metadata_search_error", query=q, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+
 @app.get("/api/v1/ticker/{symbol}/metadata")
 async def get_ticker_metadata(symbol: str):
     """

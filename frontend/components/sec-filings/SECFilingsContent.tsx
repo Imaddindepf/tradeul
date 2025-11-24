@@ -43,7 +43,11 @@ export function SECFilingsContent() {
     const [filings, setFilings] = useState<SECFiling[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Estado separado: inputValue (lo que escribes) vs searchQuery (lo que se busca)
+    const [inputValue, setInputValue] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
+
     const [formTypeFilter, setFormTypeFilter] = useState("");
     const [startDate, setStartDate] = useState(""); // Vacío = sin filtro (muestra últimos)
     const [endDate, setEndDate] = useState("");
@@ -52,13 +56,14 @@ export function SECFilingsContent() {
     const [selectedFiling, setSelectedFiling] = useState<SECFiling | null>(null);
     const PAGE_SIZE = 100;
 
-    const fetchFilings = async (page: number = 1) => {
+    const fetchFilings = async (page: number = 1, tickerOverride?: string) => {
         setLoading(true);
         setError(null);
 
         try {
             const params = new URLSearchParams();
-            if (searchQuery.trim()) params.append('ticker', searchQuery.trim().toUpperCase());
+            const tickerToSearch = tickerOverride !== undefined ? tickerOverride : searchQuery;
+            if (tickerToSearch.trim()) params.append('ticker', tickerToSearch.trim().toUpperCase());
             if (formTypeFilter.trim()) params.append('form_type', formTypeFilter.trim());
             if (startDate) params.append('date_from', startDate);
             if (endDate) params.append('date_to', endDate);
@@ -86,23 +91,30 @@ export function SECFilingsContent() {
         }
     };
 
+    // Solo auto-buscar cuando cambian filtros (NO cuando escribes en el input)
     useEffect(() => {
         setCurrentPage(1);
         fetchFilings(1);
-    }, [searchQuery, formTypeFilter, startDate, endDate]);
+    }, [formTypeFilter, startDate, endDate]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
+        // Copiar inputValue a searchQuery y buscar inmediatamente
+        setSearchQuery(inputValue);
         setCurrentPage(1);
-        fetchFilings(1);
+        fetchFilings(1, inputValue);
     };
 
     const clearFilters = () => {
+        setInputValue("");
         setSearchQuery("");
         setFormTypeFilter("");
         setStartDate(""); // Vacío = sin filtro de fecha (muestra últimos)
         setEndDate("");
         setCurrentPage(1);
+        // Limpiar resultados
+        setFilings([]);
+        setTotalResults(0);
     };
 
     const formatDateTime = (isoString: string) => {
@@ -219,9 +231,15 @@ export function SECFilingsContent() {
             <div className="px-2 py-1 border-b border-slate-300 bg-slate-50 flex items-center gap-1.5">
                 <form onSubmit={handleSearch} className="flex items-center gap-1.5 flex-1">
                     <TickerSearch
-                        value={searchQuery}
-                        onChange={setSearchQuery}
-                        onSelect={(ticker) => setSearchQuery(ticker.symbol)}
+                        value={inputValue}
+                        onChange={setInputValue}
+                        onSelect={(ticker) => {
+                            // Cuando selecciona un ticker, buscar INMEDIATAMENTE
+                            setInputValue(ticker.symbol);
+                            setSearchQuery(ticker.symbol);
+                            setCurrentPage(1);
+                            fetchFilings(1, ticker.symbol);
+                        }}
                         placeholder="Ticker"
                         className="w-32"
                     />

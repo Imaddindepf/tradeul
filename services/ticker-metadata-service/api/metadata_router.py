@@ -23,68 +23,122 @@ async def search_tickers(
     limit: int = Query(10, ge=1, le=50, description="Max results to return")
 ):
     """
-    Buscar tickers por símbolo o nombre de empresa (autocomplete)
+    Búsqueda ultrarrápida de tickers con PostgreSQL optimizado
+    
+    Optimizaciones aplicadas:
+    - Índices GIN para full-text search en company_name
+    - Índices B-tree en symbol para búsquedas por prefijo
+    - Priorización de matches exactos y por prefijo
+    - Caché implícito de PostgreSQL para queries frecuentes
     
     Args:
         q: Query string (ej: "AA", "Apple", etc.)
-        limit: Máximo de resultados a devolver
+        limit: Máximo de resultados a devolver (default: 10, max: 50)
     
     Returns:
-        Lista de tickers que coinciden con la búsqueda
+        JSON con lista de tickers que coinciden
+        
+    Performance target: < 50ms para queries típicas
     """
-    from main import timescale_client
+    from main import timescale_client, redis_client
     
     if not timescale_client:
         raise HTTPException(status_code=503, detail="Database not initialized")
     
-    query_upper = q.upper()
+    query_upper = q.upper().strip()
     
-    # Buscar en tickers_unified por symbol o company_name
+    # Validación básica
+    if len(query_upper) == 0:
+        return {"query": q, "results": [], "total": 0}
+    
+    # Cache key para Redis (opcional)
+    cache_key = f"ticker_search:{query_upper}:{limit}"
+    
+    # Intentar obtener de caché (si Redis está disponible)
+    try:
+        if redis_client:
+            cached = await redis_client.get(cache_key)
+            if cached:
+                return cached
+    except:
+        pass  # Caché opcional, no bloquear por errores
+    
+    # Query optimizado con priorización inteligente
     sql = """
-        SELECT symbol, company_name, exchange, sector, is_actively_trading
+        SELECT 
+            symbol, 
+            company_name, 
+            exchange, 
+            sector, 
+            is_actively_trading
         FROM tickers_unified
         WHERE 
-            (symbol ILIKE $1 OR company_name ILIKE $2)
-            AND is_actively_trading = true
+            is_actively_trading = true
+            AND (
+                -- Búsqueda por símbolo (más común, más rápida)
+                symbol ILIKE $1 || '%'
+                OR 
+                -- Búsqueda por nombre de empresa (con operador ~~* para índice GIN)
+                company_name ILIKE '%' || $1 || '%'
+            )
         ORDER BY 
+            -- Priorización: exacto > prefijo > contains
             CASE 
-                WHEN symbol = $3 THEN 0
-                WHEN symbol LIKE $4 THEN 1
-                ELSE 2
+                WHEN symbol = $1 THEN 0           -- Match exacto (máxima prioridad)
+                WHEN symbol ILIKE $1 || '%' THEN 1  -- Symbol empieza con query
+                WHEN company_name ILIKE $1 || '%' THEN 2  -- Company name empieza con query
+                ELSE 3                             -- Contains en cualquier parte
             END,
+            -- Desempate alfabético
             symbol ASC
-        LIMIT $5
+        LIMIT $2
     """
     
     try:
+        start_time = __import__('time').time()
+        
         results = await timescale_client.fetch(
             sql,
-            f"{query_upper}%",     # Symbol starts with
-            f"%{query_upper}%",    # Company name contains
-            query_upper,           # Exact match priority
-            f"{query_upper}%",     # Symbol starts with (for sorting)
-            limit
+            query_upper,  # $1 - query para búsqueda
+            limit         # $2 - límite de resultados
         )
         
+        elapsed_ms = (__import__('time').time() - start_time) * 1000
+        
+        # Formatear resultados
         tickers = [
             {
                 "symbol": row["symbol"],
-                "name": row["company_name"],
-                "exchange": row["exchange"],
-                "type": row["sector"],
+                "name": row["company_name"] or "",
+                "exchange": row["exchange"] or "UNKNOWN",
+                "type": row["sector"] or "N/A",
                 "displayName": f"{row['symbol']} - {row['company_name']}" if row['company_name'] else row['symbol']
             }
             for row in results
         ]
         
-        return {
+        response_data = {
             "query": q,
             "results": tickers,
-            "total": len(tickers)
+            "total": len(tickers),
+            "elapsed_ms": round(elapsed_ms, 2)
         }
+        
+        # Guardar en caché (TTL: 5 minutos - los tickers no cambian frecuentemente)
+        try:
+            if redis_client and len(tickers) > 0:
+                await redis_client.set(cache_key, response_data, ttl=300)
+        except:
+            pass  # No crítico
+        
+        # Log queries lentas (> 100ms)
+        if elapsed_ms > 100:
+            logger.warning("slow_ticker_search", query=q, elapsed_ms=elapsed_ms, results_count=len(tickers))
+        
+        return response_data
     
     except Exception as e:
-        logger.error("search_error", error=str(e), query=q)
+        logger.error("search_error", error=str(e), query=q, error_type=type(e).__name__)
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 

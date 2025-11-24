@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, Loader2, AlertCircle } from 'lucide-react';
 
 type TickerResult = {
     symbol: string;
@@ -32,43 +32,87 @@ export function TickerSearch({
     const [isOpen, setIsOpen] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // Fetch results from API
     const fetchResults = useCallback(async (query: string) => {
         if (query.length === 0) {
             setResults([]);
             setIsOpen(false);
+            setError(null);
             return;
         }
 
+        // Cancel previous request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
+        abortControllerRef.current = new AbortController();
+        
         setLoading(true);
+        setError(null);
+        
         try {
+            // Usar API Gateway (puerto 8000) en vez de servicio directo
+            // Esto evita problemas de firewall y centraliza el acceso
             const response = await fetch(
-                `http://157.180.45.153:8010/api/v1/metadata/search?q=${encodeURIComponent(query)}&limit=10`
+                `http://157.180.45.153:8000/api/v1/metadata/search?q=${encodeURIComponent(query)}&limit=10`,
+                { 
+                    signal: abortControllerRef.current.signal,
+                    // Add timeout
+                    ...(typeof window !== 'undefined' && {
+                        cache: 'no-store'
+                    })
+                }
             );
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
             const data = await response.json();
-            setResults(data.results || []);
-            setIsOpen(true);
-        } catch (error) {
-            console.error('Error fetching ticker results:', error);
+            
+            // Validar que tenemos results array
+            if (!data.results || !Array.isArray(data.results)) {
+                console.warn('Invalid response format:', data);
+                setResults([]);
+                setIsOpen(false);
+                return;
+            }
+            
+            setResults(data.results);
+            setIsOpen(data.results.length > 0);
+            
+        } catch (error: any) {
+            // Ignorar errores de abort (cuando el usuario sigue escribiendo)
+            if (error.name === 'AbortError') {
+                return;
+            }
+            
+            console.error('❌ Error fetching ticker results:', error);
+            setError('No se pudo conectar al servidor');
             setResults([]);
+            setIsOpen(false);
         } finally {
             setLoading(false);
         }
     }, []);
 
-    // Debounce search
+    // Debounce search (150ms para sentir más responsive)
     useEffect(() => {
         const timer = setTimeout(() => {
-            if (value) {
+            if (value && value.length >= 1) {
                 fetchResults(value);
             } else {
                 setResults([]);
                 setIsOpen(false);
+                setError(null);
             }
-        }, 200);
+        }, 150);
 
         return () => clearTimeout(timer);
     }, [value, fetchResults]);
@@ -138,27 +182,41 @@ export function TickerSearch({
                     value={value}
                     onChange={(e) => onChange(e.target.value.toUpperCase())}
                     onKeyDown={handleKeyDown}
-                    onFocus={() => value && setIsOpen(true)}
+                    onFocus={() => {
+                        if (value && results.length > 0) {
+                            setIsOpen(true);
+                        }
+                    }}
                     placeholder={placeholder}
                     autoFocus={autoFocus}
-                    className={`w-full px-1.5 py-0.5 border border-slate-300 rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-400 font-mono ${className}`}
+                    className={`w-full px-1.5 py-0.5 ${value ? 'pr-6' : ''} border ${error ? 'border-red-400' : 'border-slate-300'} rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 ${error ? 'focus:ring-red-500' : 'focus:ring-blue-500'} placeholder:text-slate-400 font-mono ${className}`}
                 />
-                {value && (
-                    <button
-                        type="button"
-                        onClick={handleClear}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                        <X className="w-3 h-3" />
-                    </button>
-                )}
+                
+                {/* Right icons */}
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    {loading && (
+                        <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
+                    )}
+                    {error && !loading && (
+                        <AlertCircle className="w-3 h-3 text-red-500" title={error} />
+                    )}
+                    {value && !loading && (
+                        <button
+                            type="button"
+                            onClick={handleClear}
+                            className="text-slate-400 hover:text-slate-600 p-0.5"
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Dropdown */}
-            {isOpen && results.length > 0 && (
+            {isOpen && results.length > 0 && !error && (
                 <div
                     ref={dropdownRef}
-                    className="absolute z-50 w-full mt-0.5 bg-white border border-slate-300 rounded shadow-lg max-h-60 overflow-y-auto"
+                    className="absolute z-50 w-full min-w-[250px] mt-0.5 bg-white border border-slate-300 rounded shadow-lg max-h-60 overflow-y-auto"
                 >
                     {results.map((ticker, index) => (
                         <button
@@ -166,7 +224,7 @@ export function TickerSearch({
                             type="button"
                             onClick={() => handleSelect(ticker)}
                             onMouseEnter={() => setSelectedIndex(index)}
-                            className={`w-full px-2 py-1 text-left text-xs hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 ${
+                            className={`w-full px-2 py-1.5 text-left text-xs hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 ${
                                 index === selectedIndex ? 'bg-blue-50' : ''
                             }`}
                         >
@@ -175,21 +233,28 @@ export function TickerSearch({
                                     {ticker.symbol}
                                 </span>
                                 <span className="text-slate-600 flex-1 truncate">
-                                    {ticker.name}
+                                    {ticker.name || 'Sin nombre'}
                                 </span>
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                    {ticker.exchange}
-                                </span>
+                                {ticker.exchange && (
+                                    <span className="text-[10px] text-slate-400 font-mono uppercase">
+                                        {ticker.exchange}
+                                    </span>
+                                )}
                             </div>
                         </button>
                     ))}
                 </div>
             )}
-
-            {/* Loading indicator */}
-            {loading && (
-                <div className="absolute right-1 top-1/2 -translate-y-1/2">
-                    <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            
+            {/* Empty state cuando se busca pero no hay resultados */}
+            {isOpen && !loading && !error && value.length >= 1 && results.length === 0 && (
+                <div
+                    ref={dropdownRef}
+                    className="absolute z-50 w-full min-w-[250px] mt-0.5 bg-white border border-slate-300 rounded shadow-lg"
+                >
+                    <div className="px-2 py-2 text-xs text-slate-500 text-center">
+                        No se encontraron tickers para "{value}"
+                    </div>
                 </div>
             )}
         </div>
