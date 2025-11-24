@@ -9,7 +9,8 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, Query as QueryParam, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+import httpx
 
 from config import settings
 from models import (
@@ -304,6 +305,55 @@ async def get_latest_filings(count: int = 50):
         "total": total,
         "count": len(filings)
     }
+
+
+@app.get("/api/v1/proxy", response_class=HTMLResponse)
+async def proxy_sec_filing(url: str = QueryParam(..., description="SEC.gov URL to proxy")):
+    """
+    Proxy para cargar filings de SEC.gov sin restricciones de CORS/X-Frame-Options
+    
+    Esto permite mostrar filings en iframe dentro de la app.
+    Similar a Godel Terminal.
+    """
+    # Validar que la URL sea de SEC.gov
+    if not url.startswith("https://www.sec.gov/") and not url.startswith("https://sec.gov/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Only SEC.gov URLs are allowed"
+        )
+    
+    try:
+        # SEC.gov requiere User-Agent con información de contacto
+        # Referencia: https://www.sec.gov/os/accessing-edgar-data
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(url, headers={
+                "User-Agent": "TradeUL App admin@tradeul.com",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Host": "www.sec.gov"
+            })
+            response.raise_for_status()
+            
+            # Devolver el HTML sin headers restrictivos
+            return HTMLResponse(
+                content=response.text,
+                status_code=200,
+                headers={
+                    "Cache-Control": "public, max-age=3600",
+                    "X-Content-Type-Options": "nosniff"
+                }
+            )
+    
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error fetching from SEC.gov: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Proxy error: {str(e)}"
+        )
 
 
 # =====================================================

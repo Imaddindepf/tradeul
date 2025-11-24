@@ -9,6 +9,15 @@ import {
     ExternalLink,
     X
 } from "lucide-react";
+import { TickerSearch } from '@/components/common/TickerSearch';
+
+type DocumentFile = {
+    sequence: string;
+    documentUrl: string;
+    description?: string;
+    type: string;
+    size?: string;
+};
 
 type SECFiling = {
     id: string;
@@ -19,8 +28,10 @@ type SECFiling = {
     description: string | null;
     linkToFilingDetails: string | null;
     linkToHtml: string | null;
+    linkToTxt: string | null;
     accessionNo: string;
     cik: string;
+    documentFormatFiles?: DocumentFile[];
 };
 
 type FilingsResponse = {
@@ -38,6 +49,7 @@ export function SECFilingsContent() {
     const [endDate, setEndDate] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [totalResults, setTotalResults] = useState(0);
+    const [selectedFiling, setSelectedFiling] = useState<SECFiling | null>(null);
     const PAGE_SIZE = 100;
 
     const fetchFilings = async (page: number = 1) => {
@@ -110,17 +122,108 @@ export function SECFilingsContent() {
         return desc.substring(0, maxLength) + '...';
     };
 
+    const handleFilingClick = (filing: SECFiling) => {
+        // Buscar el primer documento HTML o XML en documentFormatFiles
+        const hasViewableDoc = filing.documentFormatFiles && filing.documentFormatFiles.length > 0;
+
+        if (hasViewableDoc) {
+            // Prioridad: buscar el documento principal (form type matching)
+            const mainDoc = filing.documentFormatFiles?.find(doc =>
+                doc.type === filing.formType ||
+                doc.description?.toLowerCase().includes(filing.formType.toLowerCase())
+            );
+
+            // Si no hay doc principal, buscar cualquier .htm o .xml
+            const viewableDoc = mainDoc || filing.documentFormatFiles?.find(doc =>
+                doc.documentUrl.endsWith('.htm') ||
+                doc.documentUrl.endsWith('.html') ||
+                doc.documentUrl.endsWith('.xml')
+            );
+
+            if (viewableDoc) {
+                setSelectedFiling(filing);
+                return;
+            }
+        }
+
+        // Fallback: abrir link externo
+        const url = filing.linkToHtml || filing.linkToFilingDetails || filing.linkToTxt;
+        if (url) window.open(url, '_blank');
+    };
+
+    // Si hay un filing seleccionado, mostrar el viewer
+    if (selectedFiling) {
+        // Buscar el documento principal para mostrar
+        const mainDoc = selectedFiling.documentFormatFiles?.find(doc =>
+            doc.type === selectedFiling.formType ||
+            doc.description?.toLowerCase().includes(selectedFiling.formType.toLowerCase())
+        );
+
+        const viewableDoc = mainDoc || selectedFiling.documentFormatFiles?.find(doc =>
+            doc.documentUrl.endsWith('.htm') ||
+            doc.documentUrl.endsWith('.html') ||
+            doc.documentUrl.endsWith('.xml')
+        );
+
+        const filingUrl = viewableDoc?.documentUrl || selectedFiling.linkToHtml || selectedFiling.linkToFilingDetails;
+
+        // Usar proxy para evitar restricciones de CORS y X-Frame-Options
+        const proxyUrl = filingUrl
+            ? `http://157.180.45.153:8012/api/v1/proxy?url=${encodeURIComponent(filingUrl)}`
+            : '';
+
+        return (
+            <div className="h-full flex flex-col bg-white">
+                {/* Header del viewer */}
+                <div className="px-2 py-1 border-b border-slate-300 bg-slate-50 flex items-center justify-between">
+                    <button
+                        onClick={() => setSelectedFiling(null)}
+                        className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-medium flex items-center gap-1"
+                    >
+                        ← Back
+                    </button>
+                    <div className="text-xs text-slate-600 font-mono flex items-center gap-2">
+                        <span className="font-semibold text-blue-600">{selectedFiling.ticker || 'N/A'}</span>
+                        <span>·</span>
+                        <span>{selectedFiling.formType}</span>
+                        <span>·</span>
+                        <span>{formatDateTime(selectedFiling.filedAt).date}</span>
+                    </div>
+                    <a
+                        href={filingUrl || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
+                    >
+                        <ExternalLink className="w-3 h-3" />
+                        Open Original
+                    </a>
+                </div>
+
+                {/* Iframe con el filing a través del proxy */}
+                <div className="flex-1 bg-white">
+                    <iframe
+                        src={proxyUrl}
+                        className="w-full h-full border-0"
+                        sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                        title={`${selectedFiling.formType} - ${selectedFiling.ticker || 'N/A'}`}
+                    />
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="h-full flex flex-col bg-white">
             {/* Search Bar - Ultra Compacto */}
             <div className="px-2 py-1 border-b border-slate-300 bg-slate-50 flex items-center gap-1.5">
                 <form onSubmit={handleSearch} className="flex items-center gap-1.5 flex-1">
-                    <input
-                        type="text"
+                    <TickerSearch
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
+                        onChange={setSearchQuery}
+                        onSelect={(ticker) => setSearchQuery(ticker.symbol)}
                         placeholder="Ticker"
-                        className="w-24 px-1.5 py-0.5 border border-slate-300 rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-400 font-mono"
+                        className="w-32"
                     />
                     <input
                         type="text"
@@ -194,22 +297,19 @@ export function SECFilingsContent() {
                             <th className="px-2 py-1 text-right text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
                                 Time
                             </th>
-                            <th className="px-2 py-1 text-center text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Link
-                            </th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-slate-100">
                         {loading ? (
                             <tr>
-                                <td colSpan={6} className="px-2 py-6 text-center">
+                                <td colSpan={5} className="px-2 py-6 text-center">
                                     <RefreshCw className="w-6 h-6 mx-auto mb-1 text-blue-500 animate-spin" />
                                     <p className="text-slate-500 text-xs">Cargando...</p>
                                 </td>
                             </tr>
                         ) : filings.length === 0 ? (
                             <tr>
-                                <td colSpan={6} className="px-2 py-6 text-center">
+                                <td colSpan={5} className="px-2 py-6 text-center">
                                     <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                                     <p className="text-slate-500 font-medium text-xs">No se encontraron filings</p>
                                 </td>
@@ -220,6 +320,7 @@ export function SECFilingsContent() {
                                 return (
                                     <tr
                                         key={filing.id}
+                                        onClick={() => handleFilingClick(filing)}
                                         className="hover:bg-blue-50 transition-colors cursor-pointer border-b border-slate-100"
                                     >
                                         <td className="px-2 py-0.5 whitespace-nowrap">
@@ -245,19 +346,6 @@ export function SECFilingsContent() {
                                         </td>
                                         <td className="px-2 py-0.5 whitespace-nowrap text-right font-mono text-[10px] text-slate-500">
                                             {time}
-                                        </td>
-                                        <td className="px-2 py-0.5 text-center">
-                                            {filing.linkToHtml && (
-                                                <a
-                                                    href={filing.linkToHtml}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="inline-flex items-center text-blue-600 hover:text-blue-700 transition-colors"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <ExternalLink className="w-3 h-3" />
-                                                </a>
-                                            )}
                                         </td>
                                     </tr>
                                 );

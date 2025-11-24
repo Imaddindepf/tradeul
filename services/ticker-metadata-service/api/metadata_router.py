@@ -17,6 +17,77 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.get("/search")
+async def search_tickers(
+    q: str = Query(..., description="Search query (symbol or company name)", min_length=1),
+    limit: int = Query(10, ge=1, le=50, description="Max results to return")
+):
+    """
+    Buscar tickers por símbolo o nombre de empresa (autocomplete)
+    
+    Args:
+        q: Query string (ej: "AA", "Apple", etc.)
+        limit: Máximo de resultados a devolver
+    
+    Returns:
+        Lista de tickers que coinciden con la búsqueda
+    """
+    from main import timescale_client
+    
+    if not timescale_client:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    
+    query_upper = q.upper()
+    
+    # Buscar en tickers_unified por symbol o company_name
+    sql = """
+        SELECT symbol, company_name, exchange, sector, is_actively_trading
+        FROM tickers_unified
+        WHERE 
+            (symbol ILIKE $1 OR company_name ILIKE $2)
+            AND is_actively_trading = true
+        ORDER BY 
+            CASE 
+                WHEN symbol = $3 THEN 0
+                WHEN symbol LIKE $4 THEN 1
+                ELSE 2
+            END,
+            symbol ASC
+        LIMIT $5
+    """
+    
+    try:
+        results = await timescale_client.fetch(
+            sql,
+            f"{query_upper}%",     # Symbol starts with
+            f"%{query_upper}%",    # Company name contains
+            query_upper,           # Exact match priority
+            f"{query_upper}%",     # Symbol starts with (for sorting)
+            limit
+        )
+        
+        tickers = [
+            {
+                "symbol": row["symbol"],
+                "name": row["company_name"],
+                "exchange": row["exchange"],
+                "type": row["sector"],
+                "displayName": f"{row['symbol']} - {row['company_name']}" if row['company_name'] else row['symbol']
+            }
+            for row in results
+        ]
+        
+        return {
+            "query": q,
+            "results": tickers,
+            "total": len(tickers)
+        }
+    
+    except Exception as e:
+        logger.error("search_error", error=str(e), query=q)
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
 @router.get("/{symbol}")
 async def get_metadata(
     symbol: str,
