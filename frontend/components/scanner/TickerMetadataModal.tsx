@@ -107,11 +107,11 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   const modalContent = (
     <FloatingWindowBase
       dragHandleClassName="modal-drag-handle"
-      initialSize={{ width: 900, height: 600 }}
-      minWidth={600}
-      minHeight={400}
-      maxWidth={1400}
-      maxHeight={900}
+      initialSize={{ width: 700, height: 500 }}
+      minWidth={500}
+      minHeight={350}
+      maxWidth={1200}
+      maxHeight={800}
       enableResizing={true}
       focusedBorderColor="border-blue-500"
       className="bg-white"
@@ -119,27 +119,27 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
     >
       <div ref={modalRef} className="h-full w-full overflow-hidden flex flex-col">
         {/* Header arrastrable */}
-        <div className="modal-drag-handle bg-slate-800 px-6 py-3 flex items-center justify-between cursor-move select-none">
+        <div className="modal-drag-handle bg-slate-800 px-3 py-1.5 flex items-center justify-between cursor-move select-none">
           <div className="flex items-center gap-4 flex-1">
             {loading ? (
-              <div className="w-10 h-10 bg-slate-700 rounded animate-pulse" />
+              <div className="w-6 h-6 bg-slate-700 rounded animate-pulse" />
             ) : metadata?.logo_url ? (
               <img
                 src={getProxiedLogoUrl(metadata.logo_url) || ''}
                 alt={`${symbol} logo`}
-                className="w-10 h-10 object-contain bg-white rounded p-1"
+                className="w-6 h-6 object-contain bg-white rounded p-0.5"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
               />
             ) : null}
-            <div className="flex items-center gap-4 flex-1">
-              <span className="text-xl font-bold text-white">{symbol}</span>
-              <span className="text-base font-semibold text-white">
+            <div className="flex items-center gap-2 flex-1">
+              <span className="text-sm font-bold text-white">{symbol}</span>
+              <span className="text-xs font-semibold text-white">
                 {formatPrice(tickerData?.price)}
               </span>
               <span
-                className={`text-sm font-medium px-2 py-0.5 rounded ${(tickerData?.change_percent ?? 0) >= 0
+                className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${(tickerData?.change_percent ?? 0) >= 0
                   ? 'bg-emerald-500 text-white'
                   : 'bg-rose-500 text-white'
                   }`}
@@ -148,7 +148,7 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
               </span>
               {metadata?.is_actively_trading !== undefined && (
                 <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded ${metadata.is_actively_trading
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${metadata.is_actively_trading
                     ? 'bg-emerald-100 text-emerald-800'
                     : 'bg-slate-100 text-slate-600'
                     }`}
@@ -161,10 +161,10 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
 
           <button
             onClick={onClose}
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            className="p-1 hover:bg-slate-700 rounded transition-colors"
             title="Cerrar (Esc)"
           >
-            <X className="w-5 h-5 text-white" />
+            <X className="w-4 h-4 text-white" />
           </button>
         </div>
 
@@ -177,21 +177,21 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
           )}
 
           {error && (
-            <div className="m-6 bg-rose-50 border border-rose-200 text-rose-800 px-4 py-3 rounded">
-              <p className="font-medium">Error al cargar metadatos</p>
-              <p className="text-sm mt-1">{error}</p>
+            <div className="m-2 bg-rose-50 border border-rose-200 text-rose-800 px-2 py-1 rounded">
+              <p className="font-medium text-xs">Error al cargar metadatos</p>
+              <p className="text-[10px] mt-0.5">{error}</p>
             </div>
           )}
 
           {!loading && !error && metadata && (
-            <div className="p-6 space-y-4">
+            <div className="p-3 space-y-2">
               {/* Company Name */}
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">{metadata.company_name || symbol}</h2>
+                <h2 className="text-base font-bold text-slate-900">{metadata.company_name || symbol}</h2>
               </div>
 
               {/* Classification Line */}
-              <div className="flex items-center gap-1 text-sm text-slate-700 flex-wrap">
+              <div className="flex items-center gap-1 text-[10px] text-slate-700 flex-wrap">
                 {metadata.sector && (
                   <>
                     <span className="font-semibold">Sector:</span>
@@ -215,7 +215,7 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
               </div>
 
               {/* Market Data Line */}
-              <div className="flex items-center gap-1 text-sm text-slate-700 flex-wrap">
+              <div className="flex items-center gap-1 text-[10px] text-slate-700 flex-wrap">
                 {metadata.market_cap && (
                   <>
                     <span className="font-semibold">Mkt Cap:</span>
@@ -239,7 +239,7 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
               </div>
 
               {/* Additional Info Line */}
-              <div className="flex items-center gap-1 text-sm text-slate-700 flex-wrap">
+              <div className="flex items-center gap-1 text-[10px] text-slate-700 flex-wrap">
                 {metadata.total_employees && (
                   <>
                     <span className="font-semibold">Employees:</span>
