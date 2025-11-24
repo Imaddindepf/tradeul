@@ -1,15 +1,17 @@
 /**
- * WebSocket Server for Real-Time Stock Data
+ * WebSocket Server for Real-Time Stock Data + SEC Filings
  *
  * ARQUITECTURA HÍBRIDA:
  * 1. Rankings: Snapshot + Deltas (cada 10s desde Scanner)
  * 2. Precio/Volumen: Aggregates en tiempo real (cada 1s desde Polygon WS)
+ * 3. SEC Filings: Stream en tiempo real desde SEC Stream API
  *
  * FLUJO:
  * - Cliente se suscribe a lista (ej: "GAPPERS_UP")
  * - Recibe snapshot inicial
  * - Recibe deltas de cambios en ranking
  * - Recibe aggregates de precio/volumen en tiempo real
+ * - Recibe SEC filings en tiempo real (si está suscrito a "SEC_FILINGS")
  */
 
 const WebSocket = require("ws");
@@ -70,6 +72,9 @@ const connections = new Map();
 
 // Índice inverso para broadcasting eficiente: listName -> Set<connectionId>
 const listSubscribers = new Map();
+
+// Clientes suscritos a SEC Filings: Set<connectionId>
+const secFilingsSubscribers = new Set();
 
 // Mapeo symbol → lists (para broadcast de aggregates)
 // "TSLA" -> Set(["GAPPERS_UP", "MOMENTUM_UP"])
@@ -1007,6 +1012,107 @@ async function processAggregatesStream() {
   }
 }
 
+/**
+ * Procesador del stream de SEC Filings
+ * Lee stream:sec:filings y broadcast a clientes suscritos
+ */
+async function processSECFilingsStream() {
+  const STREAM_NAME = "stream:sec:filings";
+  let lastId = "$"; // Leer solo mensajes nuevos
+
+  logger.info("📋 Starting SEC Filings stream processor");
+
+  while (true) {
+    try {
+      const result = await redis.xread(
+        "BLOCK",
+        5000,
+        "COUNT",
+        50,
+        "STREAMS",
+        STREAM_NAME,
+        lastId
+      );
+
+      if (!result) continue;
+
+      for (const [_stream, messages] of result) {
+        for (const [id, fields] of messages) {
+          lastId = id;
+          const message = parseRedisFields(fields);
+
+          // El mensaje viene con type="filing" y data=JSON
+          if (message.type === "filing" && message.data) {
+            try {
+              const filingData = JSON.parse(message.data);
+              
+              // Broadcast a todos los clientes suscritos a SEC Filings
+              broadcastSECFiling(filingData);
+              
+            } catch (parseErr) {
+              logger.error({ err: parseErr }, "Error parsing SEC filing data");
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "Error reading SEC filings stream");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+/**
+ * Broadcast de SEC filing a clientes suscritos
+ */
+function broadcastSECFiling(filingData) {
+  if (secFilingsSubscribers.size === 0) return;
+
+  const message = {
+    type: "sec_filing",
+    filing: filingData,
+    timestamp: new Date().toISOString()
+  };
+
+  const messageStr = JSON.stringify(message);
+  let sentCount = 0;
+  const disconnected = [];
+
+  secFilingsSubscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
+
+    if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      disconnected.push(connectionId);
+      return;
+    }
+
+    try {
+      conn.ws.send(messageStr);
+      sentCount++;
+    } catch (err) {
+      logger.error({ connectionId, err }, "Error sending SEC filing");
+      disconnected.push(connectionId);
+    }
+  });
+
+  // Limpiar conexiones desconectadas
+  disconnected.forEach((connectionId) => {
+    secFilingsSubscribers.delete(connectionId);
+  });
+
+  if (sentCount > 0) {
+    logger.debug(
+      {
+        accessionNo: filingData.accessionNo,
+        ticker: filingData.ticker,
+        formType: filingData.formType,
+        sentTo: sentCount
+      },
+      "📋 Broadcasted SEC filing"
+    );
+  }
+}
+
 // =============================================
 // WEBSOCKET SERVER
 // =============================================
@@ -1101,6 +1207,30 @@ wss.on("connection", (ws, req) => {
         await sendInitialSnapshot(connectionId, listName);
       }
 
+      // Suscribirse a SEC Filings
+      else if (action === "subscribe_sec_filings") {
+        secFilingsSubscribers.add(connectionId);
+        logger.info({ connectionId }, "📋 Client subscribed to SEC Filings");
+        
+        // Enviar confirmación
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "SEC_FILINGS",
+          message: "Subscribed to real-time SEC filings"
+        });
+      }
+
+      // Desuscribirse de SEC Filings
+      else if (action === "unsubscribe_sec_filings") {
+        secFilingsSubscribers.delete(connectionId);
+        logger.info({ connectionId }, "📋 Client unsubscribed from SEC Filings");
+        
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "SEC_FILINGS"
+        });
+      }
+
       // Ping/Pong heartbeat (ignorar, es normal)
       else if (action === "ping" || action === "pong") {
         // Responder con pong si es ping
@@ -1133,6 +1263,7 @@ wss.on("connection", (ws, req) => {
   // Manejar cierre de conexión
   ws.on("close", () => {
     unsubscribeClientFromAll(connectionId);
+    secFilingsSubscribers.delete(connectionId);
     connections.delete(connectionId);
     logger.info({ connectionId }, "❌ Client disconnected");
   });
@@ -1141,6 +1272,7 @@ wss.on("connection", (ws, req) => {
   ws.on("error", (err) => {
     logger.error({ connectionId, err }, "WebSocket error");
     unsubscribeClientFromAll(connectionId);
+    secFilingsSubscribers.delete(connectionId);
     connections.delete(connectionId);
   });
 });
@@ -1160,12 +1292,18 @@ processAggregatesStream().catch((err) => {
   process.exit(1);
 });
 
+processSECFilingsStream().catch((err) => {
+  logger.fatal({ err }, "SEC Filings stream processor crashed");
+  process.exit(1);
+});
+
 // Iniciar servidor
 server.listen(PORT, () => {
   logger.info({ port: PORT }, "🚀 WebSocket Server started");
-  logger.info("📡 Architecture: HYBRID");
+  logger.info("📡 Architecture: HYBRID + SEC Filings");
   logger.info("  ✅ Rankings: Snapshot + Deltas (every 10s)");
   logger.info("  ✅ Price/Volume: Real-time Aggregates (every 1s)");
+  logger.info("  ✅ SEC Filings: Real-time stream from SEC Stream API");
   logger.info("  ✅ Optimized broadcasting with inverted index");
   logger.info("  ✅ Symbol→Lists mapping for aggregates");
 });

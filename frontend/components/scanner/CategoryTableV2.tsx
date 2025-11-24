@@ -157,7 +157,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // ======================================================================
   // PAGE VISIBILITY (profesional: resync cuando vuelve de tab inactiva)
   // ======================================================================
-  
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && ws.isConnected) {
