@@ -8,6 +8,7 @@ import { getCompanyMetadata } from '@/lib/api';
 import { formatNumber } from '@/lib/formatters';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 import { floatingZIndexManager } from '@/lib/z-index';
+import { useRxWebSocket } from '@/hooks/useRxWebSocket';
 
 interface TickerMetadataModalProps {
   symbol: string | null;
@@ -23,9 +24,17 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  
+  // Estado en tiempo real del ticker
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [liveChangePercent, setLiveChangePercent] = useState<number | null>(null);
 
   // Obtener z-index alto para modales (DEBE estar antes de cualquier return condicional)
   const modalZIndex = useMemo(() => floatingZIndexManager.getNextModal(), []);
+  
+  // WebSocket para updates en tiempo real (SharedWorker compartido)
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+  const ws = useRxWebSocket(wsUrl, false);
 
   // Helper para convertir URL de logo a proxy
   const getProxiedLogoUrl = (logoUrl: string | null | undefined): string | null => {
@@ -72,6 +81,27 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
     };
   }, [symbol, isOpen]);
 
+  // Suscribirse a aggregates del WebSocket para updates en tiempo real
+  useEffect(() => {
+    if (!isOpen || !symbol || !ws.isConnected) return;
+    
+    const subscription = ws.aggregates$.subscribe({
+      next: (message: any) => {
+        // Solo actualizar si el aggregate es para este ticker
+        if (message.symbol === symbol && message.data) {
+          setLivePrice(message.data.c ?? message.data.close);
+          // Recalcular change_percent si tenemos prev_close
+          if (tickerData?.prev_close && message.data.c) {
+            const change = ((message.data.c - tickerData.prev_close) / tickerData.prev_close) * 100;
+            setLiveChangePercent(change);
+          }
+        }
+      }
+    });
+    
+    return () => subscription.unsubscribe();
+  }, [isOpen, symbol, ws.isConnected, ws.aggregates$, tickerData?.prev_close]);
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -107,9 +137,9 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
   const modalContent = (
     <FloatingWindowBase
       dragHandleClassName="modal-drag-handle"
-      initialSize={{ width: 700, height: 500 }}
-      minWidth={500}
-      minHeight={350}
+      initialSize={{ width: 500, height: 400 }}
+      minWidth={400}
+      minHeight={300}
       maxWidth={1200}
       maxHeight={800}
       enableResizing={true}
@@ -136,15 +166,15 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
             <div className="flex items-center gap-2 flex-1">
               <span className="text-sm font-bold text-white">{symbol}</span>
               <span className="text-xs font-semibold text-white">
-                {formatPrice(tickerData?.price)}
+                {formatPrice(livePrice ?? tickerData?.price)}
               </span>
               <span
-                className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${(tickerData?.change_percent ?? 0) >= 0
+                className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${(liveChangePercent ?? tickerData?.change_percent ?? 0) >= 0
                   ? 'bg-emerald-500 text-white'
                   : 'bg-rose-500 text-white'
                   }`}
               >
-                {formatPercent(tickerData?.change_percent)}
+                {formatPercent(liveChangePercent ?? tickerData?.change_percent)}
               </span>
               {metadata?.is_actively_trading !== undefined && (
                 <span
@@ -264,9 +294,9 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
 
               {/* Description */}
               {metadata.description && (
-                <div className="pt-2 border-t border-slate-200">
+                <div className="pt-1 border-t border-slate-200">
                   <p
-                    className={`text-sm text-slate-600 leading-relaxed ${!descriptionExpanded ? 'line-clamp-2' : ''
+                    className={`text-[10px] text-slate-600 leading-snug ${!descriptionExpanded ? 'line-clamp-2' : ''
                       }`}
                   >
                     {metadata.description}
@@ -274,21 +304,21 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
                   {metadata.description.length > 150 && (
                     <button
                       onClick={() => setDescriptionExpanded(!descriptionExpanded)}
-                      className="mt-1 text-sm font-semibold text-blue-600 hover:text-blue-800"
+                      className="mt-0.5 text-[10px] font-semibold text-blue-600 hover:text-blue-800"
                     >
-                      {descriptionExpanded ? 'Show less' : 'Show more'}
+                      {descriptionExpanded ? 'less' : 'more'}
                     </button>
                   )}
                 </div>
               )}
 
               {/* Links */}
-              <div className="flex gap-4 pt-2 border-t border-slate-200">
+              <div className="flex gap-2 pt-1 border-t border-slate-200">
                 <a
                   href={`https://finviz.com/quote.ashx?t=${symbol}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
                 >
                   Finviz →
                 </a>
@@ -296,7 +326,7 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
                   href={`https://finance.yahoo.com/quote/${symbol}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
                 >
                   Yahoo →
                 </a>
@@ -305,7 +335,7 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
                     href={metadata.homepage_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                    className="text-[10px] text-blue-600 hover:text-blue-800 font-medium"
                   >
                     Website →
                   </a>
@@ -313,31 +343,31 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
               </div>
 
               {/* Detailed Table - Collapsible */}
-              <details className="pt-3 border-t border-slate-200">
-                <summary className="text-sm font-bold text-slate-700 uppercase cursor-pointer hover:text-slate-900">
+              <details className="pt-1 border-t border-slate-200">
+                <summary className="text-[10px] font-bold text-slate-700 uppercase cursor-pointer hover:text-slate-900">
                   Detailed Information
                 </summary>
                 <div className="mt-3 space-y-0 text-sm">
                   {metadata.avg_volume_30d && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">Avg Volume (30d)</span>
                       <span className="font-medium text-slate-900">{formatNumber(metadata.avg_volume_30d)}</span>
                     </div>
                   )}
                   {metadata.beta !== null && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">Beta</span>
                       <span className="font-medium text-slate-900">{metadata.beta.toFixed(2)}</span>
                     </div>
                   )}
                   {metadata.phone_number && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">Phone</span>
                       <span className="font-medium text-slate-900">{metadata.phone_number}</span>
                     </div>
                   )}
                   {metadata.address && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">Address</span>
                       <span className="font-medium text-slate-900 text-right">
                         {[metadata.address.city, metadata.address.state].filter(Boolean).join(', ') || '-'}
@@ -345,25 +375,25 @@ function TickerMetadataModal({ symbol, tickerData, isOpen, onClose }: TickerMeta
                     </div>
                   )}
                   {metadata.cik && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">CIK</span>
                       <span className="font-medium text-slate-900">{metadata.cik}</span>
                     </div>
                   )}
                   {metadata.currency_name && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">Currency</span>
                       <span className="font-medium text-slate-900">{metadata.currency_name.toUpperCase()}</span>
                     </div>
                   )}
                   {metadata.market && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">Market</span>
                       <span className="font-medium text-slate-900">{metadata.market}</span>
                     </div>
                   )}
                   {metadata.round_lot && (
-                    <div className="flex justify-between py-1.5 border-b border-slate-100">
+                    <div className="flex justify-between py-0.5 border-b border-slate-100 text-[10px]">
                       <span className="text-slate-600">Round Lot</span>
                       <span className="font-medium text-slate-900">{metadata.round_lot}</span>
                     </div>
