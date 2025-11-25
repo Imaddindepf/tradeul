@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { usePinnedCommands } from '@/hooks/usePinnedCommands';
 import { useUserPreferencesStore, FontFamily } from '@/stores/useUserPreferencesStore';
-import { Pin, RotateCcw, Check, ChevronDown } from 'lucide-react';
+import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
+import { Pin, RotateCcw, Save, Layout, Trash2, Check } from 'lucide-react';
 
 const AVAILABLE_COMMANDS = [
   { id: 'sc', label: 'SC' },
@@ -58,8 +59,17 @@ export function SettingsContent() {
   const setBackgroundColor = useUserPreferencesStore((state) => state.setBackgroundColor);
   const setFont = useUserPreferencesStore((state) => state.setFont);
   const resetColors = useUserPreferencesStore((state) => state.resetColors);
+  
+  const { saveLayout, hasLayout, clearLayout, savedCount } = useLayoutPersistence();
+  const [saved, setSaved] = useState(false);
 
-  const [tab, setTab] = useState<'colors' | 'cmds'>('colors');
+  const [tab, setTab] = useState<'colors' | 'layout' | 'cmds'>('colors');
+
+  const handleSaveLayout = () => {
+    const count = saveLayout();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <div className="h-full flex flex-col bg-white text-slate-900 text-[10px]">
@@ -70,6 +80,12 @@ export function SettingsContent() {
           className={`flex-1 py-1 text-[9px] font-medium uppercase tracking-wide ${tab === 'colors' ? 'text-blue-600 border-b border-blue-600' : 'text-slate-400'}`}
         >
           Colors
+        </button>
+        <button
+          onClick={() => setTab('layout')}
+          className={`flex-1 py-1 text-[9px] font-medium uppercase tracking-wide ${tab === 'layout' ? 'text-blue-600 border-b border-blue-600' : 'text-slate-400'}`}
+        >
+          Layout
         </button>
         <button
           onClick={() => setTab('cmds')}
@@ -114,6 +130,59 @@ export function SettingsContent() {
             <button onClick={resetColors} className="flex items-center gap-1 text-[9px] text-slate-400 hover:text-slate-600 mt-1">
               <RotateCcw className="w-2.5 h-2.5" /> Reset
             </button>
+          </div>
+        )}
+
+        {tab === 'layout' && (
+          <div className="space-y-2">
+            <p className="text-[9px] text-slate-500">
+              Guarda la posición de tus ventanas para restaurarlas después.
+            </p>
+            
+            {/* Save Layout */}
+            <button
+              onClick={handleSaveLayout}
+              className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[9px] font-medium transition-colors ${
+                saved 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-blue-500 text-white hover:bg-blue-600'
+              }`}
+            >
+              {saved ? (
+                <>
+                  <Check className="w-3 h-3" />
+                  Guardado
+                </>
+              ) : (
+                <>
+                  <Save className="w-3 h-3" />
+                  Guardar Layout
+                </>
+              )}
+            </button>
+
+            {/* Status */}
+            {hasLayout && (
+              <div className="flex items-center justify-between py-1 px-1.5 bg-slate-50 rounded">
+                <div className="flex items-center gap-1.5">
+                  <Layout className="w-3 h-3 text-slate-400" />
+                  <span className="text-[9px] text-slate-600">
+                    {savedCount} ventana{savedCount !== 1 ? 's' : ''} guardada{savedCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <button
+                  onClick={clearLayout}
+                  className="p-0.5 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors"
+                  title="Borrar layout guardado"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            <p className="text-[8px] text-slate-400 mt-2">
+              El layout se restaurará automáticamente al abrir el workspace.
+            </p>
           </div>
         )}
 

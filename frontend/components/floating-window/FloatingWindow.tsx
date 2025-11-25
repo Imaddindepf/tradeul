@@ -77,9 +77,12 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     updateWindow(window.id, { zIndex });
   };
 
+  // Para contenido con cabecera propia, usar su clase de drag handle
+  const dragHandleClassName = window.hideHeader ? 'table-drag-handle' : 'window-title-bar';
+
   return (
     <FloatingWindowBase
-      dragHandleClassName="window-title-bar"
+      dragHandleClassName={dragHandleClassName}
       initialSize={{ width: window.width, height: window.height }}
       initialPosition={{ x: window.x, y: window.y }}
       initialZIndex={window.zIndex}
@@ -94,49 +97,51 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       className="bg-white"
     >
       <div id={`floating-window-${window.id}`} className="flex flex-col h-full overflow-hidden">
-        {/* Title Bar - El foco se maneja automáticamente en FloatingWindowBase */}
-        <div className="window-title-bar flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 cursor-move select-none">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div className="w-2 h-2 rounded-full bg-blue-500" />
-            <h3 className="text-sm font-semibold text-slate-800 truncate">{window.title}</h3>
-          </div>
+        {/* Title Bar - Solo mostrar si hideHeader es false */}
+        {!window.hideHeader && (
+          <div className="window-title-bar flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 cursor-move select-none">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <div className="w-2 h-2 rounded-full bg-blue-500" />
+              <h3 className="text-sm font-semibold text-slate-800 truncate">{window.title}</h3>
+            </div>
 
-          <div className="flex items-center gap-1 ml-4">
-            {/* Open in New Window Button */}
-            <button
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenNewWindow();
-              }}
-              className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
-              aria-label="Abrir en nueva ventana"
-              title="Abrir en nueva ventana"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-600" />
-            </button>
+            <div className="flex items-center gap-1 ml-4">
+              {/* Open in New Window Button */}
+              <button
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenNewWindow();
+                }}
+                className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
+                aria-label="Abrir en nueva ventana"
+                title="Abrir en nueva ventana"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-600" />
+              </button>
 
-            {/* Close Button */}
-            <button
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleClose();
-              }}
-              className="p-1.5 rounded hover:bg-red-100 transition-colors group"
-              aria-label="Cerrar"
-            >
-              <X className="w-4 h-4 text-slate-600 group-hover:text-red-600" />
-            </button>
+              {/* Close Button */}
+              <button
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClose();
+                }}
+                className="p-1.5 rounded hover:bg-red-100 transition-colors group"
+                aria-label="Cerrar"
+              >
+                <X className="w-4 h-4 text-slate-600 group-hover:text-red-600" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Content */}
-        <div className="flex-1 overflow-auto bg-white">
+        <div className={`flex-1 overflow-auto bg-white ${window.hideHeader ? 'h-full' : ''}`}>
           {window.content}
         </div>
       </div>

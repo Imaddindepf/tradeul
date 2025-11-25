@@ -271,19 +271,19 @@ class PolygonWebSocketClient:
             
             # Construir mensaje de suscripción para este batch
             # Formato: "A.AAPL,A.TSLA,A.NVDA"
-            subscriptions = []
+        subscriptions = []
             for ticker in batch:
-                for event_type in event_types:
-                    subscriptions.append(f"{event_type}.{ticker}")
-            
-            subscribe_message = {
-                "action": "subscribe",
-                "params": ",".join(subscriptions)
-            }
-            
-            await self.ws.send(json.dumps(subscribe_message))
-            
-            # Actualizar suscripciones activas
+            for event_type in event_types:
+                subscriptions.append(f"{event_type}.{ticker}")
+        
+        subscribe_message = {
+            "action": "subscribe",
+            "params": ",".join(subscriptions)
+        }
+        
+        await self.ws.send(json.dumps(subscribe_message))
+        
+        # Actualizar suscripciones activas
             self.subscribed_tickers.update(batch)
             
             logger.info(
@@ -324,19 +324,19 @@ class PolygonWebSocketClient:
             batch = tickers_list[i:i + BATCH_SIZE]
             
             # Construir mensaje de desuscripción para este batch
-            unsubscriptions = []
+        unsubscriptions = []
             for ticker in batch:
-                for event_type in event_types:
-                    unsubscriptions.append(f"{event_type}.{ticker}")
-            
-            unsubscribe_message = {
-                "action": "unsubscribe",
-                "params": ",".join(unsubscriptions)
-            }
-            
-            await self.ws.send(json.dumps(unsubscribe_message))
-            
-            # Actualizar suscripciones activas
+            for event_type in event_types:
+                unsubscriptions.append(f"{event_type}.{ticker}")
+        
+        unsubscribe_message = {
+            "action": "unsubscribe",
+            "params": ",".join(unsubscriptions)
+        }
+        
+        await self.ws.send(json.dumps(unsubscribe_message))
+        
+        # Actualizar suscripciones activas
             self.subscribed_tickers.difference_update(batch)
             
             logger.info(

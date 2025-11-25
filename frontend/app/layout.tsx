@@ -59,7 +59,7 @@ export default function RootLayout({
       <html lang="en" className={`${outfit.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable}`}>
         <body className="font-sans antialiased">
           <ClientThemeProvider>
-            {children}
+          {children}
           </ClientThemeProvider>
           <div id="portal-root" />
         </body>

@@ -18,6 +18,18 @@ export interface FloatingWindow {
   zIndex: number;
   isMinimized: boolean;
   isMaximized: boolean;
+  /** Si true, no muestra la barra de título (para contenido que ya tiene su propia cabecera) */
+  hideHeader?: boolean;
+}
+
+/** Layout serializable de una ventana (sin contenido) */
+export interface SerializableWindowLayout {
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMinimized: boolean;
 }
 
 interface FloatingWindowContextType {
@@ -30,6 +42,10 @@ interface FloatingWindowContextType {
   maximizeWindow: (id: string) => void;
   restoreWindow: (id: string) => void;
   getMaxZIndex: () => number;
+  /** Exportar layout actual de todas las ventanas */
+  exportLayout: () => SerializableWindowLayout[];
+  /** Cerrar todas las ventanas */
+  closeAllWindows: () => void;
 }
 
 const FloatingWindowContext = createContext<FloatingWindowContextType | undefined>(undefined);
@@ -113,6 +129,21 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const exportLayout = useCallback((): SerializableWindowLayout[] => {
+    return windowsRef.current.map((w) => ({
+      title: w.title,
+      x: w.x,
+      y: w.y,
+      width: w.width,
+      height: w.height,
+      isMinimized: w.isMinimized,
+    }));
+  }, []);
+
+  const closeAllWindows = useCallback(() => {
+    setWindows([]);
+  }, []);
+
   return (
     <FloatingWindowContext.Provider
       value={{
@@ -125,6 +156,8 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         maximizeWindow,
         restoreWindow,
         getMaxZIndex,
+        exportLayout,
+        closeAllWindows,
       }}
     >
       {children}

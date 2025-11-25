@@ -89,9 +89,9 @@ function FloatingWindowBaseComponent({
 
   // Traer al frente - SIEMPRE actualiza z-index cuando se hace click
   const bringToFront = useCallback(() => {
-    const newZ = floatingZIndexManager.getNext();
-    setZIndex(newZ);
-    onZIndexChange?.(newZ);
+      const newZ = floatingZIndexManager.getNext();
+      setZIndex(newZ);
+      onZIndexChange?.(newZ);
     setIsFocused(true);
   }, [onZIndexChange]);
 

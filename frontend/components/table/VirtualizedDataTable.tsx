@@ -379,9 +379,10 @@ export function VirtualizedDataTable<T>({
             <thead
               className={`bg-white border-b border-slate-200 ${stickyHeader ? 'sticky top-0 z-20 shadow-sm' : ''
                 }`}
+              style={{ display: 'block' }}
             >
               {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
+                <tr key={headerGroup.id} style={{ display: 'flex', width: '100%' }}>
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
@@ -416,24 +417,26 @@ export function VirtualizedDataTable<T>({
                           table.setColumnOrder(newOrder);
                         }
                       }}
-                      className="relative text-left font-semibold text-slate-600 uppercase tracking-wide border-r border-slate-100 last:border-r-0 bg-slate-50 cursor-move hover:bg-slate-100 transition-colors text-[10px]"
+                      className="relative text-left font-semibold text-slate-600 uppercase tracking-wide border-r border-slate-100 last:border-r-0 bg-slate-50 cursor-move hover:bg-slate-100 transition-colors text-[10px] flex-shrink-0"
                       style={{
                         width: header.getSize(),
-                        minWidth: header.column.columnDef.minSize || 50,
-                        maxWidth: header.column.columnDef.maxSize || 600,
+                        minWidth: header.getSize(),
+                        maxWidth: header.getSize(),
                         position: 'relative',
                         height: '24px',
                         lineHeight: '24px',
                         padding: '0 4px',
+                        display: 'flex',
+                        alignItems: 'center',
                       }}
                     >
                       {header.isPlaceholder ? null : (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 w-full overflow-hidden">
                           <div
                             className={
                               header.column.getCanSort()
-                                ? 'cursor-pointer select-none flex items-center gap-1 hover:text-blue-600 transition-colors'
-                                : 'flex items-center gap-1'
+                                ? 'cursor-pointer select-none flex items-center gap-1 hover:text-blue-600 transition-colors truncate'
+                                : 'flex items-center gap-1 truncate'
                             }
                             onClick={header.column.getToggleSortingHandler()}
                           >
@@ -442,7 +445,7 @@ export function VirtualizedDataTable<T>({
                               header.getContext()
                             )}
                             {header.column.getCanSort() && (
-                              <span className="ml-1">
+                              <span className="ml-1 flex-shrink-0">
                                 {{
                                   asc: <ArrowUp className="w-3 h-3" />,
                                   desc: <ArrowDown className="w-3 h-3" />,
@@ -467,8 +470,9 @@ export function VirtualizedDataTable<T>({
 
             {/* Body (VIRTUALIZED) */}
             <tbody
-              className="divide-y divide-slate-100 bg-white"
+              className="bg-white"
               style={{
+                display: 'block',
                 height: `${totalSize}px`, // Total height for scrollbar
                 position: 'relative',
               }}
@@ -477,6 +481,8 @@ export function VirtualizedDataTable<T>({
                 const row = rows[virtualRow.index];
                 if (!row) return null;
 
+                const isVirtualized = enableVirtualization && rows.length > 20;
+
                 return (
                   <tr
                     key={row.id}
@@ -484,12 +490,13 @@ export function VirtualizedDataTable<T>({
                     className={`hover:bg-slate-50 transition-colors duration-150 border-b border-slate-100 ${getRowClassName ? getRowClassName(row) : ''
                       }`}
                     style={{
-                      position: enableVirtualization && rows.length > 20 ? 'absolute' : 'relative',
-                      top: enableVirtualization && rows.length > 20 ? 0 : undefined,
+                      display: 'flex',
+                      position: isVirtualized ? 'absolute' : 'relative',
+                      top: isVirtualized ? 0 : undefined,
                       left: 0,
                       width: '100%',
                       height: `${virtualRow.size}px`,
-                      transform: enableVirtualization && rows.length > 20
+                      transform: isVirtualized
                         ? `translateY(${virtualRow.start}px)`
                         : undefined,
                     }}
@@ -497,15 +504,19 @@ export function VirtualizedDataTable<T>({
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className="text-[10px]"
+                        className="text-[10px] flex-shrink-0"
                         style={{
                           width: cell.column.getSize(),
+                          minWidth: cell.column.getSize(),
                           maxWidth: cell.column.getSize(),
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
-                          height: '18px',
-                          lineHeight: '18px',
+                          whiteSpace: 'nowrap',
+                          height: '100%',
+                          lineHeight: `${virtualRow.size}px`,
                           padding: '0 4px',
+                          display: 'flex',
+                          alignItems: 'center',
                         }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}

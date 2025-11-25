@@ -1,53 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
-import { DraggableTable } from '@/components/scanner/DraggableTable';
 import { Navbar, NavbarContent, UserMenu } from '@/components/layout/Navbar';
 import { PinnedCommands } from '@/components/layout/PinnedCommands';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { CommandPalette } from '@/components/ui/CommandPalette';
-import { Settings2 } from 'lucide-react';
+import { Settings2, LayoutGrid } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
-import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
+import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
+import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
+import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
-
-type ScannerCategory = {
-  id: string;
-  name: string;
-  description: string;
-};
-
-const AVAILABLE_CATEGORIES: ScannerCategory[] = [
-  { id: 'gappers_up', name: 'Gap Up', description: 'Gap up ≥ 2%' },
-  { id: 'gappers_down', name: 'Gap Down', description: 'Gap down ≤ -2%' },
-  { id: 'momentum_up', name: 'Momentum Alcista', description: 'Cambio ≥ 3%' },
-  { id: 'momentum_down', name: 'Momentum Bajista', description: 'Cambio ≤ -3%' },
-  { id: 'winners', name: 'Mayores Ganadores', description: 'Cambio ≥ 5%' },
-  { id: 'losers', name: 'Mayores Perdedores', description: 'Cambio ≤ -5%' },
-  { id: 'new_highs', name: 'Nuevos Máximos', description: 'Máximos del día' },
-  { id: 'new_lows', name: 'Nuevos Mínimos', description: 'Mínimos del día' },
-  { id: 'anomalies', name: 'Anomalías', description: 'RVOL ≥ 3.0' },
-  { id: 'high_volume', name: 'Alto Volumen', description: 'RVOL ≥ 2.0' },
-  { id: 'reversals', name: 'Reversals', description: 'Cambios de dirección' },
-];
-
-const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners'];
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentMinute = now.getMinutes();
-  const currentTime = currentHour * 60 + currentMinute; // minutos desde medianoche
-
-  // Pre-market: 4:00 AM - 9:30 AM (240 - 570)
-  // Market Open: 9:30 AM - 4:00 PM (570 - 960)
-  // Post-market: 4:00 PM - 8:00 PM (960 - 1200)
-
   let market: 'open' | 'closed' | 'extended-hours' = 'closed';
   let earlyHours = false;
   let afterHours = false;
@@ -60,8 +31,6 @@ function adaptMarketSession(session: MarketSession) {
   } else if (session.current_session === 'POST_MARKET') {
     market = 'extended-hours';
     afterHours = true;
-  } else {
-    market = 'closed';
   }
 
   return {
@@ -77,33 +46,102 @@ function adaptMarketSession(session: MarketSession) {
   };
 }
 
+const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners'];
+
 export default function ScannerPage() {
   const [session, setSession] = useState<MarketSession | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [activeCategories, setActiveCategories] = useState<string[]>(DEFAULT_CATEGORIES);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandInput, setCommandInput] = useState('');
-  const { openWindow } = useFloatingWindow();
 
+  const { windows, openWindow, closeWindow } = useFloatingWindow();
+  const { openScannerTable, closeScannerTable, isScannerTableOpen, SCANNER_CATEGORIES } = useCommandExecutor();
+  const { getSavedLayout, hasLayout } = useLayoutPersistence();
+
+  const layoutRestoredRef = useRef(false);
+  const initialTablesOpenedRef = useRef(false);
+
+  // Función para reconstruir contenido de ventana por título
+  const getWindowContent = useCallback((title: string) => {
+    if (title === 'Settings') return <SettingsContent />;
+    if (title === 'Dilution Tracker') return <DilutionTrackerContent />;
+    if (title === 'SEC Filings') return <SECFilingsContent />;
+
+    // Verificar si es una tabla del scanner
+    if (title.startsWith('Scanner: ')) {
+      const categoryName = title.replace('Scanner: ', '');
+      const categoryEntry = Object.entries(SCANNER_CATEGORIES).find(([_, cat]) => cat.name === categoryName);
+      if (categoryEntry) {
+        const [categoryId, category] = categoryEntry;
+        return <ScannerTableContent categoryId={categoryId} categoryName={category.name} />;
+      }
+    }
+    return null;
+  }, [SCANNER_CATEGORIES]);
+
+  // Restaurar layout guardado O abrir tablas por defecto
   useEffect(() => {
-    setMounted(true);
-    // Cargar preferencias del localStorage (solo en cliente)
-    if (typeof window !== 'undefined') {
+    if (!mounted) return;
+
+    // Restaurar layout si existe
+    if (hasLayout && !layoutRestoredRef.current) {
+      layoutRestoredRef.current = true;
+      const savedLayout = getSavedLayout();
+
+      setTimeout(() => {
+        savedLayout.forEach((layout) => {
+          const content = getWindowContent(layout.title);
+          if (content) {
+            // Las tablas del scanner tienen cabecera propia
+            const hideHeader = layout.title.startsWith('Scanner:');
+            openWindow({
+              title: layout.title,
+              content,
+              x: layout.x,
+              y: layout.y,
+              width: layout.width,
+              height: layout.height,
+              hideHeader,
+            });
+          }
+        });
+      }, 100);
+      return;
+    }
+
+    // Si no hay layout guardado, abrir tablas por defecto
+    if (!hasLayout && !initialTablesOpenedRef.current) {
+      initialTablesOpenedRef.current = true;
+
+      // Cargar categorías de localStorage o usar default
+      let categories = DEFAULT_CATEGORIES;
       try {
         const saved = localStorage.getItem('scanner_categories');
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setActiveCategories(parsed);
+            categories = parsed;
           }
         }
       } catch (e) {
         console.error('Error loading saved categories:', e);
       }
-    }
 
-    // Handler para Ctrl+K - Enfocar input
+      // Abrir las tablas por defecto con delay para escalonar
+      setTimeout(() => {
+        categories.forEach((categoryId, index) => {
+          setTimeout(() => {
+            openScannerTable(categoryId, index);
+          }, index * 50);
+        });
+      }, 100);
+    }
+  }, [mounted, hasLayout, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
+
+  // Montaje inicial
+  useEffect(() => {
+    setMounted(true);
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -119,6 +157,7 @@ export default function ScannerPage() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Fetch market session
   useEffect(() => {
     const fetchSession = async () => {
       try {
@@ -134,113 +173,31 @@ export default function ScannerPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const sessionColors = {
-    PRE_MARKET: 'bg-blue-100 text-blue-700',
-    MARKET_OPEN: 'bg-green-100 text-green-700',
-    POST_MARKET: 'bg-orange-100 text-orange-700',
-    CLOSED: 'bg-gray-100 text-gray-700',
-  } as const;
-
-  const handleToggleCategory = (categoryId: string) => {
-    setActiveCategories((prev) => {
-      let newCategories: string[];
-
-      if (prev.includes(categoryId)) {
-        // Remover
-        newCategories = prev.filter((id) => id !== categoryId);
-      } else {
-        // Agregar
-        newCategories = [...prev, categoryId];
-      }
-
-      // Guardar en localStorage (solo en cliente)
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('scanner_categories', JSON.stringify(newCategories));
-        } catch (e) {
-          console.error('Error saving categories:', e);
-        }
-      }
-      return newCategories;
-    });
-  };
-
-  // Handler para comandos pinned (solo comandos principales: SC, DT, SET)
-  const handlePinnedCommandClick = (commandId: string) => {
-    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-    const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-
-    switch (commandId) {
-      case 'sc':
-        // Scanner: Abrir paleta de comandos con "SC " pre-llenado
-        setCommandInput('SC ');
-        setCommandPaletteOpen(true);
-        break;
-
-      case 'dt':
-        // Dilution Tracker: Abrir floating window
-        openWindow({
-          title: 'Dilution Tracker',
-          content: <DilutionTrackerContent />,
-          width: 700,
-          height: 600,
-          x: screenWidth / 2 - 350,
-          y: screenHeight / 2 - 300,
-          minWidth: 500,
-          minHeight: 400,
-        });
-        break;
-
-      case 'sec':
-        // SEC Filings: Abrir floating window
-        openWindow({
-          title: 'SEC Filings',
-          content: <SECFilingsContent />,
-          width: 1000,
-          height: 700,
-          x: screenWidth / 2 - 500,
-          y: screenHeight / 2 - 350,
-          minWidth: 800,
-          minHeight: 500,
-        });
-        break;
-
-      case 'settings':
-        // Settings: Abrir floating window
-        openWindow({
-          title: 'Settings',
-          content: <SettingsContent />,
-          width: 900,
-          height: 750,
-          x: screenWidth / 2 - 450,
-          y: screenHeight / 2 - 375,
-          minWidth: 700,
-          minHeight: 600,
-        });
-        break;
-
-      default:
-        console.warn('Comando pinned desconocido:', commandId);
+  // Toggle de categoría del scanner (desde CommandPalette)
+  const handleToggleCategory = useCallback((categoryId: string) => {
+    if (isScannerTableOpen(categoryId)) {
+      closeScannerTable(categoryId);
+    } else {
+      openScannerTable(categoryId, windows.length);
     }
-  };
+  }, [isScannerTableOpen, closeScannerTable, openScannerTable, windows.length]);
 
-  const activeCategoryData = activeCategories
-    .map((id) => AVAILABLE_CATEGORIES.find((cat) => cat.id === id))
-    .filter(Boolean) as ScannerCategory[];
-
+  // Verificar si hay ventanas del scanner abiertas
+  const scannerWindowsCount = windows.filter(w => w.title.startsWith('Scanner:')).length;
+  const hasNoWindows = windows.length === 0;
 
   return (
     <>
-      {/* Navbar con Command Prompt, Logo Centrado y Market Status */}
+      {/* Navbar */}
       <Navbar>
         <div className="flex items-center h-full w-full gap-4">
-          {/* Logo compacto */}
+          {/* Logo */}
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 
                         flex items-center justify-center shadow-sm flex-shrink-0">
             <span className="text-white font-bold text-base">T</span>
           </div>
 
-          {/* Left: Command Prompt Line */}
+          {/* Command Prompt */}
           <div className="flex-1 flex items-center gap-2 relative">
             <span className="text-slate-400 font-mono text-sm select-none">$</span>
             <input
@@ -257,9 +214,9 @@ export default function ScannerPage() {
             <kbd className="text-xs text-slate-400 font-mono">Ctrl+K</kbd>
           </div>
 
-          {/* Center: Pinned Commands (Favoritos del usuario) */}
+          {/* Pinned Commands */}
           <div className="flex items-center px-4">
-            <PinnedCommands 
+            <PinnedCommands
               onOpenCommandPalette={(value) => {
                 setCommandInput(value);
                 setCommandPaletteOpen(true);
@@ -267,7 +224,7 @@ export default function ScannerPage() {
             />
           </div>
 
-          {/* Right: Market Status + User Menu */}
+          {/* Market Status + User Menu */}
           <div className="flex-1 flex items-center justify-end gap-4">
             {session && mounted && <MarketStatusPopover status={adaptMarketSession(session)} />}
             <UserMenu />
@@ -275,58 +232,44 @@ export default function ScannerPage() {
         </div>
       </Navbar>
 
-      {/* Command Palette - Integrado debajo del input */}
+      {/* Command Palette */}
       <CommandPalette
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
         onSelectCategory={handleToggleCategory}
-        activeCategories={activeCategories}
+        activeCategories={Object.keys(SCANNER_CATEGORIES).filter(id => isScannerTableOpen(id))}
         searchValue={commandInput}
         onSearchChange={setCommandInput}
       />
 
-      {/* Main Content - Sin padding-top porque AppShell ya lo tiene */}
+      {/* Main Content */}
       <main className="h-[calc(100vh-64px)] bg-slate-50 relative overflow-hidden">
-        {/* Content Area */}
-        <div className="relative h-full">
-          {/* Overlay cuando panel está abierto - Solo sobre área del scanner */}
-          {sidebarOpen && (
-            <div
-              className="absolute inset-0 bg-black/50 animate-fadeIn"
-              style={{ zIndex: Z_INDEX.SCANNER_PANEL_OVERLAY }}
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-
-          {/* Draggable Tables Area */}
-          <div className="relative w-full h-full overflow-hidden">
-            {activeCategoryData.length === 0 ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-slate-500">
-                  <Settings2 className="h-16 w-16 mx-auto mb-4 text-slate-300" />
-                  <p className="text-xl font-semibold text-slate-700">No hay tablas seleccionadas</p>
-                  <p className="text-sm mt-2 text-slate-500">
-                    Haz clic en el botón azul del lado izquierdo para configurar
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <>
-                {activeCategoryData.map((category, index) => (
-                  <DraggableTable
-                    key={category.id}
-                    category={category}
-                    index={index}
-                    onClose={() => handleToggleCategory(category.id)}
-                  />
+        {/* Empty state cuando no hay ventanas */}
+        {hasNoWindows && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-slate-500">
+              <LayoutGrid className="h-16 w-16 mx-auto mb-4 text-slate-300" />
+              <p className="text-xl font-semibold text-slate-700">No hay ventanas abiertas</p>
+              <p className="text-sm mt-2 text-slate-500">
+                Usa Ctrl+K o escribe un comando para abrir tablas del scanner
+              </p>
+              <div className="mt-4 flex gap-2 justify-center">
+                {DEFAULT_CATEGORIES.slice(0, 3).map((catId) => (
+                  <button
+                    key={catId}
+                    onClick={() => openScannerTable(catId, 0)}
+                    className="px-3 py-1.5 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                  >
+                    {SCANNER_CATEGORIES[catId]?.name || catId}
+                  </button>
                 ))}
-              </>
-            )}
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Las ventanas flotantes se renderizan automáticamente desde FloatingWindowContext */}
       </main>
     </>
   );
 }
-
-
