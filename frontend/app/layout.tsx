@@ -1,13 +1,23 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Outfit, JetBrains_Mono } from 'next/font/google';
 import { ClerkProvider } from '@clerk/nextjs';
 
-const inter = Inter({ subsets: ['latin'] });
+const outfit = Outfit({ 
+  subsets: ['latin'],
+  variable: '--font-outfit',
+  display: 'swap',
+});
+
+const jetbrainsMono = JetBrains_Mono({ 
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
-  title: 'Tradeul',
-  description: 'Tradeul Platform',
+  title: 'Tradeul — Real-Time Market Intelligence',
+  description: 'Professional trading platform with real-time market data, dilution tracking, and intelligent scanning.',
 };
 
 export default function RootLayout({
@@ -17,8 +27,8 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body className={inter.className}>
+      <html lang="en" className={`${outfit.variable} ${jetbrainsMono.variable}`}>
+        <body className="font-sans antialiased">
           {children}
           <div id="portal-root" />
         </body>
