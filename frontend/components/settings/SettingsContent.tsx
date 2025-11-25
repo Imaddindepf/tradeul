@@ -113,7 +113,7 @@ export function SettingsContent() {
           <div className="space-y-1.5">
             <ColorRow label="Up" value={colors.tickUp} onChange={setTickUpColor} presets={PRESET_COLORS.tickUp} />
             <ColorRow label="Down" value={colors.tickDown} onChange={setTickDownColor} presets={PRESET_COLORS.tickDown} />
-            <ColorRow label="BG" value={colors.background} onChange={setBackgroundColor} presets={PRESET_COLORS.background} />
+            <ColorRow label="Fondo" value={colors.background} onChange={setBackgroundColor} presets={PRESET_COLORS.background} />
 
             {/* Font */}
             <div className="flex items-center gap-1.5 py-0.5 border-t border-slate-100 pt-1.5">

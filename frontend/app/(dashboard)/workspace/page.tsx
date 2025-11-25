@@ -242,8 +242,11 @@ export default function ScannerPage() {
         onSearchChange={setCommandInput}
       />
 
-      {/* Main Content */}
-      <main className="h-[calc(100vh-64px)] bg-slate-50 relative overflow-hidden">
+      {/* Main Content - usa variable CSS para el fondo */}
+      <main 
+        className="h-[calc(100vh-64px)] relative overflow-hidden transition-colors duration-200"
+        style={{ backgroundColor: 'var(--color-background, #f8fafc)' }}
+      >
         {/* Empty state cuando no hay ventanas */}
         {hasNoWindows && (
           <div className="flex items-center justify-center h-full">
