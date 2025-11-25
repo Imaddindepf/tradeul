@@ -25,7 +25,7 @@ export function Navbar({ children }: NavbarProps) {
   return (
     <nav
       className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 shadow-sm"
-      style={{
+      style={{ 
         zIndex: Z_INDEX.NAVBAR,
       }}
     >
@@ -87,9 +87,9 @@ export function UserMenu() {
         className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg"
       >
         {user?.imageUrl ? (
-          <img
-            src={user.imageUrl}
-            alt="Avatar"
+          <img 
+            src={user.imageUrl} 
+            alt="Avatar" 
             className="w-9 h-9 rounded-full object-cover"
           />
         ) : (
@@ -99,7 +99,7 @@ export function UserMenu() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div
+        <div 
           className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 overflow-hidden"
           style={{ zIndex: Z_INDEX.MODAL }}
         >

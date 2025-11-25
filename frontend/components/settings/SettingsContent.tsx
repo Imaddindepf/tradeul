@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { usePinnedCommands } from '@/hooks/usePinnedCommands';
 import { useUserPreferencesStore, FontFamily } from '@/stores/useUserPreferencesStore';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
-import { Pin, RotateCcw, Save, Layout, Trash2, Check } from 'lucide-react';
+import { useSaveLayoutToCloud } from '@/hooks/useClerkSync';
+import { Pin, RotateCcw, Save, Layout, Trash2, Check, Cloud, CloudOff } from 'lucide-react';
 
 const AVAILABLE_COMMANDS = [
   { id: 'sc', label: 'SC' },
@@ -61,13 +62,24 @@ export function SettingsContent() {
   const resetColors = useUserPreferencesStore((state) => state.resetColors);
   
   const { saveLayout, hasLayout, clearLayout, savedCount } = useLayoutPersistence();
+  const { saveLayout: saveToCloud, isSignedIn } = useSaveLayoutToCloud();
   const [saved, setSaved] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const [tab, setTab] = useState<'colors' | 'layout' | 'cmds'>('colors');
 
-  const handleSaveLayout = () => {
-    const count = saveLayout();
+  const handleSaveLayout = async () => {
+    // Guardar localmente
+    saveLayout();
     setSaved(true);
+    
+    // Si está logueado, sincronizar con la nube
+    if (isSignedIn) {
+      setSyncing(true);
+      await saveToCloud();
+      setSyncing(false);
+    }
+    
     setTimeout(() => setSaved(false), 2000);
   };
 
@@ -180,9 +192,20 @@ export function SettingsContent() {
               </div>
             )}
 
-            <p className="text-[8px] text-slate-400 mt-2">
-              El layout se restaurará automáticamente al abrir el workspace.
-            </p>
+            {/* Cloud sync status */}
+            <div className="flex items-center gap-1 text-[8px] text-slate-400 mt-2">
+              {isSignedIn ? (
+                <>
+                  <Cloud className="w-2.5 h-2.5 text-green-500" />
+                  <span>Sincronizado con tu cuenta</span>
+                </>
+              ) : (
+                <>
+                  <CloudOff className="w-2.5 h-2.5" />
+                  <span>Solo guardado local</span>
+                </>
+              )}
+            </div>
           </div>
         )}
 

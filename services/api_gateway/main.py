@@ -24,6 +24,7 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
 from ws_manager import ConnectionManager
+from routes.user_prefs import router as user_prefs_router, set_timescale_client
 
 # Configurar logger
 configure_logging(service_name="api_gateway")
@@ -54,10 +55,11 @@ async def lifespan(app: FastAPI):
     redis_client = RedisClient()
     await redis_client.connect()
     
-    # Inicializar TimescaleDB
-    # timescale_client = TimescaleClient()
-    # await timescale_client.connect()
-    logger.info("Timescale disabled - using Redis only")
+    # Inicializar TimescaleDB (requerido para preferencias de usuario)
+    timescale_client = TimescaleClient()
+    await timescale_client.connect()
+    set_timescale_client(timescale_client)
+    logger.info("timescale_connected")
     
     # Iniciar broadcaster de streams - DESACTIVADO: Ahora usamos servidor WebSocket dedicado
     # stream_broadcaster_task = asyncio.create_task(broadcast_streams())
@@ -106,6 +108,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Registrar routers
+app.include_router(user_prefs_router)
 
 
 # ============================================================================

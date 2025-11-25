@@ -4,14 +4,16 @@
  * Aplica las preferencias de usuario (colores, fuentes) como CSS variables
  * Se actualiza automáticamente cuando cambian las preferencias
  * 
- * IMPORTANTE: Hidrata el store de Zustand y aplica estilos solo en cliente
- * para evitar errores de SSR/CSR mismatch
+ * IMPORTANTE: 
+ * - Hidrata el store de Zustand y aplica estilos solo en cliente
+ * - Sincroniza preferencias con el backend (PostgreSQL) via Clerk
  */
 
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
+import { useClerkSync } from '@/hooks/useClerkSync';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -21,6 +23,12 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const [hydrated, setHydrated] = useState(false);
   const colors = useUserPreferencesStore((state) => state.colors);
   const theme = useUserPreferencesStore((state) => state.theme);
+
+  // Sincronización con backend (PostgreSQL)
+  // Este hook se encarga de:
+  // - Cargar preferencias del servidor al login
+  // - Guardar cambios automáticamente (debounced)
+  useClerkSync();
 
   // Hidratar el store de Zustand en el cliente
   useEffect(() => {
