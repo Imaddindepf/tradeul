@@ -141,17 +141,6 @@ table th {
   background: #3b82f6;
 }
 
-/* Efectos hover para filas */
-@keyframes row-highlight {
-  0% {
-    background-color: transparent;
-  }
-
-  100% {
-    background-color: rgba(248, 250, 252, 1);
-  }
-}
-
 /* Estilos para handles de resize */
 .resize-handle {
   position: absolute;
@@ -334,19 +323,6 @@ th {
 /* Smooth scroll para toda la app */
 * {
   scroll-behavior: smooth;
-}
-
-/* Animación de pulso suave para indicadores en vivo */
-@keyframes pulse-soft {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.6;
-  }
 }
 
 /* Command Palette (cmdk) Styles */
