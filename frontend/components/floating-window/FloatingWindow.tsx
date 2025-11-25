@@ -81,6 +81,8 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     <FloatingWindowBase
       dragHandleClassName="window-title-bar"
       initialSize={{ width: window.width, height: window.height }}
+      initialPosition={{ x: window.x, y: window.y }}
+      initialZIndex={window.zIndex}
       minWidth={window.minWidth || 400}
       minHeight={window.minHeight || 300}
       maxWidth={window.maxWidth || 1600}

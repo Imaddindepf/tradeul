@@ -7,6 +7,7 @@ export interface FloatingWindowBaseProps {
   children: ReactNode;
   dragHandleClassName?: string;
   initialSize?: { width: number; height: number };
+  initialPosition?: { x: number; y: number };
   minWidth?: number;
   minHeight?: number;
   maxWidth?: number;
@@ -31,6 +32,7 @@ function FloatingWindowBaseComponent({
   children,
   dragHandleClassName = 'window-drag-handle',
   initialSize = { width: 800, height: 600 },
+  initialPosition,
   minWidth = 400,
   minHeight = 300,
   maxWidth = 1600,
@@ -44,8 +46,11 @@ function FloatingWindowBaseComponent({
   onSizeChange,
   onPositionChange,
 }: FloatingWindowBaseProps) {
-  // Posición inicial segura que respeta los límites del navbar (sin sidebar ahora)
+  // Posición inicial segura que respeta los límites del navbar
   const getInitialPosition = () => {
+    if (initialPosition) {
+      return initialPosition;
+    }
     const navbarHeight = 64; // h-16
     const minY = navbarHeight + 20; // 84px - LÍMITE: debajo del navbar
     const minX = 20; // Margen desde el borde izquierdo
@@ -61,7 +66,15 @@ function FloatingWindowBaseComponent({
   const [zIndex, setZIndex] = useState(initialZIndex ?? Z_INDEX.FLOATING_TABLES_BASE);
   const [isFocused, setIsFocused] = useState(false);
 
-  // Establecer z-index solo en el cliente para evitar mismatch SSR
+  // Sincronizar zIndex cuando cambia desde el contexto (ej: al llamar openWindow de nuevo)
+  useEffect(() => {
+    if (initialZIndex !== undefined && initialZIndex !== zIndex) {
+      setZIndex(initialZIndex);
+      setIsFocused(true); // También activar foco visual
+    }
+  }, [initialZIndex]);
+
+  // Establecer z-index solo en el cliente para evitar mismatch SSR (primera vez)
   useEffect(() => {
     if (initialZIndex === undefined && zIndex === Z_INDEX.FLOATING_TABLES_BASE) {
       const newZ = floatingZIndexManager.getNext();
@@ -74,15 +87,13 @@ function FloatingWindowBaseComponent({
   const isResizingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Traer al frente - memoizado
+  // Traer al frente - SIEMPRE actualiza z-index cuando se hace click
   const bringToFront = useCallback(() => {
-    if (initialZIndex === undefined) {
-      const newZ = floatingZIndexManager.getNext();
-      setZIndex(newZ);
-      onZIndexChange?.(newZ);
-    }
+    const newZ = floatingZIndexManager.getNext();
+    setZIndex(newZ);
+    onZIndexChange?.(newZ);
     setIsFocused(true);
-  }, [initialZIndex, onZIndexChange]);
+  }, [onZIndexChange]);
 
   // Detectar clicks fuera para quitar foco (solo si no está dragging/resizing)
   useEffect(() => {
@@ -190,6 +201,20 @@ function FloatingWindowBaseComponent({
     document.addEventListener('mouseup', handleMouseUp);
   }, [size.width, size.height, minWidth, minHeight, maxWidth, maxHeight, bringToFront, onSizeChange]);
 
+  // Capturar click en fase de captura para traer al frente SIEMPRE
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const handleCapture = () => {
+      bringToFront();
+    };
+    
+    // Usar capture: true para ejecutar ANTES que cualquier hijo
+    container.addEventListener('mousedown', handleCapture, { capture: true });
+    return () => container.removeEventListener('mousedown', handleCapture, { capture: true });
+  }, [bringToFront]);
+
   return (
     <div
       ref={containerRef}
@@ -203,10 +228,7 @@ function FloatingWindowBaseComponent({
       }}
       className={`rounded-lg shadow-2xl border-4 transition-shadow flex flex-col ${isFocused ? focusedBorderColor + ' shadow-blue-500/50' : 'border-slate-200'
         } ${className}`}
-      onMouseDown={(e) => {
-        handleDragStart(e);
-        bringToFront();
-      }}
+      onMouseDown={handleDragStart}
     >
       {/* Contenido */}
       <div className="h-full w-full overflow-hidden flex flex-col">

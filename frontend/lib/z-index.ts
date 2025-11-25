@@ -42,36 +42,29 @@ export const Z_INDEX = {
   DROPDOWN: 35,
   
   // ============================================================================
-  // CAPA 2: TABLAS FLOTANTES (z-100 a z-4999)
+  // CAPA 2: TODAS LAS VENTANAS FLOTANTES (z-100 a z-8499)
   // ============================================================================
   /** 
-   * Inicio para tablas flotantes del scanner
-   * - Todas las tablas compiten por foco
-   * - Se apilan dinámicamente
+   * Rango unificado para TODAS las ventanas flotantes:
+   * - Tablas del scanner
+   * - Settings, Dilution Tracker, SEC Filings
+   * - Cualquier otra ventana
+   * 
+   * TODAS compiten en la misma jerarquía, sin privilegios.
+   * Click = traer al frente.
    */
   FLOATING_TABLES_BASE: 100,
-  FLOATING_TABLES_MAX: 4999,
+  FLOATING_TABLES_MAX: 8499,
   
-  // ============================================================================
-  // CAPA 3: MODALES (z-5000 a z-8999)
-  // ============================================================================
-  /** 
-   * Inicio para MODALES (ventanas de información):
-   * - Modal de metadata del ticker
-   * - Dilution Tracker
-   * - Cualquier otra ventana modal
-   * 
-   * Los modales están SIEMPRE por encima de las tablas
-   * pero por DEBAJO del navbar
-   */
-  MODAL_BASE: 5000,
-  MODAL_MAX: 8999,
-  
-  // Aliases para compatibilidad con código existente
-  FLOATING_CONTENT_BASE: 100, // Apunta a tablas por defecto
-  FLOATING_WINDOW_BASE: 5000, // Ventanas flotantes = modales
-  FLOATING_CONTENT_MAX: 4999,
+  // Aliases para compatibilidad
+  FLOATING_CONTENT_BASE: 100,
+  FLOATING_WINDOW_BASE: 100,
+  FLOATING_CONTENT_MAX: 8499,
   FLOATING_WINDOW_MANAGER: 899,
+  
+  // Modal solo para ticker metadata (popup sobre todo)
+  MODAL_BASE: 8500,
+  MODAL_MAX: 8999,
   
   /** Alias para modales genéricos (dropdowns de navbar, settings, etc) */
   MODAL: 9500,
@@ -112,12 +105,13 @@ class FloatingContentZIndexManager {
   private currentMaxZ: number = Z_INDEX.FLOATING_TABLES_BASE;
   
   /**
-   * Obtiene un nuevo z-index para tablas flotantes
+   * Obtiene un nuevo z-index para CUALQUIER ventana flotante
+   * Todas las ventanas (scanner, settings, DT, SEC) compiten igual
    */
   getNext(): number {
     this.currentMaxZ += 1;
     
-    // Si llegamos al máximo de tablas, reiniciamos
+    // Si llegamos al máximo, reiniciamos
     if (this.currentMaxZ >= Z_INDEX.FLOATING_TABLES_MAX) {
       this.currentMaxZ = Z_INDEX.FLOATING_TABLES_BASE + 1;
     }
@@ -126,10 +120,10 @@ class FloatingContentZIndexManager {
   }
   
   /**
-   * Obtiene un nuevo z-index para modales (siempre por encima de tablas)
+   * Obtiene un nuevo z-index para modales especiales (ticker metadata popup)
+   * Estos SÍ van por encima de todo porque son popups informativos temporales
    */
   getNextModal(): number {
-    // Los modales usan un rango separado y más alto
     const modalZ = Z_INDEX.MODAL_BASE + Math.floor(Math.random() * 100);
     return Math.min(modalZ, Z_INDEX.MODAL_MAX);
   }

@@ -260,7 +260,10 @@ export default function ScannerPage() {
           {/* Center: Pinned Commands (Favoritos del usuario) */}
           <div className="flex items-center px-4">
             <PinnedCommands 
-              onCommandClick={handlePinnedCommandClick}
+              onOpenCommandPalette={(value) => {
+                setCommandInput(value);
+                setCommandPaletteOpen(true);
+              }}
             />
           </div>
 

@@ -62,3 +62,4 @@ echo -e "${GREEN}✅ Rollback completado!${NC}"
 echo "El sistema debería estar funcionando con el código original."
 echo ""
 
+

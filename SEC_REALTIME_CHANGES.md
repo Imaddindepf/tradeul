@@ -277,3 +277,4 @@ Polygon WS → Redis (stream:realtime:aggregates) → websocket_server → Front
 Creado: $(date)
 Estado: 🧪 TESTING - NO EN PRODUCCIÓN
 
+

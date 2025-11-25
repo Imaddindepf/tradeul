@@ -39,15 +39,16 @@ interface MarketStatusPopoverProps {
 }
 
 export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
-  const [currentTime, setCurrentTime] = useState<Date>(new Date());
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [showPopover, setShowPopover] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, right: 0 });
   const triggerRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
 
-  // Montar el componente
+  // Montar el componente e inicializar la hora solo en cliente
   useEffect(() => {
     setMounted(true);
+    setCurrentTime(new Date());
   }, []);
 
   // Actualizar hora cada segundo
@@ -199,10 +200,10 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
         <Clock className="h-4 w-4 text-slate-600" />
         <div className="flex flex-col">
           <span className="text-sm font-mono font-bold text-slate-900 leading-none">
-            {formatTime(currentTime)}
+            {currentTime ? formatTime(currentTime) : '--:--:--'}
           </span>
           <span className="text-xs text-slate-500 leading-none mt-0.5">
-            {formatDate(currentTime)}
+            {currentTime ? formatDate(currentTime) : '---'}
           </span>
         </div>
       </div>

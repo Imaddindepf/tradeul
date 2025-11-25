@@ -240,6 +240,8 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         columnVisibility: state.columnVisibility,
         columnOrder: state.columnOrder,
       }),
+      // Evitar hidratación automática para prevenir errores SSR/CSR mismatch
+      skipHydration: true,
     }
   )
 );
@@ -253,27 +255,4 @@ export const selectTheme = (state: UserPreferencesState) => state.theme;
 export const selectFont = (state: UserPreferencesState) => state.theme.font;
 export const selectWindowLayouts = (state: UserPreferencesState) => state.windowLayouts;
 
-// ============================================================================
-// HOOKS
-// ============================================================================
-
-/**
- * Hook para obtener los colores con CSS variables aplicadas
- */
-export function useApplyTheme() {
-  const colors = useUserPreferencesStore(selectColors);
-  const theme = useUserPreferencesStore(selectTheme);
-
-  // Aplicar CSS variables al document
-  if (typeof window !== 'undefined') {
-    const root = document.documentElement;
-    root.style.setProperty('--color-tick-up', colors.tickUp);
-    root.style.setProperty('--color-tick-down', colors.tickDown);
-    root.style.setProperty('--color-background', colors.background);
-    root.style.setProperty('--color-primary', colors.primary);
-    root.style.setProperty('--font-family', `var(--font-${theme.font})`);
-  }
-
-  return { colors, theme };
-}
 

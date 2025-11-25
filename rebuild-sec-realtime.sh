@@ -59,3 +59,4 @@ echo "   SEC Filings: '📡 Starting SEC Stream API WebSocket...'"
 echo "   WebSocket: '📋 Starting SEC Filings stream processor'"
 echo ""
 
+

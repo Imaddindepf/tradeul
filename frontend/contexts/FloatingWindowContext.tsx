@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
 import { floatingZIndexManager } from '@/lib/z-index';
 
 export interface FloatingWindow {
@@ -39,15 +39,38 @@ let windowIdCounter = 0;
 export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<FloatingWindow[]>([]);
 
+  // Usar ref para acceder al estado actual en callbacks
+  const windowsRef = useRef<FloatingWindow[]>([]);
+  windowsRef.current = windows;
+
   const getMaxZIndex = useCallback(() => {
     return floatingZIndexManager.getCurrent();
   }, []);
 
-  const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => {
-    const id = `window-${++windowIdCounter}`;
+  const bringToFront = useCallback((id: string) => {
+    // Todas las ventanas compiten en la misma jerarquía
+    const zIndex = floatingZIndexManager.getNext();
+    setWindows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, zIndex, isMinimized: false } : w))
+    );
+  }, []);
 
-    // Usar el mismo sistema de z-index que las tablas del scanner
-    // para que todas las ventanas compitan en la misma jerarquía
+  const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => {
+    // Usar ref para ver el estado actual (no el del momento de crear el callback)
+    const currentWindows = windowsRef.current;
+    const existingWindow = currentWindows.find((w) => w.title === config.title);
+
+    if (existingWindow) {
+      // Si existe, traerla al frente y restaurarla
+      const zIndex = floatingZIndexManager.getNext();
+      setWindows((prev) =>
+        prev.map((w) => (w.id === existingWindow.id ? { ...w, zIndex, isMinimized: false } : w))
+      );
+      return existingWindow.id;
+    }
+
+    // Si no existe, crear una nueva
+    const id = `window-${++windowIdCounter}`;
     const zIndex = floatingZIndexManager.getNext();
 
     const newWindow: FloatingWindow = {
@@ -72,23 +95,23 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const bringToFront = useCallback((id: string) => {
-    // Usar el mismo sistema de z-index que las tablas
-    const zIndex = floatingZIndexManager.getNext();
-    updateWindow(id, { zIndex });
-  }, [updateWindow]);
-
   const minimizeWindow = useCallback((id: string) => {
-    updateWindow(id, { isMinimized: true, isMaximized: false });
-  }, [updateWindow]);
+    setWindows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, isMinimized: true, isMaximized: false } : w))
+    );
+  }, []);
 
   const maximizeWindow = useCallback((id: string) => {
-    updateWindow(id, { isMaximized: true, isMinimized: false });
-  }, [updateWindow]);
+    setWindows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, isMaximized: true, isMinimized: false } : w))
+    );
+  }, []);
 
   const restoreWindow = useCallback((id: string) => {
-    updateWindow(id, { isMinimized: false, isMaximized: false });
-  }, [updateWindow]);
+    setWindows((prev) =>
+      prev.map((w) => (w.id === id ? { ...w, isMinimized: false, isMaximized: false } : w))
+    );
+  }, []);
 
   return (
     <FloatingWindowContext.Provider
@@ -116,4 +139,3 @@ export function useFloatingWindow() {
   }
   return context;
 }
-

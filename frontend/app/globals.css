@@ -84,7 +84,7 @@ table th {
   --color-tick-down: #ef4444;
   --color-background: #ffffff;
   --color-primary: #3b82f6;
-  
+
   /* Default font - overridden by ThemeProvider */
   --font-mono-selected: var(--font-jetbrains-mono);
 }
@@ -110,7 +110,7 @@ table th {
   color: var(--color-tick-up) !important;
 }
 
-/* Tick DOWN - Color configurable */  
+/* Tick DOWN - Color configurable */
 .price-cell[data-tick="down"] {
   color: var(--color-tick-down) !important;
 }

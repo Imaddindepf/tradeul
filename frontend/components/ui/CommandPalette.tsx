@@ -20,10 +20,7 @@ import {
     FileText,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
-import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
-import { SettingsContent } from '@/components/settings/SettingsContent';
-import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
+import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 
 interface CommandPaletteProps {
     open: boolean;
@@ -71,14 +68,14 @@ const SCANNER_COMMANDS: CommandItem[] = [
 export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCategories = [], searchValue = '', onSearchChange }: CommandPaletteProps) {
     const search = searchValue.toLowerCase().trim();
     const setSearch = onSearchChange || (() => { });
-    const { openWindow } = useFloatingWindow();
+    const { executeCommand } = useCommandExecutor();
     const preventCloseRef = useRef(false);
-    
+
     // Detectar qué comandos mostrar basado en el texto escrito
     const hasScPrefix = search.startsWith('sc');
     const hasDtPrefix = search.startsWith('dt');
     const isEmpty = search === '';
-    
+
     // Determinar qué comandos mostrar
     const showMainCommands = isEmpty || (!hasScPrefix && !hasDtPrefix);
     const showScannerCommands = hasScPrefix;
@@ -104,58 +101,9 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             return;
         }
 
-        // DT ejecuta directamente Dilution Tracker
-        if (value === 'dt') {
-            const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-            const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-            openWindow({
-                title: 'Dilution Tracker',
-                content: <DilutionTrackerContent />,
-                width: 700,
-                height: 600,
-                x: screenWidth / 2 - 350,
-                y: screenHeight / 2 - 300,
-                minWidth: 500,
-                minHeight: 400,
-            });
-            setSearch('');
-            onOpenChange(false);
-            return;
-        }
-
-        // Settings ejecuta directamente Settings
-        if (value === 'settings') {
-            const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-            const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-            openWindow({
-                title: 'Settings',
-                content: <SettingsContent />,
-                width: 900,
-                height: 750,
-                x: screenWidth / 2 - 450,
-                y: screenHeight / 2 - 375,
-                minWidth: 700,
-                minHeight: 600,
-            });
-            setSearch('');
-            onOpenChange(false);
-            return;
-        }
-
-        // SEC ejecuta directamente SEC Filings
-        if (value === 'sec') {
-            const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-            const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-            openWindow({
-                title: 'SEC Filings',
-                content: <SECFilingsContent />,
-                width: 1000,
-                height: 700,
-                x: screenWidth / 2 - 500,
-                y: screenHeight / 2 - 350,
-                minWidth: 800,
-                minHeight: 500,
-            });
+        // Comandos que abren ventanas flotantes (DT, Settings, SEC)
+        if (['dt', 'settings', 'sec'].includes(value)) {
+            executeCommand(value);
             setSearch('');
             onOpenChange(false);
             return;
@@ -169,7 +117,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             setSearch('');
             onOpenChange(false);
         }
-    }, [onSelectCategory, onOpenChange, openWindow, setSearch]);
+    }, [onSelectCategory, onOpenChange, executeCommand, setSearch]);
 
     // Cerrar al hacer clic fuera
     useEffect(() => {
@@ -180,7 +128,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             if (preventCloseRef.current) {
                 return;
             }
-            
+
             const target = e.target as HTMLElement;
             // No cerrar si se hace clic en el input del navbar o en el command palette
             if (!target.closest('[cmdk-root]') && !target.closest('input[type="text"]')) {
@@ -292,24 +240,24 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         {showMainCommands && (
                             <Command.Group>
                                 {MAIN_COMMANDS.map((cmd) => {
-                                return (
-                                    <Command.Item
-                                        key={cmd.id}
+                                    return (
+                                        <Command.Item
+                                            key={cmd.id}
                                             value={cmd.id}
                                             keywords={[cmd.label, cmd.description, cmd.id]}
-                                        onSelect={() => handleSelect(cmd.id)}
+                                            onSelect={() => handleSelect(cmd.id)}
                                             className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
                                                        hover:bg-slate-100 data-[selected=true]:bg-slate-100
                                                        transition-colors"
-                                    >
+                                        >
                                             <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmd.label}
                                             </span>
                                             <span className="text-xs text-slate-600">{cmd.description}</span>
-                                    </Command.Item>
-                                );
-                            })}
-                        </Command.Group>
+                                        </Command.Item>
+                                    );
+                                })}
+                            </Command.Group>
                         )}
 
                         {/* COMANDOS DEL SCANNER (prefijo SC) */}
@@ -319,24 +267,24 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                     // Extraer solo el nombre sin el prefijo "SC "
                                     const cmdName = cmd.label.replace('SC ', '');
 
-                                return (
-                                    <Command.Item
-                                        key={cmd.id}
+                                    return (
+                                        <Command.Item
+                                            key={cmd.id}
                                             value={cmd.id}
                                             keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
-                                        onSelect={() => handleSelect(cmd.id)}
+                                            onSelect={() => handleSelect(cmd.id)}
                                             className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
                                                        hover:bg-slate-100 data-[selected=true]:bg-slate-100
                                                        transition-colors"
-                                    >
+                                        >
                                             <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmdName}
                                             </span>
                                             <span className="text-xs text-slate-600">{cmd.description}</span>
-                                    </Command.Item>
-                                );
-                            })}
-                        </Command.Group>
+                                        </Command.Item>
+                                    );
+                                })}
+                            </Command.Group>
                         )}
                     </Command.List>
 

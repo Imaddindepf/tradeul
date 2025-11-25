@@ -1,15 +1,15 @@
 'use client';
 
-import { Pin, Settings } from 'lucide-react';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { Pin } from 'lucide-react';
 import { usePinnedCommands } from '@/hooks/usePinnedCommands';
-import { SettingsContent } from '@/components/settings/SettingsContent';
+import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 
 interface PinnedCommandsProps {
-  onCommandClick?: (commandId: string) => void;
+  /** Callback para abrir CommandPalette con un valor inicial (para SC) */
+  onOpenCommandPalette?: (initialValue: string) => void;
 }
 
-// Mapeo de IDs a labels (solo comandos principales)
+// Mapeo de IDs a labels
 const COMMAND_LABELS: Record<string, string> = {
   'sc': 'SC',
   'dt': 'DT',
@@ -17,52 +17,47 @@ const COMMAND_LABELS: Record<string, string> = {
   'settings': 'SET',
 };
 
-export function PinnedCommands({ onCommandClick }: PinnedCommandsProps) {
-  const { openWindow } = useFloatingWindow();
+export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
   const { pinnedCommands, loaded } = usePinnedCommands();
+  const { executeCommand } = useCommandExecutor();
 
-  const handleOpenSettings = () => {
-    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-    const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+  const handleClick = (cmdId: string) => {
+    // SC es especial - abre el CommandPalette con "SC " pre-llenado
+    if (cmdId === 'sc') {
+      onOpenCommandPalette?.('SC ');
+      return;
+    }
     
-    openWindow({
-      title: 'Settings',
-      content: <SettingsContent />,
-      width: 900,
-      height: 750,
-      x: screenWidth / 2 - 450,
-      y: screenHeight / 2 - 375,
-      minWidth: 700,
-      minHeight: 600,
-    });
+    // Los demás comandos se ejecutan directamente
+    executeCommand(cmdId);
   };
 
   if (!loaded) {
-    return null; // Evitar flash mientras carga
+    return null;
   }
 
   return (
     <div className="flex items-center gap-2">
-      {/* Pin Icon Button - Abre Settings */}
+      {/* Pin Icon - Abre Settings */}
       <button
-        onClick={handleOpenSettings}
+        onClick={() => executeCommand('settings')}
         className="p-2 rounded-lg hover:bg-blue-50 transition-colors group"
-        title="Configurar favoritos"
+        title="Settings"
       >
         <Pin className="w-5 h-5 text-blue-500 group-hover:text-blue-600 transition-colors" />
       </button>
 
-      {/* Pinned Commands (Favoritos configurados por el usuario) */}
+      {/* Pinned Commands */}
       {pinnedCommands.length > 0 ? (
         <div className="flex items-center gap-1.5">
           {pinnedCommands.slice(0, 6).map((cmdId) => (
             <button
               key={cmdId}
-              onClick={() => onCommandClick?.(cmdId)}
+              onClick={() => handleClick(cmdId)}
               className="px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white 
                        rounded-md hover:bg-blue-600 transition-colors
                        shadow-sm hover:shadow-md"
-              title={`Abrir/cerrar ${COMMAND_LABELS[cmdId] || cmdId}`}
+              title={COMMAND_LABELS[cmdId] || cmdId}
             >
               {COMMAND_LABELS[cmdId] || cmdId}
             </button>
@@ -80,4 +75,3 @@ export function PinnedCommands({ onCommandClick }: PinnedCommandsProps) {
     </div>
   );
 }
-

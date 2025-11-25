@@ -5,6 +5,7 @@ import { ReactNode, useState, useRef, useEffect } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { User, Settings, LogOut } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
+import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 
 interface NavbarProps {
   children?: ReactNode;
@@ -24,7 +25,7 @@ export function Navbar({ children }: NavbarProps) {
   return (
     <nav
       className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 shadow-sm"
-      style={{ 
+      style={{
         zIndex: Z_INDEX.NAVBAR,
       }}
     >
@@ -56,6 +57,7 @@ export function UserMenu() {
   const menuRef = useRef<HTMLDivElement>(null);
   const { signOut } = useClerk();
   const { user } = useUser();
+  const { executeCommand } = useCommandExecutor();
 
   // Cerrar al hacer click fuera
   useEffect(() => {
@@ -85,9 +87,9 @@ export function UserMenu() {
         className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg"
       >
         {user?.imageUrl ? (
-          <img 
-            src={user.imageUrl} 
-            alt="Avatar" 
+          <img
+            src={user.imageUrl}
+            alt="Avatar"
             className="w-9 h-9 rounded-full object-cover"
           />
         ) : (
@@ -97,7 +99,7 @@ export function UserMenu() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div 
+        <div
           className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 overflow-hidden"
           style={{ zIndex: Z_INDEX.MODAL }}
         >
@@ -129,14 +131,12 @@ export function UserMenu() {
             <button
               onClick={() => {
                 setIsOpen(false);
-                // TODO: Implementar Settings
+                executeCommand('settings');
               }}
-              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 opacity-50 cursor-not-allowed"
-              disabled
+              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors"
             >
               <Settings className="w-4 h-4" />
               <span>Settings</span>
-              <span className="ml-auto text-xs text-slate-400">Próximamente</span>
             </button>
           </div>
 
