@@ -73,6 +73,9 @@ export const Z_INDEX = {
   FLOATING_CONTENT_MAX: 4999,
   FLOATING_WINDOW_MANAGER: 899,
   
+  /** Alias para modales genéricos (dropdowns de navbar, settings, etc) */
+  MODAL: 9500,
+  
   // ============================================================================
   // CAPA 4: POPOVERS DEL NAVBAR (z-9000)
   // ============================================================================

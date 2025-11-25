@@ -75,34 +75,54 @@ table th {
 }
 
 /* ============================================================================
+   CSS VARIABLES (User Customizable via Settings)
+   ============================================================================ */
+
+:root {
+  /* Default colors - overridden by ThemeProvider */
+  --color-tick-up: #10b981;
+  --color-tick-down: #ef4444;
+  --color-background: #ffffff;
+  --color-primary: #3b82f6;
+  
+  /* Default font - overridden by ThemeProvider */
+  --font-mono-selected: var(--font-jetbrains-mono);
+}
+
+/* ============================================================================
    PRICE TICK INDICATOR (Professional Trading Terminal Style)
    
    Como Bloomberg/Reuters/TradingView:
    - Solo cambia el COLOR del texto
    - Sin fondos, sin transformaciones
    - Ultra-eficiente (CSS transitions)
+   - Colores configurables por usuario
    ============================================================================ */
 
 /* Celda de precio con transición suave */
 .price-cell {
   transition: color 150ms ease-out;
+  font-family: var(--font-mono-selected), monospace;
 }
 
-/* Tick UP - Verde brillante */
+/* Tick UP - Color configurable */
 .price-cell[data-tick="up"] {
-  color: #10b981 !important;
-  /* emerald-500 */
+  color: var(--color-tick-up) !important;
 }
 
-/* Tick DOWN - Rojo brillante */
+/* Tick DOWN - Color configurable */  
 .price-cell[data-tick="down"] {
-  color: #ef4444 !important;
-  /* red-500 */
+  color: var(--color-tick-down) !important;
 }
 
 /* Estado neutral (sin tick reciente) */
 .price-cell[data-tick="neutral"] {
   color: inherit;
+}
+
+/* Aplicar fuente mono seleccionada a todas las celdas de datos */
+.font-mono {
+  font-family: var(--font-mono-selected), monospace !important;
 }
 
 /* Estilos para tablas redimensionables */
