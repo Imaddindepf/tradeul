@@ -23,7 +23,8 @@ import {
   createColumnHelper,
 } from '@tanstack/react-table';
 import type { SortingState, ColumnResizeMode, Row } from '@tanstack/react-table';
-import { formatNumber, formatPercent, formatPrice, formatRVOL } from '@/lib/formatters';
+import { formatNumber, formatPercent, formatRVOL } from '@/lib/formatters';
+import { PriceCell } from './PriceCell';
 import type { Ticker } from '@/lib/types';
 import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
@@ -74,7 +75,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
   const [isReady, setIsReady] = useState(false);
 
-  // Animaciones (local state)
+  // Animaciones (local state) - Solo para ranking changes, no precio
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
 
@@ -127,6 +128,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       applyDeltas(listName, delta.deltas, delta.sequence);
 
       // Trigger animations for added/reranked tickers
+      // Tiempos optimizados: ligeramente > duración CSS
       delta.deltas.forEach((d: any) => {
         if (d.action === 'add') {
           setNewTickers((prev) => new Set(prev).add(d.symbol));
@@ -136,7 +138,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               updated.delete(d.symbol);
               return updated;
             });
-          }, 3000);
+          }, 850); // CSS: 800ms
         } else if (d.action === 'rerank') {
           const direction = d.new_rank < d.old_rank ? 'up' : 'down';
           setRowChanges((prev) => new Map(prev).set(d.symbol, direction));
@@ -146,7 +148,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               updated.delete(d.symbol);
               return updated;
             });
-          }, 1200);
+          }, 450); // CSS: 400ms
         }
       });
     },
@@ -193,6 +195,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     });
 
     // Subscribe to batched aggregates
+    // Nota: El tick indicator se maneja en PriceCell de forma aislada
     const aggregateSub = ws.aggregates$.subscribe((batch: any) => {
       if (batch.type === 'aggregates_batch' && batch.data instanceof Map) {
         updateAggregates(batch.data);
@@ -271,10 +274,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         enableHiding: true,
         cell: (info) => {
           const price = info.getValue();
+          const symbol = info.row.original.symbol;
           return (
-            <div className="font-mono font-semibold px-1 py-0.5 rounded text-slate-900">
-              {formatPrice(price)}
-            </div>
+            <PriceCell price={price} symbol={symbol} />
           );
         },
       }),
@@ -439,7 +441,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         }
       ),
     ],
-    []
+    [] // Sin dependencias - columnas son estáticas, PriceCell maneja su propio estado
   );
 
   // TanStack Table instance

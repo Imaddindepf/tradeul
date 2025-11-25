@@ -23,6 +23,8 @@ from models import (
 from utils.database import db_client
 from tasks.stream_client import stream_client
 from tasks.query_client import query_client
+from tasks.sec_stream_manager import SECStreamManager
+import redis.asyncio as aioredis
 
 
 # =====================================================
@@ -43,13 +45,48 @@ async def lifespan(app: FastAPI):
     # Conectar clientes
     await query_client.connect()
     
-    # Iniciar Stream API si está habilitado
-    stream_task = None
-    if settings.STREAM_ENABLED and settings.SEC_API_IO:
-        print("📡 Starting Stream API client...")
-        stream_task = asyncio.create_task(stream_client.run())
+    # Conectar a Redis para SEC Stream Manager
+    redis_client = None
+    sec_stream_manager = None
+    sec_stream_task = None
+    
+    if settings.SEC_API_IO:
+        try:
+            # Construir Redis URL
+            if settings.REDIS_PASSWORD:
+                redis_url = f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+            else:
+                redis_url = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+            
+            redis_client = await aioredis.from_url(
+                redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=10
+            )
+            await redis_client.ping()
+            print("✅ Connected to Redis for SEC Stream")
+            
+            # Crear e iniciar SEC Stream Manager
+            if settings.STREAM_ENABLED:
+                print("📡 Starting SEC Stream API WebSocket...")
+                sec_stream_manager = SECStreamManager(
+                    sec_api_key=settings.SEC_API_IO,
+                    redis_client=redis_client,
+                    stream_url=settings.SEC_STREAM_URL
+                )
+                sec_stream_task = asyncio.create_task(sec_stream_manager.start())
+                print("✅ SEC Stream Manager started")
+        except Exception as e:
+            print(f"⚠️ Failed to start SEC Stream Manager: {e}")
     else:
-        print("⚠️ Stream API disabled (no API key or disabled in config)")
+        print("⚠️ SEC Stream API disabled (no API key)")
+    
+    # Iniciar Stream API legacy si está habilitado (mantener por compatibilidad)
+    stream_task = None
+    # if settings.STREAM_ENABLED and settings.SEC_API_IO:
+    #     print("📡 Starting Stream API client (legacy)...")
+    #     stream_task = asyncio.create_task(stream_client.run())
     
     # Hacer backfill inicial si está habilitado
     if settings.BACKFILL_ENABLED and settings.SEC_API_IO:
@@ -65,7 +102,21 @@ async def lifespan(app: FastAPI):
     # Shutdown
     print("🛑 Shutting down SEC Filings Service...")
     
-    # Detener Stream API
+    # Detener SEC Stream Manager
+    if sec_stream_manager:
+        await sec_stream_manager.stop()
+        if sec_stream_task:
+            sec_stream_task.cancel()
+            try:
+                await sec_stream_task
+            except asyncio.CancelledError:
+                pass
+    
+    # Cerrar Redis
+    if redis_client:
+        await redis_client.close()
+    
+    # Detener Stream API legacy
     if stream_task:
         await stream_client.disconnect()
         stream_task.cancel()

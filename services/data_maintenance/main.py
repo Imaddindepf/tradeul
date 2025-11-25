@@ -38,20 +38,29 @@ from shared.utils.logger import get_logger
 from maintenance_scheduler import MaintenanceScheduler
 from task_orchestrator import TaskOrchestrator
 from realtime_ticker_monitor import RealtimeTickerMonitor
+from maintenance_logger import setup_maintenance_logger
+from cache_clear_scheduler import CacheClearScheduler
 
-# Logger
+# Setup enhanced logger with file rotation
+try:
+    logger = setup_maintenance_logger()
+    logger.info("Enhanced logging with file rotation enabled", log_dir="/var/log/tradeul")
+except Exception as e:
+    # Fallback to standard logger
 logger = get_logger(__name__)
+    logger.warning("Failed to setup file logging, using console only", error=str(e))
 
 # Global instances
 redis_client: RedisClient = None
 timescale_client: TimescaleClient = None
 scheduler: MaintenanceScheduler = None
+cache_clear_scheduler: CacheClearScheduler = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida del servicio"""
-    global redis_client, timescale_client, scheduler
+    global redis_client, timescale_client, scheduler, cache_clear_scheduler
     
     logger.info("🚀 Starting Data Maintenance Service")
     
@@ -90,9 +99,14 @@ async def lifespan(app: FastAPI):
     realtime_monitor = RealtimeTickerMonitor(redis_client, timescale_client)
     monitor_task = asyncio.create_task(realtime_monitor.start())
     
+    # 🔥 Iniciar scheduler de limpieza de caches (3:00 AM EST)
+    cache_clear_scheduler = CacheClearScheduler(redis_client)
+    await cache_clear_scheduler.start()
+    
     logger.info("🔄 Maintenance scheduler started")
     logger.info(f"📅 Schedule: Daily maintenance after market close (post-market end: {settings.post_market_end})")
     logger.info("✅ Real-time ticker monitor started (checks every 5 min)")
+    logger.info("🔥 Cache clear scheduler started (triggers at 3:00 AM EST)")
     
     yield
     
@@ -104,6 +118,10 @@ async def lifespan(app: FastAPI):
             await monitor_task
         except asyncio.CancelledError:
             pass
+    
+    # Detener cache clear scheduler
+    if cache_clear_scheduler:
+        await cache_clear_scheduler.stop()
     
     # Cleanup
     logger.info("🛑 Shutting down Data Maintenance Service")
@@ -241,6 +259,8 @@ async def trigger_maintenance(request: Optional[TriggerRequest] = None):
             "status": "error",
             "error": str(e)
         }
+
+
 
 
 if __name__ == "__main__":

@@ -1074,24 +1074,63 @@ class ScannerEngine:
                                  'anomalies', 'reversals']
             
             category_symbols = set()
+            categories_read = {}
+            
             for category_name in all_category_names:
                 category_key = f"scanner:category:{category_name}"
                 try:
                     category_data = await self.redis.get(category_key, deserialize=True)
                     if category_data and isinstance(category_data, list):
+                        cat_tickers = []
                         for ticker in category_data:
                             if ticker.get('symbol'):
                                 category_symbols.add(ticker['symbol'])
-                except:
-                    pass
+                                cat_tickers.append(ticker['symbol'])
+                        categories_read[category_name] = len(cat_tickers)
+                except Exception as cat_error:
+                    logger.error(
+                        "error_reading_category_for_subscription",
+                        category=category_name,
+                        error=str(cat_error),
+                        error_type=type(cat_error).__name__
+                    )
+            
+            # Log detalle de lo que se leyó
+            logger.info(
+                "categories_read_for_subscription",
+                categories_with_data=list(categories_read.keys()),
+                category_counts=categories_read,
+                unique_symbols=len(category_symbols)
+            )
             
             current_symbols = category_symbols if category_symbols else {t.symbol for t in tickers[:500]}
+            
+            # Log para debug
+            if not category_symbols:
+                logger.warning(
+                    "category_symbols_empty_using_fallback",
+                    fallback_count=len(current_symbols)
+                )
             
             # 2. Detectar NUEVOS símbolos (entraron al ranking)
             new_symbols = current_symbols - self._previous_filtered_symbols
             
             # 3. Detectar símbolos REMOVIDOS (salieron del ranking)
             removed_symbols = self._previous_filtered_symbols - current_symbols
+            
+            # Debug: Log si hay removed symbols que todavía están en las categorías
+            if removed_symbols:
+                false_removals = []
+                for sym in removed_symbols:
+                    if sym in category_symbols:
+                        false_removals.append(sym)
+                
+                if false_removals:
+                    logger.error(
+                        "false_removal_detected",
+                        symbols=false_removals,
+                        message="Estos tickers están en categorías pero se marcaron como removed"
+                    )
             
             # 4. Publicar SUSCRIPCIONES para nuevos símbolos
             if new_symbols:

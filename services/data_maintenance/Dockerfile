@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
 # Directorio de trabajo
 WORKDIR /app
 
+# Crear directorio para logs
+RUN mkdir -p /var/log/tradeul && chmod 777 /var/log/tradeul
+
 # Copiar requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

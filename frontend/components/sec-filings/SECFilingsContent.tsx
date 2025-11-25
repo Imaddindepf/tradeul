@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
     Search,
     FileText,
@@ -10,6 +10,7 @@ import {
     X
 } from "lucide-react";
 import { TickerSearch } from '@/components/common/TickerSearch';
+import { useRxWebSocket } from '@/hooks/useRxWebSocket';
 
 type DocumentFile = {
     sequence: string;
@@ -40,7 +41,8 @@ type FilingsResponse = {
 };
 
 export function SECFilingsContent() {
-    const [filings, setFilings] = useState<SECFiling[]>([]);
+    const [historicalFilings, setHistoricalFilings] = useState<SECFiling[]>([]);
+    const [realtimeFilings, setRealtimeFilings] = useState<SECFiling[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -49,12 +51,18 @@ export function SECFilingsContent() {
     const [searchQuery, setSearchQuery] = useState("");
 
     const [formTypeFilter, setFormTypeFilter] = useState("");
-    const [startDate, setStartDate] = useState(""); // Vacío = sin filtro (muestra últimos)
+    const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [totalResults, setTotalResults] = useState(0);
     const [selectedFiling, setSelectedFiling] = useState<SECFiling | null>(null);
     const PAGE_SIZE = 100;
+
+    // WebSocket
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+    const ws = useRxWebSocket(wsUrl, false);
+    const seenAccessions = useRef<Set<string>>(new Set());
+    const realtimeAccessions = useRef<Set<string>>(new Set()); // Track cuáles son real-time
 
     const fetchFilings = async (page: number = 1, tickerOverride?: string) => {
         setLoading(true);
@@ -78,44 +86,142 @@ export function SECFilingsContent() {
             }
 
             const data: FilingsResponse = await response.json();
-            setFilings(data.filings);
+            setHistoricalFilings(data.filings);
             setTotalResults(data.total);
             setCurrentPage(page);
+
+            // Marcar como vistos para deduplicación
+            data.filings.forEach(f => seenAccessions.current.add(f.accessionNo));
         } catch (err) {
             console.error('Error fetching filings:', err);
             setError(err instanceof Error ? err.message : "Error al cargar filings");
-            setFilings([]);
+            setHistoricalFilings([]);
             setTotalResults(0);
         } finally {
             setLoading(false);
         }
     };
 
-    // Solo auto-buscar cuando cambian filtros (NO cuando escribes en el input)
+    // WebSocket: Real-time filings
+    useEffect(() => {
+        if (!ws.isConnected) return;
+
+        ws.send({ action: 'subscribe_sec_filings' });
+
+        const subscription = ws.messages$.subscribe((message: any) => {
+            if (message.type === 'sec_filing' && message.filing) {
+                const newFiling = message.filing;
+
+                if (!seenAccessions.current.has(newFiling.accessionNo)) {
+                    seenAccessions.current.add(newFiling.accessionNo);
+                    realtimeAccessions.current.add(newFiling.accessionNo); // Marcar como real-time
+                    setRealtimeFilings(prev => [newFiling, ...prev].slice(0, 50));
+                }
+            }
+        });
+
+        return () => {
+            subscription.unsubscribe();
+            ws.send({ action: 'unsubscribe_sec_filings' });
+        };
+    }, [ws.isConnected, ws.messages$, ws]);
+
+    // Auto-buscar cuando cambian filtros (o al inicio si todos están vacíos)
     useEffect(() => {
         setCurrentPage(1);
-        fetchFilings(1);
-    }, [formTypeFilter, startDate, endDate]);
+
+        // Si hay filtros activos, limpiar real-time filings para evitar mostrar datos viejos no filtrados
+        if (searchQuery || formTypeFilter || startDate || endDate) {
+            setRealtimeFilings([]);
+            seenAccessions.current.clear();
+            realtimeAccessions.current.clear();
+        }
+
+        fetchFilings(1, searchQuery);
+    }, [searchQuery, formTypeFilter, startDate, endDate]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        // Copiar inputValue a searchQuery y buscar inmediatamente
+        // Copiar inputValue a searchQuery
         setSearchQuery(inputValue);
         setCurrentPage(1);
-        fetchFilings(1, inputValue);
+
+        // Si hay ticker, buscar en backend (más resultados)
+        if (inputValue.trim()) {
+            fetchFilings(1, inputValue);
+        }
     };
 
     const clearFilters = () => {
         setInputValue("");
         setSearchQuery("");
         setFormTypeFilter("");
-        setStartDate(""); // Vacío = sin filtro de fecha (muestra últimos)
+        setStartDate("");
         setEndDate("");
         setCurrentPage(1);
-        // Limpiar resultados
-        setFilings([]);
-        setTotalResults(0);
+        seenAccessions.current.clear();
+        realtimeAccessions.current.clear();
+        setRealtimeFilings([]);
+        // El useEffect detectará el cambio y hará fetchFilings automáticamente
     };
+
+    // Determinar si hay filtros activos
+    const hasActiveFilters = searchQuery || formTypeFilter || startDate || endDate;
+
+    // Función para filtrar filings según los filtros activos
+    const filterFiling = (filing: SECFiling): boolean => {
+        // Filtro de ticker (manejar null correctamente)
+        if (searchQuery) {
+            const searchUpper = searchQuery.trim().toUpperCase();
+            if (!filing.ticker || filing.ticker.toUpperCase() !== searchUpper) {
+                return false;
+            }
+        }
+
+        // Filtro de form type
+        if (formTypeFilter) {
+            const formFilterUpper = formTypeFilter.trim().toUpperCase();
+            if (!filing.formType || !filing.formType.toUpperCase().includes(formFilterUpper)) {
+                return false;
+            }
+        }
+
+        // Filtro de fecha inicial
+        if (startDate) {
+            const filingDate = filing.filedAt.split('T')[0]; // YYYY-MM-DD
+            if (filingDate < startDate) {
+                return false;
+            }
+        }
+
+        // Filtro de fecha final
+        if (endDate) {
+            const filingDate = filing.filedAt.split('T')[0]; // YYYY-MM-DD
+            if (filingDate > endDate) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    // Merge de todos los filings (real-time + históricos)
+    const displayedFilings = useMemo(() => {
+        // Si hay filtros: Filtrar AMBOS (real-time + históricos) como capa defensiva
+        if (hasActiveFilters) {
+            const filteredRealtime = realtimeFilings.filter(filterFiling);
+            const filteredHistorical = historicalFilings.filter(filterFiling);
+
+            // Deduplicar: evitar que aparezcan filings que ya están en históricos
+            const historicalAccessions = new Set(filteredHistorical.map(f => f.accessionNo));
+            const uniqueRealtime = filteredRealtime.filter(f => !historicalAccessions.has(f.accessionNo));
+
+            return [...uniqueRealtime, ...filteredHistorical];
+        }
+
+        // Sin filtros: Real-time + históricos (sin filtrar)
+        return [...realtimeFilings, ...historicalFilings];
+    }, [realtimeFilings, historicalFilings, hasActiveFilters, searchQuery, formTypeFilter, startDate, endDate]);
 
     const formatDateTime = (isoString: string) => {
         // El string ya viene con timezone correcto de SEC (e.g. "2025-11-19T19:20:42-05:00")
@@ -281,8 +387,11 @@ export function SECFilingsContent() {
                     </button>
                 </form>
                 {!loading && !error && (
-                    <div className="text-xs text-slate-600 font-mono">
-                        {filings.length}
+                    <div className="text-xs text-slate-600 font-mono flex items-center gap-1">
+                        <span>{displayedFilings.length}</span>
+                        {realtimeFilings.length > 0 && (
+                            <span className="text-emerald-600">({realtimeFilings.length} live)</span>
+                        )}
                     </div>
                 )}
             </div>
@@ -325,7 +434,7 @@ export function SECFilingsContent() {
                                     <p className="text-slate-500 text-xs">Cargando...</p>
                                 </td>
                             </tr>
-                        ) : filings.length === 0 ? (
+                        ) : displayedFilings.length === 0 ? (
                             <tr>
                                 <td colSpan={5} className="px-2 py-6 text-center">
                                     <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
@@ -333,13 +442,15 @@ export function SECFilingsContent() {
                                 </td>
                             </tr>
                         ) : (
-                            filings.map((filing) => {
+                            displayedFilings.map((filing, index) => {
+                                // Es real-time solo si NO hay filtros activos y está en los primeros N
+                                const isRealtime = !hasActiveFilters && index < realtimeFilings.length;
                                 const { date, time } = formatDateTime(filing.filedAt);
                                 return (
                                     <tr
-                                        key={filing.id}
+                                        key={filing.accessionNo || filing.id}
                                         onClick={() => handleFilingClick(filing)}
-                                        className="hover:bg-blue-50 transition-colors cursor-pointer border-b border-slate-100"
+                                        className={`hover:bg-blue-50 transition-colors cursor-pointer border-b border-slate-100 ${isRealtime ? 'bg-emerald-50' : ''}`}
                                     >
                                         <td className="px-2 py-0.5 whitespace-nowrap">
                                             <span className={`font-mono font-semibold text-xs ${filing.ticker
@@ -434,8 +545,8 @@ export function SECFilingsContent() {
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                    <span>Live</span>
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${ws.isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
+                    <span className="text-[10px]">{ws.isConnected ? 'Live' : 'Offline'}</span>
                 </div>
             </div>
         </div>

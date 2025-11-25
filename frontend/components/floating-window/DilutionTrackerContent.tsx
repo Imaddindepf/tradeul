@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { 
-  TrendingUp, 
-  BarChart3, 
-  Building2, 
-  FileText, 
-  DollarSign, 
-  RefreshCw, 
-  AlertTriangle 
+import {
+  TrendingUp,
+  BarChart3,
+  Building2,
+  FileText,
+  DollarSign,
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react";
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { HoldersTable } from "@/app/(dashboard)/dilution-tracker/_components/HoldersTable";
@@ -24,7 +24,7 @@ type TabType = "overview" | "dilution" | "holders" | "filings" | "financials";
 
 export function DilutionTrackerContent() {
   const searchParams = useSearchParams();
-  
+
   // Estados separados: input vs ticker seleccionado
   const [inputValue, setInputValue] = useState("");
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
@@ -38,7 +38,7 @@ export function DilutionTrackerContent() {
   useEffect(() => {
     const tickerFromUrl = searchParams.get('ticker');
     const tabFromUrl = searchParams.get('tab') as TabType;
-    
+
     if (tickerFromUrl && !selectedTicker) {
       const ticker = tickerFromUrl.toUpperCase();
       setInputValue(ticker);
@@ -137,7 +137,7 @@ export function DilutionTrackerContent() {
             {/* Info Lines */}
             <div className="space-y-1 text-sm">
               <div className="text-slate-600">
-                <span className="font-medium">Sector:</span> {tickerData?.summary?.sector || "..."} 
+                <span className="font-medium">Sector:</span> {tickerData?.summary?.sector || "..."}
                 <span className="mx-2">•</span>
                 <span className="font-medium">Industry:</span> {tickerData?.summary?.industry || "..."}
                 {tickerData?.summary?.exchange && (
@@ -160,9 +160,8 @@ export function DilutionTrackerContent() {
             {/* Description */}
             {tickerData?.summary?.description && (
               <div className="mt-3 pt-3 border-t border-slate-200">
-                <p className={`text-sm text-slate-600 leading-relaxed ${
-                  !descriptionExpanded ? 'line-clamp-2' : ''
-                }`}>
+                <p className={`text-sm text-slate-600 leading-relaxed ${!descriptionExpanded ? 'line-clamp-2' : ''
+                  }`}>
                   {tickerData.summary.description}
                 </p>
                 <button
@@ -202,10 +201,9 @@ export function DilutionTrackerContent() {
                     className={`
                       px-4 py-2 flex items-center gap-2 text-sm font-medium
                       border-b-2 transition-colors
-                      ${
-                        activeTab === tab.id
-                          ? "border-blue-600 text-blue-600 bg-blue-50"
-                          : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                      ${activeTab === tab.id
+                        ? "border-blue-600 text-blue-600 bg-blue-50"
+                        : "border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50"
                       }
                     `}
                   >
@@ -222,8 +220,8 @@ export function DilutionTrackerContent() {
             {activeTab === "dilution" && (
               <div className="space-y-6">
                 <SECDilutionSection ticker={selectedTicker} />
-                <DilutionHistoryChart data={tickerData?.dilution_history || null} loading={loading} />
-                <CashRunwayChart data={tickerData?.cash_runway || null} loading={loading} />
+                <DilutionHistoryChart data={(tickerData?.dilution_history as any) || null} loading={loading} />
+                <CashRunwayChart data={(tickerData?.cash_runway as any) || null} loading={loading} />
               </div>
             )}
 

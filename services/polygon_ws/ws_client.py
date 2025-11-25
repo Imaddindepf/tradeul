@@ -249,7 +249,10 @@ class PolygonWebSocketClient:
     
     async def subscribe_to_tickers(self, tickers: Set[str], event_types: Set[str]):
         """
-        Suscribe a uno o más tickers
+        Suscribe a uno o más tickers con BATCHING
+        
+        IMPORTANTE: Polygon puede rechazar mensajes muy grandes (Code 1008).
+        Dividimos en batches de max 50 tickers por mensaje.
         
         Args:
             tickers: Set de símbolos (ej: {"AAPL", "TSLA"})
@@ -259,33 +262,51 @@ class PolygonWebSocketClient:
             logger.warning("not_authenticated_cannot_subscribe")
             return
         
-        # Construir mensaje de suscripción
-        # Formato: "T.AAPL,Q.AAPL,A.AAPL,T.TSLA,Q.TSLA,A.TSLA"
-        subscriptions = []
-        for ticker in tickers:
-            for event_type in event_types:
-                subscriptions.append(f"{event_type}.{ticker}")
+        tickers_list = list(tickers)
+        BATCH_SIZE = 50  # Max tickers por mensaje
         
-        subscribe_message = {
-            "action": "subscribe",
-            "params": ",".join(subscriptions)
-        }
-        
-        await self.ws.send(json.dumps(subscribe_message))
-        
-        # Actualizar suscripciones activas
-        self.subscribed_tickers.update(tickers)
+        # Dividir en batches
+        for i in range(0, len(tickers_list), BATCH_SIZE):
+            batch = tickers_list[i:i + BATCH_SIZE]
+            
+            # Construir mensaje de suscripción para este batch
+            # Formato: "A.AAPL,A.TSLA,A.NVDA"
+            subscriptions = []
+            for ticker in batch:
+                for event_type in event_types:
+                    subscriptions.append(f"{event_type}.{ticker}")
+            
+            subscribe_message = {
+                "action": "subscribe",
+                "params": ",".join(subscriptions)
+            }
+            
+            await self.ws.send(json.dumps(subscribe_message))
+            
+            # Actualizar suscripciones activas
+            self.subscribed_tickers.update(batch)
+            
+            logger.info(
+                "subscribed_to_tickers_batch",
+                batch_number=i//BATCH_SIZE + 1,
+                batch_size=len(batch),
+                total_subscriptions=len(subscriptions)
+            )
+            
+            # Pequeño delay entre batches para no saturar
+            if i + BATCH_SIZE < len(tickers_list):
+                await asyncio.sleep(0.1)
         
         logger.info(
-            "subscribed_to_tickers",
-            tickers_count=len(tickers),
+            "subscribed_to_tickers_complete",
+            total_tickers=len(tickers),
             event_types=list(event_types),
-            total_subscriptions=len(subscriptions)
+            batches_sent=len(tickers_list) // BATCH_SIZE + 1
         )
     
     async def unsubscribe_from_tickers(self, tickers: Set[str], event_types: Set[str]):
         """
-        Desuscribe de uno o más tickers
+        Desuscribe de uno o más tickers con BATCHING
         
         Args:
             tickers: Set de símbolos a desuscribir
@@ -295,25 +316,43 @@ class PolygonWebSocketClient:
             logger.warning("not_authenticated_cannot_unsubscribe")
             return
         
-        # Construir mensaje de desuscripción
-        unsubscriptions = []
-        for ticker in tickers:
-            for event_type in event_types:
-                unsubscriptions.append(f"{event_type}.{ticker}")
+        tickers_list = list(tickers)
+        BATCH_SIZE = 50  # Max tickers por mensaje
         
-        unsubscribe_message = {
-            "action": "unsubscribe",
-            "params": ",".join(unsubscriptions)
-        }
-        
-        await self.ws.send(json.dumps(unsubscribe_message))
-        
-        # Actualizar suscripciones activas
-        self.subscribed_tickers.difference_update(tickers)
+        # Dividir en batches
+        for i in range(0, len(tickers_list), BATCH_SIZE):
+            batch = tickers_list[i:i + BATCH_SIZE]
+            
+            # Construir mensaje de desuscripción para este batch
+            unsubscriptions = []
+            for ticker in batch:
+                for event_type in event_types:
+                    unsubscriptions.append(f"{event_type}.{ticker}")
+            
+            unsubscribe_message = {
+                "action": "unsubscribe",
+                "params": ",".join(unsubscriptions)
+            }
+            
+            await self.ws.send(json.dumps(unsubscribe_message))
+            
+            # Actualizar suscripciones activas
+            self.subscribed_tickers.difference_update(batch)
+            
+            logger.info(
+                "unsubscribed_from_tickers_batch",
+                batch_number=i//BATCH_SIZE + 1,
+                batch_size=len(batch),
+                total_subscriptions=len(unsubscriptions)
+            )
+            
+            # Pequeño delay entre batches
+            if i + BATCH_SIZE < len(tickers_list):
+                await asyncio.sleep(0.1)
         
         logger.info(
-            "unsubscribed_from_tickers",
-            tickers_count=len(tickers),
+            "unsubscribed_from_tickers_complete",
+            total_tickers=len(tickers),
             event_types=list(event_types)
         )
     

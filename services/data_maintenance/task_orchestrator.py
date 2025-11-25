@@ -90,7 +90,7 @@ class TaskOrchestrator:
         
         date_str = target_date.isoformat()
         
-        # 🔥 VERIFICAR SI YA SE COMPLETÓ HOY
+        # 🔥 VERIFICAR SI YA SE COMPLETÓ HOY (CON TODAS LAS TAREAS EXITOSAS)
         status_key = f"maintenance:status:{date_str}"
         existing_state_raw = await self.redis.get(status_key)
         
@@ -99,20 +99,33 @@ class TaskOrchestrator:
             try:
                 existing_state = json.loads(existing_state_raw) if isinstance(existing_state_raw, str) else existing_state_raw
                 
-                # Verificar si todas las tareas están completadas
+                # Verificar si todas las tareas están completadas Y el ciclo fue exitoso
                 tasks_status = existing_state.get("tasks", {})
                 all_completed = all(
                     tasks_status.get(task.name) == TaskStatus.COMPLETED
                     for task in self.tasks
                 )
+                all_success = existing_state.get("all_success", False)
+                completed_at = existing_state.get("completed_at")
                 
-                if all_completed:
+                # Solo saltarse si TODAS las tareas completaron Y todas fueron exitosas
+                if all_completed and all_success and completed_at:
                     logger.info(
                         "maintenance_already_completed",
                         date=date_str,
-                        completed_at=existing_state.get("completed_at")
+                        completed_at=completed_at,
+                        all_success=all_success
                     )
                     return True
+                else:
+                    # Si hay estado pero no completó exitosamente, re-intentar
+                    logger.warning(
+                        "maintenance_incomplete_or_failed",
+                        date=date_str,
+                        all_completed=all_completed,
+                        all_success=all_success,
+                        action="re_executing"
+                    )
             except (json.JSONDecodeError, AttributeError) as e:
                 logger.warning("failed_to_parse_existing_state", error=str(e))
         

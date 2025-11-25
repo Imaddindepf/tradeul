@@ -447,72 +447,11 @@ function updateSymbolToListsIndex(listName, deltas) {
   });
 }
 
-// Track de símbolos ya publicados para evitar duplicados
-const publishedSymbols = new Set();
-
-/**
- * Publicar símbolos añadidos/eliminados a Polygon WS (incremental)
- */
-async function publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols) {
-  try {
-    const streamName = "polygon_ws:subscriptions";
-    let subscribed = 0;
-    let unsubscribed = 0;
-
-    // Publicar símbolos NUEVOS
-    // MAXLEN 2000: Solo mantener últimos 2000 mensajes (suficiente para estado actual)
-    // Nota: El trimming también se hace automáticamente por RedisStreamManager en Python
-    // pero agregamos MAXLEN aquí para eficiencia inmediata
-    for (const symbol of addedSymbols) {
-      // Usar comando raw de Redis para MAXLEN
-      await redisCommands.call(
-        "XADD",
-        streamName,
-        "MAXLEN",
-        "~",
-        "2000", // Aproximado (~) para mejor rendimiento
-        "*",
-        "symbol",
-        symbol,
-        "action",
-        "subscribe",
-        "timestamp",
-        new Date().toISOString()
-      );
-      publishedSymbols.add(symbol);
-      subscribed++;
-    }
-
-    // Publicar símbolos ELIMINADOS
-    for (const symbol of removedSymbols) {
-      await redisCommands.call(
-        "XADD",
-        streamName,
-        "MAXLEN",
-        "~",
-        "2000", // Aproximado (~) para mejor rendimiento
-        "*",
-        "symbol",
-        symbol,
-        "action",
-        "unsubscribe",
-        "timestamp",
-        new Date().toISOString()
-      );
-      publishedSymbols.delete(symbol);
-      unsubscribed++;
-    }
-
-    if (subscribed > 0 || unsubscribed > 0) {
-      logger.info(
-        { subscribed, unsubscribed, total: publishedSymbols.size },
-        "📡 Published symbol changes to Polygon WS"
-      );
-    }
-  } catch (err) {
-    logger.error({ err }, "Error publishing symbol changes to Polygon WS");
-  }
-}
+// =============================================
+// NOTA: websocket_server NO publica a polygon_ws:subscriptions
+// Solo el scanner es dueño de esa verdad (Single Writer Principle)
+// websocket_server solo mantiene symbolToLists para routing
+// =============================================
 
 /**
  * Procesar mensaje delta/snapshot del stream
@@ -570,13 +509,6 @@ function processDeltaMessage(message) {
         "📸 Cached snapshot & updated index"
       );
 
-      // Publicar cambios incrementales a Polygon WS
-      publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch(
-        (err) => {
-          logger.error({ err }, "Failed to publish symbols after snapshot");
-        }
-      );
-
       // Broadcast snapshot
       broadcastToListSubscribers(list, snapshot);
     } else if (type === "delta") {
@@ -593,15 +525,6 @@ function processDeltaMessage(message) {
 
       // Actualizar índice symbol→lists
       updateSymbolToListsIndex(list, deltas);
-
-      // Publicar solo los símbolos añadidos/eliminados (incremental)
-      if (addedSymbols.length > 0 || removedSymbols.length > 0) {
-        publishSymbolChangesToPolygonWS(addedSymbols, removedSymbols).catch(
-          (err) => {
-            logger.error({ err }, "Failed to publish symbols after delta");
-          }
-        );
-      }
 
       const deltaMessage = {
         type: "delta",
@@ -838,12 +761,11 @@ async function processRankingDeltasStream() {
     }
   }
 
-  // Publicar TODOS los símbolos iniciales
+  // Solo log de inicialización (el scanner ya publica a Polygon WS)
   if (initialSymbols.size > 0) {
-    await publishSymbolChangesToPolygonWS([...initialSymbols], []);
     logger.info(
       { count: initialSymbols.size },
-      "✅ Initialized with existing symbols from Redis"
+      "✅ Loaded symbolToLists index from Redis (routing only)"
     );
   }
 
@@ -1297,6 +1219,53 @@ processSECFilingsStream().catch((err) => {
   process.exit(1);
 });
 
+// =============================================
+// POLYGON SUBSCRIPTION STATUS BROADCASTER
+// =============================================
+
+/**
+ * Publica periódicamente qué tickers están suscritos a Polygon
+ * Para que el frontend pueda mostrar indicadores visuales
+ */
+async function broadcastPolygonSubscriptionStatus() {
+  try {
+    // Consultar API de Polygon WS
+    const response = await fetch('http://polygon_ws:8006/subscriptions');
+    const data = await response.json();
+    
+    const subscribedTickers = new Set(data.subscribed_tickers || []);
+    
+    // Broadcast a TODOS los clientes conectados
+    const message = {
+      type: 'polygon_subscription_status',
+      subscribed_tickers: Array.from(subscribedTickers),
+      count: subscribedTickers.size,
+      timestamp: new Date().toISOString()
+    };
+    
+    let sentCount = 0;
+    connections.forEach((conn, connectionId) => {
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        try {
+          conn.ws.send(JSON.stringify(message));
+          sentCount++;
+        } catch (err) {
+          logger.error({ connectionId, err }, "Error sending subscription status");
+        }
+      }
+    });
+    
+    if (sentCount > 0) {
+      logger.debug(
+        { sentCount, subscribedCount: subscribedTickers.size },
+        "📡 Broadcasted Polygon subscription status"
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "Error broadcasting Polygon subscription status");
+  }
+}
+
 // Iniciar servidor
 server.listen(PORT, () => {
   logger.info({ port: PORT }, "🚀 WebSocket Server started");
@@ -1306,6 +1275,13 @@ server.listen(PORT, () => {
   logger.info("  ✅ SEC Filings: Real-time stream from SEC Stream API");
   logger.info("  ✅ Optimized broadcasting with inverted index");
   logger.info("  ✅ Symbol→Lists mapping for aggregates");
+  logger.info("  ✅ Polygon subscription status (every 10s)");
+  
+  // Publicar status cada 10 segundos
+  setInterval(broadcastPolygonSubscriptionStatus, 10000);
+  
+  // Primera publicación después de 2 segundos (dar tiempo a que Polygon WS se conecte)
+  setTimeout(broadcastPolygonSubscriptionStatus, 2000);
 });
 
 // Graceful shutdown

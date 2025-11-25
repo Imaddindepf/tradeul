@@ -23,6 +23,7 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.logger import configure_logging, get_logger
 from shared.models.polygon import PolygonTrade, PolygonQuote, PolygonAgg
 from ws_client import PolygonWebSocketClient
+from subscription_reconciler import SubscriptionReconciler
 
 # Configurar logger
 configure_logging(service_name="polygon_ws")
@@ -35,6 +36,8 @@ logger = get_logger(__name__)
 redis_client: Optional[RedisClient] = None
 ws_client: Optional[PolygonWebSocketClient] = None
 subscription_task: Optional[asyncio.Task] = None
+reconciler: Optional[SubscriptionReconciler] = None
+reconciler_task: Optional[asyncio.Task] = None
 
 
 # ============================================================================
@@ -44,7 +47,7 @@ subscription_task: Optional[asyncio.Task] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, ws_client, subscription_task
+    global redis_client, ws_client, subscription_task, reconciler, reconciler_task
     
     logger.info("polygon_ws_service_starting")
     
@@ -61,16 +64,35 @@ async def lifespan(app: FastAPI):
         on_aggregate=handle_aggregate  # Solo Aggregates
     )
     
+    # 🔥 PATRÓN PROFESIONAL: Inicializar Reconciler
+    reconciler = SubscriptionReconciler(
+        redis_client=redis_client,
+        ws_client=ws_client,
+        event_types={"A"},  # Solo Aggregates
+        interval_seconds=30  # Reconciliar cada 30 segundos
+    )
+    
     # Iniciar tareas en background
     ws_task = asyncio.create_task(ws_client.connect())
     subscription_task = asyncio.create_task(manage_subscriptions())
+    reconciler_task = asyncio.create_task(reconciler.start())
     
-    logger.info("polygon_ws_service_started")
+    logger.info("polygon_ws_service_started", reconciler_enabled=True)
     
     yield
     
     # Shutdown
     logger.info("polygon_ws_service_shutting_down")
+    
+    if reconciler:
+        await reconciler.stop()
+    
+    if reconciler_task:
+        reconciler_task.cancel()
+        try:
+            await reconciler_task
+        except asyncio.CancelledError:
+            pass
     
     if subscription_task:
         subscription_task.cancel()
@@ -327,11 +349,34 @@ async def manage_subscriptions():
             # CRÍTICO: Detectar reconexión y re-suscribir a todos los tickers
             if ws_client.is_authenticated and not was_authenticated:
                 # Acabamos de reconectar y autenticar
-                if desired_subscriptions:
+                # SOLUCIÓN: RE-LEER el SET completo para evitar corrupción
+                # El desired_subscriptions en memoria puede estar desactualizado
+                # debido a race conditions entre unsubscribe/subscribe durante reconexiones
+                try:
+                    active_tickers_raw = await redis_client.client.smembers('polygon_ws:active_tickers')
+                    active_tickers_fresh = {t.decode() if isinstance(t, bytes) else t for t in active_tickers_raw}
+                    
+                    # Merge con desired_subscriptions existente (por si hay cambios del stream)
+                    # pero priorizar el SET como fuente de verdad
+                    desired_subscriptions = active_tickers_fresh.copy()
+                    
                     logger.info(
                         "re_subscribing_after_reconnection",
+                        tickers_count=len(desired_subscriptions),
+                        refreshed_from_set=True
+                    )
+                except Exception as refresh_error:
+                    logger.error(
+                        "error_refreshing_from_set_on_reconnect",
+                        error=str(refresh_error)
+                    )
+                    # Fallback: usar desired_subscriptions en memoria
+                    logger.warning(
+                        "using_memory_state_as_fallback",
                         tickers_count=len(desired_subscriptions)
                     )
+                
+                if desired_subscriptions:
                     await ws_client.subscribe_to_tickers(desired_subscriptions, event_types)
                 was_authenticated = True
             elif not ws_client.is_authenticated:
@@ -447,6 +492,28 @@ async def get_subscriptions():
         "subscribed_tickers": list(ws_client.subscribed_tickers),
         "count": len(ws_client.subscribed_tickers),
         "is_authenticated": ws_client.is_authenticated
+    }
+
+
+@app.get("/reconciler/metrics")
+async def get_reconciler_metrics():
+    """Get subscription reconciler metrics"""
+    if not reconciler:
+        raise HTTPException(status_code=503, detail="Reconciler not initialized")
+    
+    return reconciler.get_metrics()
+
+
+@app.post("/reconciler/force")
+async def force_reconciliation():
+    """Force immediate reconciliation (useful for debugging)"""
+    if not reconciler:
+        raise HTTPException(status_code=503, detail="Reconciler not initialized")
+    
+    await reconciler.force_reconcile()
+    return {
+        "status": "reconciliation_executed",
+        "timestamp": datetime.now().isoformat()
     }
 
 

@@ -349,6 +349,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
 
       // ============================================================
       // BATCH AGGREGATE UPDATES (precio/volumen en tiempo real)
+      // Con tracking de dirección para animaciones flash
       // ============================================================
       updateAggregates: (updates) => {
         set((state) => {
@@ -365,6 +366,21 @@ export const useTickersStore = create<TickersState & TickersActions>()(
 
               const newPrice = parseFloat(aggregateData.c);
               const newVolume = parseInt(aggregateData.av, 10);
+              const oldPrice = ticker.price || 0;
+
+              // Determinar dirección del precio para animación flash
+              // Solo flash si hay cambio significativo (> 0.001% para evitar ruido)
+              let priceFlash: 'up' | 'down' | null = null;
+              const priceDiff = Math.abs(newPrice - oldPrice);
+              const threshold = oldPrice * 0.00001; // 0.001%
+              
+              if (oldPrice > 0 && priceDiff > threshold) {
+                if (newPrice > oldPrice) {
+                  priceFlash = 'up';
+                } else if (newPrice < oldPrice) {
+                  priceFlash = 'down';
+                }
+              }
 
               // Recalcular change_percent si tenemos prev_close
               let newChangePercent = ticker.change_percent;
@@ -382,6 +398,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
                 low: ticker.low
                   ? Math.min(parseFloat(aggregateData.l) || 0, ticker.low)
                   : parseFloat(aggregateData.l),
+                priceFlash, // 'up' | 'down' | null para animación
               });
 
               updated = true;

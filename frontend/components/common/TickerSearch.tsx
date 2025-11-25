@@ -198,7 +198,9 @@ export function TickerSearch({
                         <Loader2 className="w-3 h-3 text-blue-500 animate-spin" />
                     )}
                     {error && !loading && (
-                        <AlertCircle className="w-3 h-3 text-red-500" title={error} />
+                        <span title={error}>
+                            <AlertCircle className="w-3 h-3 text-red-500" />
+                        </span>
                     )}
                     {value && !loading && (
                     <button

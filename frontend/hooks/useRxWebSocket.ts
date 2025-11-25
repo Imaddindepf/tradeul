@@ -288,14 +288,15 @@ class WebSocketManager {
         case 'log':
           // Logs del worker (solo en debug)
           if (this.debug) {
-            const emoji = { info: 'ℹ️', warn: '⚠️', error: '❌' }[msg.level] || '📝';
+            const emojiMap: Record<string, string> = { info: 'ℹ️', warn: '⚠️', error: '❌' };
+            const emoji = emojiMap[msg.level] || '📝';
             console.log(`${emoji} [SharedWorker]`, msg.message, msg.data || '');
           }
           break;
       }
     };
 
-    this.workerPort.onerror = (error) => {
+    (this.workerPort as any).onerror = (error: any) => {
       if (this.debug) console.error('❌ [RxWS-SharedWorker] Port error:', error);
       this.errorsSubject.next(new Error('SharedWorker port error'));
     };

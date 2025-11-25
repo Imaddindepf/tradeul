@@ -42,7 +42,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       openDilutionTrackerWindow(
         {
           ticker: currentTicker || undefined,
-          apiBaseUrl: window.location.origin
+          apiBaseUrl: globalThis.location.origin
         },
         {
           title: `Dilution Tracker${currentTicker ? ` - ${currentTicker}` : ''}`,

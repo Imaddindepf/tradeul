@@ -20,6 +20,10 @@ export interface Ticker {
   symbol: string;
   rank?: number;
   
+  // Real-time subscription status
+  isSubscribedToPolygon?: boolean;  // ✅ Nuevo: indica si está suscrito al WS de Polygon
+  lastAggregateTime?: number;       // Timestamp del último aggregate recibido
+  
   // Price data
   price?: number;
   last_price?: number;
@@ -58,6 +62,9 @@ export interface Ticker {
   
   // Metadata
   timestamp?: string;
+  
+  // UI State (animaciones)
+  priceFlash?: 'up' | 'down' | null;  // Flash animation direction
   
   // Allow any additional properties from backend
   [key: string]: any;
