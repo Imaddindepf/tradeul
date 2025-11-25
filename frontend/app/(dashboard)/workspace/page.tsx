@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
 import { DraggableTable } from '@/components/scanner/DraggableTable';
-import { Navbar, NavbarContent } from '@/components/layout/Navbar';
+import { Navbar, NavbarContent, UserMenu } from '@/components/layout/Navbar';
 import { PinnedCommands } from '@/components/layout/PinnedCommands';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { CommandPalette } from '@/components/ui/CommandPalette';
@@ -264,9 +264,10 @@ export default function ScannerPage() {
             />
           </div>
 
-          {/* Right: Market Status */}
+          {/* Right: Market Status + User Menu */}
           <div className="flex-1 flex items-center justify-end gap-4">
             {session && mounted && <MarketStatusPopover status={adaptMarketSession(session)} />}
+            <UserMenu />
           </div>
         </div>
       </Navbar>

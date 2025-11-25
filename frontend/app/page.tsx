@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
 import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
 import { 
@@ -11,7 +12,8 @@ import {
   ArrowRight,
   Activity,
   BarChart3,
-  Clock
+  Clock,
+  LogIn
 } from 'lucide-react';
 
 export default function Home() {
@@ -46,8 +48,47 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      {/* Auth Header */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-sm border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-2">
+              <Activity className="w-6 h-6 text-blue-600" />
+              <span className="text-xl font-bold text-slate-900">Tradeul</span>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              {/* Usuario NO autenticado */}
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <button className="px-4 py-2 text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
+                    Iniciar Sesión
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors">
+                    Crear Cuenta
+                  </button>
+                </SignUpButton>
+              </SignedOut>
+              
+              {/* Usuario autenticado */}
+              <SignedIn>
+                <Link 
+                  href="/workspace"
+                  className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                >
+                  Ir al Workspace
+                </Link>
+                <UserButton afterSignOutUrl="/" />
+              </SignedIn>
+            </div>
+          </div>
+        </div>
+      </header>
+
       {/* Hero Section */}
-      <div className="px-4 py-16 sm:px-6 lg:px-8">
+      <div className="px-4 pt-24 pb-16 sm:px-6 lg:px-8">
         <div className="max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-full mb-6">
             <Activity className="w-4 h-4 text-blue-600" />
@@ -89,15 +130,35 @@ export default function Home() {
         </div>
           )}
 
-          {/* Quick Action - Scanner */}
-          <Link 
-            href="/workspace"
-            className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl font-semibold text-lg shadow-xl hover:shadow-2xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 active:scale-95"
-          >
-            <ScanSearch className="w-6 h-6" />
-            <span>Ir al Workspace</span>
-            <ArrowRight className="w-5 h-5" />
-          </Link>
+          {/* Quick Action - Condicional según autenticación */}
+          <SignedOut>
+            <div className="flex items-center justify-center gap-4">
+              <SignUpButton mode="modal">
+                <button className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl font-semibold text-lg shadow-xl hover:shadow-2xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 active:scale-95">
+                  <ScanSearch className="w-6 h-6" />
+                  <span>Comenzar Gratis</span>
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              </SignUpButton>
+              <SignInButton mode="modal">
+                <button className="inline-flex items-center gap-3 px-8 py-4 bg-white text-slate-700 rounded-xl font-semibold text-lg shadow-lg border-2 border-slate-200 hover:border-blue-300 hover:shadow-xl transition-all duration-200">
+                  <LogIn className="w-6 h-6" />
+                  <span>Ya tengo cuenta</span>
+                </button>
+              </SignInButton>
+            </div>
+          </SignedOut>
+          
+          <SignedIn>
+            <Link 
+              href="/workspace"
+              className="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-xl font-semibold text-lg shadow-xl hover:shadow-2xl hover:from-blue-700 hover:to-blue-600 transition-all duration-200 active:scale-95"
+            >
+              <ScanSearch className="w-6 h-6" />
+              <span>Ir al Workspace</span>
+              <ArrowRight className="w-5 h-5" />
+            </Link>
+          </SignedIn>
         </div>
 
         {/* Feature Cards */}

@@ -1,7 +1,9 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { ReactNode } from 'react';
+import { ReactNode, useState, useRef, useEffect } from 'react';
+import { useClerk, useUser } from '@clerk/nextjs';
+import { User, Settings, LogOut } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 
 interface NavbarProps {
@@ -45,6 +47,115 @@ interface NavbarContentProps {
   statusBadge?: ReactNode;
 }
 
+/**
+ * Custom User Menu - Dropdown con Profile, Settings, Logout
+ * Exportado para uso en cualquier navbar personalizado
+ */
+export function UserMenu() {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { signOut } = useClerk();
+  const { user } = useUser();
+
+  // Cerrar al hacer click fuera
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleLogout = () => {
+    signOut({ redirectUrl: '/' });
+  };
+
+  // Obtener iniciales del usuario
+  const initials = user?.firstName && user?.lastName
+    ? `${user.firstName[0]}${user.lastName[0]}`
+    : user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() || 'U';
+
+  return (
+    <div className="relative" ref={menuRef}>
+      {/* Avatar Button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg"
+      >
+        {user?.imageUrl ? (
+          <img 
+            src={user.imageUrl} 
+            alt="Avatar" 
+            className="w-9 h-9 rounded-full object-cover"
+          />
+        ) : (
+          initials
+        )}
+      </button>
+
+      {/* Dropdown Menu */}
+      {isOpen && (
+        <div 
+          className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 overflow-hidden"
+          style={{ zIndex: Z_INDEX.MODAL }}
+        >
+          {/* User Info Header */}
+          <div className="px-4 py-3 border-b border-slate-100">
+            <p className="text-sm font-medium text-slate-900 truncate">
+              {user?.fullName || 'Usuario'}
+            </p>
+            <p className="text-xs text-slate-500 truncate">
+              {user?.emailAddresses?.[0]?.emailAddress}
+            </p>
+          </div>
+
+          {/* Menu Items */}
+          <div className="py-1">
+            <button
+              onClick={() => {
+                setIsOpen(false);
+                // TODO: Implementar Profile
+              }}
+              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 opacity-50 cursor-not-allowed"
+              disabled
+            >
+              <User className="w-4 h-4" />
+              <span>Profile</span>
+              <span className="ml-auto text-xs text-slate-400">Próximamente</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsOpen(false);
+                // TODO: Implementar Settings
+              }}
+              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 opacity-50 cursor-not-allowed"
+              disabled
+            >
+              <Settings className="w-4 h-4" />
+              <span>Settings</span>
+              <span className="ml-auto text-xs text-slate-400">Próximamente</span>
+            </button>
+          </div>
+
+          {/* Logout */}
+          <div className="border-t border-slate-100 py-1">
+            <button
+              onClick={handleLogout}
+              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Cerrar Sesión</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NavbarContent({ title, subtitle, actions, statusBadge }: NavbarContentProps) {
   return (
     <div className="flex items-center justify-between h-full">
@@ -60,6 +171,8 @@ export function NavbarContent({ title, subtitle, actions, statusBadge }: NavbarC
       <div className="flex items-center gap-4">
         {statusBadge}
         {actions}
+        {/* Custom User Menu */}
+        <UserMenu />
       </div>
     </div>
   );
