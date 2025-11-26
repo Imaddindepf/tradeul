@@ -112,9 +112,13 @@ class BenzingaNewsClient:
                 if params.author:
                     query_params["author"] = params.author
                 if params.published_after:
-                    query_params["published.gte"] = params.published_after
+                    # Polygon espera formato YYYY-MM-DD o timestamp en segundos
+                    # Convertir ISO timestamp a fecha
+                    date_str = params.published_after[:10] if len(params.published_after) >= 10 else params.published_after
+                    query_params["published.gte"] = date_str
                 if params.published_before:
-                    query_params["published.lte"] = params.published_before
+                    date_str = params.published_before[:10] if len(params.published_before) >= 10 else params.published_before
+                    query_params["published.lte"] = date_str
                 if params.limit:
                     query_params["limit"] = params.limit
                 if params.sort:

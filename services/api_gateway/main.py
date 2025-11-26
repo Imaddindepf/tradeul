@@ -691,8 +691,8 @@ async def get_system_stats():
 # Benzinga News Proxy
 # ============================================================================
 
-@app.get("/benzinga/api/v1/news")
-async def proxy_benzinga_news(
+@app.get("/news/api/v1/news")
+async def proxy_news(
     ticker: Optional[str] = Query(None, description="Filter by ticker symbol"),
     channels: Optional[str] = Query(None, description="Filter by channels"),
     tags: Optional[str] = Query(None, description="Filter by tags"),
@@ -700,7 +700,7 @@ async def proxy_benzinga_news(
     limit: int = Query(50, ge=1, le=200, description="Limit results")
 ):
     """
-    Proxy para el servicio de Benzinga News
+    Proxy para el servicio de News (Benzinga y futuras fuentes)
     """
     try:
         params = {"limit": limit}
@@ -728,21 +728,21 @@ async def proxy_benzinga_news(
                 )
     
     except httpx.TimeoutException:
-        logger.error("benzinga_news_timeout")
-        raise HTTPException(status_code=504, detail="Benzinga news service timeout")
+        logger.error("news_service_timeout")
+        raise HTTPException(status_code=504, detail="News service timeout")
     except httpx.ConnectError:
-        logger.error("benzinga_news_unavailable")
-        raise HTTPException(status_code=503, detail="Benzinga news service unavailable")
+        logger.error("news_service_unavailable")
+        raise HTTPException(status_code=503, detail="News service unavailable")
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("benzinga_news_error", error=str(e))
+        logger.error("news_service_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/benzinga/api/v1/news/latest")
-async def proxy_benzinga_latest(limit: int = Query(50, ge=1, le=200)):
-    """Proxy para las últimas noticias de Benzinga"""
+@app.get("/news/api/v1/news/latest")
+async def proxy_news_latest(limit: int = Query(50, ge=1, le=200)):
+    """Proxy para las últimas noticias"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -768,9 +768,9 @@ async def proxy_benzinga_latest(limit: int = Query(50, ge=1, le=200)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/benzinga/api/v1/news/ticker/{ticker}")
-async def proxy_benzinga_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=200)):
-    """Proxy para noticias de Benzinga por ticker"""
+@app.get("/news/api/v1/news/ticker/{ticker}")
+async def proxy_news_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=200)):
+    """Proxy para noticias por ticker"""
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -792,7 +792,7 @@ async def proxy_benzinga_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("benzinga_ticker_error", error=str(e), ticker=ticker)
+        logger.error("news_ticker_error", error=str(e), ticker=ticker)
         raise HTTPException(status_code=500, detail=str(e))
 
 

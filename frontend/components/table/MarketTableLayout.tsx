@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { openScannerWindow } from '@/lib/window-injector';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 
 interface MarketTableLayoutProps {
   title: string;
@@ -25,6 +26,7 @@ export function MarketTableLayout({
   listName,
   onClose,
 }: MarketTableLayoutProps) {
+  const { windows, updateWindow } = useFloatingWindow();
 
   const handleOpenNewWindow = () => {
     if (!listName) return;
@@ -35,7 +37,7 @@ export function MarketTableLayout({
     // URL absoluta del SharedWorker (necesaria para about:blank)
     const workerUrl = `${window.location.origin}/workers/websocket-shared.js`;
 
-    openScannerWindow(
+    const popOutWindow = openScannerWindow(
       {
         listName,
         categoryName: title,
@@ -49,6 +51,20 @@ export function MarketTableLayout({
         centered: true,
       }
     );
+
+    // Buscar la ventana flotante padre por título y marcarla como poppedOut
+    if (popOutWindow) {
+      // Probar diferentes formatos de título
+      const possibleTitles = [
+        `Scanner: ${title}`,
+        title,
+      ];
+
+      const parentWindow = windows.find(w => possibleTitles.includes(w.title));
+      if (parentWindow) {
+        updateWindow(parentWindow.id, { isPoppedOut: true, poppedOutWindow: popOutWindow });
+      }
+    }
   };
 
   return (

@@ -137,8 +137,16 @@ function broadcastMessage(message) {
     const sub = subscriptions.get(port);
     if (!sub) return;
 
-    // Filtrar por lista
-    if (message.list && !sub.lists.has(message.list)) {
+    // Si es mensaje de news, verificar suscripción a news
+    if (message.type === 'news' || message.type === 'benzinga_news') {
+      if (!sub.subscribedNews) return;
+    }
+    // Si es mensaje de SEC, verificar suscripción a SEC
+    else if (message.type === 'sec_filing') {
+      if (!sub.subscribedSEC) return;
+    }
+    // Filtrar por lista para mensajes del scanner
+    else if (message.list && !sub.lists.has(message.list)) {
       return;
     }
 
@@ -175,18 +183,38 @@ function broadcastStatus() {
 
 function resubscribeAllLists() {
   const allLists = new Set();
+  let hasNewsSubscribers = false;
+  let hasSECSubscribers = false;
 
   subscriptions.forEach(function(sub) {
     sub.lists.forEach(function(list) {
       allLists.add(list);
     });
+    if (sub.subscribedNews) {
+      hasNewsSubscribers = true;
+    }
+    if (sub.subscribedSEC) {
+      hasSECSubscribers = true;
+    }
   });
 
-  if (allLists.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
-    allLists.forEach(function(list) {
-      ws.send(JSON.stringify({ action: 'subscribe_list', list: list }));
-    });
-    log('info', '📋 Re-subscribed to ' + allLists.size + ' lists');
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    if (allLists.size > 0) {
+      allLists.forEach(function(list) {
+        ws.send(JSON.stringify({ action: 'subscribe_list', list: list }));
+      });
+      log('info', '📋 Re-subscribed to ' + allLists.size + ' lists');
+    }
+    
+    if (hasNewsSubscribers) {
+      ws.send(JSON.stringify({ action: 'subscribe_benzinga_news' }));
+      log('info', '📰 Re-subscribed to news');
+    }
+    
+    if (hasSECSubscribers) {
+      ws.send(JSON.stringify({ action: 'subscribe_sec' }));
+      log('info', '📄 Re-subscribed to SEC');
+    }
   }
 }
 
@@ -237,6 +265,48 @@ function handlePortMessage(port, data) {
         ws.send(JSON.stringify(data.payload));
       }
       break;
+
+    case 'subscribe_news':
+      sub.subscribedNews = true;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'subscribe_benzinga_news' }));
+      }
+      break;
+
+    case 'unsubscribe_news':
+      sub.subscribedNews = false;
+      // Solo desuscribir si ningún otro port está suscrito
+      let otherNewsSubscribers = false;
+      subscriptions.forEach(function(s, p) {
+        if (p !== port && s.subscribedNews) {
+          otherNewsSubscribers = true;
+        }
+      });
+      if (!otherNewsSubscribers && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'unsubscribe_benzinga_news' }));
+      }
+      break;
+
+    case 'subscribe_sec':
+      sub.subscribedSEC = true;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'subscribe_sec' }));
+      }
+      break;
+
+    case 'unsubscribe_sec':
+      sub.subscribedSEC = false;
+      // Solo desuscribir si ningún otro port está suscrito
+      let otherSECSubscribers = false;
+      subscriptions.forEach(function(s, p) {
+        if (p !== port && s.subscribedSEC) {
+          otherSECSubscribers = true;
+        }
+      });
+      if (!otherSECSubscribers && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ action: 'unsubscribe_sec' }));
+      }
+      break;
   }
 }
 
@@ -250,6 +320,8 @@ self.onconnect = function(e) {
   ports.add(port);
   subscriptions.set(port, {
     lists: new Set(),
+    subscribedNews: false,
+    subscribedSEC: false,
     connectionId: null,
   });
 

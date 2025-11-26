@@ -1,0 +1,218 @@
+'use client';
+
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useRxWebSocket } from '@/hooks/useRxWebSocket';
+import { StreamPauseButton } from '@/components/common/StreamPauseButton';
+
+interface NewsArticle {
+  id?: string;
+  benzinga_id?: number;
+  title: string;
+  author: string;
+  published: string;
+  url: string;
+  tickers?: string[];
+  channels?: string[];
+  teaser?: string;
+  isLive?: boolean;
+}
+
+export function NewsContent() {
+  const [news, setNews] = useState<NewsArticle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [pausedBuffer, setPausedBuffer] = useState<NewsArticle[]>([]);
+  const seenIdsRef = useRef<Set<string | number>>(new Set());
+
+  // WebSocket connection
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+  const ws = useRxWebSocket(wsUrl, false);
+
+  // Fetch initial news
+  useEffect(() => {
+    const fetchNews = async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const response = await fetch(`${apiUrl}/news/api/v1/news?limit=200`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.results) {
+          const articles = data.results.map((a: NewsArticle) => ({ ...a, isLive: false }));
+          setNews(articles);
+          articles.forEach((a: NewsArticle) => {
+            seenIdsRef.current.add(a.benzinga_id || a.id || '');
+          });
+        }
+        setLoading(false);
+      } catch (err) {
+        console.error('Error fetching news:', err);
+        setError('Error loading news');
+        setLoading(false);
+      }
+    };
+
+    fetchNews();
+  }, []);
+
+  // Subscribe to WebSocket news
+  useEffect(() => {
+    if (!ws.isConnected) return;
+
+    // Subscribe to benzinga news
+    ws.send({ action: 'subscribe_benzinga_news' });
+
+    return () => {
+      ws.send({ action: 'unsubscribe_benzinga_news' });
+    };
+  }, [ws.isConnected, ws]);
+
+  // Handle incoming WebSocket messages
+  useEffect(() => {
+    const subscription = ws.messages$.subscribe((message: any) => {
+      if ((message.type === 'news' || message.type === 'benzinga_news') && message.article) {
+        const article = message.article as NewsArticle;
+        const id = article.benzinga_id || article.id;
+
+        if (id && !seenIdsRef.current.has(id)) {
+          seenIdsRef.current.add(id);
+          const liveArticle = { ...article, isLive: true };
+
+          if (isPaused) {
+            setPausedBuffer(prev => [liveArticle, ...prev]);
+          } else {
+            setNews(prev => [liveArticle, ...prev]);
+          }
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [ws.messages$, isPaused]);
+
+  // Toggle pause
+  const handleTogglePause = useCallback(() => {
+    if (isPaused && pausedBuffer.length > 0) {
+      // Resume: merge buffered items
+      setNews(prev => [...pausedBuffer, ...prev]);
+      setPausedBuffer([]);
+    }
+    setIsPaused(!isPaused);
+  }, [isPaused, pausedBuffer]);
+
+  // Format date/time
+  const formatDateTime = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      return {
+        date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
+        time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+      };
+    } catch {
+      return { date: '—', time: '—' };
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full bg-white">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
+          <p className="text-slate-600 text-sm">Cargando noticias...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full bg-white">
+        <p className="text-red-600 text-sm">{error}</p>
+      </div>
+    );
+  }
+
+  const liveCount = news.filter(a => a.isLive).length;
+
+  return (
+    <div className="flex flex-col h-full bg-white">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div
+              className={`w-1.5 h-1.5 rounded-full ${ws.isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}
+            />
+            <span className={`text-xs font-medium ${ws.isConnected ? 'text-emerald-600' : 'text-slate-500'}`}>
+              {ws.isConnected ? 'Live' : 'Offline'}
+            </span>
+          </div>
+          
+          <StreamPauseButton isPaused={isPaused} onToggle={handleTogglePause} size="sm" />
+          
+          {isPaused && pausedBuffer.length > 0 && (
+            <span className="text-amber-600 text-xs font-medium">(+{pausedBuffer.length})</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-600 font-mono">{news.length}</span>
+          {liveCount > 0 && <span className="text-xs text-emerald-600">({liveCount} live)</span>}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead className="bg-slate-100 sticky top-0">
+            <tr className="text-left text-slate-600 uppercase tracking-wide">
+              <th className="px-2 py-1.5 font-medium">Headline</th>
+              <th className="px-2 py-1.5 font-medium w-24 text-center">Date</th>
+              <th className="px-2 py-1.5 font-medium w-20 text-center">Time</th>
+              <th className="px-2 py-1.5 font-medium w-16 text-center">Ticker</th>
+              <th className="px-2 py-1.5 font-medium w-36">Source</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {news.map((article, i) => {
+              const dt = formatDateTime(article.published);
+              const ticker = article.tickers?.[0] || '—';
+
+              return (
+                <tr
+                  key={article.benzinga_id || article.id || i}
+                  className={`cursor-pointer hover:bg-slate-50 transition-colors ${article.isLive ? 'bg-emerald-50/50' : ''}`}
+                  onClick={() => window.open(article.url, '_blank')}
+                >
+                  <td className="px-2 py-1">
+                    <div className="flex items-center gap-1.5">
+                      {article.isLive && (
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
+                      )}
+                      <span className="text-slate-800 truncate" style={{ maxWidth: '500px' }}>
+                        {article.title}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-1 text-center text-slate-500 font-mono">{dt.date}</td>
+                  <td className="px-2 py-1 text-center text-slate-500 font-mono">{dt.time}</td>
+                  <td className="px-2 py-1 text-center">
+                    <span className="text-blue-600 font-mono font-semibold">{ticker}</span>
+                  </td>
+                  <td className="px-2 py-1 text-slate-500 truncate" style={{ maxWidth: '140px' }}>
+                    {article.author}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

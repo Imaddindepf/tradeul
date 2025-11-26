@@ -1264,26 +1264,26 @@ wss.on("connection", (ws, req) => {
         });
       }
 
-      // Suscribirse a Benzinga News
-      else if (action === "subscribe_benzinga_news") {
+      // Suscribirse a News (acepta ambos: subscribe_news y subscribe_benzinga_news)
+      else if (action === "subscribe_news" || action === "subscribe_benzinga_news") {
         benzingaNewsSubscribers.add(connectionId);
-        logger.info({ connectionId }, "📰 Client subscribed to Benzinga News");
+        logger.info({ connectionId }, "📰 Client subscribed to News");
         
         sendMessage(connectionId, {
           type: "subscribed",
-          channel: "BENZINGA_NEWS",
-          message: "Subscribed to real-time Benzinga news"
+          channel: "NEWS",
+          message: "Subscribed to real-time news"
         });
       }
 
-      // Desuscribirse de Benzinga News
-      else if (action === "unsubscribe_benzinga_news") {
+      // Desuscribirse de News (acepta ambos: unsubscribe_news y unsubscribe_benzinga_news)
+      else if (action === "unsubscribe_news" || action === "unsubscribe_benzinga_news") {
         benzingaNewsSubscribers.delete(connectionId);
-        logger.info({ connectionId }, "📰 Client unsubscribed from Benzinga News");
+        logger.info({ connectionId }, "📰 Client unsubscribed from News");
         
         sendMessage(connectionId, {
           type: "unsubscribed",
-          channel: "BENZINGA_NEWS"
+          channel: "NEWS"
         });
       }
 

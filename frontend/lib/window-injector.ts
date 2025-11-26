@@ -907,3 +907,679 @@ function injectDilutionTrackerContent(
 
   console.log('✅ [WindowInjector] Dilution Tracker injected');
 }
+
+// ============================================================================
+// NEWS WINDOW
+// ============================================================================
+
+export interface NewsWindowData {
+  wsUrl: string;
+  workerUrl: string;
+  apiBaseUrl: string;
+  ticker?: string;
+}
+
+export async function openNewsWindow(
+  data: NewsWindowData,
+  config: WindowConfig
+): Promise<Window | null> {
+  const {
+    width = 1200,
+    height = 800,
+    centered = true,
+  } = config;
+
+  const left = centered ? (window.screen.width - width) / 2 : 100;
+  const top = centered ? (window.screen.height - height) / 2 : 100;
+
+  const windowFeatures = [
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+    'resizable=yes',
+    'scrollbars=yes',
+    'status=yes',
+  ].join(',');
+
+  // Pre-fetch news data BEFORE opening about:blank (to avoid CORS issues)
+  let initialNews: any[] = [];
+  try {
+    const tickerParam = data.ticker ? `&ticker=${data.ticker}` : '';
+    const response = await fetch(`${data.apiBaseUrl}/news/api/v1/news?limit=200${tickerParam}`);
+    if (response.ok) {
+      const json = await response.json();
+      initialNews = json.results || [];
+    }
+  } catch (error) {
+    console.error('❌ Pre-fetch news failed:', error);
+  }
+
+  const newWindow = window.open('about:blank', '_blank', windowFeatures);
+
+  if (!newWindow) {
+    console.error('❌ Window blocked');
+    return null;
+  }
+
+  injectNewsContent(newWindow, data, config, initialNews);
+
+  return newWindow;
+}
+
+function injectNewsContent(
+  targetWindow: Window,
+  data: NewsWindowData,
+  config: WindowConfig,
+  initialNews: any[]
+): void {
+  const { title } = config;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body { font-family: Inter, sans-serif; color: #171717; background: #ffffff; margin: 0; }
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: #f1f5f9; }
+    *::-webkit-scrollbar-thumb { background: #cbd5e1; }
+    *::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+    .news-row:hover { background-color: #f8fafc; }
+    .news-row.live { background-color: rgba(16, 185, 129, 0.05); }
+  </style>
+</head>
+<body class="bg-white overflow-hidden">
+  <div id="root" class="h-screen flex flex-col"></div>
+
+  <script>
+    const CONFIG = ${JSON.stringify(data)};
+    const INITIAL_NEWS = ${JSON.stringify(initialNews)};
+    
+    let sharedWorker = null;
+    let workerPort = null;
+    let isConnected = false;
+    let isPaused = false;
+    let newsData = INITIAL_NEWS || [];
+    let seenIds = new Set(newsData.map(a => a.benzinga_id));
+    let pausedBuffer = [];
+    
+    console.log('🚀 [News Window] Init with', newsData.length, 'articles');
+    
+    // ============================================================
+    // WEBSOCKET (SharedWorker)
+    // ============================================================
+    function initWebSocket() {
+      try {
+        console.log('🔌 [News Window] Connecting to SharedWorker');
+        
+        sharedWorker = new SharedWorker(CONFIG.workerUrl, { name: 'tradeul-websocket' });
+        workerPort = sharedWorker.port;
+        
+        workerPort.onmessage = (event) => {
+          const msg = event.data;
+          
+          switch (msg.type) {
+            case 'message':
+              handleWebSocketMessage(msg.data);
+              break;
+            case 'status':
+              updateConnectionStatus(msg.isConnected);
+              if (msg.isConnected) {
+                workerPort.postMessage({ action: 'subscribe_news' });
+                console.log('✅ [News Window] Subscribed to news');
+              }
+              break;
+          }
+        };
+        
+        workerPort.start();
+        workerPort.postMessage({ action: 'connect', url: CONFIG.wsUrl });
+        
+      } catch (error) {
+        console.error('❌ [News Window] WebSocket init failed:', error);
+      }
+    }
+    
+    function handleWebSocketMessage(message) {
+      if ((message.type === 'news' || message.type === 'benzinga_news') && message.article) {
+        const article = message.article;
+        const id = article.benzinga_id || article.id;
+        
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          
+          if (isPaused) {
+            pausedBuffer.unshift({ ...article, isLive: true });
+          } else {
+            newsData.unshift({ ...article, isLive: true });
+            renderTable();
+          }
+        }
+      }
+    }
+    
+    function updateConnectionStatus(connected) {
+      isConnected = connected;
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      
+      if (dot) {
+        dot.className = connected 
+          ? 'w-1.5 h-1.5 rounded-full bg-emerald-500' 
+          : 'w-1.5 h-1.5 rounded-full bg-slate-300';
+      }
+      if (text) {
+        text.textContent = connected ? 'Live' : 'Offline';
+        text.className = connected ? 'text-xs font-medium text-emerald-600' : 'text-xs font-medium text-slate-500';
+      }
+    }
+    
+    // ============================================================
+    // PAUSE/PLAY
+    // ============================================================
+    window.togglePause = function() {
+      isPaused = !isPaused;
+      
+      if (!isPaused && pausedBuffer.length > 0) {
+        newsData = [...pausedBuffer, ...newsData];
+        pausedBuffer = [];
+      }
+      
+      renderTable();
+    }
+    
+    // ============================================================
+    // RENDER
+    // ============================================================
+    function formatDateTime(isoString) {
+      if (!isoString) return { date: '—', time: '—' };
+      try {
+        const d = new Date(isoString);
+        return {
+          date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
+          time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        };
+      } catch { return { date: '—', time: '—' }; }
+    }
+    
+    function renderTable() {
+      const liveCount = newsData.filter(a => a.isLive).length;
+      const statusDotClass = isConnected ? 'w-1.5 h-1.5 rounded-full bg-emerald-500' : 'w-1.5 h-1.5 rounded-full bg-slate-300';
+      const statusText = isConnected ? 'Live' : 'Offline';
+      const statusTextClass = isConnected ? 'text-xs font-medium text-emerald-600' : 'text-xs font-medium text-slate-500';
+      
+      const pauseBtnClass = isPaused 
+        ? 'px-2 py-0.5 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white'
+        : 'px-2 py-0.5 text-xs font-medium rounded bg-amber-600 hover:bg-amber-700 text-white';
+      const pauseBtnText = isPaused ? '▶ Play' : '❚❚ Pause';
+      const pausedInfo = isPaused && pausedBuffer.length > 0 
+        ? \`<span class="text-amber-600 text-xs font-medium">(+\${pausedBuffer.length})</span>\` 
+        : '';
+      
+      const html = \`
+        <div class="h-screen flex flex-col bg-white">
+          <!-- Header -->
+          <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2">
+                <div class="w-1 h-6 bg-blue-500 rounded-full"></div>
+                <h2 class="text-base font-bold text-slate-900">News</h2>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <div id="status-dot" class="\${statusDotClass}"></div>
+                <span id="status-text" class="\${statusTextClass}">\${statusText}</span>
+              </div>
+              <button onclick="togglePause()" class="\${pauseBtnClass}">\${pauseBtnText}</button>
+              \${pausedInfo}
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-600 font-mono">\${newsData.length}</span>
+              \${liveCount > 0 ? \`<span class="text-xs text-emerald-600">(\${liveCount} live)</span>\` : ''}
+            </div>
+          </div>
+          
+          <!-- Table -->
+          <div class="flex-1 overflow-auto">
+            <table class="w-full border-collapse text-xs">
+              <thead class="bg-slate-100 sticky top-0">
+                <tr class="text-left text-slate-600 uppercase tracking-wide">
+                  <th class="px-2 py-1.5 font-medium">Headline</th>
+                  <th class="px-2 py-1.5 font-medium w-24 text-center">Date</th>
+                  <th class="px-2 py-1.5 font-medium w-20 text-center">Time</th>
+                  <th class="px-2 py-1.5 font-medium w-16 text-center">Ticker</th>
+                  <th class="px-2 py-1.5 font-medium w-36">Source</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                \${newsData.length === 0 ? \`
+                  <tr>
+                    <td colspan="5" class="px-4 py-8 text-center text-slate-500">
+                      No hay noticias disponibles. Esperando datos...
+                    </td>
+                  </tr>
+                \` : newsData.map(article => {
+                  const dt = formatDateTime(article.published);
+                  const ticker = (article.tickers && article.tickers[0]) || '—';
+                  const isLive = article.isLive;
+                  
+                  return \`
+                    <tr class="news-row cursor-pointer \${isLive ? 'live' : ''}" onclick="window.open('\${article.url}', '_blank')">
+                      <td class="px-2 py-1">
+                        <div class="flex items-center gap-1.5">
+                          \${isLive ? '<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>' : ''}
+                          <span class="text-slate-800 truncate" style="max-width:500px">\${article.title}</span>
+                        </div>
+                      </td>
+                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.date}</td>
+                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.time}</td>
+                      <td class="px-2 py-1 text-center">
+                        <span class="text-blue-600 font-mono font-semibold">\${ticker}</span>
+                      </td>
+                      <td class="px-2 py-1 text-slate-500 truncate" style="max-width:140px">\${article.author}</td>
+                    </tr>
+                  \`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      \`;
+      
+      document.getElementById('root').innerHTML = html;
+    }
+    
+    // ============================================================
+    // INIT
+    // ============================================================
+    renderTable();
+    initWebSocket();
+    console.log('✅ News Window initialized');
+  </script>
+</body>
+</html>
+  `;
+
+  targetWindow.document.open();
+  targetWindow.document.write(htmlContent);
+  targetWindow.document.close();
+
+  console.log('✅ [WindowInjector] News injected');
+}
+
+// ============================================================================
+// SEC FILINGS WINDOW
+// ============================================================================
+
+export interface SECFilingsWindowData {
+  wsUrl: string;
+  workerUrl: string;
+  secApiBaseUrl: string;
+}
+
+export function openSECFilingsWindow(
+  data: SECFilingsWindowData,
+  config: WindowConfig
+): Window | null {
+  const {
+    width = 1300,
+    height = 850,
+    centered = true,
+  } = config;
+
+  const left = centered ? (window.screen.width - width) / 2 : 100;
+  const top = centered ? (window.screen.height - height) / 2 : 100;
+
+  const windowFeatures = [
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+    'resizable=yes',
+    'scrollbars=yes',
+    'status=yes',
+  ].join(',');
+
+  const newWindow = window.open('about:blank', '_blank', windowFeatures);
+
+  if (!newWindow) {
+    console.error('❌ Window blocked');
+    return null;
+  }
+
+  injectSECFilingsContent(newWindow, data, config);
+
+  return newWindow;
+}
+
+function injectSECFilingsContent(
+  targetWindow: Window,
+  data: SECFilingsWindowData,
+  config: WindowConfig
+): void {
+  const { title } = config;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body { font-family: Inter, sans-serif; color: #171717; background: #ffffff; margin: 0; }
+    *::-webkit-scrollbar { width: 8px; height: 8px; }
+    *::-webkit-scrollbar-track { background: #f1f5f9; }
+    *::-webkit-scrollbar-thumb { background: #cbd5e1; }
+    *::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+    .filing-row:hover { background-color: #f8fafc; }
+    .filing-row.live { background-color: rgba(16, 185, 129, 0.05); }
+  </style>
+</head>
+<body class="bg-white overflow-hidden">
+  <div id="root" class="h-screen flex flex-col"></div>
+
+  <script>
+    const CONFIG = ${JSON.stringify(data)};
+    
+    let sharedWorker = null;
+    let workerPort = null;
+    let isConnected = false;
+    let isPaused = false;
+    let filingsData = [];
+    let seenIds = new Set();
+    let pausedBuffer = [];
+    
+    console.log('🚀 [SEC Window] Init');
+    
+    // ============================================================
+    // FETCH INITIAL FILINGS
+    // ============================================================
+    async function fetchInitialFilings() {
+      try {
+        console.log('📄 Fetching from:', CONFIG.secApiBaseUrl + '/api/v1/filings/live?page_size=200');
+        const response = await fetch(CONFIG.secApiBaseUrl + '/api/v1/filings/live?page_size=200');
+        
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        
+        const data = await response.json();
+        
+        if (data.filings && data.filings.length > 0) {
+          filingsData = data.filings;
+          data.filings.forEach(f => seenIds.add(f.accessionNo));
+        }
+        renderTable();
+      } catch (error) {
+        console.error('❌ Error fetching filings:', error);
+        renderTable();
+      }
+    }
+    
+    // ============================================================
+    // WEBSOCKET (SharedWorker)
+    // ============================================================
+    function initWebSocket() {
+      try {
+        console.log('🔌 [SEC Window] Connecting to SharedWorker');
+        
+        sharedWorker = new SharedWorker(CONFIG.workerUrl, { name: 'tradeul-websocket' });
+        workerPort = sharedWorker.port;
+        
+        workerPort.onmessage = (event) => {
+          const msg = event.data;
+          
+          switch (msg.type) {
+            case 'message':
+              handleWebSocketMessage(msg.data);
+              break;
+            case 'status':
+              updateConnectionStatus(msg.isConnected);
+              if (msg.isConnected) {
+                workerPort.postMessage({ action: 'subscribe_sec' });
+                console.log('✅ [SEC Window] Subscribed to SEC filings');
+              }
+              break;
+          }
+        };
+        
+        workerPort.start();
+        workerPort.postMessage({ action: 'connect', url: CONFIG.wsUrl });
+        
+      } catch (error) {
+        console.error('❌ [SEC Window] WebSocket init failed:', error);
+      }
+    }
+    
+    function handleWebSocketMessage(message) {
+      if (message.type === 'sec_filing' && message.filing) {
+        const filing = message.filing;
+        const id = filing.accessionNo;
+        
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          const liveFiling = { ...filing, isLive: true };
+          
+          if (isPaused) {
+            pausedBuffer.unshift(liveFiling);
+          } else {
+            filingsData.unshift(liveFiling);
+            renderTable();
+          }
+        }
+      }
+    }
+    
+    function updateConnectionStatus(connected) {
+      isConnected = connected;
+      const dot = document.getElementById('status-dot');
+      const text = document.getElementById('status-text');
+      
+      if (dot) {
+        dot.className = connected 
+          ? 'w-1.5 h-1.5 rounded-full bg-emerald-500' 
+          : 'w-1.5 h-1.5 rounded-full bg-slate-300';
+      }
+      if (text) {
+        text.textContent = connected ? 'Live' : 'Offline';
+        text.className = connected ? 'text-xs font-medium text-emerald-600' : 'text-xs font-medium text-slate-500';
+      }
+    }
+    
+    // ============================================================
+    // PAUSE/PLAY
+    // ============================================================
+    window.togglePause = function() {
+      isPaused = !isPaused;
+      
+      if (!isPaused && pausedBuffer.length > 0) {
+        filingsData = [...pausedBuffer, ...filingsData];
+        pausedBuffer = [];
+      }
+      
+      renderTable();
+    }
+    
+    // ============================================================
+    // RENDER
+    // ============================================================
+    function formatDateTime(isoString) {
+      if (!isoString) return { date: '—', time: '—' };
+      try {
+        const d = new Date(isoString);
+        return {
+          date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
+          time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        };
+      } catch { return { date: '—', time: '—' }; }
+    }
+    
+    function getFormTypeColor(formType) {
+      const t = (formType || '').toUpperCase();
+      if (t.includes('S-1') || t.includes('S-3') || t.includes('S-4') || t.includes('S-8') || t.includes('S-11')) 
+        return 'bg-red-100 text-red-700';
+      if (t.includes('10-K') || t.includes('10-Q')) 
+        return 'bg-blue-100 text-blue-700';
+      if (t.includes('8-K')) 
+        return 'bg-amber-100 text-amber-700';
+      if (t.includes('4') || t.includes('3') || t.includes('5')) 
+        return 'bg-purple-100 text-purple-700';
+      if (t.includes('SC 13') || t.includes('13D') || t.includes('13G') || t.includes('13F')) 
+        return 'bg-emerald-100 text-emerald-700';
+      return 'bg-slate-100 text-slate-700';
+    }
+    
+    function renderTable() {
+      const liveCount = filingsData.filter(f => f.isLive).length;
+      const statusDotClass = isConnected ? 'w-1.5 h-1.5 rounded-full bg-emerald-500' : 'w-1.5 h-1.5 rounded-full bg-slate-300';
+      const statusText = isConnected ? 'Live' : 'Offline';
+      const statusTextClass = isConnected ? 'text-xs font-medium text-emerald-600' : 'text-xs font-medium text-slate-500';
+      
+      const pauseBtnClass = isPaused 
+        ? 'px-2 py-0.5 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white'
+        : 'px-2 py-0.5 text-xs font-medium rounded bg-amber-600 hover:bg-amber-700 text-white';
+      const pauseBtnText = isPaused ? '▶ Play' : '❚❚ Pause';
+      const pausedInfo = isPaused && pausedBuffer.length > 0 
+        ? '<span class="text-amber-600 text-xs font-medium">(+' + pausedBuffer.length + ')</span>' 
+        : '';
+      
+      const html = \`
+        <div class="h-screen flex flex-col bg-white">
+          <!-- Header -->
+          <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2">
+                <div class="w-1 h-6 bg-blue-500 rounded-full"></div>
+                <h2 class="text-base font-bold text-slate-900">SEC Filings</h2>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <div id="status-dot" class="\${statusDotClass}"></div>
+                <span id="status-text" class="\${statusTextClass}">\${statusText}</span>
+              </div>
+              <button onclick="togglePause()" class="\${pauseBtnClass}">\${pauseBtnText}</button>
+              \${pausedInfo}
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-600 font-mono">\${filingsData.length}</span>
+              \${liveCount > 0 ? '<span class="text-xs text-emerald-600">(' + liveCount + ' live)</span>' : ''}
+            </div>
+          </div>
+          
+          <!-- Table -->
+          <div class="flex-1 overflow-auto">
+            <table class="w-full border-collapse text-xs">
+              <thead class="bg-slate-100 sticky top-0">
+                <tr class="text-left text-slate-600 uppercase tracking-wide">
+                  <th class="px-2 py-1.5 font-medium w-16 text-center">Ticker</th>
+                  <th class="px-2 py-1.5 font-medium w-20 text-center">Form</th>
+                  <th class="px-2 py-1.5 font-medium">Company</th>
+                  <th class="px-2 py-1.5 font-medium w-24 text-center">Date</th>
+                  <th class="px-2 py-1.5 font-medium w-20 text-center">Time</th>
+                  <th class="px-2 py-1.5 font-medium w-20 text-center">Link</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                \${filingsData.length === 0 ? \`
+                  <tr>
+                    <td colspan="6" class="px-4 py-8 text-center text-slate-500">
+                      No hay filings disponibles. Esperando datos...
+                    </td>
+                  </tr>
+                \` : filingsData.map(filing => {
+                  const dt = formatDateTime(filing.filedAt);
+                  const formColorClass = getFormTypeColor(filing.formType);
+                  const isLive = filing.isLive;
+                  const link = filing.linkToHtml || filing.linkToFilingDetails || '';
+                  
+                  return \`
+                    <tr class="filing-row cursor-pointer \${isLive ? 'live' : ''}" onclick="window.open('\${link}', '_blank')">
+                      <td class="px-2 py-1 text-center">
+                        <div class="flex items-center justify-center gap-1">
+                          \${isLive ? '<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>' : ''}
+                          <span class="text-blue-600 font-mono font-semibold">\${filing.ticker || '—'}</span>
+                        </div>
+                      </td>
+                      <td class="px-2 py-1 text-center">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium \${formColorClass}">\${filing.formType}</span>
+                      </td>
+                      <td class="px-2 py-1 text-slate-700 truncate" style="max-width:400px">\${filing.companyName || '—'}</td>
+                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.date}</td>
+                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.time}</td>
+                      <td class="px-2 py-1 text-center">
+                        <a href="\${link}" target="_blank" class="text-blue-600 hover:text-blue-800" onclick="event.stopPropagation()">
+                          <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                          </svg>
+                        </a>
+                      </td>
+                    </tr>
+                  \`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      \`;
+      
+      document.getElementById('root').innerHTML = html;
+    }
+    
+    // ============================================================
+    // INIT
+    // ============================================================
+    fetchInitialFilings();
+    initWebSocket();
+    console.log('✅ SEC Window initialized');
+  </script>
+</body>
+</html>
+  `;
+
+  targetWindow.document.open();
+  targetWindow.document.write(htmlContent);
+  targetWindow.document.close();
+
+  console.log('✅ [WindowInjector] SEC Filings injected');
+}

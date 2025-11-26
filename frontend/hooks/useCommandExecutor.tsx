@@ -5,7 +5,7 @@ import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
-import { BenzingaNewsContent } from '@/components/benzinga-news/BenzingaNewsContent';
+import { NewsContent } from '@/components/news/NewsContent';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 
@@ -148,8 +148,8 @@ export function useCommandExecutor() {
 
             case 'news':
                 openWindow({
-                    title: 'Benzinga News',
-                    content: <BenzingaNewsContent />,
+                    title: 'News',
+                    content: <NewsContent />,
                     width: 900,
                     height: 600,
                     x: screenWidth / 2 - 450,

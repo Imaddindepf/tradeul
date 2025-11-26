@@ -29,7 +29,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'sc', label: 'SC', description: 'Scanner - Ver todas las tablas', icon: LayoutGrid },
   { id: 'dt', label: 'DT', description: 'Dilution Tracker - Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D' },
   { id: 'sec', label: 'SEC', description: 'SEC Filings - Filings de la SEC en tiempo real', icon: FileText, shortcut: 'Ctrl+F' },
-  { id: 'news', label: 'NEWS', description: 'Benzinga News - Noticias del mercado en tiempo real', icon: Newspaper, shortcut: 'Ctrl+N' },
+  { id: 'news', label: 'NEWS', description: 'News - Noticias del mercado en tiempo real', icon: Newspaper, shortcut: 'Ctrl+N' },
   { id: 'fa', label: 'FA', description: 'Financial Analysis - Balance, Income, Cash Flow', icon: DollarSign },
   { id: 'settings', label: 'SET', description: 'Settings - Configuración de la app', icon: Settings, shortcut: 'Ctrl+,' },
 ];

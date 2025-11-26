@@ -21,6 +21,10 @@ export interface FloatingWindow {
   isMaximized: boolean;
   /** Si true, no muestra la barra de título (para contenido que ya tiene su propia cabecera) */
   hideHeader?: boolean;
+  /** Si true, el contenido ha sido abierto en una ventana externa (about:blank) */
+  isPoppedOut?: boolean;
+  /** Referencia a la ventana externa (about:blank) para poder cerrarla */
+  poppedOutWindow?: Window | null;
 }
 
 /** Layout serializable de una ventana (sin contenido) */
@@ -58,7 +62,7 @@ const WINDOW_TYPES: Record<string, string> = {
   'Settings': 'settings',
   'Dilution Tracker': 'dt',
   'SEC Filings': 'sec',
-  'Benzinga News': 'news',
+  'News': 'news',
   'Financial Analysis': 'fa',
 };
 

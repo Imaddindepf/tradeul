@@ -113,23 +113,17 @@ class BenzingaNewsStreamManager:
     async def _polling_loop(self):
         """
         Loop principal de polling
+        
+        Estrategia: Siempre obtener las últimas N noticias ordenadas por fecha.
+        La deduplicación en Redis evita procesar duplicados.
+        Esto es más robusto que depender de filtros de fecha de la API.
         """
         logger.info(f"📰 Starting polling loop (interval: {self.poll_interval}s)")
         
-        # Obtener último timestamp procesado
-        last_poll_time = await self._get_last_poll_time()
-        
         while self._running:
             try:
-                # Fetch noticias nuevas
-                if last_poll_time:
-                    articles = await self.news_client.fetch_news_since(
-                        since_timestamp=last_poll_time,
-                        limit=100
-                    )
-                else:
-                    # Primera vez: obtener últimas noticias
-                    articles = await self.news_client.fetch_latest_news(limit=50)
+                # Siempre obtener las últimas noticias (la deduplicación filtra duplicados)
+                articles = await self.news_client.fetch_latest_news(limit=50)
                 
                 # Procesar artículos
                 new_articles = 0
@@ -138,18 +132,6 @@ class BenzingaNewsStreamManager:
                     if processed:
                         new_articles += 1
                         self.stats["last_article_time"] = article.published
-                
-                # Actualizar timestamp del último poll
-                if articles:
-                    # Usar el timestamp del artículo más reciente
-                    latest_time = max(a.published for a in articles)
-                    await self._set_last_poll_time(latest_time)
-                    last_poll_time = latest_time
-                else:
-                    # Si no hay artículos, usar tiempo actual
-                    current_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                    await self._set_last_poll_time(current_time)
-                    last_poll_time = current_time
                 
                 self.stats["polls_completed"] += 1
                 
