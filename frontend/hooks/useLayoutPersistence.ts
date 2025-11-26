@@ -3,14 +3,7 @@
 import { useCallback } from 'react';
 import { useFloatingWindow, SerializableWindowLayout } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
-
-// Mapeo de títulos a tipos de ventana para reconstrucción
-const WINDOW_TYPES: Record<string, string> = {
-  'Settings': 'settings',
-  'Dilution Tracker': 'dt',
-  'SEC Filings': 'sec',
-  'Financial Analysis': 'fa',
-};
+import { getWindowType } from '@/lib/window-config';
 
 /**
  * Hook para guardar y restaurar el layout de ventanas
@@ -27,18 +20,18 @@ export function useLayoutPersistence() {
    */
   const saveLayout = useCallback(() => {
     const layout = exportLayout();
-    
+
     // Convertir a formato del store
     const layouts = layout.map((w) => ({
       id: w.title,
-      type: WINDOW_TYPES[w.title as keyof typeof WINDOW_TYPES] || 'unknown',
+      type: getWindowType(w.title),
       title: w.title,
       position: { x: w.x, y: w.y },
       size: { width: w.width, height: w.height },
       isMinimized: w.isMinimized,
       zIndex: 0, // Se recalcula al restaurar
     }));
-    
+
     saveWindowLayouts(layouts);
     return layouts.length;
   }, [exportLayout, saveWindowLayouts]);

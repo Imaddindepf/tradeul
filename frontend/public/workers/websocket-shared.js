@@ -263,6 +263,19 @@ function handlePortMessage(port, data) {
     case 'send':
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(data.payload));
+        
+        // Auto-detectar suscripciones en payloads enviados
+        if (data.payload && data.payload.action) {
+          if (data.payload.action === 'subscribe_benzinga_news' || data.payload.action === 'subscribe_news') {
+            sub.subscribedNews = true;
+          } else if (data.payload.action === 'unsubscribe_benzinga_news' || data.payload.action === 'unsubscribe_news') {
+            sub.subscribedNews = false;
+          } else if (data.payload.action === 'subscribe_sec' || data.payload.action === 'subscribe_sec_filings') {
+            sub.subscribedSEC = true;
+          } else if (data.payload.action === 'unsubscribe_sec' || data.payload.action === 'unsubscribe_sec_filings') {
+            sub.subscribedSEC = false;
+          }
+        }
       }
       break;
 

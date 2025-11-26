@@ -8,6 +8,7 @@ Gateway principal para el frontend web:
 """
 
 import asyncio
+import os
 import uuid
 from datetime import datetime
 from typing import Optional, List
@@ -15,8 +16,8 @@ import structlog
 import httpx
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse, Response, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from shared.config.settings import settings
@@ -796,6 +797,75 @@ async def proxy_news_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=200)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/proxy/news")
+async def proxy_news_article(url: str = Query(..., description="News article URL to proxy")):
+    """
+    Proxy para cargar artículos de noticias sin restricciones de CORS/X-Frame-Options
+    
+    Esto permite mostrar artículos en iframe dentro de la app.
+    Similar al sistema de SEC filings.
+    """
+    # Validar dominios permitidos
+    allowed_domains = [
+        "benzinga.com",
+        "www.benzinga.com",
+        "seekingalpha.com",
+        "www.seekingalpha.com",
+        "reuters.com",
+        "www.reuters.com",
+        "bloomberg.com",
+        "www.bloomberg.com",
+        "marketwatch.com",
+        "www.marketwatch.com",
+        "cnbc.com",
+        "www.cnbc.com",
+        "yahoo.com",
+        "finance.yahoo.com",
+    ]
+    
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    
+    if not any(parsed.netloc.endswith(domain) for domain in allowed_domains):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Domain not allowed: {parsed.netloc}. Only approved news domains are permitted."
+        )
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            response = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+            })
+            response.raise_for_status()
+            
+            # Devolver el HTML sin headers restrictivos
+            return HTMLResponse(
+                content=response.text,
+                status_code=200,
+                headers={
+                    "Cache-Control": "public, max-age=3600",
+                    "X-Content-Type-Options": "nosniff"
+                }
+            )
+    
+    except httpx.HTTPError as e:
+        logger.error("news_proxy_http_error", url=url, error=str(e))
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error fetching news article: {str(e)}"
+        )
+    except Exception as e:
+        logger.error("news_proxy_error", url=url, error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Proxy error: {str(e)}"
+        )
+
+
 # ============================================================================
 # WebSocket Endpoints
 # ============================================================================
@@ -895,6 +965,65 @@ async def websocket_scanner(websocket: WebSocket):
         )
         connection_manager.disconnect(connection_id)
 
+
+# ============================================================================
+# Eleven Labs TTS Proxy (para evitar CORS)
+# ============================================================================
+
+ELEVEN_LABS_API_KEY = os.getenv("ELEVEN_LABS_API_KEY", "sk_de1264233de2ce0c2dbd3303d41ba82ae52886bef15aaa1e")
+
+@app.post("/api/v1/tts/speak")
+async def text_to_speech(request: Request):
+    """
+    Proxy para Eleven Labs TTS - evita problemas de CORS
+    """
+    try:
+        body = await request.json()
+        text = body.get("text", "")
+        voice_id = body.get("voice_id", "21m00Tcm4TlvDq8ikWAM")  # Rachel
+        
+        if not text:
+            raise HTTPException(status_code=400, detail="Text is required")
+        
+        # Limitar texto a 500 caracteres
+        text = text[:500]
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+                headers={
+                    "Accept": "audio/mpeg",
+                    "Content-Type": "application/json",
+                    "xi-api-key": ELEVEN_LABS_API_KEY,
+                },
+                json={
+                    "text": text,
+                    "model_id": "eleven_multilingual_v2",
+                    "voice_settings": {
+                        "stability": 0.5,
+                        "similarity_boost": 0.75
+                    }
+                }
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Eleven Labs error: {response.status_code} - {response.text}")
+                raise HTTPException(status_code=response.status_code, detail=f"TTS service error: {response.text}")
+            
+            return Response(
+                content=response.content,
+                media_type="audio/mpeg",
+                headers={
+                    "Content-Disposition": "inline",
+                    "Cache-Control": "no-cache"
+                }
+            )
+            
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="TTS service timeout")
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # Main

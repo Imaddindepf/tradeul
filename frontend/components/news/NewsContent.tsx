@@ -2,7 +2,10 @@
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useRxWebSocket } from '@/hooks/useRxWebSocket';
+import { useSquawk } from '@/hooks/useSquawk';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
+import { SquawkButton } from '@/components/common/SquawkButton';
+import { ExternalLink } from 'lucide-react';
 
 interface NewsArticle {
   id?: string;
@@ -14,6 +17,7 @@ interface NewsArticle {
   tickers?: string[];
   channels?: string[];
   teaser?: string;
+  body?: string;
   isLive?: boolean;
 }
 
@@ -23,11 +27,15 @@ export function NewsContent() {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [pausedBuffer, setPausedBuffer] = useState<NewsArticle[]>([]);
+  const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
   const seenIdsRef = useRef<Set<string | number>>(new Set());
 
   // WebSocket connection
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const ws = useRxWebSocket(wsUrl, false);
+
+  // Squawk (text-to-speech)
+  const squawk = useSquawk();
 
   // Fetch initial news
   useEffect(() => {
@@ -35,13 +43,13 @@ export function NewsContent() {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
         const response = await fetch(`${apiUrl}/news/api/v1/news?limit=200`);
-        
+
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
 
         const data = await response.json();
-        
+
         if (data.results) {
           const articles = data.results.map((a: NewsArticle) => ({ ...a, isLive: false }));
           setNews(articles);
@@ -87,13 +95,22 @@ export function NewsContent() {
             setPausedBuffer(prev => [liveArticle, ...prev]);
           } else {
             setNews(prev => [liveArticle, ...prev]);
+
+            // Squawk: leer la noticia en español
+            const ticker = article.tickers?.[0] || '';
+            // Prefijo en español para forzar el idioma
+            const squawkText = ticker
+              ? `Noticia de ${ticker}. ${article.title}`
+              : `Noticia. ${article.title}`;
+            console.log('🎙️ Squawk:', { isEnabled: squawk.isEnabled, text: squawkText.substring(0, 50) });
+            squawk.speak(squawkText);
           }
         }
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [ws.messages$, isPaused]);
+  }, [ws.messages$, isPaused, squawk]);
 
   // Toggle pause
   const handleTogglePause = useCallback(() => {
@@ -139,6 +156,105 @@ export function NewsContent() {
 
   const liveCount = news.filter(a => a.isLive).length;
 
+  // =====================================================
+  // RENDER: ARTICLE VIEWER (cuando hay artículo seleccionado)
+  // =====================================================
+  if (selectedArticle) {
+    const dt = formatDateTime(selectedArticle.published);
+    const ticker = selectedArticle.tickers?.[0] || '';
+
+    // Determinar qué contenido mostrar
+    const hasBody = selectedArticle.body && selectedArticle.body.trim().length > 0;
+    const hasTeaser = selectedArticle.teaser && selectedArticle.teaser.trim().length > 0;
+    const hasContent = hasBody || hasTeaser;
+
+    return (
+      <div className="flex flex-col h-full bg-white">
+        {/* Header del viewer */}
+        <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+          <button
+            onClick={() => setSelectedArticle(null)}
+            className="px-2 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-medium flex items-center gap-1"
+          >
+            ← Back
+          </button>
+          <div className="text-xs text-slate-600 font-mono flex items-center gap-2">
+            {ticker && (
+              <>
+                <span className="font-semibold text-blue-600">{ticker}</span>
+                <span>·</span>
+              </>
+            )}
+            <span>{dt.date}</span>
+            <span>·</span>
+            <span>{dt.time}</span>
+          </div>
+          <a
+            href={selectedArticle.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Open Original
+          </a>
+        </div>
+
+        {/* Contenido del artículo */}
+        <div className="flex-1 overflow-auto">
+          <div className="p-4">
+            {/* Título siempre visible */}
+            <h1 className="text-lg font-semibold text-slate-900 mb-3">{selectedArticle.title}</h1>
+
+            {/* Metadata */}
+            <div className="flex items-center gap-3 text-xs text-slate-500 mb-4">
+              <span>By {selectedArticle.author}</span>
+              {selectedArticle.channels && selectedArticle.channels.length > 0 && (
+                <span className="text-slate-400">
+                  {selectedArticle.channels.join(', ')}
+                </span>
+              )}
+            </div>
+
+            {/* Contenido: body > teaser > mensaje */}
+            {hasBody ? (
+              <div
+                className="prose prose-sm max-w-none text-slate-700 leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: selectedArticle.body || '' }}
+              />
+            ) : hasTeaser ? (
+              <div className="text-slate-700 leading-relaxed">
+                <p className="mb-4">{selectedArticle.teaser}</p>
+                <a
+                  href={selectedArticle.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm"
+                >
+                  Read full article on Benzinga
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-slate-500 mb-4">Full article content not available</p>
+                <a
+                  href={selectedArticle.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open on Benzinga
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header */}
@@ -152,9 +268,17 @@ export function NewsContent() {
               {ws.isConnected ? 'Live' : 'Offline'}
             </span>
           </div>
-          
+
           <StreamPauseButton isPaused={isPaused} onToggle={handleTogglePause} size="sm" />
-          
+
+          <SquawkButton
+            isEnabled={squawk.isEnabled}
+            isSpeaking={squawk.isSpeaking}
+            queueSize={squawk.queueSize}
+            onToggle={squawk.toggleEnabled}
+            size="sm"
+          />
+
           {isPaused && pausedBuffer.length > 0 && (
             <span className="text-amber-600 text-xs font-medium">(+{pausedBuffer.length})</span>
           )}
@@ -187,7 +311,7 @@ export function NewsContent() {
                 <tr
                   key={article.benzinga_id || article.id || i}
                   className={`cursor-pointer hover:bg-slate-50 transition-colors ${article.isLive ? 'bg-emerald-50/50' : ''}`}
-                  onClick={() => window.open(article.url, '_blank')}
+                  onClick={() => setSelectedArticle(article)}
                 >
                   <td className="px-2 py-1">
                     <div className="flex items-center gap-1.5">

@@ -1023,9 +1023,14 @@ function injectNewsContent(
     let workerPort = null;
     let isConnected = false;
     let isPaused = false;
+    let isSquawkEnabled = false;
+    let squawkQueue = [];
+    let isSquawkPlaying = false;
     let newsData = INITIAL_NEWS || [];
     let seenIds = new Set(newsData.map(a => a.benzinga_id));
     let pausedBuffer = [];
+    
+    const VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
     
     console.log('🚀 [News Window] Init with', newsData.length, 'articles');
     
@@ -1077,6 +1082,11 @@ function injectNewsContent(
           } else {
             newsData.unshift({ ...article, isLive: true });
             renderTable();
+            
+            // Squawk: leer la noticia
+            const ticker = (article.tickers && article.tickers[0]) || '';
+            const squawkText = ticker ? ticker + '. ' + article.title : article.title;
+            speakNews(squawkText);
           }
         }
       }
@@ -1113,6 +1123,69 @@ function injectNewsContent(
     }
     
     // ============================================================
+    // SQUAWK (Text-to-Speech)
+    // ============================================================
+    window.toggleSquawk = function() {
+      isSquawkEnabled = !isSquawkEnabled;
+      if (!isSquawkEnabled) {
+        squawkQueue = [];
+      }
+      renderTable();
+    }
+    
+    async function processSquawkQueue() {
+      if (isSquawkPlaying || squawkQueue.length === 0) return;
+      
+      isSquawkPlaying = true;
+      
+      while (squawkQueue.length > 0) {
+        const text = squawkQueue.shift();
+        renderTable(); // Update queue badge
+        
+        try {
+          // Usar proxy del API Gateway para evitar CORS
+          const response = await fetch(CONFIG.apiBaseUrl + '/api/v1/tts/speak', {
+            method: 'POST',
+            headers: {
+              'Accept': 'audio/mpeg',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              text: text,
+              voice_id: VOICE_ID,
+            }),
+          });
+          
+          if (!response.ok) continue;
+          
+          const audioBlob = await response.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          
+          await new Promise((resolve) => {
+            const audio = new Audio(audioUrl);
+            audio.onended = () => { URL.revokeObjectURL(audioUrl); resolve(); };
+            audio.onerror = () => { URL.revokeObjectURL(audioUrl); resolve(); };
+            audio.play().catch(() => resolve());
+          });
+          
+        } catch (error) {
+          console.error('Squawk error:', error);
+        }
+      }
+      
+      isSquawkPlaying = false;
+      renderTable();
+    }
+    
+    function speakNews(text) {
+      if (!isSquawkEnabled) return;
+      const cleanText = text.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, '').substring(0, 200);
+      squawkQueue.push(cleanText);
+      renderTable();
+      processSquawkQueue();
+    }
+    
+    // ============================================================
     // RENDER
     // ============================================================
     function formatDateTime(isoString) {
@@ -1140,6 +1213,14 @@ function injectNewsContent(
         ? \`<span class="text-amber-600 text-xs font-medium">(+\${pausedBuffer.length})</span>\` 
         : '';
       
+      const squawkBtnClass = isSquawkEnabled 
+        ? 'px-2 py-0.5 text-xs font-medium rounded bg-violet-600 hover:bg-violet-700 text-white relative'
+        : 'px-2 py-0.5 text-xs font-medium rounded bg-slate-200 hover:bg-slate-300 text-slate-600';
+      const squawkBtnText = isSquawkEnabled ? '🔊 Squawk' : '🔇 Squawk';
+      const squawkQueueBadge = squawkQueue.length > 0 
+        ? \`<span class="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">\${squawkQueue.length}</span>\`
+        : '';
+      
       const html = \`
         <div class="h-screen flex flex-col bg-white">
           <!-- Header -->
@@ -1154,6 +1235,7 @@ function injectNewsContent(
                 <span id="status-text" class="\${statusTextClass}">\${statusText}</span>
               </div>
               <button onclick="togglePause()" class="\${pauseBtnClass}">\${pauseBtnText}</button>
+              <button onclick="toggleSquawk()" class="\${squawkBtnClass}">\${squawkBtnText}\${squawkQueueBadge}</button>
               \${pausedInfo}
             </div>
             <div class="flex items-center gap-2">

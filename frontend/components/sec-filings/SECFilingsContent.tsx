@@ -205,22 +205,38 @@ export function SECFilingsContent() {
         return true;
     };
 
-    // Merge de todos los filings (real-time + históricos)
+    // Merge de todos los filings (real-time + históricos) con deduplicación robusta
     const displayedFilings = useMemo(() => {
-        // Si hay filtros: Filtrar AMBOS (real-time + históricos) como capa defensiva
-        if (hasActiveFilters) {
-            const filteredRealtime = realtimeFilings.filter(filterFiling);
-            const filteredHistorical = historicalFilings.filter(filterFiling);
+        // Usar Map para garantizar unicidad por accessionNo
+        const filingMap = new Map<string, SECFiling>();
 
-            // Deduplicar: evitar que aparezcan filings que ya están en históricos
-            const historicalAccessions = new Set(filteredHistorical.map(f => f.accessionNo));
-            const uniqueRealtime = filteredRealtime.filter(f => !historicalAccessions.has(f.accessionNo));
+        // Primero agregar históricos (tienen prioridad de datos completos)
+        const filingsToProcess = hasActiveFilters
+            ? historicalFilings.filter(filterFiling)
+            : historicalFilings;
 
-            return [...uniqueRealtime, ...filteredHistorical];
-        }
+        filingsToProcess.forEach(f => {
+            if (f.accessionNo && !filingMap.has(f.accessionNo)) {
+                filingMap.set(f.accessionNo, f);
+            }
+        });
 
-        // Sin filtros: Real-time + históricos (sin filtrar)
-        return [...realtimeFilings, ...historicalFilings];
+        // Luego agregar real-time (solo si no existe ya)
+        const realtimeToProcess = hasActiveFilters
+            ? realtimeFilings.filter(filterFiling)
+            : realtimeFilings;
+
+        realtimeToProcess.forEach(f => {
+            if (f.accessionNo && !filingMap.has(f.accessionNo)) {
+                filingMap.set(f.accessionNo, f);
+            }
+        });
+
+        // Convertir a array y ordenar por fecha (más recientes primero)
+        const result = Array.from(filingMap.values());
+        result.sort((a, b) => new Date(b.filedAt).getTime() - new Date(a.filedAt).getTime());
+
+        return result;
     }, [realtimeFilings, historicalFilings, hasActiveFilters, searchQuery, formTypeFilter, startDate, endDate]);
 
     const formatDateTime = (isoString: string) => {

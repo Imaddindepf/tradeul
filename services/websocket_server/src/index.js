@@ -1067,7 +1067,10 @@ async function processBenzingaNewsStream() {
         lastId
       );
 
-      if (!result) continue;
+      if (!result) {
+        logger.debug("📰 No new messages (timeout)");
+        continue;
+      }
 
       for (const [_stream, messages] of result) {
         for (const [id, fields] of messages) {

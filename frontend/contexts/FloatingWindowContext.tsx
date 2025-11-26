@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
 import { floatingZIndexManager } from '@/lib/z-index';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
+import { getWindowType } from '@/lib/window-config';
 
 export interface FloatingWindow {
   id: string;
@@ -56,15 +57,6 @@ interface FloatingWindowContextType {
 const FloatingWindowContext = createContext<FloatingWindowContextType | undefined>(undefined);
 
 let windowIdCounter = 0;
-
-// Mapeo de títulos a tipos de ventana
-const WINDOW_TYPES: Record<string, string> = {
-  'Settings': 'settings',
-  'Dilution Tracker': 'dt',
-  'SEC Filings': 'sec',
-  'News': 'news',
-  'Financial Analysis': 'fa',
-};
 
 export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<FloatingWindow[]>([]);
@@ -180,7 +172,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     autoSaveTimeoutRef.current = setTimeout(() => {
       const layouts = windows.map((w) => ({
         id: w.id,
-        type: WINDOW_TYPES[w.title] || w.title.toLowerCase().replace(/\s+/g, '_'),
+        type: getWindowType(w.title),
         title: w.title,
         position: { x: w.x, y: w.y },
         size: { width: w.width, height: w.height },
