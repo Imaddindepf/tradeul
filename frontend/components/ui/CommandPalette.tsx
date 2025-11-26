@@ -18,9 +18,11 @@ import {
     ArrowDown,
     LayoutGrid,
     FileText,
+    DollarSign,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { MAIN_COMMANDS as COMMANDS_BASE } from '@/lib/commands';
 
 interface CommandPaletteProps {
     open: boolean;
@@ -41,14 +43,11 @@ type CommandItem = {
     disabled?: boolean;
 };
 
-// Sistema de comandos con prefijos tipo terminal
-// Comandos principales (sin prefijo)
-const MAIN_COMMANDS: CommandItem[] = [
-    { id: 'sc', label: 'SC', description: 'Scanner - Ver todas las tablas', icon: LayoutGrid, group: 'Comandos principales' },
-    { id: 'dt', label: 'DT', description: 'Dilution Tracker - Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D', group: 'Comandos principales' },
-    { id: 'sec', label: 'SEC', description: 'SEC Filings - Filings de la SEC en tiempo real', icon: FileText, shortcut: 'Ctrl+F', group: 'Comandos principales' },
-    { id: 'settings', label: 'SET', description: 'Settings - Configuración de la app', icon: Settings, shortcut: 'Ctrl+,', group: 'Comandos principales' },
-];
+// Comandos principales - extendidos desde la fuente centralizada
+const MAIN_COMMANDS: CommandItem[] = COMMANDS_BASE.map(cmd => ({
+    ...cmd,
+    group: 'Comandos principales',
+}));
 
 // Comandos del scanner (prefijo SC)
 const SCANNER_COMMANDS: CommandItem[] = [
@@ -70,12 +69,12 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
     const setSearch = onSearchChange || (() => { });
     const { executeCommand } = useCommandExecutor();
     const preventCloseRef = useRef(false);
-    
+
     // Detectar qué comandos mostrar basado en el texto escrito
     const hasScPrefix = search.startsWith('sc');
     const hasDtPrefix = search.startsWith('dt');
     const isEmpty = search === '';
-    
+
     // Determinar qué comandos mostrar
     const showMainCommands = isEmpty || (!hasScPrefix && !hasDtPrefix);
     const showScannerCommands = hasScPrefix;
@@ -101,8 +100,8 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             return;
         }
 
-        // Comandos que abren ventanas flotantes (DT, Settings, SEC)
-        if (['dt', 'settings', 'sec'].includes(value)) {
+        // Comandos que abren ventanas flotantes (DT, Settings, SEC, FA)
+        if (['dt', 'settings', 'sec', 'fa'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);
@@ -128,7 +127,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             if (preventCloseRef.current) {
                 return;
             }
-            
+
             const target = e.target as HTMLElement;
             // No cerrar si se hace clic en el input del navbar o en el command palette
             if (!target.closest('[cmdk-root]') && !target.closest('input[type="text"]')) {
@@ -240,24 +239,24 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         {showMainCommands && (
                             <Command.Group>
                                 {MAIN_COMMANDS.map((cmd) => {
-                                return (
-                                    <Command.Item
-                                        key={cmd.id}
+                                    return (
+                                        <Command.Item
+                                            key={cmd.id}
                                             value={cmd.id}
                                             keywords={[cmd.label, cmd.description, cmd.id]}
-                                        onSelect={() => handleSelect(cmd.id)}
+                                            onSelect={() => handleSelect(cmd.id)}
                                             className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
                                                        hover:bg-slate-100 data-[selected=true]:bg-slate-100
                                                        transition-colors"
-                                    >
+                                        >
                                             <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmd.label}
                                             </span>
                                             <span className="text-xs text-slate-600">{cmd.description}</span>
-                                    </Command.Item>
-                                );
-                            })}
-                        </Command.Group>
+                                        </Command.Item>
+                                    );
+                                })}
+                            </Command.Group>
                         )}
 
                         {/* COMANDOS DEL SCANNER (prefijo SC) */}
@@ -267,24 +266,24 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                     // Extraer solo el nombre sin el prefijo "SC "
                                     const cmdName = cmd.label.replace('SC ', '');
 
-                                return (
-                                    <Command.Item
-                                        key={cmd.id}
+                                    return (
+                                        <Command.Item
+                                            key={cmd.id}
                                             value={cmd.id}
                                             keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
-                                        onSelect={() => handleSelect(cmd.id)}
+                                            onSelect={() => handleSelect(cmd.id)}
                                             className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
                                                        hover:bg-slate-100 data-[selected=true]:bg-slate-100
                                                        transition-colors"
-                                    >
+                                        >
                                             <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmdName}
                                             </span>
                                             <span className="text-xs text-slate-600">{cmd.description}</span>
-                                    </Command.Item>
-                                );
-                            })}
-                        </Command.Group>
+                                        </Command.Item>
+                                    );
+                                })}
+                            </Command.Group>
                         )}
                     </Command.List>
 

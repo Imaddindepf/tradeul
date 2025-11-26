@@ -48,12 +48,17 @@ function FloatingWindowBaseComponent({
 }: FloatingWindowBaseProps) {
   // Posición inicial segura que respeta los límites del navbar
   const getInitialPosition = () => {
-    if (initialPosition) {
-      return initialPosition;
-    }
     const navbarHeight = 64; // h-16
-    const minY = navbarHeight + 20; // 84px - LÍMITE: debajo del navbar
-    const minX = 20; // Margen desde el borde izquierdo
+    const minY = navbarHeight + 10; // 74px - LÍMITE: debajo del navbar
+    const minX = 10; // Margen desde el borde izquierdo
+
+    if (initialPosition) {
+      // Asegurar que la posición inicial respete los límites
+      return {
+        x: Math.max(minX, initialPosition.x),
+        y: Math.max(minY, initialPosition.y),
+      };
+    }
 
     return {
       x: minX + stackOffset,

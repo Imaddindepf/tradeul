@@ -1,7 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
 import { floatingZIndexManager } from '@/lib/z-index';
+import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 
 export interface FloatingWindow {
   id: string;
@@ -52,12 +53,25 @@ const FloatingWindowContext = createContext<FloatingWindowContextType | undefine
 
 let windowIdCounter = 0;
 
+// Mapeo de títulos a tipos de ventana
+const WINDOW_TYPES: Record<string, string> = {
+  'Settings': 'settings',
+  'Dilution Tracker': 'dt',
+  'SEC Filings': 'sec',
+  'Financial Analysis': 'fa',
+};
+
 export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<FloatingWindow[]>([]);
+  const saveWindowLayouts = useUserPreferencesStore((s) => s.saveWindowLayouts);
 
   // Usar ref para acceder al estado actual en callbacks
   const windowsRef = useRef<FloatingWindow[]>([]);
   windowsRef.current = windows;
+
+  // Ref para debounce del auto-guardado
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitializedRef = useRef(false);
 
   const getMaxZIndex = useCallback(() => {
     return floatingZIndexManager.getCurrent();
@@ -143,6 +157,42 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const closeAllWindows = useCallback(() => {
     setWindows([]);
   }, []);
+
+  // Auto-guardar layout cuando cambian las ventanas (después de 3 segundos de inactividad)
+  useEffect(() => {
+    // No guardar en el primer render
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+      return;
+    }
+
+    // Cancelar timeout anterior
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    // Nuevo timeout de 3 segundos
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      const layouts = windows.map((w) => ({
+        id: w.id,
+        type: WINDOW_TYPES[w.title] || w.title.toLowerCase().replace(/\s+/g, '_'),
+        title: w.title,
+        position: { x: w.x, y: w.y },
+        size: { width: w.width, height: w.height },
+        isMinimized: w.isMinimized,
+        zIndex: w.zIndex,
+      }));
+
+      saveWindowLayouts(layouts);
+      console.log('[Layout] Auto-guardado:', layouts.length, 'ventanas');
+    }, 3000);
+
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [windows, saveWindowLayouts]);
 
   return (
     <FloatingWindowContext.Provider

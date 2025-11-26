@@ -3,19 +3,12 @@
 import { Pin } from 'lucide-react';
 import { usePinnedCommands } from '@/hooks/usePinnedCommands';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { getCommandLabel } from '@/lib/commands';
 
 interface PinnedCommandsProps {
   /** Callback para abrir CommandPalette con un valor inicial (para SC) */
   onOpenCommandPalette?: (initialValue: string) => void;
 }
-
-// Mapeo de IDs a labels
-const COMMAND_LABELS: Record<string, string> = {
-  'sc': 'SC',
-  'dt': 'DT',
-  'sec': 'SEC',
-  'settings': 'SET',
-};
 
 export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
   const { pinnedCommands, loaded } = usePinnedCommands();
@@ -57,9 +50,9 @@ export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
               className="px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white 
                        rounded-md hover:bg-blue-600 transition-colors
                        shadow-sm hover:shadow-md"
-              title={COMMAND_LABELS[cmdId] || cmdId}
+              title={getCommandLabel(cmdId)}
             >
-              {COMMAND_LABELS[cmdId] || cmdId}
+              {getCommandLabel(cmdId)}
             </button>
           ))}
           

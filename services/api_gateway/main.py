@@ -25,6 +25,7 @@ from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
+from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
 
 # Configurar logger
 configure_logging(service_name="api_gateway")
@@ -60,6 +61,11 @@ async def lifespan(app: FastAPI):
     await timescale_client.connect()
     set_timescale_client(timescale_client)
     logger.info("timescale_connected")
+    
+    # Configurar router de financials con Redis y FMP API key
+    set_financials_redis(redis_client)
+    set_fmp_api_key(settings.FMP_API_KEY)
+    logger.info("financials_router_configured_fmp")
     
     # Iniciar broadcaster de streams - DESACTIVADO: Ahora usamos servidor WebSocket dedicado
     # stream_broadcaster_task = asyncio.create_task(broadcast_streams())
@@ -111,6 +117,7 @@ app.add_middleware(
 
 # Registrar routers
 app.include_router(user_prefs_router)
+app.include_router(financials_router)
 
 
 # ============================================================================

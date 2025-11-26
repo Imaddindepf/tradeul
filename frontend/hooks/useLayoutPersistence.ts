@@ -5,11 +5,12 @@ import { useFloatingWindow, SerializableWindowLayout } from '@/contexts/Floating
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 
 // Mapeo de títulos a tipos de ventana para reconstrucción
-const WINDOW_TYPES = {
+const WINDOW_TYPES: Record<string, string> = {
   'Settings': 'settings',
   'Dilution Tracker': 'dt',
   'SEC Filings': 'sec',
-} as const;
+  'Financial Analysis': 'fa',
+};
 
 /**
  * Hook para guardar y restaurar el layout de ventanas

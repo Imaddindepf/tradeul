@@ -16,6 +16,7 @@ import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
+import { FinancialsContent } from '@/components/financials/FinancialsContent';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -66,6 +67,7 @@ export default function ScannerPage() {
     if (title === 'Settings') return <SettingsContent />;
     if (title === 'Dilution Tracker') return <DilutionTrackerContent />;
     if (title === 'SEC Filings') return <SECFilingsContent />;
+    if (title === 'Financial Analysis') return <FinancialsContent />;
 
     // Verificar si es una tabla del scanner
     if (title.startsWith('Scanner: ')) {
@@ -243,7 +245,7 @@ export default function ScannerPage() {
       />
 
       {/* Main Content - usa variable CSS para el fondo */}
-      <main 
+      <main
         className="h-[calc(100vh-64px)] relative overflow-hidden transition-colors duration-200"
         style={{ backgroundColor: 'var(--color-background, #f8fafc)' }}
       >

@@ -6,13 +6,7 @@ import { useUserPreferencesStore, FontFamily } from '@/stores/useUserPreferences
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useSaveLayoutToCloud } from '@/hooks/useClerkSync';
 import { Pin, RotateCcw, Save, Layout, Trash2, Check, Cloud, CloudOff } from 'lucide-react';
-
-const AVAILABLE_COMMANDS = [
-  { id: 'sc', label: 'SC' },
-  { id: 'dt', label: 'DT' },
-  { id: 'sec', label: 'SEC' },
-  { id: 'settings', label: 'SET' },
-];
+import { MAIN_COMMANDS } from '@/lib/commands';
 
 const PRESET_COLORS = {
   tickUp: ['#10b981', '#22c55e', '#84cc16', '#14b8a6', '#06b6d4'],
@@ -158,7 +152,7 @@ export function SettingsContent() {
                 saved 
                   ? 'bg-green-100 text-green-700' 
                   : 'bg-blue-500 text-white hover:bg-blue-600'
-              }`}
+                }`} 
             >
               {saved ? (
                 <>
@@ -211,7 +205,7 @@ export function SettingsContent() {
 
         {tab === 'cmds' && (
           <div className="flex flex-wrap gap-1">
-            {AVAILABLE_COMMANDS.map((cmd) => (
+            {MAIN_COMMANDS.map((cmd) => (
               <button
                 key={cmd.id}
                 onClick={() => togglePin(cmd.id)}

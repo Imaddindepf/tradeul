@@ -6,6 +6,7 @@ import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
+import { FinancialsContent } from '@/components/financials/FinancialsContent';
 
 // Configuración de categorías del scanner
 const SCANNER_CATEGORIES: Record<string, { name: string; description: string }> = {
@@ -141,6 +142,19 @@ export function useCommandExecutor() {
                     y: screenHeight / 2 - 325,
                     minWidth: 800,
                     minHeight: 500,
+                });
+                return null;
+
+            case 'fa':
+                openWindow({
+                    title: 'Financial Analysis',
+                    content: <FinancialsContent />,
+                    width: 700,
+                    height: 550,
+                    x: Math.max(50, screenWidth / 2 - 350),
+                    y: Math.max(80, (screenHeight - 64) / 2 - 275 + 64), // 64px = navbar height
+                    minWidth: 500,
+                    minHeight: 400,
                 });
                 return null;
 
