@@ -145,9 +145,10 @@ class ClearRealtimeCachesTask:
         }
         
         # Publicar en canal Redis Pub/Sub
+        import json
         await self.redis.client.publish(
             "trading:new_day",
-            self.redis._serialize(message)
+            json.dumps(message)
         )
         
         logger.info(

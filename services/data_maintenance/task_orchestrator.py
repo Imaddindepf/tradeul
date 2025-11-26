@@ -173,17 +173,32 @@ class TaskOrchestrator:
                 task_duration = (datetime.now() - task_start).total_seconds()
                 
                 if result.get("success", False):
-                    state["tasks"][task_name] = TaskStatus.COMPLETED
+                    # 🔥 VALIDACIÓN ADICIONAL: Verificar que tenga datos significativos
+                    validation_passed = self._validate_task_result(task_name, result)
                     
-                    # Excluir duration_seconds de result para evitar duplicados
-                    log_data = {k: v for k, v in result.items() if k != "duration_seconds"}
-                    
-                    logger.info(
-                        "task_completed",
-                        task=task_name,
-                        duration_seconds=round(task_duration, 2),
-                        **log_data
-                    )
+                    if validation_passed:
+                        state["tasks"][task_name] = TaskStatus.COMPLETED
+                        
+                        # Excluir duration_seconds de result para evitar duplicados
+                        log_data = {k: v for k, v in result.items() if k != "duration_seconds"}
+                        
+                        logger.info(
+                            "task_completed",
+                            task=task_name,
+                            duration_seconds=round(task_duration, 2),
+                            **log_data
+                        )
+                    else:
+                        # Validación falló - marcar como FAILED
+                        state["tasks"][task_name] = TaskStatus.FAILED
+                        all_success = False
+                        logger.error(
+                            "task_validation_failed",
+                            task=task_name,
+                            reason="Insufficient data loaded",
+                            duration_seconds=round(task_duration, 2),
+                            **result
+                        )
                 else:
                     state["tasks"][task_name] = TaskStatus.FAILED
                     all_success = False
@@ -294,6 +309,41 @@ class TaskOrchestrator:
                 "state_save_failed",
                 error=str(e)
             )
+    
+    def _validate_task_result(self, task_name: str, result: Dict) -> bool:
+        """
+        🔥 VALIDACIÓN: Verificar que la tarea cargó suficientes datos
+        """
+        # Si no cargó nada porque todo ya estaba completo, es OK
+        days_skipped = result.get("days_skipped", 0)
+        days_loaded = result.get("days_loaded", 0)
+        
+        if days_loaded == 0 and days_skipped > 0:
+            return True  # No había nada que cargar
+        
+        # Validaciones por tipo de tarea
+        records = result.get("records_inserted", 0)
+        symbols_success = result.get("symbols_success", 0)
+        
+        if task_name == "ohlc_daily":
+            MIN_OHLC = 10000
+            if days_loaded > 0 and records < MIN_OHLC:
+                logger.warning("ohlc_validation_failed", expected=MIN_OHLC, actual=records)
+                return False
+        
+        elif task_name == "volume_slots":
+            MIN_SLOTS = 500000
+            if days_loaded > 0 and records < MIN_SLOTS:
+                logger.warning("volume_slots_validation_failed", expected=MIN_SLOTS, actual=records)
+                return False
+        
+        elif task_name == "calculate_atr":
+            MIN_ATR = 10000
+            if symbols_success < MIN_ATR:
+                logger.warning("atr_validation_failed", expected=MIN_ATR, actual=symbols_success)
+                return False
+        
+        return True
     
     def _format_duration(self, seconds: float) -> str:
         """Formatear duración en formato legible"""

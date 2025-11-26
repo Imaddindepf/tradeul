@@ -41,14 +41,8 @@ from realtime_ticker_monitor import RealtimeTickerMonitor
 from maintenance_logger import setup_maintenance_logger
 from cache_clear_scheduler import CacheClearScheduler
 
-# Setup enhanced logger with file rotation
-try:
-    logger = setup_maintenance_logger()
-    logger.info("Enhanced logging with file rotation enabled", log_dir="/var/log/tradeul")
-except Exception as e:
-    # Fallback to standard logger
+# Setup enhanced logger
 logger = get_logger(__name__)
-    logger.warning("Failed to setup file logging, using console only", error=str(e))
 
 # Global instances
 redis_client: RedisClient = None

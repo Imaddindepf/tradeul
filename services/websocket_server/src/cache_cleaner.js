@@ -15,8 +15,14 @@ const logger = require("pino")();
 async function subscribeToNewDayEvents(redisSubscriber, lastSnapshots) {
   try {
     // Suscribirse al canal de eventos de nuevo día
-    await redisSubscriber.subscribe("trading:new_day", (message) => {
+    await redisSubscriber.subscribe("trading:new_day", (message, channel) => {
       try {
+        // El mensaje puede venir como string o null en el primer callback
+        if (!message) {
+          logger.debug({ channel }, "Subscribed to channel (no message yet)");
+          return;
+        }
+        
         const event = JSON.parse(message);
         
         if (event.event === "new_trading_day" && event.action === "clear_caches") {

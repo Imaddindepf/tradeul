@@ -100,6 +100,27 @@ class CalculateATRTask:
                 rate_per_second=round(success_count / elapsed, 2) if elapsed > 0 else 0
             )
             
+            # 🔥 VALIDACIÓN: Verificar que se calculó ATR para suficientes tickers
+            MIN_ATR_SUCCESS = 10000
+            success_rate = success_count / len(symbols) if len(symbols) > 0 else 0
+            
+            if success_count < MIN_ATR_SUCCESS or success_rate < 0.8:
+                logger.error(
+                    "insufficient_atr_calculated",
+                    expected_min=MIN_ATR_SUCCESS,
+                    actual=success_count,
+                    success_rate=f"{success_rate*100:.1f}%"
+                )
+                return {
+                    "success": False,
+                    "error": f"Insufficient ATR: {success_count} < {MIN_ATR_SUCCESS} (rate: {success_rate*100:.1f}%)",
+                    "symbols_total": len(symbols),
+                    "symbols_success": success_count,
+                    "symbols_failed": failed_count,
+                    "symbols_skipped": skipped_count,
+                    "duration_seconds": round(elapsed, 2)
+                }
+            
             return {
                 "success": True,
                 "symbols_total": len(symbols),

@@ -135,6 +135,27 @@ class LoadOHLCTask:
                 days_skipped=len(existing_dates)
             )
             
+            # 🔥 VALIDACIÓN: Verificar que se cargaron suficientes datos
+            MIN_RECORDS_PER_DAY = 10000
+            expected_records = len(trading_days) * MIN_RECORDS_PER_DAY
+            
+            if len(trading_days) > 0 and records_inserted < MIN_RECORDS_PER_DAY:
+                logger.error(
+                    "insufficient_ohlc_data_loaded",
+                    expected_min=MIN_RECORDS_PER_DAY,
+                    actual=records_inserted,
+                    days_attempted=len(trading_days),
+                    days_skipped=len(existing_dates)
+                )
+                return {
+                    "success": False,
+                    "error": f"Insufficient data: loaded {records_inserted} tickers, expected >= {MIN_RECORDS_PER_DAY}",
+                    "symbols_processed": len(symbols),
+                    "records_inserted": records_inserted,
+                    "days_loaded": len(trading_days),
+                    "days_skipped": len(existing_dates)
+                }
+            
             return {
                 "success": True,
                 "symbols_processed": len(symbols),

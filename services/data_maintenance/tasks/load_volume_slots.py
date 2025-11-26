@@ -134,6 +134,27 @@ class LoadVolumeSlotsTask:
                 days_skipped=len(existing_dates)
             )
             
+            # 🔥 VALIDACIÓN: Verificar que se cargaron suficientes datos
+            # ~12,000 tickers × 78 slots × days = ~936,000 records/día
+            MIN_RECORDS_PER_DAY = 500000  # Mínimo 500K records por día
+            expected_records = len(trading_days) * MIN_RECORDS_PER_DAY
+            
+            if len(trading_days) > 0 and records_inserted < MIN_RECORDS_PER_DAY:
+                logger.error(
+                    "insufficient_volume_slots_loaded",
+                    expected_min=MIN_RECORDS_PER_DAY,
+                    actual=records_inserted,
+                    days_attempted=len(trading_days)
+                )
+                return {
+                    "success": False,
+                    "error": f"Insufficient data: loaded {records_inserted} records, expected >= {MIN_RECORDS_PER_DAY}",
+                    "symbols_processed": len(symbols),
+                    "records_inserted": records_inserted,
+                    "days_loaded": len(trading_days),
+                    "days_skipped": len(existing_dates)
+                }
+            
             return {
                 "success": True,
                 "symbols_processed": len(symbols),

@@ -19,6 +19,7 @@ const http = require("http");
 const Redis = require("ioredis");
 const pino = require("pino");
 const { v4: uuidv4 } = require("uuid");
+const { subscribeToNewDayEvents } = require("./cache_cleaner");
 
 // Logger
 const logger = pino({
@@ -51,6 +52,12 @@ const redis = new Redis({
 
 // Cliente Redis adicional para comandos normales
 const redisCommands = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+});
+
+// Cliente Redis para Pub/Sub (escuchar eventos de nuevo día)
+const redisSubscriber = new Redis({
   ...redisConfig,
   retryStrategy: (times) => Math.min(times * 50, 2000),
 });
@@ -1265,6 +1272,18 @@ async function broadcastPolygonSubscriptionStatus() {
     logger.error({ err }, "Error broadcasting Polygon subscription status");
   }
 }
+
+// 🔥 Suscribirse a eventos de nuevo día (después de que Redis conecte)
+redisSubscriber.on("connect", () => {
+  logger.info("📡 Redis Subscriber connected");
+  subscribeToNewDayEvents(redisSubscriber, lastSnapshots)
+    .then(() => {
+      logger.info("✅ Subscribed to cache clear events");
+    })
+    .catch((err) => {
+      logger.error({ err }, "Failed to subscribe to cache clear events");
+    });
+});
 
 // Iniciar servidor
 server.listen(PORT, () => {
