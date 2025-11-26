@@ -200,10 +200,10 @@ function resubscribeAllLists() {
 
   if (ws && ws.readyState === WebSocket.OPEN) {
     if (allLists.size > 0) {
-      allLists.forEach(function(list) {
-        ws.send(JSON.stringify({ action: 'subscribe_list', list: list }));
-      });
-      log('info', '📋 Re-subscribed to ' + allLists.size + ' lists');
+    allLists.forEach(function(list) {
+      ws.send(JSON.stringify({ action: 'subscribe_list', list: list }));
+    });
+    log('info', '📋 Re-subscribed to ' + allLists.size + ' lists');
     }
     
     if (hasNewsSubscribers) {
