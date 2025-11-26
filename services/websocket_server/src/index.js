@@ -83,6 +83,9 @@ const listSubscribers = new Map();
 // Clientes suscritos a SEC Filings: Set<connectionId>
 const secFilingsSubscribers = new Set();
 
+// Clientes suscritos a Benzinga News: Set<connectionId>
+const benzingaNewsSubscribers = new Set();
+
 // Mapeo symbol → lists (para broadcast de aggregates)
 // "TSLA" -> Set(["GAPPERS_UP", "MOMENTUM_UP"])
 const symbolToLists = new Map();
@@ -1042,6 +1045,107 @@ function broadcastSECFiling(filingData) {
   }
 }
 
+/**
+ * Procesador del stream de Benzinga News
+ * Lee stream:benzinga:news y broadcast a clientes suscritos
+ */
+async function processBenzingaNewsStream() {
+  const STREAM_NAME = "stream:benzinga:news";
+  let lastId = "$"; // Leer solo mensajes nuevos
+
+  logger.info("📰 Starting Benzinga News stream processor");
+
+  while (true) {
+    try {
+      const result = await redis.xread(
+        "BLOCK",
+        5000,
+        "COUNT",
+        50,
+        "STREAMS",
+        STREAM_NAME,
+        lastId
+      );
+
+      if (!result) continue;
+
+      for (const [_stream, messages] of result) {
+        for (const [id, fields] of messages) {
+          lastId = id;
+          const message = parseRedisFields(fields);
+
+          // El mensaje viene con type="news" y data=JSON
+          if (message.type === "news" && message.data) {
+            try {
+              const articleData = JSON.parse(message.data);
+              
+              // Broadcast a todos los clientes suscritos a Benzinga News
+              broadcastBenzingaNews(articleData);
+              
+            } catch (parseErr) {
+              logger.error({ err: parseErr }, "Error parsing Benzinga news data");
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "Error reading Benzinga news stream");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+/**
+ * Broadcast de Benzinga News a clientes suscritos
+ */
+function broadcastBenzingaNews(articleData) {
+  if (benzingaNewsSubscribers.size === 0) return;
+
+  const message = {
+    type: "benzinga_news",
+    article: articleData,
+    timestamp: new Date().toISOString()
+  };
+
+  const messageStr = JSON.stringify(message);
+  let sentCount = 0;
+  const disconnected = [];
+
+  benzingaNewsSubscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
+
+    if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      disconnected.push(connectionId);
+      return;
+    }
+
+    try {
+      conn.ws.send(messageStr);
+      sentCount++;
+    } catch (err) {
+      logger.error({ connectionId, err }, "Error sending Benzinga news");
+      disconnected.push(connectionId);
+    }
+  });
+
+  // Limpiar conexiones desconectadas
+  disconnected.forEach((connectionId) => {
+    benzingaNewsSubscribers.delete(connectionId);
+  });
+
+  if (sentCount > 0) {
+    logger.debug(
+      {
+        benzingaId: articleData.benzinga_id,
+        title: articleData.title?.substring(0, 50),
+        tickers: articleData.tickers,
+        sentTo: sentCount
+      },
+      "📰 Broadcasted Benzinga news"
+    );
+  }
+}
+
 // =============================================
 // WEBSOCKET SERVER
 // =============================================
@@ -1160,6 +1264,29 @@ wss.on("connection", (ws, req) => {
         });
       }
 
+      // Suscribirse a Benzinga News
+      else if (action === "subscribe_benzinga_news") {
+        benzingaNewsSubscribers.add(connectionId);
+        logger.info({ connectionId }, "📰 Client subscribed to Benzinga News");
+        
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "BENZINGA_NEWS",
+          message: "Subscribed to real-time Benzinga news"
+        });
+      }
+
+      // Desuscribirse de Benzinga News
+      else if (action === "unsubscribe_benzinga_news") {
+        benzingaNewsSubscribers.delete(connectionId);
+        logger.info({ connectionId }, "📰 Client unsubscribed from Benzinga News");
+        
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "BENZINGA_NEWS"
+        });
+      }
+
       // Ping/Pong heartbeat (ignorar, es normal)
       else if (action === "ping" || action === "pong") {
         // Responder con pong si es ping
@@ -1193,6 +1320,7 @@ wss.on("connection", (ws, req) => {
   ws.on("close", () => {
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
+    benzingaNewsSubscribers.delete(connectionId);
     connections.delete(connectionId);
     logger.info({ connectionId }, "❌ Client disconnected");
   });
@@ -1202,6 +1330,7 @@ wss.on("connection", (ws, req) => {
     logger.error({ connectionId, err }, "WebSocket error");
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
+    benzingaNewsSubscribers.delete(connectionId);
     connections.delete(connectionId);
   });
 });
@@ -1223,6 +1352,11 @@ processAggregatesStream().catch((err) => {
 
 processSECFilingsStream().catch((err) => {
   logger.fatal({ err }, "SEC Filings stream processor crashed");
+  process.exit(1);
+});
+
+processBenzingaNewsStream().catch((err) => {
+  logger.fatal({ err }, "Benzinga News stream processor crashed");
   process.exit(1);
 });
 
@@ -1288,10 +1422,11 @@ redisSubscriber.on("connect", () => {
 // Iniciar servidor
 server.listen(PORT, () => {
   logger.info({ port: PORT }, "🚀 WebSocket Server started");
-  logger.info("📡 Architecture: HYBRID + SEC Filings");
+  logger.info("📡 Architecture: HYBRID + SEC Filings + Benzinga News");
   logger.info("  ✅ Rankings: Snapshot + Deltas (every 10s)");
   logger.info("  ✅ Price/Volume: Real-time Aggregates (every 1s)");
   logger.info("  ✅ SEC Filings: Real-time stream from SEC Stream API");
+  logger.info("  ✅ Benzinga News: Real-time news from Polygon/Benzinga API");
   logger.info("  ✅ Optimized broadcasting with inverted index");
   logger.info("  ✅ Symbol→Lists mapping for aggregates");
   logger.info("  ✅ Polygon subscription status (every 10s)");

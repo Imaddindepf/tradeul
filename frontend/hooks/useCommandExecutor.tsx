@@ -5,6 +5,7 @@ import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
+import { BenzingaNewsContent } from '@/components/benzinga-news/BenzingaNewsContent';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 
@@ -142,6 +143,19 @@ export function useCommandExecutor() {
                     y: screenHeight / 2 - 325,
                     minWidth: 800,
                     minHeight: 500,
+                });
+                return null;
+
+            case 'news':
+                openWindow({
+                    title: 'Benzinga News',
+                    content: <BenzingaNewsContent />,
+                    width: 900,
+                    height: 600,
+                    x: screenWidth / 2 - 450,
+                    y: screenHeight / 2 - 300,
+                    minWidth: 700,
+                    minHeight: 450,
                 });
                 return null;
 

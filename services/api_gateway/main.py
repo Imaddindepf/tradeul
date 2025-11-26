@@ -688,6 +688,115 @@ async def get_system_stats():
 
 
 # ============================================================================
+# Benzinga News Proxy
+# ============================================================================
+
+@app.get("/benzinga/api/v1/news")
+async def proxy_benzinga_news(
+    ticker: Optional[str] = Query(None, description="Filter by ticker symbol"),
+    channels: Optional[str] = Query(None, description="Filter by channels"),
+    tags: Optional[str] = Query(None, description="Filter by tags"),
+    author: Optional[str] = Query(None, description="Filter by author"),
+    limit: int = Query(50, ge=1, le=200, description="Limit results")
+):
+    """
+    Proxy para el servicio de Benzinga News
+    """
+    try:
+        params = {"limit": limit}
+        if ticker:
+            params["ticker"] = ticker
+        if channels:
+            params["channels"] = channels
+        if tags:
+            params["tags"] = tags
+        if author:
+            params["author"] = author
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "http://benzinga-news:8015/api/v1/news",
+                params=params
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Benzinga news service error: {response.text}"
+                )
+    
+    except httpx.TimeoutException:
+        logger.error("benzinga_news_timeout")
+        raise HTTPException(status_code=504, detail="Benzinga news service timeout")
+    except httpx.ConnectError:
+        logger.error("benzinga_news_unavailable")
+        raise HTTPException(status_code=503, detail="Benzinga news service unavailable")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("benzinga_news_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/benzinga/api/v1/news/latest")
+async def proxy_benzinga_latest(limit: int = Query(50, ge=1, le=200)):
+    """Proxy para las últimas noticias de Benzinga"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "http://benzinga-news:8015/api/v1/news/latest",
+                params={"limit": limit}
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text
+                )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Service timeout")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Service unavailable")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("benzinga_latest_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/benzinga/api/v1/news/ticker/{ticker}")
+async def proxy_benzinga_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=200)):
+    """Proxy para noticias de Benzinga por ticker"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"http://benzinga-news:8015/api/v1/news/ticker/{ticker}",
+                params={"limit": limit}
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=response.text
+                )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Service timeout")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Service unavailable")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("benzinga_ticker_error", error=str(e), ticker=ticker)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # WebSocket Endpoints
 # ============================================================================
 

@@ -454,6 +454,37 @@ services:
         reservations:
           memory: 512M
 
+  benzinga-news:
+    build:
+      context: ./services/benzinga-news
+      dockerfile: Dockerfile
+    container_name: tradeul_benzinga_news
+    env_file:
+      - .env
+    environment:
+      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - SERVICE_PORT=8015
+      - POLL_INTERVAL_SECONDS=5
+      - LOG_LEVEL=INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "8015:8015"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
   # admin_panel:
   #   build:
   #     context: .

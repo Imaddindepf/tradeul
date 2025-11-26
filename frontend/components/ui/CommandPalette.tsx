@@ -100,8 +100,8 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             return;
         }
 
-        // Comandos que abren ventanas flotantes (DT, Settings, SEC, FA)
-        if (['dt', 'settings', 'sec', 'fa'].includes(value)) {
+        // Comandos que abren ventanas flotantes (DT, Settings, SEC, NEWS, FA)
+        if (['dt', 'settings', 'sec', 'news', 'fa'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);

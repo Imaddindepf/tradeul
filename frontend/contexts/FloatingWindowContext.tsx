@@ -58,6 +58,7 @@ const WINDOW_TYPES: Record<string, string> = {
   'Settings': 'settings',
   'Dilution Tracker': 'dt',
   'SEC Filings': 'sec',
+  'Benzinga News': 'news',
   'Financial Analysis': 'fa',
 };
 

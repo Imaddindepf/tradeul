@@ -1,0 +1,2 @@
+export { BenzingaNewsContent } from './BenzingaNewsContent';
+
