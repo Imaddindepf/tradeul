@@ -1334,6 +1334,7 @@ async def text_to_speech(request: Request):
         body = await request.json()
         text = body.get("text", "")
         voice_id = body.get("voice_id", "21m00Tcm4TlvDq8ikWAM")  # Rachel
+        language_code = body.get("language_code", "es")  # Forzar español por defecto
         
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
@@ -1352,6 +1353,7 @@ async def text_to_speech(request: Request):
                 json={
                     "text": text,
                     "model_id": "eleven_multilingual_v2",
+                    "language_code": language_code,  # Forzar idioma español
                     "voice_settings": {
                         "stability": 0.5,
                         "similarity_boost": 0.75

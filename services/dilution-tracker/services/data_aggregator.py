@@ -281,7 +281,7 @@ class DataAggregator:
                     logger.debug("using_db_financials", ticker=ticker, source=latest.get('source'))
                     return db_financials
             
-            # Try Polygon FIRST (más completo)
+            # Try Polygon FIRST
             logger.info("fetching_financials_from_polygon", ticker=ticker)
             polygon_financials = await self.polygon_financials.get_financial_statements(
                 ticker,
@@ -290,19 +290,32 @@ class DataAggregator:
             )
             
             if polygon_financials:
-                logger.info(
-                    "polygon_financials_success",
-                    ticker=ticker,
-                    count=len(polygon_financials)
-                )
-                # Guardar en BD
-                await self.financial_repo.save_batch(polygon_financials)
+                # VERIFICAR si Polygon tiene datos completos (income + cash flow)
+                # Empresas extranjeras (ADRs) a menudo no tienen estos datos en Polygon
+                first_statement = polygon_financials[0] if polygon_financials else None
+                has_income = first_statement and first_statement.revenue is not None
+                has_cashflow = first_statement and first_statement.operating_cash_flow is not None
                 
-                # Retornar desde BD
-                return await self.financial_repo.get_by_ticker(ticker, limit=20)
+                if has_income and has_cashflow:
+                    logger.info(
+                        "polygon_financials_complete",
+                        ticker=ticker,
+                        count=len(polygon_financials)
+                    )
+                    await self.financial_repo.save_batch(polygon_financials)
+                    return await self.financial_repo.get_by_ticker(ticker, limit=20)
+                else:
+                    # Polygon tiene datos incompletos (solo balance sheet)
+                    # Intentar FMP que suele tener datos más completos para ADRs
+                    logger.warning(
+                        "polygon_incomplete_trying_fmp",
+                        ticker=ticker,
+                        has_income=has_income,
+                        has_cashflow=has_cashflow
+                    )
             
-            # Fallback a FMP si Polygon falla
-            logger.warning("polygon_failed_trying_fmp", ticker=ticker)
+            # Fallback a FMP si Polygon falla o está incompleto
+            logger.info("fetching_financials_from_fmp", ticker=ticker)
             fmp_financials = await self.fmp_financials.get_financial_statements(
                 ticker,
                 period="quarter",
@@ -311,7 +324,7 @@ class DataAggregator:
             
             if fmp_financials:
                 logger.info(
-                    "fmp_financials_fallback_success",
+                    "fmp_financials_success",
                     ticker=ticker,
                     count=len(fmp_financials)
                 )
@@ -549,7 +562,7 @@ class DataAggregator:
                 risk_level = self.cash_calc.get_runway_risk_level(runway_months)
             
             projection = self.cash_calc.project_cash_position(
-                total_cash,
+                Decimal(str(total_cash)),
                 quarterly_burn,
                 months=12
             )

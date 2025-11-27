@@ -46,7 +46,7 @@ class CashRunwayCalculator:
                 return None
             
             # Burn rate mensual (dividir entre 3)
-            monthly_burn = abs(quarterly_burn_rate) / 3
+            monthly_burn = abs(Decimal(str(quarterly_burn_rate))) / Decimal(3)
             
             if monthly_burn == 0:
                 return None
@@ -132,7 +132,7 @@ class CashRunwayCalculator:
             projections = []
             
             # Burn rate mensual
-            monthly_burn = quarterly_burn_rate / 3
+            monthly_burn = Decimal(str(quarterly_burn_rate)) / Decimal(3)
             
             # Proyectar cada mes
             cash_balance = current_cash

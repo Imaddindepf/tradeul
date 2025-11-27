@@ -7,6 +7,14 @@ import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { ExternalLink } from 'lucide-react';
 
+// Decodifica entidades HTML como &#39; &amp; &quot; etc.
+function decodeHtmlEntities(text: string): string {
+  if (!text) return text;
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value;
+}
+
 interface NewsArticle {
   id?: string;
   benzinga_id?: number;
@@ -99,9 +107,10 @@ export function NewsContent() {
             // Squawk: leer la noticia en español
             const ticker = article.tickers?.[0] || '';
             // Prefijo en español para forzar el idioma
+            const decodedTitle = decodeHtmlEntities(article.title);
             const squawkText = ticker
-              ? `Noticia de ${ticker}. ${article.title}`
-              : `Noticia. ${article.title}`;
+              ? `Noticia de ${ticker}. ${decodedTitle}`
+              : `Noticia. ${decodedTitle}`;
             console.log('🎙️ Squawk:', { isEnabled: squawk.isEnabled, text: squawkText.substring(0, 50) });
             squawk.speak(squawkText);
           }
@@ -204,7 +213,7 @@ export function NewsContent() {
         <div className="flex-1 overflow-auto">
           <div className="p-4">
             {/* Título siempre visible */}
-            <h1 className="text-lg font-semibold text-slate-900 mb-3">{selectedArticle.title}</h1>
+            <h1 className="text-lg font-semibold text-slate-900 mb-3">{decodeHtmlEntities(selectedArticle.title)}</h1>
 
             {/* Metadata */}
             <div className="flex items-center gap-3 text-xs text-slate-500 mb-4">
@@ -224,7 +233,7 @@ export function NewsContent() {
               />
             ) : hasTeaser ? (
               <div className="text-slate-700 leading-relaxed">
-                <p className="mb-4">{selectedArticle.teaser}</p>
+                <p className="mb-4">{decodeHtmlEntities(selectedArticle.teaser || '')}</p>
                 <a
                   href={selectedArticle.url}
                   target="_blank"
@@ -319,7 +328,7 @@ export function NewsContent() {
                         <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
                       )}
                       <span className="text-slate-800 truncate" style={{ maxWidth: '500px' }}>
-                        {article.title}
+                        {decodeHtmlEntities(article.title)}
                       </span>
                     </div>
                   </td>

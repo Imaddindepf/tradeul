@@ -116,8 +116,10 @@ async def get_sec_dilution_profile(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         logger.error("get_sec_dilution_profile_failed", ticker=ticker, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n{tb}")
 
 
 @router.post("/{ticker}/refresh")

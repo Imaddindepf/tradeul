@@ -298,7 +298,7 @@ class SECDilutionProfile(BaseModel):
         # ATM siempre es para common stock
         # SOLO contar ATMs con status="Active" (excluir Terminated, Replaced)
         atm_shares = sum(
-            int((a.remaining_capacity or 0) / current_price_float)
+            int(float(a.remaining_capacity or 0) / current_price_float)
             for a in self.atm_offerings
             if a.status == 'Active'
         )
@@ -360,7 +360,7 @@ class SECDilutionProfile(BaseModel):
         
         # Shares potenciales de equity lines (remaining capacity / current price)
         equity_line_shares = sum(
-            int((el.remaining_capacity or 0) / current_price_float)
+            int(float(el.remaining_capacity or 0) / current_price_float)
             for el in self.equity_lines
         )
         
@@ -373,8 +373,9 @@ class SECDilutionProfile(BaseModel):
             equity_line_shares
         )
         
-        # % dilución
-        dilution_pct = (total_potential_shares / self.shares_outstanding) * 100 if self.shares_outstanding else 0
+        # % dilución (convertir a float para evitar errores Decimal/float)
+        shares_out = float(self.shares_outstanding) if self.shares_outstanding else 0
+        dilution_pct = (total_potential_shares / shares_out) * 100 if shares_out else 0
         
         return {
             "total_potential_new_shares": total_potential_shares,

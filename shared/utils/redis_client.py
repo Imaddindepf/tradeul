@@ -303,6 +303,38 @@ class RedisClient:
             logger.error("Redis ZREM error", name=name, error=str(e))
             return 0
     
+    async def zincrby(self, name: str, amount: float, value: str) -> float:
+        """Increment score of member in sorted set"""
+        try:
+            return await self.client.zincrby(name, amount, value)
+        except RedisError as e:
+            logger.error("Redis ZINCRBY error", name=name, error=str(e))
+            return 0.0
+    
+    async def lpush(self, name: str, *values: str) -> int:
+        """Push values to the head of a list"""
+        try:
+            return await self.client.lpush(name, *values)
+        except RedisError as e:
+            logger.error("Redis LPUSH error", name=name, error=str(e))
+            return 0
+    
+    async def lrange(self, name: str, start: int, end: int) -> list:
+        """Get a range of elements from a list"""
+        try:
+            return await self.client.lrange(name, start, end)
+        except RedisError as e:
+            logger.error("Redis LRANGE error", name=name, error=str(e))
+            return []
+    
+    async def ltrim(self, name: str, start: int, end: int) -> bool:
+        """Trim a list to the specified range"""
+        try:
+            return await self.client.ltrim(name, start, end)
+        except RedisError as e:
+            logger.error("Redis LTRIM error", name=name, error=str(e))
+            return False
+    
     # =============================================
     # STREAM OPERATIONS
     # =============================================
