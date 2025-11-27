@@ -30,11 +30,15 @@ class FilingRepository:
         try:
             query = """
             INSERT INTO sec_filings (
+                id, accession_no, form_type, filed_at,
                 ticker, filing_type, filing_date, report_date,
                 accession_number, title, description, url,
-                category, is_offering_related, is_dilutive
+                category, is_offering_related, is_dilutive, cik
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES (
+                gen_random_uuid()::text, $5, $2, $3,
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, ''
+            )
             ON CONFLICT (ticker, accession_number) DO UPDATE SET
                 title = EXCLUDED.title,
                 description = EXCLUDED.description,
