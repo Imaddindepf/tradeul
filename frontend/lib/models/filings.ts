@@ -32,8 +32,8 @@ export interface FilingCategory {
  * Sistema completo de tags para identificar tipos de SEC filings
  */
 export function getFilingTags(filing: Filing): FilingTag[] {
-  const type = filing.filing_type.toUpperCase().trim();
-  const title = filing.title.toLowerCase();
+  const type = (filing.filing_type || '').toUpperCase().trim();
+  const title = (filing.title || '').toLowerCase();
   const tags: FilingTag[] = [];
 
   // === TAGS PRINCIPALES (Categoría del Form) ===

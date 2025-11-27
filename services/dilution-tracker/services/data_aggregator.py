@@ -392,6 +392,9 @@ class DataAggregator:
             # Si tiene datos recientes (< 7 días), usar BD
             if db_filings and len(db_filings) > 10:
                 latest_date = db_filings[0]['filing_date']
+                # Convertir a date si es datetime
+                if hasattr(latest_date, 'date'):
+                    latest_date = latest_date.date()
                 days_old = (datetime.now().date() - latest_date).days
                 
                 if days_old < 7:
