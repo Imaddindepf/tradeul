@@ -531,24 +531,34 @@ class PolygonMarketHolidaysResponse(BaseModel):
     holidays: List[PolygonMarketHoliday] = Field(default_factory=list)
     
     @classmethod
-    def from_dict_response(cls, data: Dict[str, Any]) -> "PolygonMarketHolidaysResponse":
+    def from_dict_response(cls, data) -> "PolygonMarketHolidaysResponse":
         """
-        Parse Polygon's unusual response format
+        Parse Polygon's market holidays response
         
-        Polygon returns: {"0": {...}, "1": {...}, ...}
-        We convert to: [{"date": ...}, {"date": ...}, ...]
+        Polygon can return:
+        - List format: [{...}, {...}, ...]
+        - Dict format with numeric keys: {"0": {...}, "1": {...}, ...}
         """
         holidays = []
         
-        # Polygon returns holidays as dict with numeric string keys
-        for key in sorted(data.keys(), key=lambda x: int(x) if x.isdigit() else 0):
-            try:
-                holiday_data = data[key]
-                holiday = PolygonMarketHoliday(**holiday_data)
-                holidays.append(holiday)
-            except Exception as e:
-                # Skip invalid entries
-                continue
+        # Handle list format (Polygon's actual response format)
+        if isinstance(data, list):
+            for item in data:
+                try:
+                    holiday = PolygonMarketHoliday(**item)
+                    holidays.append(holiday)
+                except Exception:
+                    continue
+        
+        # Handle dict format with numeric keys (legacy/alternate format)
+        elif isinstance(data, dict):
+            for key in sorted(data.keys(), key=lambda x: int(x) if str(x).isdigit() else 0):
+                try:
+                    holiday_data = data[key]
+                    holiday = PolygonMarketHoliday(**holiday_data)
+                    holidays.append(holiday)
+                except Exception:
+                    continue
         
         return cls(holidays=holidays)
 

@@ -40,6 +40,7 @@ export default function SignUpPage() {
                 footerActionLink: "text-blue-400 hover:text-blue-300",
                 identityPreviewText: "text-white",
                 identityPreviewEditButton: "text-blue-400",
+                footer: "hidden",
               },
               layout: {
                 socialButtonsPlacement: "bottom",

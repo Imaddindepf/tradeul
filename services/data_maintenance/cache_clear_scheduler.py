@@ -1,15 +1,19 @@
 """
 Cache Clear Scheduler
 Limpia caches a las 3:00 AM (1h antes del pre-market)
+
+IMPORTANTE: Verifica si es día de trading antes de limpiar.
+En días festivos NO limpia caches para mantener datos del último día de trading.
 """
 
 import asyncio
-from datetime import datetime, time
+from datetime import datetime, time, date
 from zoneinfo import ZoneInfo
 
 import sys
 sys.path.append('/app')
 
+from shared.config.settings import settings
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 from shared.events import EventBus
@@ -21,6 +25,9 @@ logger = get_logger(__name__)
 class CacheClearScheduler:
     """
     Scheduler que ejecuta limpieza de caches a las 3:00 AM EST
+    
+    NOTA: Verifica estado del mercado antes de limpiar.
+    En días festivos, NO limpia caches.
     """
     
     def __init__(self, redis_client: RedisClient):
@@ -29,6 +36,33 @@ class CacheClearScheduler:
         self.clear_task = ClearRealtimeCachesTask(redis_client)
         self.is_running = False
         self.last_clear_date = None
+    
+    async def _is_trading_day(self, check_date: date) -> bool:
+        """
+        Verifica si una fecha es día de trading (no festivo, no fin de semana)
+        Lee el estado desde Redis (cacheado por market_session)
+        """
+        # Verificar fin de semana
+        if check_date.weekday() >= 5:
+            return False
+        
+        # Verificar festivo en Redis
+        try:
+            date_str = check_date.strftime('%Y-%m-%d')
+            
+            for exchange in ["NYSE", "NASDAQ"]:
+                key = f"{settings.key_prefix_market}:holiday:{date_str}:{exchange}"
+                holiday_data = await self.redis.get(key)
+                
+                if holiday_data and holiday_data.get("status") == "closed":
+                    return False
+            
+            return True
+        
+        except Exception as e:
+            logger.error("error_checking_trading_day", error=str(e))
+            # En caso de error, asumir día normal (mejor limpiar que no)
+            return True
     
     async def start(self):
         """Iniciar scheduler"""
@@ -76,6 +110,18 @@ class CacheClearScheduler:
                         time="03:00 AM EST",
                         date=str(current_date)
                     )
+                    
+                    # 🚨 VERIFICAR SI ES DÍA DE TRADING
+                    is_trading = await self._is_trading_day(current_date)
+                    
+                    if not is_trading:
+                        logger.info(
+                            "⏭️ skipping_cache_clear_holiday",
+                            date=str(current_date),
+                            reason="Not a trading day (holiday or weekend)"
+                        )
+                        self.last_clear_date = current_date  # Marcar como procesado
+                        continue
                     
                     try:
                         # Ejecutar limpieza de caches

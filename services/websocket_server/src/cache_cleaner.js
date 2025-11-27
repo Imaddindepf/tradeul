@@ -3,9 +3,48 @@
  * 
  * Escucha eventos de cambio de día y limpia caches en memoria
  * para asegurar que no se mantengan datos del día anterior.
+ * 
+ * También escucha eventos de cambio de sesión del mercado
+ * para notificar al frontend en tiempo real.
  */
 
 const logger = require("pino")();
+const WebSocket = require("ws");
+
+// Referencia a las conexiones (se setea desde index.js)
+let connectionsRef = null;
+
+/**
+ * Setear referencia a las conexiones WebSocket
+ * @param {Map} connections - Mapa de conexiones
+ */
+function setConnectionsRef(connections) {
+  connectionsRef = connections;
+}
+
+/**
+ * Broadcast un mensaje a todos los clientes conectados
+ * @param {Object} message - Mensaje a enviar
+ */
+function broadcastToAll(message) {
+  if (!connectionsRef) return 0;
+  
+  let sentCount = 0;
+  const messageStr = JSON.stringify(message);
+  
+  connectionsRef.forEach((conn, connectionId) => {
+    if (conn.ws.readyState === WebSocket.OPEN) {
+      try {
+        conn.ws.send(messageStr);
+        sentCount++;
+      } catch (err) {
+        logger.error({ connectionId, err }, "Error sending broadcast message");
+      }
+    }
+  });
+  
+  return sentCount;
+}
 
 /**
  * Suscribirse al canal Redis para eventos de nuevo día
@@ -61,6 +100,66 @@ async function subscribeToNewDayEvents(redisSubscriber, lastSnapshots) {
 }
 
 /**
+ * Suscribirse al canal Redis para eventos de cambio de sesión del mercado
+ * @param {Object} redisSubscriber - Cliente Redis para suscripción
+ */
+async function subscribeToSessionChangeEvents(redisSubscriber) {
+  try {
+    await redisSubscriber.subscribe("events:session_change", (message, channel) => {
+      try {
+        if (!message) {
+          logger.debug({ channel }, "Subscribed to session change channel");
+          return;
+        }
+        
+        const event = JSON.parse(message);
+        
+        logger.info(
+          {
+            from: event.from_session,
+            to: event.to_session,
+            trading_date: event.trading_date,
+            is_new_day: event.is_new_day,
+          },
+          "📊 Market session changed"
+        );
+        
+        // Broadcast a todos los clientes conectados
+        const wsMessage = {
+          type: "market_session_change",
+          data: {
+            from_session: event.from_session,
+            to_session: event.to_session,
+            current_session: event.to_session,
+            trading_date: event.trading_date,
+            is_new_day: event.is_new_day,
+            timestamp: event.timestamp || new Date().toISOString(),
+          },
+          timestamp: new Date().toISOString(),
+        };
+        
+        const sentCount = broadcastToAll(wsMessage);
+        
+        logger.info(
+          { sentCount, toSession: event.to_session },
+          "📡 Broadcasted session change to clients"
+        );
+        
+      } catch (err) {
+        logger.error({ err, message }, "Error processing session change event");
+      }
+    });
+    
+    logger.info(
+      { channel: "events:session_change" },
+      "📡 Subscribed to market session change events"
+    );
+  } catch (err) {
+    logger.error({ err }, "Failed to subscribe to session change events");
+  }
+}
+
+/**
  * Endpoint HTTP para limpiar cache manualmente (fallback)
  * @param {Map} lastSnapshots - Cache de snapshots a limpiar
  * @returns {Function} Express middleware
@@ -100,6 +199,8 @@ function createClearCacheEndpoint(lastSnapshots) {
 
 module.exports = {
   subscribeToNewDayEvents,
+  subscribeToSessionChangeEvents,
+  setConnectionsRef,
   createClearCacheEndpoint,
 };
 

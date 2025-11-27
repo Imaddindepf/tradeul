@@ -19,7 +19,7 @@ const http = require("http");
 const Redis = require("ioredis");
 const pino = require("pino");
 const { v4: uuidv4 } = require("uuid");
-const { subscribeToNewDayEvents } = require("./cache_cleaner");
+const { subscribeToNewDayEvents, subscribeToSessionChangeEvents, setConnectionsRef } = require("./cache_cleaner");
 
 // Logger
 const logger = pino({
@@ -1410,15 +1410,29 @@ async function broadcastPolygonSubscriptionStatus() {
   }
 }
 
-// 🔥 Suscribirse a eventos de nuevo día (después de que Redis conecte)
+// 🔥 Suscribirse a eventos de nuevo día y cambio de sesión (después de que Redis conecte)
 redisSubscriber.on("connect", () => {
   logger.info("📡 Redis Subscriber connected");
+  
+  // Setear referencia a las conexiones para broadcasts
+  setConnectionsRef(connections);
+  
+  // Suscribirse a eventos de nuevo día (limpia caches)
   subscribeToNewDayEvents(redisSubscriber, lastSnapshots)
     .then(() => {
       logger.info("✅ Subscribed to cache clear events");
     })
     .catch((err) => {
       logger.error({ err }, "Failed to subscribe to cache clear events");
+    });
+  
+  // Suscribirse a eventos de cambio de sesión del mercado
+  subscribeToSessionChangeEvents(redisSubscriber)
+    .then(() => {
+      logger.info("✅ Subscribed to market session change events");
+    })
+    .catch((err) => {
+      logger.error({ err }, "Failed to subscribe to session change events");
     });
 });
 

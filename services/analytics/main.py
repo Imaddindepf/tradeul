@@ -5,10 +5,15 @@ Servicio dedicado para cálculos avanzados de indicadores:
 - RVOL por slots (siguiendo lógica de PineScript)
 - Indicadores técnicos
 - Análisis de liquidez
+
+ARQUITECTURA EVENT-DRIVEN:
+- Se suscribe a DAY_CHANGED del EventBus (market_session es la fuente de verdad)
+- NO detecta días nuevos por sí mismo
+- Verifica festivos antes de resetear cachés
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 import structlog
@@ -22,6 +27,7 @@ from shared.config.settings import settings
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
+from shared.events import EventBus, EventType, Event
 from rvol_calculator import RVOLCalculator
 from shared.utils.atr_calculator import ATRCalculator
 from intraday_tracker import IntradayTracker
@@ -39,7 +45,90 @@ timescale_client: Optional[TimescaleClient] = None
 rvol_calculator: Optional[RVOLCalculator] = None
 atr_calculator: Optional[ATRCalculator] = None
 intraday_tracker: Optional[IntradayTracker] = None
+event_bus: Optional[EventBus] = None
 background_task: Optional[asyncio.Task] = None
+
+# Estado de mercado (se actualiza via EventBus, no en cada iteración)
+is_holiday_mode: bool = False
+current_trading_date: Optional[date] = None
+
+
+# ============================================================================
+# Market Status (Event-Driven)
+# ============================================================================
+
+async def check_initial_market_status() -> None:
+    """
+    Lee el estado del mercado UNA VEZ al iniciar.
+    Determina si es día festivo para evitar resetear cachés.
+    """
+    global is_holiday_mode, current_trading_date
+    
+    try:
+        status_data = await redis_client.get(f"{settings.key_prefix_market}:session:status")
+        
+        if status_data:
+            is_holiday = status_data.get('is_holiday', False)
+            is_trading_day = status_data.get('is_trading_day', True)
+            trading_date_str = status_data.get('trading_date')
+            
+            is_holiday_mode = is_holiday or not is_trading_day
+            
+            if trading_date_str:
+                current_trading_date = date.fromisoformat(trading_date_str)
+            
+            logger.info(
+                "📅 market_status_checked",
+                is_holiday=is_holiday,
+                is_trading_day=is_trading_day,
+                holiday_mode=is_holiday_mode,
+                trading_date=trading_date_str
+            )
+            
+            if is_holiday_mode:
+                logger.warning(
+                    "🚨 HOLIDAY_MODE_ACTIVE - No se resetearán cachés",
+                    reason="Market is closed for holiday"
+                )
+        else:
+            logger.warning("market_status_not_found_in_redis")
+            is_holiday_mode = False
+    
+    except Exception as e:
+        logger.error("error_checking_market_status", error=str(e))
+        is_holiday_mode = False
+
+
+async def handle_day_changed(event: Event) -> None:
+    """
+    Handler para el evento DAY_CHANGED.
+    Se ejecuta cuando market_session detecta un nuevo día de trading.
+    
+    IMPORTANTE: Solo resetea cachés si NO es día festivo.
+    """
+    global is_holiday_mode, current_trading_date
+    
+    new_date_str = event.data.get('new_date')
+    logger.info("📆 day_changed_event_received", new_date=new_date_str)
+    
+    # Re-verificar estado del mercado
+    await check_initial_market_status()
+    
+    # Solo resetear si NO es festivo
+    if not is_holiday_mode:
+        logger.info("🔄 resetting_analytics_caches", reason="new_trading_day")
+        
+        if rvol_calculator:
+            await rvol_calculator.reset_for_new_day()
+        
+        if intraday_tracker:
+            intraday_tracker.clear_for_new_day()
+    else:
+        logger.info(
+            "⏭️ skipping_cache_reset",
+            reason="holiday_mode_active",
+            date=new_date_str
+        )
 
 
 # ============================================================================
@@ -49,7 +138,7 @@ background_task: Optional[asyncio.Task] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, timescale_client, rvol_calculator, atr_calculator, intraday_tracker, background_task
+    global redis_client, timescale_client, rvol_calculator, atr_calculator, intraday_tracker, event_bus, background_task
     
     logger.info("analytics_service_starting")
     
@@ -82,35 +171,47 @@ async def lifespan(app: FastAPI):
         polygon_api_key=settings.POLYGON_API_KEY
     )
     
-    # 🔄 RECUPERAR DATOS INTRADIARIOS AL INICIAR (si es día de trading)
-    try:
-        # Obtener símbolos activos desde snapshot más reciente
-        snapshot_data = await redis_client.get("snapshot:polygon:latest")
-        if snapshot_data:
-            tickers_data = snapshot_data.get('tickers', [])
-            # Filtrar símbolos con volumen > 0
-            active_symbols = [
-                t.get('ticker') for t in tickers_data
-                if t.get('ticker') and (
-                    (t.get('min', {}).get('av', 0) > 0) or 
-                    (t.get('day', {}).get('v', 0) > 0)
-                )
-            ]
-            
-            if active_symbols:
-                logger.info("recovering_intraday_data", symbols_count=len(active_symbols))
-                recovered_count = await intraday_tracker.recover_active_symbols(
-                    active_symbols=active_symbols,
-                    max_symbols=100  # Limitar para no saturar API
-                )
-                logger.info("intraday_recovery_complete", recovered=recovered_count)
+    # 📅 Verificar estado del mercado UNA VEZ al iniciar
+    await check_initial_market_status()
+    
+    # 🔔 Inicializar EventBus y suscribirse a DAY_CHANGED
+    event_bus = EventBus(redis_client, "analytics")
+    event_bus.subscribe(EventType.DAY_CHANGED, handle_day_changed)
+    await event_bus.start_listening()
+    logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED")
+    
+    # 🔄 RECUPERAR DATOS INTRADIARIOS AL INICIAR (solo si NO es festivo)
+    if not is_holiday_mode:
+        try:
+            # Obtener símbolos activos desde snapshot más reciente
+            snapshot_data = await redis_client.get("snapshot:polygon:latest")
+            if snapshot_data:
+                tickers_data = snapshot_data.get('tickers', [])
+                # Filtrar símbolos con volumen > 0
+                active_symbols = [
+                    t.get('ticker') for t in tickers_data
+                    if t.get('ticker') and (
+                        (t.get('min', {}).get('av', 0) > 0) or 
+                        (t.get('day', {}).get('v', 0) > 0)
+                    )
+                ]
+                
+                if active_symbols:
+                    logger.info("recovering_intraday_data", symbols_count=len(active_symbols))
+                    recovered_count = await intraday_tracker.recover_active_symbols(
+                        active_symbols=active_symbols,
+                        max_symbols=100  # Limitar para no saturar API
+                    )
+                    logger.info("intraday_recovery_complete", recovered=recovered_count)
+                else:
+                    logger.info("no_active_symbols_for_recovery")
             else:
-                logger.info("no_active_symbols_for_recovery")
-        else:
-            logger.info("no_snapshot_available_for_recovery")
-    except Exception as e:
-        logger.warning("intraday_recovery_failed", error=str(e))
-        # No es crítico, continuamos sin datos recuperados
+                logger.info("no_snapshot_available_for_recovery")
+        except Exception as e:
+            logger.warning("intraday_recovery_failed", error=str(e))
+            # No es crítico, continuamos sin datos recuperados
+    else:
+        logger.info("⏭️ skipping_intraday_recovery", reason="holiday_mode_active")
     
     # Iniciar procesamiento en background
     background_task = asyncio.create_task(run_analytics_processing())
@@ -128,6 +229,11 @@ async def lifespan(app: FastAPI):
             await background_task
         except asyncio.CancelledError:
             pass
+    
+    # 🔔 Stop EventBus
+    if event_bus:
+        await event_bus.stop_listening()
+        logger.info("✅ EventBus stopped")
     
     # 🚀 FIX: Cerrar HTTP client global
     if rvol_calculator:
@@ -160,36 +266,30 @@ app = FastAPI(
 
 async def run_analytics_processing():
     """
-    NUEVO: Procesamiento basado en snapshot cache (no streams)
+    Procesamiento basado en snapshot cache (no streams)
     
     - Lee snapshot completo de Redis key
     - Calcula RVOL para todos los tickers
     - Guarda snapshot enriquecido en otro key
     
-    Esto evita backlog y asegura sincronización con Scanner
+    NOTA: El reset de cachés por nuevo día se maneja via EventBus (DAY_CHANGED),
+    NO en este loop. Esto evita duplicación y asegura verificación de festivos.
     """
     logger.info("analytics_processing_started (snapshot cache mode)")
     
     last_processed_timestamp = None
-    
     last_slot = -1
-    current_date = datetime.now(ZoneInfo("America/New_York")).date()
     
     while True:
         try:
-            # Detectar cambio de día (SIEMPRE usar America/New_York)
-            now = datetime.now(ZoneInfo("America/New_York"))
-            if now.date() != current_date:
-                logger.info("new_trading_day_detected", new_date=str(now.date()))
-                
-                
-                # Resetear caché
-                await rvol_calculator.reset_for_new_day()
-                
-                current_date = now.date()
-                last_slot = -1
+            # 🚨 HOLIDAY MODE: Procesar menos frecuente en festivos
+            if is_holiday_mode:
+                await asyncio.sleep(60)  # Sleep largo, no hay datos nuevos
+                continue
             
-            # Detectar cambio de slot
+            now = datetime.now(ZoneInfo("America/New_York"))
+            
+            # Detectar cambio de slot (para logging)
             current_slot = rvol_calculator.slot_manager.get_current_slot(now)
             
             if current_slot >= 0 and current_slot != last_slot:

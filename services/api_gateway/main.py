@@ -867,6 +867,359 @@ async def proxy_news_article(url: str = Query(..., description="News article URL
 
 
 # ============================================================================
+# IPO Endpoints (Initial Public Offerings)
+# ============================================================================
+
+IPOS_CACHE_KEY = "cache:ipos:all"
+IPOS_CACHE_TTL = 86400  # 24 hours
+
+@app.get("/api/v1/ipos")
+async def get_ipos(
+    ipo_status: Optional[str] = Query(None, description="Filter by status: pending, new, history, rumor, withdrawn, direct_listing_process"),
+    limit: int = Query(100, ge=1, le=1000, description="Limit results (max 1000)"),
+    force_refresh: bool = Query(False, description="Force refresh from API")
+):
+    """
+    Get IPO (Initial Public Offerings) data from Polygon.io
+    
+    - Data is cached for 24 hours in Redis
+    - Includes pending, new, historical, rumors, and withdrawn IPOs
+    - Use force_refresh=true to bypass cache
+    """
+    global redis_client
+    
+    try:
+        # Try cache first (unless force refresh)
+        if not force_refresh and redis_client:
+            cached = await redis_client.get(IPOS_CACHE_KEY)
+            if cached:
+                # redis_client.get() ya deserializa automáticamente
+                results = cached.get("results", [])
+                
+                # Apply status filter if provided
+                if ipo_status:
+                    results = [r for r in results if r.get("ipo_status") == ipo_status]
+                
+                # Apply limit
+                results = results[:limit]
+                
+                logger.info("ipos_cache_hit", count=len(results))
+                return {
+                    "status": "OK",
+                    "count": len(results),
+                    "results": results,
+                    "cached": True,
+                    "cache_ttl_hours": 24
+                }
+        
+        # Fetch from Polygon API
+        polygon_url = "https://api.polygon.io/vX/reference/ipos"
+        params = {
+            "limit": 1000,  # Get max to cache
+            "order": "desc",
+            "sort": "listing_date",
+            "apiKey": settings.POLYGON_API_KEY
+        }
+        
+        all_results = []
+        next_url = None
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # First request
+            response = await client.get(polygon_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get("results"):
+                all_results.extend(data["results"])
+            
+            next_url = data.get("next_url")
+            
+            # Paginate to get more results (up to 3 pages = 3000 IPOs)
+            page_count = 1
+            while next_url and page_count < 3:
+                # Add API key to next_url
+                separator = "&" if "?" in next_url else "?"
+                full_url = f"{next_url}{separator}apiKey={settings.POLYGON_API_KEY}"
+                
+                response = await client.get(full_url)
+                response.raise_for_status()
+                data = response.json()
+                
+                if data.get("results"):
+                    all_results.extend(data["results"])
+                
+                next_url = data.get("next_url")
+                page_count += 1
+        
+        # Cache the full results (redis_client serializa automáticamente)
+        if redis_client and all_results:
+            cache_data = {
+                "results": all_results,
+                "fetched_at": datetime.now().isoformat(),
+                "total_count": len(all_results)
+            }
+            await redis_client.set(IPOS_CACHE_KEY, cache_data, ttl=IPOS_CACHE_TTL)
+            logger.info("ipos_cached", count=len(all_results))
+        
+        # Apply filters for response
+        results = all_results
+        if ipo_status:
+            results = [r for r in results if r.get("ipo_status") == ipo_status]
+        
+        results = results[:limit]
+        
+        return {
+            "status": "OK",
+            "count": len(results),
+            "results": results,
+            "cached": False,
+            "total_available": len(all_results)
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error("ipos_http_error", error=str(e))
+        raise HTTPException(status_code=502, detail=f"Polygon API error: {str(e)}")
+    except Exception as e:
+        logger.error("ipos_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/ipos/stats")
+async def get_ipos_stats():
+    """Get IPO statistics by status"""
+    global redis_client
+    
+    try:
+        # Get cached data (redis_client.get() deserializa automáticamente)
+        if redis_client:
+            cached = await redis_client.get(IPOS_CACHE_KEY)
+            if cached:
+                results = cached.get("results", [])
+                
+                # Count by status
+                stats = {}
+                for ipo in results:
+                    status = ipo.get("ipo_status", "unknown")
+                    stats[status] = stats.get(status, 0) + 1
+                
+                return {
+                    "status": "OK",
+                    "total": len(results),
+                    "by_status": stats,
+                    "fetched_at": cached.get("fetched_at")
+                }
+        
+        return {"status": "OK", "total": 0, "by_status": {}, "message": "No cached data, call /api/v1/ipos first"}
+        
+    except Exception as e:
+        logger.error("ipos_stats_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# IPO Prospectus Endpoint (S-1, 424B4) - SEC-API.io con datos estructurados
+# ============================================================================
+
+IPO_PROSPECTUS_CACHE_TTL = 604800  # 7 días (los prospectos no cambian)
+SEC_API_S1_424B4_URL = "https://api.sec-api.io/form-s1-424b4"
+
+@app.get("/api/v1/ipos/{ticker}/prospectus")
+async def get_ipo_prospectus(
+    ticker: str,
+    ipo_status: Optional[str] = Query(None, description="IPO status: pending, new, history - affects which forms to search"),
+    issuer_name: Optional[str] = Query(None, description="Company name for searching when ticker not found"),
+    force_refresh: bool = Query(False, description="Force refresh from API")
+):
+    """
+    Get IPO prospectus data (S-1, 424B4) with structured data extraction.
+    
+    Uses SEC-API.io to get:
+    - Public offering price (per share and total)
+    - Underwriters (lead and co-managers)
+    - Securities being offered
+    - Management team
+    - Employee counts
+    - Law firms and auditors
+    
+    Depending on IPO status:
+    - pending/rumor: Search for S-1 (registration statement)
+    - new/history: Search for 424B4 (final prospectus) or S-1
+    
+    Results are cached for 7 days.
+    """
+    global redis_client
+    ticker = ticker.upper()
+    cache_key = f"cache:ipo_prospectus:{ticker}:{ipo_status or 'all'}"
+    
+    try:
+        # Try cache first
+        if not force_refresh and redis_client:
+            cached = await redis_client.get(cache_key)
+            if cached:
+                logger.info("ipo_prospectus_cache_hit", ticker=ticker)
+                return {
+                    "status": "OK",
+                    "ticker": ticker,
+                    **cached,
+                    "cached": True
+                }
+        
+        # Check if SEC API key is available
+        sec_api_key = settings.SEC_API_IO_KEY
+        if not sec_api_key:
+            logger.warning("sec_api_key_not_configured")
+            raise HTTPException(status_code=503, detail="SEC API not configured")
+        
+        # Determine which form types to search based on IPO status
+        form_filter = '(formType:"S-1" OR formType:"S-1/A" OR formType:"424B4")'
+        if ipo_status in ["pending", "rumor"]:
+            form_filter = '(formType:"S-1" OR formType:"S-1/A")'
+        elif ipo_status in ["new", "history"]:
+            form_filter = '(formType:"424B4" OR formType:"S-1" OR formType:"S-1/A")'
+        
+        filings = []
+        search_method = "ticker"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # First try: search by ticker
+            query = f'ticker:{ticker} AND {form_filter}'
+            response = await client.post(
+                SEC_API_S1_424B4_URL,
+                headers={
+                    "Authorization": sec_api_key,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "query": query,
+                    "from": "0",
+                    "size": "10",
+                    "sort": [{"filedAt": {"order": "desc"}}]
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            filings = data.get("data", [])
+            
+            # Second try: if no results and issuer_name provided, search by company name
+            if not filings and issuer_name:
+                # Clean issuer name for search (remove special chars, take first meaningful words)
+                clean_name = issuer_name.replace(",", "").replace(".", "").replace("Inc", "").replace("Ltd", "").replace("Corp", "").strip()
+                # Take first 3-4 words to avoid too specific search
+                name_parts = clean_name.split()[:4]
+                search_name = " ".join(name_parts)
+                
+                if search_name:
+                    query = f'entityName:"{search_name}" AND {form_filter}'
+                    logger.info("ipo_prospectus_fallback_search", ticker=ticker, search_name=search_name)
+                    
+                    response = await client.post(
+                        SEC_API_S1_424B4_URL,
+                        headers={
+                            "Authorization": sec_api_key,
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "query": query,
+                            "from": "0",
+                            "size": "10",
+                            "sort": [{"filedAt": {"order": "desc"}}]
+                        }
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    filings = data.get("data", [])
+                    search_method = "entity_name"
+        
+        if not filings:
+            # For pending IPOs, this is expected - S-1 might not be filed yet
+            message = "No SEC filings found yet"
+            if ipo_status in ["pending", "rumor"]:
+                message = "S-1 Registration Statement not yet filed with SEC. This is normal for pending IPOs - the S-1 is typically filed a few weeks before the expected listing date."
+            
+            return {
+                "status": "OK",
+                "ticker": ticker,
+                "filings": [],
+                "structured_data": None,
+                "cached": False,
+                "ipo_status": ipo_status,
+                "message": message,
+                "suggestion": f"Check back closer to the IPO date, or search SEC EDGAR directly: https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company={issuer_name or ticker}&type=S-1"
+            }
+        
+        # Process the first (most recent) filing as the main prospectus
+        main_filing = filings[0]
+        
+        # Build structured response
+        structured_data = {
+            "form_type": main_filing.get("formType"),
+            "filed_at": main_filing.get("filedAt"),
+            "accession_no": main_filing.get("accessionNo"),
+            "cik": main_filing.get("cik"),
+            "entity_name": main_filing.get("entityName"),
+            "filing_url": main_filing.get("filingUrl"),
+            
+            # Securities info
+            "tickers": main_filing.get("tickers", []),
+            "securities": main_filing.get("securities", []),
+            
+            # Pricing info (available in 424B4, sometimes in S-1)
+            "public_offering_price": main_filing.get("publicOfferingPrice"),
+            "underwriting_discount": main_filing.get("underwritingDiscount"),
+            "proceeds_before_expenses": main_filing.get("proceedsBeforeExpenses"),
+            
+            # Parties involved
+            "underwriters": main_filing.get("underwriters", []),
+            "law_firms": main_filing.get("lawFirms", []),
+            "auditors": main_filing.get("auditors", []),
+            
+            # Company info
+            "management": main_filing.get("management", []),
+            "employees": main_filing.get("employees"),
+        }
+        
+        # Build simplified filings list for all found filings
+        filings_list = []
+        for f in filings:
+            filings_list.append({
+                "form_type": f.get("formType"),
+                "filed_at": f.get("filedAt"),
+                "accession_no": f.get("accessionNo"),
+                "entity_name": f.get("entityName"),
+                "filing_url": f.get("filingUrl"),
+                "has_pricing": f.get("publicOfferingPrice") is not None,
+                "underwriters_count": len(f.get("underwriters", [])),
+            })
+        
+        result = {
+            "filings": filings_list,
+            "structured_data": structured_data,
+            "fetched_at": datetime.now().isoformat(),
+            "total_found": data.get("total", {}).get("value", len(filings))
+        }
+        
+        # Cache the results
+        if redis_client:
+            await redis_client.set(cache_key, result, ttl=IPO_PROSPECTUS_CACHE_TTL)
+            logger.info("ipo_prospectus_cached", ticker=ticker, count=len(filings))
+        
+        return {
+            "status": "OK",
+            "ticker": ticker,
+            **result,
+            "cached": False
+        }
+        
+    except httpx.HTTPError as e:
+        logger.error("ipo_prospectus_http_error", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=502, detail=f"SEC API error: {str(e)}")
+    except Exception as e:
+        logger.error("ipo_prospectus_error", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # WebSocket Endpoints
 # ============================================================================
 

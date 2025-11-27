@@ -2,10 +2,15 @@
 Scanner Service
 Core scanning engine that combines real-time and historical data,
 calculates indicators (RVOL), and applies configurable filters
+
+ARQUITECTURA EVENT-DRIVEN:
+- Se suscribe a DAY_CHANGED del EventBus (market_session es la fuente de verdad)
+- NO detecta días nuevos por sí mismo
+- Limpia cachés de gaps/tracking cuando market_session notifica nuevo día
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 from contextlib import asynccontextmanager
 from typing import Optional, List
 
@@ -25,6 +30,7 @@ from shared.utils.redis_stream_manager import (
     get_stream_manager
 )
 from shared.utils.snapshot_manager import SnapshotManager
+from shared.events import EventBus, EventType, Event
 
 from scanner_engine import ScannerEngine
 from scanner_categories import ScannerCategory
@@ -41,8 +47,87 @@ logger = get_logger(__name__)
 redis_client: Optional[RedisClient] = None
 timescale_client: Optional[TimescaleClient] = None
 scanner_engine: Optional[ScannerEngine] = None
+event_bus: Optional[EventBus] = None
 background_tasks: List[asyncio.Task] = []
 is_running = False
+
+# Estado de mercado (se actualiza via EventBus, no en cada iteración)
+is_holiday_mode: bool = False
+current_trading_date: Optional[date] = None
+
+
+# =============================================
+# Market Status (Event-Driven)
+# =============================================
+
+async def check_initial_market_status() -> None:
+    """
+    Lee el estado del mercado UNA VEZ al iniciar.
+    """
+    global is_holiday_mode, current_trading_date
+    
+    try:
+        status_data = await redis_client.get(f"{settings.key_prefix_market}:session:status")
+        
+        if status_data:
+            is_holiday = status_data.get('is_holiday', False)
+            is_trading_day = status_data.get('is_trading_day', True)
+            trading_date_str = status_data.get('trading_date')
+            
+            is_holiday_mode = is_holiday or not is_trading_day
+            
+            if trading_date_str:
+                current_trading_date = date.fromisoformat(trading_date_str)
+            
+            logger.info(
+                "📅 market_status_checked",
+                is_holiday=is_holiday,
+                is_trading_day=is_trading_day,
+                holiday_mode=is_holiday_mode,
+                trading_date=trading_date_str
+            )
+            
+            if is_holiday_mode:
+                logger.warning(
+                    "🚨 HOLIDAY_MODE_ACTIVE - Scanner reducirá frecuencia",
+                    reason="Market is closed for holiday"
+                )
+        else:
+            logger.warning("market_status_not_found_in_redis")
+            is_holiday_mode = False
+    
+    except Exception as e:
+        logger.error("error_checking_market_status", error=str(e))
+        is_holiday_mode = False
+
+
+async def handle_day_changed(event: Event) -> None:
+    """
+    Handler para el evento DAY_CHANGED.
+    Limpia cachés de gaps y tracking cuando cambia el día de trading.
+    
+    IMPORTANTE: Solo limpia si NO es día festivo.
+    """
+    global is_holiday_mode, current_trading_date
+    
+    new_date_str = event.data.get('new_date')
+    logger.info("📆 day_changed_event_received", new_date=new_date_str)
+    
+    # Re-verificar estado del mercado
+    await check_initial_market_status()
+    
+    # Solo limpiar cachés si NO es festivo
+    if not is_holiday_mode:
+        logger.info("🔄 clearing_scanner_caches", reason="new_trading_day")
+        
+        if scanner_engine and scanner_engine.gap_tracker:
+            scanner_engine.gap_tracker.clear_for_new_day()
+    else:
+        logger.info(
+            "⏭️ skipping_cache_clear",
+            reason="holiday_mode_active",
+            date=new_date_str
+        )
 
 
 # =============================================
@@ -52,7 +137,7 @@ is_running = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the service"""
-    global redis_client, timescale_client, scanner_engine
+    global redis_client, timescale_client, scanner_engine, event_bus
     
     logger.info("Starting Scanner Service")
     
@@ -86,6 +171,15 @@ async def lifespan(app: FastAPI):
     )
     await scanner_engine.initialize()
     
+    # 📅 Verificar estado del mercado UNA VEZ al iniciar
+    await check_initial_market_status()
+    
+    # 🔔 Inicializar EventBus y suscribirse a DAY_CHANGED
+    event_bus = EventBus(redis_client, "scanner")
+    event_bus.subscribe(EventType.DAY_CHANGED, handle_day_changed)
+    await event_bus.start_listening()
+    logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED")
+    
     logger.info("Scanner Service started (paused)")
     
     yield
@@ -99,6 +193,11 @@ async def lifespan(app: FastAPI):
             await task
         except asyncio.CancelledError:
             pass
+    
+    # 🔔 Stop EventBus
+    if event_bus:
+        await event_bus.stop_listening()
+        logger.info("✅ EventBus stopped")
     
     # 🔥 Stop Stream Manager
     stream_manager = get_stream_manager()
@@ -139,16 +238,22 @@ async def discovery_loop():
     """
     DISCOVERY LOOP - Procesa TODO el universo (lento)
     
-    - Frecuencia: cada 30 segundos
+    - Frecuencia: cada 10 segundos (normal) o 60 segundos (festivo)
     - Procesa: ~11,000 tickers (universo completo)
     - Objetivo: Detectar nuevos líderes que entran a rankings
     """
     global is_running
     
-    logger.info("🔍 Starting DISCOVERY loop (30 seg interval)")
+    logger.info("🔍 Starting DISCOVERY loop")
     
     while is_running:
         try:
+            # 🚨 HOLIDAY MODE: Reducir frecuencia en festivos
+            if is_holiday_mode:
+                logger.debug("holiday_mode_active_reduced_scan_frequency")
+                await asyncio.sleep(60)  # Solo cada minuto en festivos
+                continue
+            
             start = datetime.now()
             
             # Run FULL scan (procesa todos los snapshots)
@@ -163,7 +268,7 @@ async def discovery_loop():
                     duration_sec=round(duration, 2)
                 )
             
-            # Wait 10 seconds before next discovery (reducido de 30 para menor latencia)
+            # Wait 10 seconds before next discovery
             await asyncio.sleep(10)
         
         except asyncio.CancelledError:

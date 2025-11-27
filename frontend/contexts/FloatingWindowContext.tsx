@@ -56,7 +56,8 @@ interface FloatingWindowContextType {
 
 const FloatingWindowContext = createContext<FloatingWindowContextType | undefined>(undefined);
 
-let windowIdCounter = 0;
+// Usar timestamp + random para IDs únicos (evita problemas con HMR)
+const generateWindowId = () => `window-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   const [windows, setWindows] = useState<FloatingWindow[]>([]);
@@ -97,7 +98,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     }
 
     // Si no existe, crear una nueva
-    const id = `window-${++windowIdCounter}`;
+    const id = generateWindowId();
     const zIndex = floatingZIndexManager.getNext();
 
     const newWindow: FloatingWindow = {

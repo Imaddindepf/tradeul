@@ -1,10 +1,18 @@
 """
 Data Ingest Service
 Consumes snapshots from Polygon API and publishes to Redis streams
+
+IMPORTANTE: En días festivos (Thanksgiving, Christmas, etc.) este servicio
+NO sobrescribe el snapshot anterior porque Polygon devuelve datos vacíos.
+
+Usa enfoque event-driven:
+- Al iniciar: lee estado de mercado UNA VEZ
+- Se suscribe a DAY_CHANGED para actualizar cuando cambie el día
+- Si es festivo: mantiene snapshot del último día de trading
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -23,6 +31,7 @@ from shared.utils.redis_stream_manager import (
     initialize_stream_manager,
     get_stream_manager
 )
+from shared.events import EventBus, EventType, Event
 
 from snapshot_consumer import SnapshotConsumer
 
@@ -37,8 +46,76 @@ logger = get_logger(__name__)
 
 redis_client: Optional[RedisClient] = None
 snapshot_consumer: Optional[SnapshotConsumer] = None
+event_bus: Optional[EventBus] = None
 background_task: Optional[asyncio.Task] = None
 is_running = False
+
+# Estado de festivo (se actualiza con eventos, no en cada iteración)
+is_holiday_mode = False
+current_trading_date: Optional[date] = None
+
+
+# =============================================
+# HOLIDAY MODE MANAGEMENT (Event-Driven)
+# =============================================
+
+async def check_initial_market_status() -> None:
+    """
+    Lee el estado del mercado UNA VEZ al iniciar.
+    Esto se ejecuta solo al arrancar el servicio.
+    """
+    global is_holiday_mode, current_trading_date
+    
+    try:
+        # Leer estado completo del mercado desde Redis
+        status_data = await redis_client.get(f"{settings.key_prefix_market}:session:status")
+        
+        if status_data:
+            is_holiday = status_data.get('is_holiday', False)
+            is_trading_day = status_data.get('is_trading_day', True)
+            trading_date_str = status_data.get('trading_date')
+            
+            # Es festivo si: is_holiday=True O is_trading_day=False (y es día de semana)
+            is_holiday_mode = is_holiday or not is_trading_day
+            
+            if trading_date_str:
+                current_trading_date = date.fromisoformat(trading_date_str)
+            
+            logger.info(
+                "📅 market_status_checked",
+                is_holiday=is_holiday,
+                is_trading_day=is_trading_day,
+                holiday_mode=is_holiday_mode,
+                trading_date=trading_date_str
+            )
+            
+            if is_holiday_mode:
+                logger.warning(
+                    "🚨 HOLIDAY_MODE_ACTIVE - No se sobrescribirá el snapshot",
+                    reason="Market is closed for holiday"
+                )
+        else:
+            logger.warning("market_status_not_found_in_redis")
+            is_holiday_mode = False
+    
+    except Exception as e:
+        logger.error("error_checking_market_status", error=str(e))
+        # En caso de error, asumimos día normal (mejor consumir que no)
+        is_holiday_mode = False
+
+
+async def handle_day_changed(event: Event) -> None:
+    """
+    Handler para el evento DAY_CHANGED.
+    Se ejecuta automáticamente cuando market_session detecta un nuevo día.
+    """
+    global is_holiday_mode, current_trading_date
+    
+    new_date_str = event.data.get('new_date')
+    logger.info("📆 day_changed_event_received", new_date=new_date_str)
+    
+    # Re-verificar estado del mercado (ya que cambió el día)
+    await check_initial_market_status()
 
 
 # =============================================
@@ -48,7 +125,7 @@ is_running = False
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the service"""
-    global redis_client, snapshot_consumer, background_task
+    global redis_client, snapshot_consumer, event_bus, background_task
     
     logger.info("Starting Data Ingest Service")
     
@@ -64,6 +141,15 @@ async def lifespan(app: FastAPI):
     # Initialize snapshot consumer
     snapshot_consumer = SnapshotConsumer(redis_client)
     
+    # 📅 Verificar estado del mercado UNA VEZ al iniciar
+    await check_initial_market_status()
+    
+    # 🔔 Inicializar EventBus y suscribirse a DAY_CHANGED
+    event_bus = EventBus(redis_client, "data_ingest")
+    event_bus.subscribe(EventType.DAY_CHANGED, handle_day_changed)
+    await event_bus.start_listening()
+    logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED")
+    
     logger.info("Data Ingest Service started (paused)")
     
     yield
@@ -77,6 +163,11 @@ async def lifespan(app: FastAPI):
             await background_task
         except asyncio.CancelledError:
             pass
+    
+    # 🔔 Stop EventBus
+    if event_bus:
+        await event_bus.stop_listening()
+        logger.info("✅ EventBus stopped")
     
     # 🔥 Stop Stream Manager
     stream_manager = get_stream_manager()
@@ -109,6 +200,16 @@ async def consume_snapshots_loop():
     
     while is_running:
         try:
+            # 🚨 HOLIDAY MODE: No consumir snapshots en días festivos
+            # Polygon devuelve datos vacíos/ceros, sobrescribiría datos buenos
+            if is_holiday_mode:
+                logger.debug(
+                    "holiday_mode_active_skipping_snapshot",
+                    trading_date=str(current_trading_date)
+                )
+                await asyncio.sleep(300)  # Sleep largo, no hay nada que hacer
+                continue
+            
             # Check if we should be running (based on market session)
             session = await get_current_market_session()
             
@@ -117,10 +218,10 @@ async def consume_snapshots_loop():
                 await snapshot_consumer.consume_snapshot()
                 await asyncio.sleep(settings.snapshot_interval)
             else:
-                # Mercado cerrado: sigue consumiendo último snapshot pero menos frecuente
-                # Útil para análisis de fin de semana
+                # Mercado cerrado (fin de semana normal, no festivo):
+                # Sigue consumiendo pero menos frecuente
                 await snapshot_consumer.consume_snapshot()
-                await asyncio.sleep(300)  # Cada 5 minutos en lugar de 1 segundo
+                await asyncio.sleep(300)  # Cada 5 minutos
         
         except asyncio.CancelledError:
             logger.info("Snapshot consumer loop cancelled")
@@ -212,7 +313,24 @@ async def get_status():
     
     return {
         "is_running": is_running,
+        "holiday_mode": is_holiday_mode,
+        "trading_date": str(current_trading_date) if current_trading_date else None,
         "stats": stats
+    }
+
+
+@app.post("/api/ingest/refresh-market-status")
+async def refresh_market_status():
+    """
+    Forzar re-verificación del estado del mercado.
+    Útil si market_session actualizó el estado y no llegó el evento.
+    """
+    await check_initial_market_status()
+    
+    return {
+        "status": "refreshed",
+        "holiday_mode": is_holiday_mode,
+        "trading_date": str(current_trading_date) if current_trading_date else None
     }
 
 

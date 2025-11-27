@@ -3,11 +3,12 @@
 import { useCallback } from 'react';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
-import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
+import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from '@/components/floating-window';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
+import { IPOContent } from '@/components/ipos/IPOContent';
 
 // Configuración de categorías del scanner
 const SCANNER_CATEGORIES: Record<string, { name: string; description: string }> = {
@@ -169,6 +170,34 @@ export function useCommandExecutor() {
                     y: Math.max(80, (screenHeight - 64) / 2 - 275 + 64), // 64px = navbar height
                     minWidth: 500,
                     minHeight: 400,
+                });
+                return null;
+
+            case 'profile':
+                openWindow({
+                    title: USER_PROFILE_WINDOW_CONFIG.title,
+                    content: <UserProfileContent />,
+                    width: USER_PROFILE_WINDOW_CONFIG.width,
+                    height: USER_PROFILE_WINDOW_CONFIG.height,
+                    x: Math.max(100, screenWidth / 2 - USER_PROFILE_WINDOW_CONFIG.width / 2),
+                    y: Math.max(80, screenHeight / 2 - USER_PROFILE_WINDOW_CONFIG.height / 2),
+                    minWidth: USER_PROFILE_WINDOW_CONFIG.minWidth,
+                    minHeight: USER_PROFILE_WINDOW_CONFIG.minHeight,
+                    maxWidth: USER_PROFILE_WINDOW_CONFIG.maxWidth,
+                    maxHeight: USER_PROFILE_WINDOW_CONFIG.maxHeight,
+                });
+                return null;
+
+            case 'ipo':
+                openWindow({
+                    title: 'IPOs',
+                    content: <IPOContent />,
+                    width: 850,
+                    height: 500,
+                    x: Math.max(50, screenWidth / 2 - 425),
+                    y: Math.max(80, screenHeight / 2 - 250),
+                    minWidth: 600,
+                    minHeight: 350,
                 });
                 return null;
 

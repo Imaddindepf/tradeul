@@ -176,7 +176,8 @@ export function SECFilingsRealtime() {
             params.append('page_size', PAGE_SIZE.toString());
             params.append('from_index', ((page - 1) * PAGE_SIZE).toString());
 
-            const response = await fetch(`http://157.180.45.153:8012/api/v1/filings/live?${params}`);
+            const secFilingsUrl = process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012';
+            const response = await fetch(`${secFilingsUrl}/api/v1/filings/live?${params}`);
 
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);

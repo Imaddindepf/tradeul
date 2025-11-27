@@ -1,11 +1,15 @@
 """
 Maintenance Scheduler
 Monitorea el estado del mercado y ejecuta mantenimiento cuando cierra
+
+Usa holidays de Polygon API (cacheados en Redis por market_session service)
+para evitar ejecutar en días festivos como Thanksgiving, Christmas, etc.
 """
 
 import asyncio
 from datetime import datetime, time, date
 from zoneinfo import ZoneInfo
+from typing import Optional
 
 import sys
 sys.path.append('/app')
@@ -44,6 +48,75 @@ class MaintenanceScheduler:
         self.last_session = None
         self.maintenance_run_today = False
         self.redis = orchestrator.redis  # Acceso a Redis para persistencia
+        
+        # Cache de holidays para evitar consultas repetidas
+        self._holidays_cache: dict[str, bool] = {}
+    
+    async def is_market_holiday(self, check_date: date, exchange: str = "NYSE") -> bool:
+        """
+        Verificar si una fecha es día festivo del mercado
+        Usa los holidays cacheados en Redis por market_session service
+        (originados de Polygon API /v1/marketstatus/upcoming)
+        
+        Args:
+            check_date: Fecha a verificar
+            exchange: Exchange a verificar (default: NYSE)
+            
+        Returns:
+            True si es festivo, False si es día normal de trading
+        """
+        date_str = check_date.isoformat()
+        cache_key = f"{date_str}:{exchange}"
+        
+        # Verificar cache local primero
+        if cache_key in self._holidays_cache:
+            return self._holidays_cache[cache_key]
+        
+        try:
+            # Verificar en Redis (key format: market:holiday:{date}:{exchange})
+            redis_key = f"market:holiday:{date_str}:{exchange}"
+            holiday_data = await self.redis.get(redis_key)
+            
+            is_holiday = holiday_data is not None
+            
+            # Cachear resultado localmente
+            self._holidays_cache[cache_key] = is_holiday
+            
+            if is_holiday:
+                logger.info(
+                    "market_holiday_detected",
+                    date=date_str,
+                    exchange=exchange
+                )
+            
+            return is_holiday
+            
+        except Exception as e:
+            logger.warning(
+                "holiday_check_failed",
+                date=date_str,
+                exchange=exchange,
+                error=str(e)
+            )
+            # En caso de error, asumir que NO es festivo (mejor ejecutar de más que de menos)
+            return False
+    
+    async def is_trading_day(self, check_date: date) -> bool:
+        """
+        Verificar si una fecha es día de trading válido
+        
+        Returns:
+            True si es día de trading (weekday y no festivo)
+        """
+        # Verificar fin de semana
+        if check_date.weekday() >= 5:  # Sábado o domingo
+            return False
+        
+        # Verificar festivo
+        if await self.is_market_holiday(check_date):
+            return False
+        
+        return True
     
     async def run(self):
         """Loop principal del scheduler"""
@@ -117,9 +190,9 @@ class MaintenanceScheduler:
         # Condiciones para ejecutar mantenimiento:
         # 1. No se ha ejecutado hoy (verificado en Redis)
         # 2. Es la hora configurada (17:00-17:30 ET - ventana ampliada)
-        # 3. Es día de semana (lunes a viernes)
+        # 3. Es día de trading (weekday y no festivo)
         
-        is_weekday = current_date.weekday() < 5  # 0=Monday, 4=Friday
+        is_trading = await self.is_trading_day(current_date)
         
         # Ventana ampliada: 17:00 - 17:30
         is_maintenance_time = (
@@ -127,7 +200,17 @@ class MaintenanceScheduler:
             current_minute < self.maintenance_window_minutes
         )
         
-        if not self.maintenance_run_today and is_weekday and is_maintenance_time:
+        # Si es festivo, loguear una vez y marcar como "ejecutado" para no reintentar
+        if not is_trading and is_maintenance_time and not self.maintenance_run_today:
+            logger.info(
+                "⏭️ skipping_maintenance_market_holiday",
+                date=current_date.isoformat(),
+                reason="Market holiday or weekend"
+            )
+            self.maintenance_run_today = True  # Evitar logs repetidos
+            return
+        
+        if not self.maintenance_run_today and is_trading and is_maintenance_time:
             logger.info(
                 "maintenance_time_reached",
                 date=current_date.isoformat(),
@@ -203,8 +286,8 @@ class MaintenanceScheduler:
             for days_ago in range(1, 8):  # Últimos 7 días
                 check_date = current_date - timedelta(days=days_ago)
                 
-                # Solo días de semana
-                if check_date.weekday() >= 5:  # Sábado o domingo
+                # Solo días de trading (weekday y no festivo)
+                if not await self.is_trading_day(check_date):
                     continue
                 
                 # Verificar si se ejecutó mantenimiento ese día

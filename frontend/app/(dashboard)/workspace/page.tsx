@@ -12,6 +12,7 @@ import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
+import { useRxWebSocket } from '@/hooks/useRxWebSocket';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
@@ -59,6 +60,10 @@ export default function ScannerPage() {
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { openScannerTable, closeScannerTable, isScannerTableOpen, SCANNER_CATEGORIES } = useCommandExecutor();
   const { getSavedLayout, hasLayout } = useLayoutPersistence();
+  
+  // WebSocket para recibir cambios de sesión en tiempo real
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+  const ws = useRxWebSocket(wsUrl, false);
 
   const layoutRestoredRef = useRef(false);
   const initialTablesOpenedRef = useRef(false);
@@ -161,7 +166,7 @@ export default function ScannerPage() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Fetch market session
+  // Fetch market session inicial
   useEffect(() => {
     const fetchSession = async () => {
       try {
@@ -173,9 +178,29 @@ export default function ScannerPage() {
     };
 
     fetchSession();
-    const interval = setInterval(fetchSession, 30000);
+    // Polling de respaldo cada 60 segundos (el WebSocket maneja cambios en tiempo real)
+    const interval = setInterval(fetchSession, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // Escuchar cambios de sesión en tiempo real vía WebSocket
+  useEffect(() => {
+    const subscription = ws.messages$.subscribe((message: any) => {
+      if (message.type === 'market_session_change' && message.data) {
+        console.log('📊 Market session changed:', message.data);
+        
+        // Actualizar el estado de sesión inmediatamente
+        setSession((prev) => ({
+          ...prev,
+          current_session: message.data.current_session,
+          trading_date: message.data.trading_date,
+          timestamp: message.data.timestamp,
+        } as MarketSession));
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [ws.messages$]);
 
   // Toggle de categoría del scanner (desde CommandPalette)
   const handleToggleCategory = useCallback((categoryId: string) => {

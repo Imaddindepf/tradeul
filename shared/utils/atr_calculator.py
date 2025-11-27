@@ -25,6 +25,50 @@ from shared.utils.timescale_client import TimescaleClient
 
 logger = structlog.get_logger(__name__)
 
+# Timezone de Nueva York para cálculos de mercado
+NY_TZ = ZoneInfo("America/New_York")
+
+
+def get_ny_trading_date() -> date:
+    """Obtiene la fecha de trading actual en timezone de Nueva York"""
+    return datetime.now(NY_TZ).date()
+
+
+async def get_last_trading_date(redis_client, max_lookback: int = 7) -> date:
+    """
+    Obtiene el último día de trading (excluyendo fines de semana y festivos)
+    
+    Args:
+        redis_client: Cliente Redis para verificar holidays
+        max_lookback: Máximo de días hacia atrás a buscar
+    
+    Returns:
+        Fecha del último día de trading
+    """
+    ny_today = get_ny_trading_date()
+    
+    for days_back in range(max_lookback):
+        check_date = ny_today - timedelta(days=days_back)
+        
+        # Saltar fines de semana
+        if check_date.weekday() >= 5:  # Sábado=5, Domingo=6
+            continue
+        
+        # Verificar si es festivo (holidays cacheados por market_session)
+        if redis_client:
+            try:
+                holiday_key = f"market:holiday:{check_date.isoformat()}:NYSE"
+                is_holiday = await redis_client.exists(holiday_key)
+                if is_holiday:
+                    continue
+            except Exception:
+                pass  # Si falla, asumir que no es festivo
+        
+        return check_date
+    
+    # Fallback: retornar hoy si no se encuentra
+    return ny_today
+
 
 class ATRCalculator:
     """
@@ -185,7 +229,7 @@ class ATRCalculator:
         logger.info("calculate_atr_start", symbol=symbol, has_redis=bool(self.redis), has_db=bool(self.db))
         
         if trading_date is None:
-            trading_date = date.today()
+            trading_date = get_ny_trading_date()
         
         # Intentar obtener de caché primero
         if self.redis:
@@ -342,18 +386,25 @@ class ATRCalculator:
             data = await self.redis.hget(self.cache_key, symbol)
             logger.debug("cache_read_attempt", symbol=symbol, data=data, has_data=bool(data))
             if data:
-                # ✅ VERIFICAR QUE LA FECHA SEA HOY (bug fix)
+                # ✅ Verificar que el ATR sea del último día de trading
+                # Usa holidays de Redis para determinar correctamente
                 updated_date = data.get('updated')
-                today_str = date.today().isoformat()
-                
-                if updated_date != today_str:
-                    logger.debug(
-                        "cache_expired_by_date",
-                        symbol=symbol,
-                        cached_date=updated_date,
-                        today=today_str
-                    )
-                    return None  # Considerar como caché expirado
+                if updated_date:
+                    try:
+                        cached_date = date.fromisoformat(updated_date)
+                        last_trading = await get_last_trading_date(self.redis)
+                        
+                        # El ATR debe ser del último día de trading o posterior
+                        if cached_date < last_trading:
+                            logger.debug(
+                                "cache_expired_not_last_trading_day",
+                                symbol=symbol,
+                                cached_date=updated_date,
+                                last_trading_date=last_trading.isoformat()
+                            )
+                            return None
+                    except ValueError:
+                        pass  # Si no se puede parsear, continuar
                 
                 result = {
                     'atr': float(data.get('atr', 0)),
@@ -379,16 +430,19 @@ class ATRCalculator:
             # Leer batch desde HASH: HMGET atr:daily {symbol1} {symbol2} ...
             values = await self.redis.hmget(self.cache_key, symbols)
             results = {}
-            today_str = date.today().isoformat()
+            
+            # Obtener último día de trading UNA vez (no por cada símbolo)
+            last_trading = await get_last_trading_date(self.redis)
             
             for symbol, value in zip(symbols, values):
                 if value:
                     try:
-                        # ✅ VERIFICAR QUE LA FECHA SEA HOY (bug fix)
+                        # ✅ Verificar que el ATR sea del último día de trading
                         updated_date = value.get('updated')
-                        if updated_date != today_str:
-                            # Caché expirado, saltar este símbolo
-                            continue
+                        if updated_date:
+                            cached_date = date.fromisoformat(updated_date)
+                            if cached_date < last_trading:
+                                continue  # ATR es anterior al último día de trading
                         
                         results[symbol] = {
                             'atr': float(value.get('atr', 0)),
@@ -411,10 +465,11 @@ class ATRCalculator:
         
         try:
             # Guardar en HASH: HSET atr:daily {symbol} {data}
+            # Usar fecha de NY para consistencia
             cache_data = {
                 'atr': data['atr'],
                 'atr_percent': data.get('atr_percent'),
-                'updated': date.today().isoformat()
+                'updated': get_ny_trading_date().isoformat()
             }
             result = await self.redis.hset(
                 self.cache_key,

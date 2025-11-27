@@ -117,6 +117,55 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           centered: true
         }
       );
+    } else if (window.title.includes(' — ')) {
+      // Gráfico financiero: "AAPL — Revenue"
+      const { openFinancialChartWindow } = require('@/lib/window-injector');
+      
+      // Extraer ticker y metricLabel del título "AAPL — Revenue"
+      const [ticker, metricLabel] = window.title.split(' — ');
+      
+      // Buscar en el registro global de datos de gráficos
+      const globalChartData = (globalThis as any).__financialChartData || {};
+      
+      // Buscar por ticker y cualquier métrica que coincida
+      let chartData = null;
+      for (const key of Object.keys(globalChartData)) {
+        if (key.startsWith(`${ticker}-`)) {
+          const data = globalChartData[key];
+          if (data.metricLabel === metricLabel) {
+            chartData = data;
+            break;
+          }
+        }
+      }
+      
+      if (chartData) {
+        popOutWindow = openFinancialChartWindow(
+          chartData,
+          {
+            title: window.title,
+            width: 1000,
+            height: 650,
+            centered: true
+          }
+        );
+      } else {
+        console.warn('Chart data not found for', window.title);
+      }
+    } else if (window.title === 'IPOs') {
+      // Abrir IPOs en about:blank
+      const { openIPOWindow } = require('@/lib/window-injector');
+      const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+      popOutWindow = openIPOWindow(
+        { apiBaseUrl },
+        {
+          title: 'IPOs - Tradeul',
+          width: 1000,
+          height: 700,
+          centered: true
+        }
+      );
     } else if (window.title.startsWith('Scanner:')) {
       // Abrir Scanner en about:blank con WebSocket
       const { openScannerWindow } = require('@/lib/window-injector');

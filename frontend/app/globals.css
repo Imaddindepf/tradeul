@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== Clerk: Ocultar elementos de desarrollo ===== */
+/* Oculta "Secured by Clerk" y "Development mode" badge */
+.cl-internal-b3fm6y,
+.cl-internal-16vtwdp,
+[class*="cl-internal"][class*="badge"],
+[class*="cl-internal"][class*="devMode"],
+.cl-footer,
+.cl-footerAction__signIn,
+.cl-footerAction__signUp,
+.cl-internal-1dauvpw {
+  display: none !important;
+}
+
 /* Prevenir layout shift por scrollbar */
 html {
   overflow-y: scroll;

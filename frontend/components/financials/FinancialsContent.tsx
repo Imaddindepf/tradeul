@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Building2, Landmark, HeartPulse, Cpu, ShoppingCart, Factory, Pickaxe } from 'lucide-react';
+import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Building2, Landmark, HeartPulse, Cpu, ShoppingCart, Factory, Pickaxe, BarChart3 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { FinancialMetricChart, FINANCIAL_METRIC_CHART_CONFIG, type MetricDataPoint } from './FinancialMetricChart';
 
 // ============================================================================
 // Types (matching FMP API response)
@@ -424,9 +426,11 @@ interface TableRowProps {
     showTrend?: boolean;
     isNegativeBad?: boolean;
     hidden?: boolean;
+    metricKey?: string;
+    onClick?: (metricKey: string, label: string, type: string, isNegativeBad: boolean) => void;
 }
 
-function TableRow({ label, values = [], type = 'currency', isHeader, indent, bold, showTrend, isNegativeBad = true, hidden }: TableRowProps) {
+function TableRow({ label, values = [], type = 'currency', isHeader, indent, bold, showTrend, isNegativeBad = true, hidden, metricKey, onClick }: TableRowProps) {
     // Ocultar filas si todos los valores son null/undefined/0
     if (hidden) return null;
 
@@ -448,10 +452,20 @@ function TableRow({ label, values = [], type = 'currency', isHeader, indent, bol
     const hasData = values.some(v => v !== undefined && v !== null && v !== 0);
     if (!hasData) return null;
 
+    const isClickable = metricKey && onClick;
+
     return (
-        <tr className="border-b border-slate-100 hover:bg-slate-50">
+        <tr 
+            className={`border-b border-slate-100 hover:bg-blue-50 ${isClickable ? 'cursor-pointer group' : 'hover:bg-slate-50'}`}
+            onClick={isClickable ? () => onClick(metricKey, label, type, isNegativeBad) : undefined}
+        >
             <td className={`px-2 py-0.5 text-[10px] text-slate-600 whitespace-nowrap ${indent ? 'pl-4' : ''} ${bold ? 'font-semibold text-slate-800' : ''}`}>
+                <span className="flex items-center gap-1">
                 {label}
+                    {isClickable && (
+                        <BarChart3 className="w-3 h-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    )}
+                </span>
             </td>
             {values.map((val, idx) => (
                 <td key={idx} className="px-2 py-0.5 text-right">
@@ -468,7 +482,14 @@ function TableRow({ label, values = [], type = 'currency', isHeader, indent, bol
     );
 }
 
-function IncomeTable({ data, periodFilter, industry }: { data: IncomeStatement[]; periodFilter: PeriodFilter; industry: IndustryProfile }) {
+interface TableProps {
+    data: any[];
+    periodFilter: PeriodFilter;
+    industry: IndustryProfile;
+    onRowClick?: (metricKey: string, label: string, type: string, isNegativeBad: boolean) => void;
+}
+
+function IncomeTable({ data, periodFilter, industry, onRowClick }: TableProps & { data: IncomeStatement[] }) {
     // Filtrar por período: FY = annual, Q1-Q4 = quarter
     const filtered = data.filter(d => {
         if (periodFilter === 'all') return true;
@@ -513,47 +534,47 @@ function IncomeTable({ data, periodFilter, industry }: { data: IncomeStatement[]
                     {isBank ? (
                         <>
                             <TableRow label="Interest Income" isHeader />
-                            <TableRow label="Interest Income" values={getValue('interest_income')} bold showTrend />
-                            <TableRow label="Interest Expense" values={getValue('interest_expense')} indent isNegativeBad={false} />
-                            <TableRow label="Net Interest Income" values={getValue('net_interest_income')} bold />
+                            <TableRow label="Interest Income" values={getValue('interest_income')} bold showTrend metricKey="interest_income" onClick={onRowClick} />
+                            <TableRow label="Interest Expense" values={getValue('interest_expense')} indent isNegativeBad={false} metricKey="interest_expense" onClick={onRowClick} />
+                            <TableRow label="Net Interest Income" values={getValue('net_interest_income')} bold metricKey="net_interest_income" onClick={onRowClick} />
                         </>
                     ) : (
                         <>
                             <TableRow label="Revenue" isHeader />
-                            <TableRow label="Total Revenue" values={getValue('revenue')} bold showTrend />
-                            <TableRow label="Cost of Revenue" values={getValue('cost_of_revenue')} indent hidden={isHidden('cost_of_revenue')} />
-                            <TableRow label="Gross Profit" values={getValue('gross_profit')} bold hidden={isHidden('gross_profit')} />
+                            <TableRow label="Total Revenue" values={getValue('revenue')} bold showTrend metricKey="revenue" onClick={onRowClick} />
+                            <TableRow label="Cost of Revenue" values={getValue('cost_of_revenue')} indent hidden={isHidden('cost_of_revenue')} metricKey="cost_of_revenue" onClick={onRowClick} />
+                            <TableRow label="Gross Profit" values={getValue('gross_profit')} bold hidden={isHidden('gross_profit')} metricKey="gross_profit" onClick={onRowClick} />
                         </>
                     )}
 
                     <TableRow label="Operating Expenses" isHeader />
-                    <TableRow label="R&D" values={getValue('research_development')} indent hidden={isHidden('research_development')} />
-                    <TableRow label="SG&A" values={getValue('selling_general_admin')} indent />
-                    <TableRow label="Total OpEx" values={getValue('operating_expenses')} />
-                    <TableRow label="Operating Income" values={getValue('operating_income')} bold showTrend />
+                    <TableRow label="R&D" values={getValue('research_development')} indent hidden={isHidden('research_development')} metricKey="research_development" onClick={onRowClick} />
+                    <TableRow label="SG&A" values={getValue('selling_general_admin')} indent metricKey="selling_general_admin" onClick={onRowClick} />
+                    <TableRow label="Total OpEx" values={getValue('operating_expenses')} metricKey="operating_expenses" onClick={onRowClick} />
+                    <TableRow label="Operating Income" values={getValue('operating_income')} bold showTrend metricKey="operating_income" onClick={onRowClick} />
 
                     <TableRow label="Net Income" isHeader />
-                    <TableRow label="EBITDA" values={getValue('ebitda')} hidden={isBank} />
-                    <TableRow label="Interest Expense" values={getValue('interest_expense')} indent hidden={isBank} />
-                    <TableRow label="Pre-tax Income" values={getValue('income_before_tax')} />
-                    <TableRow label="Income Tax" values={getValue('income_tax')} indent />
-                    <TableRow label="Net Income" values={getValue('net_income')} bold showTrend />
+                    <TableRow label="EBITDA" values={getValue('ebitda')} hidden={isBank} metricKey="ebitda" onClick={onRowClick} />
+                    <TableRow label="Interest Expense" values={getValue('interest_expense')} indent hidden={isBank} metricKey="interest_expense" onClick={onRowClick} />
+                    <TableRow label="Pre-tax Income" values={getValue('income_before_tax')} metricKey="income_before_tax" onClick={onRowClick} />
+                    <TableRow label="Income Tax" values={getValue('income_tax')} indent metricKey="income_tax" onClick={onRowClick} />
+                    <TableRow label="Net Income" values={getValue('net_income')} bold showTrend metricKey="net_income" onClick={onRowClick} />
 
                     <TableRow label="Per Share" isHeader />
-                    <TableRow label="EPS Basic" values={getValue('eps')} type="eps" />
-                    <TableRow label="EPS Diluted" values={getValue('eps_diluted')} type="eps" />
+                    <TableRow label="EPS Basic" values={getValue('eps')} type="eps" metricKey="eps" onClick={onRowClick} />
+                    <TableRow label="EPS Diluted" values={getValue('eps_diluted')} type="eps" metricKey="eps_diluted" onClick={onRowClick} />
 
                     <TableRow label="Margins" isHeader />
-                    <TableRow label="Gross Margin" values={grossMargins} type="percent" hidden={isBank || isHidden('gross_profit')} />
-                    <TableRow label="Operating Margin" values={opMargins} type="percent" />
-                    <TableRow label="Net Margin" values={netMargins} type="percent" />
+                    <TableRow label="Gross Margin" values={grossMargins} type="percent" hidden={isBank || isHidden('gross_profit')} metricKey="gross_margin" onClick={onRowClick} />
+                    <TableRow label="Operating Margin" values={opMargins} type="percent" metricKey="operating_margin" onClick={onRowClick} />
+                    <TableRow label="Net Margin" values={netMargins} type="percent" metricKey="net_margin" onClick={onRowClick} />
                 </tbody>
             </table>
         </div>
     );
 }
 
-function BalanceTable({ data, periodFilter, industry }: { data: BalanceSheet[]; periodFilter: PeriodFilter; industry: IndustryProfile }) {
+function BalanceTable({ data, periodFilter, industry, onRowClick }: TableProps & { data: BalanceSheet[] }) {
     const filtered = data.filter(d => {
         if (periodFilter === 'all') return true;
         if (periodFilter === 'annual') return d.period.period === 'FY';
@@ -593,45 +614,45 @@ function BalanceTable({ data, periodFilter, industry }: { data: BalanceSheet[]; 
                 </thead>
                 <tbody>
                     <TableRow label="Assets" isHeader />
-                    <TableRow label="Total Assets" values={getValue('total_assets')} bold showTrend />
-                    <TableRow label="Current Assets" values={getValue('current_assets')} hidden={isBank} />
-                    <TableRow label="Cash & Equivalents" values={getValue('cash_and_equivalents')} indent />
-                    <TableRow label="Short-term Investments" values={getValue('short_term_investments')} indent />
-                    <TableRow label="Receivables" values={getValue('receivables')} indent hidden={isBank} />
-                    <TableRow label="Inventory" values={getValue('inventory')} indent hidden={isHidden('inventory')} />
-                    <TableRow label="PP&E" values={getValue('property_plant_equipment')} hidden={isBank} />
-                    <TableRow label="Long-term Investments" values={getValue('long_term_investments')} indent />
-                    <TableRow label="Total Investments" values={getValue('total_investments')} hidden={!isBank} />
-                    <TableRow label="Goodwill" values={getValue('goodwill')} indent hidden={isHidden('goodwill')} />
-                    <TableRow label="Intangibles" values={getValue('intangible_assets')} indent />
+                    <TableRow label="Total Assets" values={getValue('total_assets')} bold showTrend metricKey="total_assets" onClick={onRowClick} />
+                    <TableRow label="Current Assets" values={getValue('current_assets')} hidden={isBank} metricKey="current_assets" onClick={onRowClick} />
+                    <TableRow label="Cash & Equivalents" values={getValue('cash_and_equivalents')} indent metricKey="cash_and_equivalents" onClick={onRowClick} />
+                    <TableRow label="Short-term Investments" values={getValue('short_term_investments')} indent metricKey="short_term_investments" onClick={onRowClick} />
+                    <TableRow label="Receivables" values={getValue('receivables')} indent hidden={isBank} metricKey="receivables" onClick={onRowClick} />
+                    <TableRow label="Inventory" values={getValue('inventory')} indent hidden={isHidden('inventory')} metricKey="inventory" onClick={onRowClick} />
+                    <TableRow label="PP&E" values={getValue('property_plant_equipment')} hidden={isBank} metricKey="property_plant_equipment" onClick={onRowClick} />
+                    <TableRow label="Long-term Investments" values={getValue('long_term_investments')} indent metricKey="long_term_investments" onClick={onRowClick} />
+                    <TableRow label="Total Investments" values={getValue('total_investments')} hidden={!isBank} metricKey="total_investments" onClick={onRowClick} />
+                    <TableRow label="Goodwill" values={getValue('goodwill')} indent hidden={isHidden('goodwill')} metricKey="goodwill" onClick={onRowClick} />
+                    <TableRow label="Intangibles" values={getValue('intangible_assets')} indent metricKey="intangible_assets" onClick={onRowClick} />
 
                     <TableRow label="Liabilities" isHeader />
-                    <TableRow label="Total Liabilities" values={getValue('total_liabilities')} bold />
-                    <TableRow label="Current Liabilities" values={getValue('current_liabilities')} hidden={isBank} />
-                    <TableRow label="Accounts Payable" values={getValue('accounts_payable')} indent hidden={isBank} />
-                    <TableRow label="Short-term Debt" values={getValue('short_term_debt')} indent />
-                    <TableRow label="Long-term Debt" values={getValue('long_term_debt')} />
-                    <TableRow label="Deferred Revenue" values={getValue('deferred_revenue')} indent />
+                    <TableRow label="Total Liabilities" values={getValue('total_liabilities')} bold metricKey="total_liabilities" onClick={onRowClick} />
+                    <TableRow label="Current Liabilities" values={getValue('current_liabilities')} hidden={isBank} metricKey="current_liabilities" onClick={onRowClick} />
+                    <TableRow label="Accounts Payable" values={getValue('accounts_payable')} indent hidden={isBank} metricKey="accounts_payable" onClick={onRowClick} />
+                    <TableRow label="Short-term Debt" values={getValue('short_term_debt')} indent metricKey="short_term_debt" onClick={onRowClick} />
+                    <TableRow label="Long-term Debt" values={getValue('long_term_debt')} metricKey="long_term_debt" onClick={onRowClick} />
+                    <TableRow label="Deferred Revenue" values={getValue('deferred_revenue')} indent metricKey="deferred_revenue" onClick={onRowClick} />
 
                     <TableRow label="Equity" isHeader />
-                    <TableRow label="Total Equity" values={getValue('total_equity')} bold showTrend />
-                    <TableRow label="Common Stock" values={getValue('common_stock')} indent />
-                    <TableRow label="Retained Earnings" values={getValue('retained_earnings')} indent />
-                    <TableRow label="Treasury Stock" values={getValue('treasury_stock')} indent isNegativeBad={false} />
+                    <TableRow label="Total Equity" values={getValue('total_equity')} bold showTrend metricKey="total_equity" onClick={onRowClick} />
+                    <TableRow label="Common Stock" values={getValue('common_stock')} indent metricKey="common_stock" onClick={onRowClick} />
+                    <TableRow label="Retained Earnings" values={getValue('retained_earnings')} indent metricKey="retained_earnings" onClick={onRowClick} />
+                    <TableRow label="Treasury Stock" values={getValue('treasury_stock')} indent isNegativeBad={false} metricKey="treasury_stock" onClick={onRowClick} />
 
                     <TableRow label="Metrics" isHeader />
-                    <TableRow label="Total Debt" values={getValue('total_debt')} />
-                    <TableRow label="Net Debt" values={getValue('net_debt')} />
-                    <TableRow label="Working Capital" values={workingCapital} hidden={isBank} />
-                    <TableRow label="Current Ratio" values={currentRatios} type="ratio" hidden={isBank} />
-                    <TableRow label="Debt/Equity" values={debtToEquity} type="ratio" />
+                    <TableRow label="Total Debt" values={getValue('total_debt')} metricKey="total_debt" onClick={onRowClick} />
+                    <TableRow label="Net Debt" values={getValue('net_debt')} metricKey="net_debt" onClick={onRowClick} />
+                    <TableRow label="Working Capital" values={workingCapital} hidden={isBank} metricKey="working_capital" onClick={onRowClick} />
+                    <TableRow label="Current Ratio" values={currentRatios} type="ratio" hidden={isBank} metricKey="current_ratio" onClick={onRowClick} />
+                    <TableRow label="Debt/Equity" values={debtToEquity} type="ratio" metricKey="debt_to_equity" onClick={onRowClick} />
                 </tbody>
             </table>
         </div>
     );
 }
 
-function CashFlowTable({ data, periodFilter, industry }: { data: CashFlow[]; periodFilter: PeriodFilter; industry: IndustryProfile }) {
+function CashFlowTable({ data, periodFilter, industry, onRowClick }: TableProps & { data: CashFlow[] }) {
     const filtered = data.filter(d => {
         if (periodFilter === 'all') return true;
         if (periodFilter === 'annual') return d.period.period === 'FY';
@@ -666,36 +687,36 @@ function CashFlowTable({ data, periodFilter, industry }: { data: CashFlow[]; per
                 </thead>
                 <tbody>
                     <TableRow label="Operating Activities" isHeader />
-                    <TableRow label="Net Income" values={getValue('net_income')} indent />
-                    <TableRow label="Operating Cash Flow" values={getValue('operating_cash_flow')} bold showTrend />
-                    <TableRow label="Depreciation" values={getValue('depreciation')} indent isNegativeBad={false} />
-                    <TableRow label="Stock Compensation" values={getValue('stock_compensation')} indent isNegativeBad={false} />
-                    <TableRow label="Working Capital Δ" values={getValue('change_working_capital')} indent />
+                    <TableRow label="Net Income" values={getValue('net_income')} indent metricKey="cf_net_income" onClick={onRowClick} />
+                    <TableRow label="Operating Cash Flow" values={getValue('operating_cash_flow')} bold showTrend metricKey="operating_cash_flow" onClick={onRowClick} />
+                    <TableRow label="Depreciation" values={getValue('depreciation')} indent isNegativeBad={false} metricKey="depreciation" onClick={onRowClick} />
+                    <TableRow label="Stock Compensation" values={getValue('stock_compensation')} indent isNegativeBad={false} metricKey="stock_compensation" onClick={onRowClick} />
+                    <TableRow label="Working Capital Δ" values={getValue('change_working_capital')} indent metricKey="change_working_capital" onClick={onRowClick} />
 
                     <TableRow label="Investing Activities" isHeader />
-                    <TableRow label="Investing Cash Flow" values={getValue('investing_cash_flow')} bold />
-                    <TableRow label="CapEx" values={getValue('capex')} indent isNegativeBad={false} hidden={isHidden('capex')} />
-                    <TableRow label="Acquisitions" values={getValue('acquisitions')} indent isNegativeBad={false} />
-                    <TableRow label="Purchases (Investments)" values={getValue('purchases_investments')} indent isNegativeBad={false} />
-                    <TableRow label="Sales (Investments)" values={getValue('sales_investments')} indent isNegativeBad={false} />
+                    <TableRow label="Investing Cash Flow" values={getValue('investing_cash_flow')} bold metricKey="investing_cash_flow" onClick={onRowClick} />
+                    <TableRow label="CapEx" values={getValue('capex')} indent isNegativeBad={false} hidden={isHidden('capex')} metricKey="capex" onClick={onRowClick} />
+                    <TableRow label="Acquisitions" values={getValue('acquisitions')} indent isNegativeBad={false} metricKey="acquisitions" onClick={onRowClick} />
+                    <TableRow label="Purchases (Investments)" values={getValue('purchases_investments')} indent isNegativeBad={false} metricKey="purchases_investments" onClick={onRowClick} />
+                    <TableRow label="Sales (Investments)" values={getValue('sales_investments')} indent isNegativeBad={false} metricKey="sales_investments" onClick={onRowClick} />
 
                     <TableRow label="Financing Activities" isHeader />
-                    <TableRow label="Financing Cash Flow" values={getValue('financing_cash_flow')} bold />
-                    <TableRow label="Debt Issued" values={getValue('debt_issued')} indent isNegativeBad={false} />
-                    <TableRow label="Debt Repaid" values={getValue('debt_repaid')} indent isNegativeBad={false} />
-                    <TableRow label="Stock Issued" values={getValue('stock_issued')} indent isNegativeBad={false} />
-                    <TableRow label="Stock Repurchased" values={getValue('stock_repurchased')} indent isNegativeBad={false} />
-                    <TableRow label="Dividends Paid" values={getValue('dividends_paid')} indent isNegativeBad={false} />
+                    <TableRow label="Financing Cash Flow" values={getValue('financing_cash_flow')} bold metricKey="financing_cash_flow" onClick={onRowClick} />
+                    <TableRow label="Debt Issued" values={getValue('debt_issued')} indent isNegativeBad={false} metricKey="debt_issued" onClick={onRowClick} />
+                    <TableRow label="Debt Repaid" values={getValue('debt_repaid')} indent isNegativeBad={false} metricKey="debt_repaid" onClick={onRowClick} />
+                    <TableRow label="Stock Issued" values={getValue('stock_issued')} indent isNegativeBad={false} metricKey="stock_issued" onClick={onRowClick} />
+                    <TableRow label="Stock Repurchased" values={getValue('stock_repurchased')} indent isNegativeBad={false} metricKey="stock_repurchased" onClick={onRowClick} />
+                    <TableRow label="Dividends Paid" values={getValue('dividends_paid')} indent isNegativeBad={false} metricKey="dividends_paid" onClick={onRowClick} />
 
                     <TableRow label="Summary" isHeader />
-                    <TableRow label="Net Change in Cash" values={getValue('net_change_cash')} bold />
-                    <TableRow label="Cash (Beginning)" values={getValue('cash_beginning')} indent />
-                    <TableRow label="Cash (Ending)" values={getValue('cash_ending')} indent />
-                    <TableRow label="Free Cash Flow" values={getValue('free_cash_flow')} bold showTrend hidden={isBank} />
+                    <TableRow label="Net Change in Cash" values={getValue('net_change_cash')} bold metricKey="net_change_cash" onClick={onRowClick} />
+                    <TableRow label="Cash (Beginning)" values={getValue('cash_beginning')} indent metricKey="cash_beginning" onClick={onRowClick} />
+                    <TableRow label="Cash (Ending)" values={getValue('cash_ending')} indent metricKey="cash_ending" onClick={onRowClick} />
+                    <TableRow label="Free Cash Flow" values={getValue('free_cash_flow')} bold showTrend hidden={isBank} metricKey="free_cash_flow" onClick={onRowClick} />
 
                     {/* Ratio especial para mining/capital intensive */}
                     {isMining && (
-                        <TableRow label="CapEx/OCF %" values={capexRatios} type="percent" />
+                        <TableRow label="CapEx/OCF %" values={capexRatios} type="percent" metricKey="capex_ocf_ratio" onClick={onRowClick} />
                     )}
                 </tbody>
             </table>
@@ -755,6 +776,126 @@ export function FinancialsContent() {
 
     const [activeTab, setActiveTab] = useState<TabType>('income');
     const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('annual');
+
+    const { openWindow } = useFloatingWindow();
+
+    // Handler para abrir gráfico de métrica en ventana flotante
+    const handleMetricClick = useCallback((metricKey: string, label: string, valueType: string, isNegativeBad: boolean) => {
+        if (!data || !selectedTicker) return;
+
+        // Extraer datos históricos de la métrica
+        const extractMetricData = (): MetricDataPoint[] => {
+            // Combinar datos de income, balance y cashflow según la métrica
+            let sourceData: any[] = [];
+            let key = metricKey;
+
+            // Determinar la fuente de datos
+            if (['revenue', 'cost_of_revenue', 'gross_profit', 'research_development', 'selling_general_admin', 
+                 'operating_expenses', 'operating_income', 'ebitda', 'ebit', 'interest_expense', 'interest_income',
+                 'net_interest_income', 'income_before_tax', 'income_tax', 'net_income', 'eps', 'eps_diluted',
+                 'gross_margin', 'operating_margin', 'net_margin'].includes(metricKey)) {
+                sourceData = data.income_statements;
+                
+                // Calcular márgenes si es necesario
+                if (metricKey === 'gross_margin') {
+                    return sourceData.map(d => ({
+                        period: `${d.period.period} ${d.period.fiscal_year}`,
+                        fiscalYear: d.period.fiscal_year,
+                        value: d.revenue && d.gross_profit ? (d.gross_profit / d.revenue) * 100 : null,
+                        isAnnual: d.period.period === 'FY'
+                    })).reverse();
+                }
+                if (metricKey === 'operating_margin') {
+                    return sourceData.map(d => ({
+                        period: `${d.period.period} ${d.period.fiscal_year}`,
+                        fiscalYear: d.period.fiscal_year,
+                        value: d.revenue && d.operating_income ? (d.operating_income / d.revenue) * 100 : null,
+                        isAnnual: d.period.period === 'FY'
+                    })).reverse();
+                }
+                if (metricKey === 'net_margin') {
+                    return sourceData.map(d => ({
+                        period: `${d.period.period} ${d.period.fiscal_year}`,
+                        fiscalYear: d.period.fiscal_year,
+                        value: d.revenue && d.net_income ? (d.net_income / d.revenue) * 100 : null,
+                        isAnnual: d.period.period === 'FY'
+                    })).reverse();
+                }
+            } else if (['total_assets', 'current_assets', 'cash_and_equivalents', 'short_term_investments',
+                        'receivables', 'inventory', 'property_plant_equipment', 'long_term_investments',
+                        'total_investments', 'goodwill', 'intangible_assets', 'total_liabilities',
+                        'current_liabilities', 'accounts_payable', 'short_term_debt', 'long_term_debt',
+                        'deferred_revenue', 'total_equity', 'common_stock', 'retained_earnings',
+                        'treasury_stock', 'total_debt', 'net_debt', 'working_capital', 'current_ratio',
+                        'debt_to_equity'].includes(metricKey)) {
+                sourceData = data.balance_sheets;
+                
+                // Calcular métricas derivadas
+                if (metricKey === 'working_capital') {
+                    return sourceData.map(d => ({
+                        period: `${d.period.period} ${d.period.fiscal_year}`,
+                        fiscalYear: d.period.fiscal_year,
+                        value: d.current_assets && d.current_liabilities ? d.current_assets - d.current_liabilities : null,
+                        isAnnual: d.period.period === 'FY'
+                    })).reverse();
+                }
+                if (metricKey === 'current_ratio') {
+                    return sourceData.map(d => ({
+                        period: `${d.period.period} ${d.period.fiscal_year}`,
+                        fiscalYear: d.period.fiscal_year,
+                        value: d.current_assets && d.current_liabilities ? d.current_assets / d.current_liabilities : null,
+                        isAnnual: d.period.period === 'FY'
+                    })).reverse();
+                }
+                if (metricKey === 'debt_to_equity') {
+                    return sourceData.map(d => ({
+                        period: `${d.period.period} ${d.period.fiscal_year}`,
+                        fiscalYear: d.period.fiscal_year,
+                        value: d.total_debt && d.total_equity && d.total_equity !== 0 ? d.total_debt / d.total_equity : null,
+                        isAnnual: d.period.period === 'FY'
+                    })).reverse();
+                }
+            } else {
+                sourceData = data.cash_flows;
+                // Para cf_net_income usar net_income del cash flow
+                if (metricKey === 'cf_net_income') key = 'net_income';
+            }
+
+            return sourceData.map(d => ({
+                period: `${d.period.period} ${d.period.fiscal_year}`,
+                fiscalYear: d.period.fiscal_year,
+                value: (d as any)[key] ?? null,
+                isAnnual: d.period.period === 'FY'
+            })).reverse(); // Oldest first for proper chart display
+        };
+
+        const metricData = extractMetricData();
+        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+        const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+
+        openWindow({
+            title: `${selectedTicker} — ${label}`,
+            content: (
+                <FinancialMetricChart
+                    ticker={selectedTicker}
+                    metricKey={metricKey}
+                    metricLabel={label}
+                    data={metricData}
+                    currency={data.currency}
+                    valueType={valueType as any}
+                    isNegativeBad={isNegativeBad}
+                />
+            ),
+            width: FINANCIAL_METRIC_CHART_CONFIG.width,
+            height: FINANCIAL_METRIC_CHART_CONFIG.height,
+            x: Math.max(50, screenWidth / 2 - FINANCIAL_METRIC_CHART_CONFIG.width / 2),
+            y: Math.max(80, screenHeight / 2 - FINANCIAL_METRIC_CHART_CONFIG.height / 2),
+            minWidth: FINANCIAL_METRIC_CHART_CONFIG.minWidth,
+            minHeight: FINANCIAL_METRIC_CHART_CONFIG.minHeight,
+            maxWidth: FINANCIAL_METRIC_CHART_CONFIG.maxWidth,
+            maxHeight: FINANCIAL_METRIC_CHART_CONFIG.maxHeight,
+        });
+    }, [data, selectedTicker, openWindow]);
 
     // Detectar industria basado en datos
     const industry = useMemo(() => {
@@ -901,13 +1042,13 @@ export function FinancialsContent() {
                     {/* Table Content */}
                     <div className="flex-1 overflow-auto p-2">
                         {activeTab === 'income' && (
-                            <IncomeTable data={data.income_statements} periodFilter={periodFilter} industry={industry} />
+                            <IncomeTable data={data.income_statements} periodFilter={periodFilter} industry={industry} onRowClick={handleMetricClick} />
                         )}
                         {activeTab === 'balance' && (
-                            <BalanceTable data={data.balance_sheets} periodFilter={periodFilter} industry={industry} />
+                            <BalanceTable data={data.balance_sheets} periodFilter={periodFilter} industry={industry} onRowClick={handleMetricClick} />
                         )}
                         {activeTab === 'cashflow' && (
-                            <CashFlowTable data={data.cash_flows} periodFilter={periodFilter} industry={industry} />
+                            <CashFlowTable data={data.cash_flows} periodFilter={periodFilter} industry={industry} onRowClick={handleMetricClick} />
                         )}
                     </div>
 

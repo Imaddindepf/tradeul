@@ -6,6 +6,8 @@ import { useClerk, useUser } from '@clerk/nextjs';
 import { User, Settings, LogOut } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from '@/components/floating-window';
 
 interface NavbarProps {
   children?: ReactNode;
@@ -58,6 +60,23 @@ export function UserMenu() {
   const { signOut } = useClerk();
   const { user } = useUser();
   const { executeCommand } = useCommandExecutor();
+  const { openWindow } = useFloatingWindow();
+
+  const handleOpenProfile = () => {
+    setIsOpen(false);
+    openWindow({
+      title: USER_PROFILE_WINDOW_CONFIG.title,
+      content: <UserProfileContent />,
+      width: USER_PROFILE_WINDOW_CONFIG.width,
+      height: USER_PROFILE_WINDOW_CONFIG.height,
+      minWidth: USER_PROFILE_WINDOW_CONFIG.minWidth,
+      minHeight: USER_PROFILE_WINDOW_CONFIG.minHeight,
+      maxWidth: USER_PROFILE_WINDOW_CONFIG.maxWidth,
+      maxHeight: USER_PROFILE_WINDOW_CONFIG.maxHeight,
+      x: Math.max(100, (window.innerWidth - USER_PROFILE_WINDOW_CONFIG.width) / 2),
+      y: Math.max(80, (window.innerHeight - USER_PROFILE_WINDOW_CONFIG.height) / 2),
+    });
+  };
 
   // Cerrar al hacer click fuera
   useEffect(() => {
@@ -116,16 +135,11 @@ export function UserMenu() {
           {/* Menu Items */}
           <div className="py-1">
             <button
-              onClick={() => {
-                setIsOpen(false);
-                // TODO: Implementar Profile
-              }}
-              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 opacity-50 cursor-not-allowed"
-              disabled
+              onClick={handleOpenProfile}
+              className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors"
             >
               <User className="w-4 h-4" />
               <span>Profile</span>
-              <span className="ml-auto text-xs text-slate-400">Próximamente</span>
             </button>
 
             <button

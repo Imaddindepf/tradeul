@@ -8,7 +8,9 @@ Características:
 - Tracking en memoria (cero latencia)
 - Recuperación desde Polygon API al reiniciar
 - Fallback a day.h/day.l si falla la recuperación
-- Reseteo automático cada día
+
+NOTA: El reseteo por nuevo día se maneja externamente via EventBus (DAY_CHANGED).
+Este componente NO detecta días nuevos por sí mismo.
 """
 
 import structlog
@@ -38,6 +40,25 @@ class IntradayTracker:
         
         logger.info("intraday_tracker_initialized")
     
+    def clear_for_new_day(self) -> None:
+        """
+        Limpia el cache para un nuevo día de trading.
+        
+        NOTA: Este método debe ser llamado externamente via EventBus (DAY_CHANGED).
+        NO se llama automáticamente al detectar cambio de fecha.
+        """
+        old_date = self.current_date
+        self.current_date = date.today()
+        symbols_cleared = len(self.cache)
+        self.cache.clear()
+        
+        logger.info(
+            "intraday_tracker_cleared_for_new_day",
+            old_date=str(old_date),
+            new_date=str(self.current_date),
+            symbols_cleared=symbols_cleared
+        )
+    
     def update(self, symbol: str, price: float) -> Dict:
         """
         Actualiza high/low para un símbolo
@@ -54,11 +75,8 @@ class IntradayTracker:
         
         today = date.today()
         
-        # Resetear cache si es un nuevo día
-        if today != self.current_date:
-            logger.info("new_trading_day", old_date=self.current_date, new_date=today)
-            self.cache.clear()
-            self.current_date = today
+        # NOTA: Ya no reseteamos automáticamente aquí.
+        # El reset se maneja via EventBus (DAY_CHANGED) en analytics/main.py
         
         # Inicializar o actualizar
         if symbol not in self.cache:
