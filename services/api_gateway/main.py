@@ -21,9 +21,14 @@ from fastapi.responses import JSONResponse, StreamingResponse, Response, HTMLRes
 from fastapi.middleware.cors import CORSMiddleware
 
 from shared.config.settings import settings
+from shared.config.fmp_endpoints import FMPEndpoints
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import configure_logging, get_logger
+from shared.models.description import (
+    TickerDescription, CompanyInfo, MarketStats, ValuationMetrics,
+    DividendInfo, RiskMetrics, AnalystRating, PriceTarget, FMPRatios
+)
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
@@ -573,6 +578,210 @@ async def proxy_logo(url: str):
     except Exception as e:
         logger.error("logo_proxy_error", url=url, error=str(e))
         raise HTTPException(status_code=500, detail="Error fetching logo")
+
+
+# ============================================================================
+# Ticker Description Endpoint
+# ============================================================================
+
+@app.get("/api/v1/ticker/{symbol}/description")
+async def get_ticker_description(
+    symbol: str,
+    force_refresh: bool = Query(default=False, description="Force refresh from API")
+):
+    """
+    Get comprehensive ticker description combining:
+    - Company info (metadata)
+    - Market stats (profile)
+    - Valuation ratios
+    - Dividend info
+    - Analyst ratings & price targets
+    
+    Caches for 5 minutes.
+    """
+    global redis_client
+    
+    symbol = symbol.upper()
+    cache_key = f"description:{symbol}"
+    cache_ttl = 300  # 5 minutes
+    
+    try:
+        # Check cache first
+        if not force_refresh and redis_client:
+            cached = await redis_client.get(cache_key)
+            if cached:
+                logger.debug("description_cache_hit", symbol=symbol)
+                return cached
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Parallel fetch all data sources
+            fmp_api_key = settings.FMP_API_KEY
+            polygon_api_key = settings.POLYGON_API_KEY
+            
+            # 1. Get metadata from Redis (already cached)
+            metadata = None
+            if redis_client:
+                metadata = await redis_client.get(f"metadata:ticker:{symbol}")
+            
+            # 2. Fetch FMP profile (for price, beta, CEO, etc)
+            profile_url = f"https://financialmodelingprep.com/stable/profile?symbol={symbol}&apikey={fmp_api_key}"
+            profile_resp = await client.get(profile_url)
+            profile_data = profile_resp.json()[0] if profile_resp.status_code == 200 and profile_resp.json() else {}
+            
+            # 3. Fetch FMP ratios
+            ratios_url = f"https://financialmodelingprep.com/stable/ratios?symbol={symbol}&limit=1&apikey={fmp_api_key}"
+            ratios_resp = await client.get(ratios_url)
+            ratios_data = ratios_resp.json()[0] if ratios_resp.status_code == 200 and ratios_resp.json() else {}
+            
+            # 4. Fetch analyst recommendations
+            analyst_url = f"https://financialmodelingprep.com/api/v3/analyst-stock-recommendations/{symbol}?apikey={fmp_api_key}"
+            analyst_resp = await client.get(analyst_url)
+            analyst_data = analyst_resp.json()[0] if analyst_resp.status_code == 200 and analyst_resp.json() else {}
+            
+            # 5. Fetch price targets (limit 10)
+            targets_url = f"https://financialmodelingprep.com/api/v4/price-target?symbol={symbol}&apikey={fmp_api_key}"
+            targets_resp = await client.get(targets_url)
+            targets_data = targets_resp.json()[:10] if targets_resp.status_code == 200 and targets_resp.json() else []
+            
+            # Build company info
+            company = CompanyInfo(
+                symbol=symbol,
+                name=profile_data.get("companyName") or (metadata.get("company_name") if metadata else symbol),
+                exchange=profile_data.get("exchange") or (metadata.get("exchange") if metadata else None),
+                exchangeFullName=profile_data.get("exchangeFullName"),
+                sector=profile_data.get("sector") or (metadata.get("sector") if metadata else None),
+                industry=profile_data.get("industry") or (metadata.get("industry") if metadata else None),
+                description=profile_data.get("description") or (metadata.get("description") if metadata else None),
+                ceo=profile_data.get("ceo"),
+                website=profile_data.get("website") or (metadata.get("homepage_url") if metadata else None),
+                address=profile_data.get("address"),
+                city=profile_data.get("city"),
+                state=profile_data.get("state"),
+                country=profile_data.get("country"),
+                phone=profile_data.get("phone") or (metadata.get("phone_number") if metadata else None),
+                employees=int(profile_data.get("fullTimeEmployees") or 0) if profile_data.get("fullTimeEmployees") else (metadata.get("total_employees") if metadata else None),
+                ipoDate=profile_data.get("ipoDate") or (metadata.get("list_date") if metadata else None),
+                logoUrl=profile_data.get("image") or (metadata.get("logo_url") if metadata else None),
+                iconUrl=metadata.get("icon_url") if metadata else None,
+            )
+            
+            # Build market stats
+            stats = MarketStats(
+                price=profile_data.get("price"),
+                change=profile_data.get("change"),
+                changePercent=profile_data.get("changePercentage"),
+                volume=profile_data.get("volume"),
+                avgVolume=profile_data.get("averageVolume") or (metadata.get("avg_volume_30d") if metadata else None),
+                marketCap=profile_data.get("marketCap") or (metadata.get("market_cap") if metadata else None),
+                sharesOutstanding=metadata.get("shares_outstanding") if metadata else None,
+                floatShares=metadata.get("float_shares") if metadata else None,
+                dayLow=None,  # Not in stable/profile
+                dayHigh=None,
+                yearLow=float(profile_data.get("range", "0-0").split("-")[0]) if profile_data.get("range") else None,
+                yearHigh=float(profile_data.get("range", "0-0").split("-")[1]) if profile_data.get("range") else None,
+                range52Week=profile_data.get("range"),
+                beta=profile_data.get("beta"),
+            )
+            
+            # Build valuation metrics
+            valuation = ValuationMetrics(
+                peRatio=ratios_data.get("priceToEarningsRatio"),
+                forwardPE=None,  # Need separate endpoint
+                pegRatio=ratios_data.get("priceToEarningsGrowthRatio"),
+                pbRatio=ratios_data.get("priceToBookRatio"),
+                psRatio=ratios_data.get("priceToSalesRatio"),
+                evToEbitda=ratios_data.get("enterpriseValueMultiple"),
+                evToRevenue=None,
+                enterpriseValue=None,
+            )
+            
+            # Build dividend info
+            dividend = DividendInfo(
+                trailingYield=ratios_data.get("dividendYieldPercentage"),
+                forwardYield=None,
+                payoutRatio=ratios_data.get("dividendPayoutRatio"),
+                dividendPerShare=ratios_data.get("dividendPerShare") or profile_data.get("lastDividend"),
+                exDividendDate=None,
+                dividendDate=None,
+                fiveYearAvgYield=None,
+            )
+            
+            # Build risk metrics
+            risk = RiskMetrics(
+                beta=profile_data.get("beta"),
+                shortInterest=None,  # Need separate endpoint
+                shortRatio=None,
+                shortPercentFloat=None,
+            )
+            
+            # Build analyst rating
+            analyst_rating = None
+            if analyst_data:
+                analyst_rating = AnalystRating(
+                    symbol=symbol,
+                    date=analyst_data.get("date"),
+                    analystRatingsbuy=analyst_data.get("analystRatingsbuy"),
+                    analystRatingsHold=analyst_data.get("analystRatingsHold"),
+                    analystRatingsSell=analyst_data.get("analystRatingsSell"),
+                    analystRatingsStrongSell=analyst_data.get("analystRatingsStrongSell"),
+                    analystRatingsStrongBuy=analyst_data.get("analystRatingsStrongBuy"),
+                )
+            
+            # Build price targets
+            price_targets = [
+                PriceTarget(
+                    symbol=symbol,
+                    publishedDate=t.get("publishedDate"),
+                    analystName=t.get("analystName"),
+                    analystCompany=t.get("analystCompany"),
+                    priceTarget=t.get("priceTarget"),
+                    adjPriceTarget=t.get("adjPriceTarget"),
+                    priceWhenPosted=t.get("priceWhenPosted"),
+                    newsTitle=t.get("newsTitle"),
+                    newsURL=t.get("newsURL"),
+                    newsPublisher=t.get("newsPublisher"),
+                )
+                for t in targets_data
+            ]
+            
+            # Calculate consensus target
+            consensus_target = None
+            target_upside = None
+            if price_targets:
+                valid_targets = [t.priceTarget for t in price_targets if t.priceTarget]
+                if valid_targets:
+                    consensus_target = sum(valid_targets) / len(valid_targets)
+                    if stats.price and consensus_target:
+                        target_upside = ((consensus_target - stats.price) / stats.price) * 100
+            
+            # Build complete description
+            description = TickerDescription(
+                symbol=symbol,
+                company=company,
+                stats=stats,
+                valuation=valuation,
+                dividend=dividend,
+                risk=risk,
+                analystRating=analyst_rating,
+                priceTargets=price_targets,
+                consensusTarget=round(consensus_target, 2) if consensus_target else None,
+                targetUpside=round(target_upside, 2) if target_upside else None,
+            )
+            
+            result = description.model_dump()
+            
+            # Cache result
+            if redis_client:
+                await redis_client.set(cache_key, result, ttl=cache_ttl)
+                logger.info("description_cached", symbol=symbol)
+            
+            return result
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("description_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/rvol/{symbol}")
