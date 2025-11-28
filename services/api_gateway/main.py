@@ -1220,6 +1220,303 @@ async def get_ipo_prospectus(
 
 
 # ============================================================================
+# Chart Data Endpoint - TradingView Style (Lazy Loading)
+# ============================================================================
+# 
+# Estrategia: Carga rápida inicial + lazy loading al hacer scroll
+# - Primera carga: ~500 barras más recientes (rápido, <1s)
+# - Scroll hacia atrás: pide más datos con parámetro "before"
+# - Intraday: Polygon API (histórico desde 2015+)
+# - Daily: FMP API (10+ años)
+#
+
+CHART_INTERVALS = {
+    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 300, "bars_per_page": 500},
+    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 600, "bars_per_page": 500},
+    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 900, "bars_per_page": 500},
+    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 1800, "bars_per_page": 500},
+    "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 3600, "bars_per_page": 500},
+    "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 7200, "bars_per_page": 500},
+    "1day": {"source": "fmp", "cache_ttl": 86400, "bars_per_page": 1000},  # FMP para daily
+}
+
+POLYGON_AGGS_URL = "https://api.polygon.io/v2/aggs/ticker"
+FMP_DAILY_URL = "https://financialmodelingprep.com/api/v3/historical-price-full"
+
+
+async def fetch_polygon_chunk(
+    client: httpx.AsyncClient,
+    symbol: str,
+    multiplier: int,
+    timespan: str,
+    to_date: str,
+    api_key: str,
+    limit: int = 500
+) -> tuple[List[dict], Optional[int]]:
+    """
+    Fetch chart data from Polygon - optimized for speed.
+    Uses 50000 limit to get all data in one request.
+    Returns (bars, oldest_timestamp) for lazy loading pagination.
+    """
+    from datetime import datetime as dt, timedelta
+    
+    # Parse to_date
+    try:
+        to_dt = dt.strptime(to_date, "%Y-%m-%d")
+    except:
+        to_dt = dt.now()
+    
+    # Smart from_date based on desired bars and timeframe
+    # ~7 trading hours per day, ~21 trading days per month
+    if timespan == "minute":
+        # Minutes: need more days for same number of bars
+        bars_per_day = 390 // multiplier  # 390 min trading day
+        days_needed = max(5, (limit // bars_per_day) + 5)
+    else:
+        # Hours: ~7 trading hours per day
+        bars_per_day = 7 // multiplier
+        days_needed = max(30, (limit // max(1, bars_per_day)) + 10)
+    
+    from_date = (to_dt - timedelta(days=days_needed)).strftime("%Y-%m-%d")
+    
+    url = f"{POLYGON_AGGS_URL}/{symbol}/range/{multiplier}/{timespan}/{from_date}/{to_date}"
+    params = {
+        "adjusted": "true",
+        "sort": "asc",
+        "limit": "50000",  # Max limit - get all in one request
+        "apiKey": api_key
+    }
+    
+    response = await client.get(url, params=params)
+    response.raise_for_status()
+    data = response.json()
+    
+    results = data.get("results", [])
+    
+    # Transform to our format
+    all_bars = []
+    for bar in results:
+        all_bars.append({
+            "time": int(bar["t"] / 1000),
+            "open": float(bar["o"]),
+            "high": float(bar["h"]),
+            "low": float(bar["l"]),
+            "close": float(bar["c"]),
+            "volume": int(bar["v"])
+        })
+    
+    # Take only the last 'limit' bars (most recent) if we got more
+    full_count = len(all_bars)
+    if len(all_bars) > limit:
+        all_bars = all_bars[-limit:]
+    
+    # Determine if there's more data available (for lazy loading)
+    oldest_time = all_bars[0]["time"] if all_bars else None
+    has_more = full_count >= limit or data.get("next_url") is not None
+    
+    logger.info("polygon_chunk_fetched", symbol=symbol, bars=len(all_bars), total_available=full_count, oldest=oldest_time)
+    return all_bars, oldest_time if has_more else None
+
+
+async def fetch_fmp_chunk(
+    client: httpx.AsyncClient,
+    symbol: str,
+    to_date: str,
+    api_key: str,
+    limit: int = 1000
+) -> tuple[List[dict], Optional[int]]:
+    """
+    Fetch a chunk of daily data from FMP.
+    """
+    url = f"{FMP_DAILY_URL}/{symbol}"
+    params = {
+        "apikey": api_key,
+        "to": to_date
+    }
+    
+    response = await client.get(url, params=params)
+    response.raise_for_status()
+    raw_data = response.json()
+    
+    historical = raw_data.get("historical", [])
+    if not historical:
+        historical = raw_data if isinstance(raw_data, list) else []
+    
+    # FMP returns descending, take first 'limit' and reverse
+    historical = historical[:limit]
+    
+    bars = []
+    for bar in reversed(historical):
+        try:
+            date_str = bar.get("date", "")
+            from datetime import datetime as dt
+            dt_obj = dt.strptime(date_str, "%Y-%m-%d")
+            
+            bars.append({
+                "time": int(dt_obj.timestamp()),
+                "open": float(bar.get("open", 0)),
+                "high": float(bar.get("high", 0)),
+                "low": float(bar.get("low", 0)),
+                "close": float(bar.get("close", 0)),
+                "volume": int(bar.get("volume", 0))
+            })
+        except Exception:
+            continue
+    
+    oldest_time = bars[0]["time"] if bars else None
+    has_more = len(historical) >= limit
+    
+    logger.info("fmp_chunk_fetched", symbol=symbol, bars=len(bars))
+    return bars, oldest_time if has_more else None
+
+
+@app.get("/api/v1/chart/{symbol}")
+async def get_chart_data(
+    symbol: str,
+    interval: str = Query(default="1day", description="Chart interval: 1min, 5min, 15min, 30min, 1hour, 4hour, 1day"),
+    before: Optional[int] = Query(default=None, description="Load bars before this Unix timestamp (for lazy loading)"),
+    limit: Optional[int] = Query(default=None, description="Number of bars to load (default: 500 for intraday, 1000 for daily)"),
+    force_refresh: bool = Query(default=False, description="Force refresh from API")
+):
+    """
+    Get OHLCV chart data - TradingView Style with Lazy Loading.
+    
+    Strategy:
+    - First call (no 'before'): Returns most recent ~500 bars (fast!)
+    - Subsequent calls (with 'before'): Returns older bars for infinite scroll
+    
+    Sources:
+    - Intraday (1min-4hour): Polygon API
+    - Daily (1day): FMP API
+    
+    Response:
+    {
+        "symbol": "AAPL",
+        "interval": "1hour",
+        "source": "polygon" | "fmp",
+        "data": [...],
+        "count": 500,
+        "oldest_time": 1699876800,  // For next "load more" call
+        "has_more": true,
+        "cached": false
+    }
+    
+    Frontend usage:
+    1. Initial: GET /chart/AAPL?interval=1hour
+    2. Load more: GET /chart/AAPL?interval=1hour&before=<oldest_time>
+    """
+    global redis_client
+    
+    symbol = symbol.upper()
+    interval = interval.lower()
+    
+    # Validate interval
+    if interval not in CHART_INTERVALS:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid interval. Supported: {', '.join(CHART_INTERVALS.keys())}"
+        )
+    
+    config = CHART_INTERVALS[interval]
+    bars_limit = limit or config["bars_per_page"]
+    
+    # Calculate to_date from 'before' parameter or use today
+    if before:
+        from datetime import datetime as dt
+        to_date = dt.fromtimestamp(before - 1).strftime("%Y-%m-%d")
+    else:
+        to_date = datetime.now().strftime("%Y-%m-%d")
+    
+    # Cache key includes the 'before' for proper chunked caching
+    cache_key = f"chart:v3:{symbol}:{interval}:{before or 'latest'}:{bars_limit}"
+    
+    try:
+        # Check cache first
+        if not force_refresh and redis_client:
+            cached = await redis_client.get(cache_key)
+            if cached:
+                logger.debug("chart_cache_hit", symbol=symbol, interval=interval, before=before)
+                return {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "source": cached.get("source", "unknown"),
+                    "data": cached.get("data", []),
+                    "count": len(cached.get("data", [])),
+                    "oldest_time": cached.get("oldest_time"),
+                    "has_more": cached.get("has_more", False),
+                    "cached": True,
+                    "fetched_at": cached.get("fetched_at")
+                }
+        
+        chart_data = []
+        oldest_time = None
+        source = "unknown"
+        
+        async with httpx.AsyncClient(timeout=15.0) as client:  # Shorter timeout for faster response
+            if interval == "1day":
+                # Use FMP for daily data
+                fmp_api_key = settings.FMP_API_KEY
+                if not fmp_api_key:
+                    raise HTTPException(status_code=503, detail="FMP API not configured")
+                
+                chart_data, oldest_time = await fetch_fmp_chunk(
+                    client, symbol, to_date, fmp_api_key, bars_limit
+                )
+                source = "fmp"
+            else:
+                # Use Polygon for intraday data
+                polygon_api_key = settings.POLYGON_API_KEY
+                if not polygon_api_key:
+                    raise HTTPException(status_code=503, detail="Polygon API not configured")
+                
+                chart_data, oldest_time = await fetch_polygon_chunk(
+                    client,
+                    symbol,
+                    config["polygon_multiplier"],
+                    config["polygon_timespan"],
+                    to_date,
+                    polygon_api_key,
+                    bars_limit
+                )
+                source = "polygon"
+        
+        has_more = oldest_time is not None
+        
+        # Cache the result (longer TTL for historical data)
+        cache_ttl = config["cache_ttl"] if not before else 86400  # 24h for historical chunks
+        result = {
+            "data": chart_data,
+            "source": source,
+            "oldest_time": oldest_time,
+            "has_more": has_more,
+            "fetched_at": datetime.now().isoformat()
+        }
+        
+        if redis_client and chart_data:
+            await redis_client.set(cache_key, result, ttl=cache_ttl)
+            logger.info("chart_chunk_cached", symbol=symbol, interval=interval, bars=len(chart_data), before=before)
+        
+        return {
+            "symbol": symbol,
+            "interval": interval,
+            "source": source,
+            "data": chart_data,
+            "count": len(chart_data),
+            "oldest_time": oldest_time,
+            "has_more": has_more,
+            "cached": False,
+            "fetched_at": result["fetched_at"]
+        }
+    
+    except httpx.HTTPError as e:
+        logger.error("chart_http_error", symbol=symbol, interval=interval, error=str(e))
+        raise HTTPException(status_code=502, detail=f"API error: {str(e)}")
+    except Exception as e:
+        logger.error("chart_error", symbol=symbol, interval=interval, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # WebSocket Endpoints
 # ============================================================================
 

@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { NextResponse } from 'next/server'
 
 // Rutas públicas que NO requieren autenticación
 const isPublicRoute = createRouteMatcher([
@@ -9,9 +10,15 @@ const isPublicRoute = createRouteMatcher([
 ])
 
 export default clerkMiddleware(async (auth, req) => {
-  // Si NO es ruta pública, requiere autenticación
+  // Si NO es ruta pública, verificar autenticación
   if (!isPublicRoute(req)) {
-    await auth.protect()
+    const { userId } = await auth()
+    
+    // Si no está autenticado, redirigir a la landing page
+    if (!userId) {
+      const landingUrl = new URL('/', req.url)
+      return NextResponse.redirect(landingUrl)
+    }
   }
 })
 
