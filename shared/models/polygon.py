@@ -246,13 +246,15 @@ class PolygonQuote(BaseModel):
     Provides National Best Bid and Offer quote data
     Subscription: Use ticker symbol or * for all
     Example: Q.AAPL or Q.*
+    
+    Note: bx/ax (exchange IDs) may not always be present depending on quote type
     """
     ev: str = Field("Q", description="Event type (always 'Q')")
     sym: str = Field(..., description="Ticker symbol")
-    bx: int = Field(..., description="Bid exchange ID")
+    bx: Optional[int] = Field(None, description="Bid exchange ID")
     bp: float = Field(..., description="Bid price")
     bs: int = Field(..., description="Bid size (round lots)")
-    ax: int = Field(..., description="Ask exchange ID")
+    ax: Optional[int] = Field(None, description="Ask exchange ID")
     ap: float = Field(..., description="Ask price")
     as_: int = Field(..., alias="as", description="Ask size (round lots)")
     c: Optional[int] = Field(None, description="Condition")

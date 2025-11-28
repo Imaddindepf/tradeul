@@ -526,10 +526,10 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
 
         const handleVisibleRangeChange = () => {
             if (loadingMore || !hasMore) return;
-            
+
             const logicalRange = timeScale.getVisibleLogicalRange();
             if (!logicalRange) return;
-            
+
             // If user scrolled to show index < 50 (near the left edge), load more
             if (logicalRange.from < 50) {
                 loadMore();

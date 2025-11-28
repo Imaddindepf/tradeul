@@ -62,6 +62,13 @@ const redisSubscriber = new Redis({
   retryStrategy: (times) => Math.min(times * 50, 2000),
 });
 
+// Cliente Redis dedicado para quotes stream (evitar bloqueo con otros streams)
+const redisQuotes = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
+});
+
 redis.on("connect", () => {
   logger.info("📡 Connected to Redis");
 });
@@ -85,6 +92,15 @@ const secFilingsSubscribers = new Set();
 
 // Clientes suscritos a Benzinga News: Set<connectionId>
 const benzingaNewsSubscribers = new Set();
+
+// =============================================
+// QUOTES: Suscripciones por ticker para datos individuales
+// =============================================
+// Mapeo ticker → Set<connectionId> (quién quiere quotes de este ticker)
+const quoteSubscribers = new Map();
+
+// Contador de referencias por ticker (para saber cuándo desuscribirse de Polygon)
+const quoteRefCount = new Map();
 
 // Mapeo symbol → lists (para broadcast de aggregates)
 // "TSLA" -> Set(["GAPPERS_UP", "MOMENTUM_UP"])
@@ -701,6 +717,186 @@ function unsubscribeClientFromAll(connectionId) {
 }
 
 // =============================================
+// QUOTE SUBSCRIPTION MANAGEMENT
+// =============================================
+
+/**
+ * Suscribir cliente a quotes de un ticker
+ * Notifica a polygon_ws si es el primer suscriptor de este ticker
+ */
+async function subscribeClientToQuote(connectionId, symbol) {
+  const symbolUpper = symbol.toUpperCase();
+  
+  // Añadir a índice ticker → connections
+  if (!quoteSubscribers.has(symbolUpper)) {
+    quoteSubscribers.set(symbolUpper, new Set());
+  }
+  quoteSubscribers.get(symbolUpper).add(connectionId);
+  
+  // Incrementar ref count
+  const currentCount = quoteRefCount.get(symbolUpper) || 0;
+  quoteRefCount.set(symbolUpper, currentCount + 1);
+  
+  // Si es el primer suscriptor, notificar a polygon_ws
+  if (currentCount === 0) {
+    try {
+      await redisCommands.xadd(
+        "polygon_ws:quote_subscriptions",
+        "*",
+        "action", "subscribe",
+        "symbol", symbolUpper
+      );
+      logger.info({ symbol: symbolUpper }, "📊 First subscriber - notified polygon_ws to subscribe quote");
+    } catch (err) {
+      logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for quote subscription");
+    }
+  }
+  
+  logger.info({
+    connectionId,
+    symbol: symbolUpper,
+    totalSubscribers: quoteSubscribers.get(symbolUpper).size,
+    refCount: quoteRefCount.get(symbolUpper)
+  }, "📊 Client subscribed to quote");
+  
+  return true;
+}
+
+/**
+ * Desuscribir cliente de quotes de un ticker
+ * Notifica a polygon_ws si era el último suscriptor
+ */
+async function unsubscribeClientFromQuote(connectionId, symbol) {
+  const symbolUpper = symbol.toUpperCase();
+  
+  const subscribers = quoteSubscribers.get(symbolUpper);
+  if (!subscribers) return;
+  
+  // Remover de índice
+  subscribers.delete(connectionId);
+  
+  // Decrementar ref count
+  const currentCount = quoteRefCount.get(symbolUpper) || 0;
+  const newCount = Math.max(0, currentCount - 1);
+  quoteRefCount.set(symbolUpper, newCount);
+  
+  // Si era el último, limpiar y notificar a polygon_ws
+  if (newCount === 0) {
+    quoteSubscribers.delete(symbolUpper);
+    quoteRefCount.delete(symbolUpper);
+    
+    try {
+      await redisCommands.xadd(
+        "polygon_ws:quote_subscriptions",
+        "*",
+        "action", "unsubscribe",
+        "symbol", symbolUpper
+      );
+      logger.info({ symbol: symbolUpper }, "📊 Last subscriber gone - notified polygon_ws to unsubscribe quote");
+    } catch (err) {
+      logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for quote unsubscription");
+    }
+  }
+  
+  logger.info({
+    connectionId,
+    symbol: symbolUpper,
+    remainingSubscribers: subscribers?.size || 0,
+    refCount: newCount
+  }, "📊 Client unsubscribed from quote");
+}
+
+/**
+ * Desuscribir cliente de todos los quotes
+ */
+async function unsubscribeClientFromAllQuotes(connectionId) {
+  // Encontrar todos los tickers a los que está suscrito
+  const tickersToUnsubscribe = [];
+  
+  quoteSubscribers.forEach((subscribers, symbol) => {
+    if (subscribers.has(connectionId)) {
+      tickersToUnsubscribe.push(symbol);
+    }
+  });
+  
+  // Desuscribir de cada uno
+  for (const symbol of tickersToUnsubscribe) {
+    await unsubscribeClientFromQuote(connectionId, symbol);
+  }
+}
+
+/**
+ * Broadcast de quote a clientes suscritos a ese ticker
+ */
+function broadcastQuote(symbol, quoteData) {
+  const subscribers = quoteSubscribers.get(symbol);
+  if (!subscribers || subscribers.size === 0) return;
+  
+  const now = Date.now();
+  const polygonTimestamp = parseInt(quoteData.timestamp || 0, 10); // Unix MS from Polygon
+  const latencyFromPolygon = polygonTimestamp > 0 ? now - polygonTimestamp : null;
+  
+  const message = {
+    type: "quote",
+    symbol: symbol,
+    data: {
+      bidPrice: parseFloat(quoteData.bid_price || 0),
+      bidSize: parseInt(quoteData.bid_size || 0, 10),
+      askPrice: parseFloat(quoteData.ask_price || 0),
+      askSize: parseInt(quoteData.ask_size || 0, 10),
+      bidExchange: quoteData.bid_exchange,
+      askExchange: quoteData.ask_exchange,
+      timestamp: quoteData.timestamp,
+      // Métricas de latencia
+      _latency: {
+        polygonTs: polygonTimestamp,      // Timestamp original de Polygon
+        serverTs: now,                     // Cuando el WS server lo envía
+        latencyMs: latencyFromPolygon      // Latencia Polygon → WS Server
+      }
+    },
+    timestamp: new Date().toISOString()
+  };
+  
+  const messageStr = JSON.stringify(message);
+  let sentCount = 0;
+  const disconnected = [];
+  
+  subscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
+    
+    if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      disconnected.push(connectionId);
+      return;
+    }
+    
+    try {
+      conn.ws.send(messageStr);
+      sentCount++;
+    } catch (err) {
+      logger.error({ connectionId, err }, "Error sending quote");
+      disconnected.push(connectionId);
+    }
+  });
+  
+  // Limpiar conexiones desconectadas
+  disconnected.forEach((connectionId) => {
+    subscribers.delete(connectionId);
+    // También decrementar ref count
+    const currentCount = quoteRefCount.get(symbol) || 0;
+    quoteRefCount.set(symbol, Math.max(0, currentCount - 1));
+  });
+  
+  if (sentCount > 0) {
+    logger.debug({
+      symbol,
+      sentTo: sentCount,
+      bid: message.data.bidPrice,
+      ask: message.data.askPrice
+    }, "📊 Broadcasted quote");
+  }
+}
+
+// =============================================
 // REDIS STREAMS PROCESSING
 // =============================================
 
@@ -1099,6 +1295,114 @@ async function processBenzingaNewsStream() {
 }
 
 /**
+ * Procesador del stream de Quotes
+ * Lee stream:realtime:quotes y broadcast a clientes suscritos por ticker
+ */
+async function processQuotesStream() {
+  const streamName = "stream:realtime:quotes";
+  const consumerGroup = "websocket_server_quotes";
+  const consumerName = "ws_server_1";
+
+  logger.info({ streamName }, "📊 Starting quotes stream consumer");
+
+  // Crear consumer group
+  try {
+    await redisCommands.xgroup(
+      "CREATE",
+      streamName,
+      consumerGroup,
+      "$",
+      "MKSTREAM"
+    );
+    logger.info({ streamName, consumerGroup }, "Created consumer group for quotes");
+  } catch (err) {
+    logger.debug({ err: err.message }, "Quotes consumer group already exists");
+  }
+
+  while (true) {
+    try {
+      // BLOCK 100ms para latencia casi en tiempo real
+      // Usamos redisQuotes (cliente dedicado) para evitar bloqueo con otros streams
+      const results = await redisQuotes.xreadgroup(
+        "GROUP",
+        consumerGroup,
+        consumerName,
+        "BLOCK",
+        100,
+        "COUNT",
+        100,
+        "STREAMS",
+        streamName,
+        ">"
+      );
+
+      if (results && results.length > 0) {
+        const messageIds = [];
+
+        for (const [stream, messages] of results) {
+          for (const [messageId, fields] of messages) {
+            const message = parseRedisFields(fields);
+            const { symbol, ...data } = message;
+
+            if (symbol) {
+              const symbolUpper = symbol.toUpperCase();
+
+              // Verificar si hay suscriptores para este ticker
+              const hasSubscribers = quoteSubscribers.has(symbolUpper);
+              const subscriberCount = hasSubscribers ? quoteSubscribers.get(symbolUpper).size : 0;
+              
+              if (hasSubscribers && subscriberCount > 0) {
+                logger.info({
+                  symbol: symbolUpper,
+                  subscribers: subscriberCount,
+                  bid: data.bid_price,
+                  ask: data.ask_price
+                }, "📊 Broadcasting quote to subscribers");
+                broadcastQuote(symbolUpper, data);
+              }
+            }
+
+            messageIds.push(messageId);
+          }
+        }
+
+        // ACK mensajes procesados
+        if (messageIds.length > 0) {
+          try {
+            await redisCommands.xack(streamName, consumerGroup, ...messageIds);
+          } catch (err) {
+            logger.error({ err }, "Error acknowledging quote messages");
+          }
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    } catch (err) {
+      // Auto-healing: Si el consumer group fue borrado, recrearlo
+      if (err.message && err.message.includes('NOGROUP')) {
+        logger.warn({ streamName, consumerGroup }, "🔧 Quotes consumer group missing - auto-recreating");
+        try {
+          await redisCommands.xgroup(
+            "CREATE",
+            streamName,
+            consumerGroup,
+            "0",
+            "MKSTREAM"
+          );
+          logger.info({ streamName, consumerGroup }, "✅ Quotes consumer group recreated");
+          continue;
+        } catch (recreateErr) {
+          logger.error({ err: recreateErr }, "Failed to recreate quotes consumer group");
+        }
+      }
+      
+      logger.error({ err, streamName }, "Error in quotes stream");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+/**
  * Broadcast de Benzinga News a clientes suscritos
  */
 function broadcastBenzingaNews(articleData) {
@@ -1290,6 +1594,106 @@ wss.on("connection", (ws, req) => {
         });
       }
 
+      // =============================================
+      // SUBSCRIBE TO QUOTE (ticker individual)
+      // =============================================
+      else if (action === "subscribe_quote") {
+        const symbol = data.symbol;
+        
+        if (!symbol) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbol' parameter for quote subscription"
+          });
+          return;
+        }
+        
+        await subscribeClientToQuote(connectionId, symbol);
+        
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "QUOTE",
+          symbol: symbol.toUpperCase(),
+          message: `Subscribed to real-time quotes for ${symbol.toUpperCase()}`
+        });
+      }
+
+      // =============================================
+      // UNSUBSCRIBE FROM QUOTE
+      // =============================================
+      else if (action === "unsubscribe_quote") {
+        const symbol = data.symbol;
+        
+        if (!symbol) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbol' parameter for quote unsubscription"
+          });
+          return;
+        }
+        
+        await unsubscribeClientFromQuote(connectionId, symbol);
+        
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "QUOTE",
+          symbol: symbol.toUpperCase()
+        });
+      }
+
+      // =============================================
+      // SUBSCRIBE TO MULTIPLE QUOTES (para watchlists)
+      // =============================================
+      else if (action === "subscribe_quotes") {
+        const symbols = data.symbols;
+        
+        if (!symbols || !Array.isArray(symbols)) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbols' array for quotes subscription"
+          });
+          return;
+        }
+        
+        const subscribedSymbols = [];
+        for (const symbol of symbols) {
+          await subscribeClientToQuote(connectionId, symbol);
+          subscribedSymbols.push(symbol.toUpperCase());
+        }
+        
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "QUOTES",
+          symbols: subscribedSymbols,
+          message: `Subscribed to real-time quotes for ${subscribedSymbols.length} symbols`
+        });
+      }
+
+      // =============================================
+      // UNSUBSCRIBE FROM MULTIPLE QUOTES
+      // =============================================
+      else if (action === "unsubscribe_quotes") {
+        const symbols = data.symbols;
+        
+        if (!symbols || !Array.isArray(symbols)) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbols' array for quotes unsubscription"
+          });
+          return;
+        }
+        
+        for (const symbol of symbols) {
+          await unsubscribeClientFromQuote(connectionId, symbol);
+        }
+        
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "QUOTES",
+          symbols: symbols.map(s => s.toUpperCase())
+        });
+      }
+
       // Ping/Pong heartbeat (ignorar, es normal)
       else if (action === "ping" || action === "pong") {
         // Responder con pong si es ping
@@ -1320,20 +1724,22 @@ wss.on("connection", (ws, req) => {
   });
 
   // Manejar cierre de conexión
-  ws.on("close", () => {
+  ws.on("close", async () => {
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
     benzingaNewsSubscribers.delete(connectionId);
+    await unsubscribeClientFromAllQuotes(connectionId);  // ✅ Limpiar quotes
     connections.delete(connectionId);
     logger.info({ connectionId }, "❌ Client disconnected");
   });
 
   // Manejar errores
-  ws.on("error", (err) => {
+  ws.on("error", async (err) => {
     logger.error({ connectionId, err }, "WebSocket error");
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
     benzingaNewsSubscribers.delete(connectionId);
+    await unsubscribeClientFromAllQuotes(connectionId);  // ✅ Limpiar quotes
     connections.delete(connectionId);
   });
 });
@@ -1360,6 +1766,11 @@ processSECFilingsStream().catch((err) => {
 
 processBenzingaNewsStream().catch((err) => {
   logger.fatal({ err }, "Benzinga News stream processor crashed");
+  process.exit(1);
+});
+
+processQuotesStream().catch((err) => {
+  logger.fatal({ err }, "Quotes stream processor crashed");
   process.exit(1);
 });
 
@@ -1439,11 +1850,12 @@ redisSubscriber.on("connect", () => {
 // Iniciar servidor
 server.listen(PORT, () => {
   logger.info({ port: PORT }, "🚀 WebSocket Server started");
-  logger.info("📡 Architecture: HYBRID + SEC Filings + Benzinga News");
+  logger.info("📡 Architecture: HYBRID + SEC Filings + Benzinga News + Quotes");
   logger.info("  ✅ Rankings: Snapshot + Deltas (every 10s)");
   logger.info("  ✅ Price/Volume: Real-time Aggregates (every 1s)");
   logger.info("  ✅ SEC Filings: Real-time stream from SEC Stream API");
   logger.info("  ✅ Benzinga News: Real-time news from Polygon/Benzinga API");
+  logger.info("  ✅ Quotes: Real-time bid/ask for individual tickers");
   logger.info("  ✅ Optimized broadcasting with inverted index");
   logger.info("  ✅ Symbol→Lists mapping for aggregates");
   logger.info("  ✅ Polygon subscription status (every 10s)");
@@ -1461,6 +1873,7 @@ process.on("SIGTERM", () => {
   server.close(() => {
     redis.disconnect();
     redisCommands.disconnect();
+    redisQuotes.disconnect();
     logger.info("Server shut down complete");
     process.exit(0);
   });
@@ -1471,6 +1884,7 @@ process.on("SIGINT", () => {
   server.close(() => {
     redis.disconnect();
     redisCommands.disconnect();
+    redisQuotes.disconnect();
     logger.info("Server shut down complete");
     process.exit(0);
   });

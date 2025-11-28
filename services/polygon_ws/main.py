@@ -3,10 +3,12 @@ Polygon WebSocket Connector - Main Entry Point
 
 Conecta al WebSocket de Polygon y consume datos en tiempo real:
 - Trades
-- Quotes  
-- Aggregates (per second)
+- Quotes (para tickers individuales y watchlists)
+- Aggregates (per second para el Scanner)
 
-Se suscribe dinámicamente a tickers filtrados por el Scanner.
+Se suscribe dinámicamente a:
+- Aggregates: tickers filtrados por el Scanner
+- Quotes: tickers solicitados por usuarios (TickerSpan, Watchlists)
 """
 
 import asyncio
@@ -36,8 +38,12 @@ logger = get_logger(__name__)
 redis_client: Optional[RedisClient] = None
 ws_client: Optional[PolygonWebSocketClient] = None
 subscription_task: Optional[asyncio.Task] = None
+quote_subscription_task: Optional[asyncio.Task] = None  # Nueva tarea para quotes
 reconciler: Optional[SubscriptionReconciler] = None
 reconciler_task: Optional[asyncio.Task] = None
+
+# Set de tickers suscritos a Quotes (separado de Aggregates)
+quote_subscribed_tickers: Set[str] = set()
 
 
 # ============================================================================
@@ -47,7 +53,7 @@ reconciler_task: Optional[asyncio.Task] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, ws_client, subscription_task, reconciler, reconciler_task
+    global redis_client, ws_client, subscription_task, quote_subscription_task, reconciler, reconciler_task
     
     logger.info("polygon_ws_service_starting")
     
@@ -56,15 +62,15 @@ async def lifespan(app: FastAPI):
     await redis_client.connect()
     
     # Inicializar WebSocket Client
-    # SOLO usamos Aggregates - Trades y Quotes no son necesarios para precios y volumen
+    # Ahora usamos Aggregates (Scanner) + Quotes (Tickers individuales/Watchlists)
     ws_client = PolygonWebSocketClient(
         api_key=settings.POLYGON_API_KEY,
         on_trade=None,  # Desactivado - no necesario
-        on_quote=None,  # Desactivado - no necesario
-        on_aggregate=handle_aggregate  # Solo Aggregates
+        on_quote=handle_quote,  # ✅ ACTIVADO para tickers individuales
+        on_aggregate=handle_aggregate  # Para Scanner
     )
     
-    # 🔥 PATRÓN PROFESIONAL: Inicializar Reconciler
+    # 🔥 PATRÓN PROFESIONAL: Inicializar Reconciler (solo para Aggregates)
     reconciler = SubscriptionReconciler(
         redis_client=redis_client,
         ws_client=ws_client,
@@ -75,9 +81,10 @@ async def lifespan(app: FastAPI):
     # Iniciar tareas en background
     ws_task = asyncio.create_task(ws_client.connect())
     subscription_task = asyncio.create_task(manage_subscriptions())
+    quote_subscription_task = asyncio.create_task(manage_quote_subscriptions())  # ✅ Nueva tarea
     reconciler_task = asyncio.create_task(reconciler.start())
     
-    logger.info("polygon_ws_service_started", reconciler_enabled=True)
+    logger.info("polygon_ws_service_started", reconciler_enabled=True, quotes_enabled=True)
     
     yield
     
@@ -98,6 +105,13 @@ async def lifespan(app: FastAPI):
         subscription_task.cancel()
         try:
             await subscription_task
+        except asyncio.CancelledError:
+            pass
+    
+    if quote_subscription_task:
+        quote_subscription_task.cancel()
+        try:
+            await quote_subscription_task
         except asyncio.CancelledError:
             pass
     
@@ -456,6 +470,133 @@ async def manage_subscriptions():
 
 
 # ============================================================================
+# Quote Subscription Management (para Tickers Individuales y Watchlists)
+# ============================================================================
+
+async def manage_quote_subscriptions():
+    """
+    Gestiona suscripciones dinámicas de QUOTES para tickers individuales.
+    
+    Diferente de Aggregates (Scanner), los Quotes son para:
+    - TickerSpan: mostrar precio bid/ask en tiempo real de un ticker
+    - Watchlists: lista personalizada de tickers del usuario
+    
+    Usa Redis Pub/Sub para comunicación eficiente:
+    - Canal: polygon_ws:quote_commands
+    - Mensajes: {"action": "subscribe"|"unsubscribe", "symbols": ["AAPL", "TSLA"]}
+    
+    Optimización: Solo una conexión a Polygon para todos los usuarios.
+    Si 100 usuarios miran AAPL, solo una suscripción a Polygon.
+    """
+    global quote_subscribed_tickers
+    
+    logger.info("quote_subscription_manager_started")
+    
+    # Stream de entrada para comandos de quotes
+    input_stream = "polygon_ws:quote_subscriptions"
+    consumer_group = "polygon_ws_quotes_group"
+    consumer_name = "polygon_ws_quotes_consumer"
+    
+    # Crear consumer group si no existe
+    try:
+        await redis_client.create_consumer_group(
+            input_stream,
+            consumer_group,
+            mkstream=True
+        )
+        logger.info(f"Consumer group '{consumer_group}' created for quotes")
+    except Exception as e:
+        logger.debug("quotes_consumer_group_already_exists", error=str(e))
+    
+    # Track de autenticación para re-suscribir
+    was_authenticated = False
+    
+    while True:
+        try:
+            # Detectar reconexión y re-suscribir a todos los quotes
+            if ws_client.is_authenticated and not was_authenticated:
+                if quote_subscribed_tickers:
+                    logger.info(
+                        "re_subscribing_quotes_after_reconnection",
+                        count=len(quote_subscribed_tickers)
+                    )
+                    await ws_client.subscribe_to_tickers(quote_subscribed_tickers, {"Q"})
+                was_authenticated = True
+            elif not ws_client.is_authenticated:
+                was_authenticated = False
+            
+            # Leer comandos de suscripción de quotes
+            messages = await redis_client.read_stream(
+                stream_name=input_stream,
+                consumer_group=consumer_group,
+                consumer_name=consumer_name,
+                count=100,
+                block=5000  # 5 segundos
+            )
+            
+            if messages:
+                message_ids_to_ack = []
+                
+                for stream_name, stream_messages in messages:
+                    for message_id, data in stream_messages:
+                        symbol = data.get('symbol', '').upper()
+                        action = data.get('action', '').lower()
+                        
+                        if not symbol or not action:
+                            message_ids_to_ack.append(message_id)
+                            continue
+                        
+                        if action == "subscribe":
+                            if symbol not in quote_subscribed_tickers:
+                                quote_subscribed_tickers.add(symbol)
+                                
+                                if ws_client.is_authenticated:
+                                    await ws_client.subscribe_to_tickers({symbol}, {"Q"})
+                                    logger.info(
+                                        "quote_subscribed",
+                                        symbol=symbol,
+                                        total_quotes=len(quote_subscribed_tickers)
+                                    )
+                        
+                        elif action == "unsubscribe":
+                            if symbol in quote_subscribed_tickers:
+                                quote_subscribed_tickers.discard(symbol)
+                                
+                                if ws_client.is_authenticated:
+                                    await ws_client.unsubscribe_from_tickers({symbol}, {"Q"})
+                                    logger.info(
+                                        "quote_unsubscribed",
+                                        symbol=symbol,
+                                        total_quotes=len(quote_subscribed_tickers)
+                                    )
+                        
+                        message_ids_to_ack.append(message_id)
+                
+                # ACK de todos los mensajes procesados
+                if message_ids_to_ack:
+                    try:
+                        await redis_client.xack(
+                            input_stream,
+                            consumer_group,
+                            *message_ids_to_ack
+                        )
+                    except Exception as e:
+                        logger.error("quote_xack_error", error=str(e))
+        
+        except asyncio.CancelledError:
+            logger.info("quote_subscription_manager_cancelled")
+            raise
+        
+        except Exception as e:
+            logger.error(
+                "quote_subscription_manager_error",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            await asyncio.sleep(5)
+
+
+# ============================================================================
 # API Endpoints
 # ============================================================================
 
@@ -484,7 +625,7 @@ async def get_stats():
 
 @app.get("/subscriptions")
 async def get_subscriptions():
-    """Obtiene las suscripciones activas"""
+    """Obtiene las suscripciones activas de Aggregates (Scanner)"""
     if not ws_client:
         raise HTTPException(status_code=503, detail="Service not ready")
     
@@ -492,6 +633,22 @@ async def get_subscriptions():
         "subscribed_tickers": list(ws_client.subscribed_tickers),
         "count": len(ws_client.subscribed_tickers),
         "is_authenticated": ws_client.is_authenticated
+    }
+
+
+@app.get("/subscriptions/quotes")
+async def get_quote_subscriptions():
+    """Obtiene las suscripciones activas de Quotes (Tickers individuales)"""
+    global quote_subscribed_tickers
+    
+    if not ws_client:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    
+    return {
+        "subscribed_tickers": list(quote_subscribed_tickers),
+        "count": len(quote_subscribed_tickers),
+        "is_authenticated": ws_client.is_authenticated,
+        "type": "quotes"
     }
 
 

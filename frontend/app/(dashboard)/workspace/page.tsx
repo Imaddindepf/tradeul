@@ -20,6 +20,7 @@ import { DilutionTrackerContent } from '@/components/floating-window/DilutionTra
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { NewsContent } from '@/components/news/NewsContent';
+import { TickerStrip } from '@/components/ticker/TickerStrip';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -58,6 +59,9 @@ export default function ScannerPage() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandInput, setCommandInput] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
+  // Quote inline: ticker activo y si está mostrando la tira
+  const [activeQuoteTicker, setActiveQuoteTicker] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, SCANNER_CATEGORIES } = useCommandExecutor();
@@ -235,33 +239,67 @@ export default function ScannerPage() {
             <span className="text-white font-bold text-base">T</span>
           </div>
 
-          {/* Command Prompt */}
+          {/* Command Prompt / Quote Strip */}
           <div className="flex-1 flex items-center gap-2 relative">
             <span className="text-slate-400 font-mono text-sm select-none">{'>'}</span>
+            
             <div className="flex-1 relative">
+              {/* Input siempre presente */}
               <input
+                ref={inputRef}
                 type="text"
                 value={commandInput}
                 onChange={(e) => {
-                  setCommandInput(e.target.value.toUpperCase());
+                  const newValue = e.target.value.toUpperCase();
+                  
+                  // Si hay un ticker activo y el usuario escribe algo nuevo
+                  if (activeQuoteTicker && !commandInput && newValue) {
+                    // Prefijar con el ticker activo
+                    setCommandInput(activeQuoteTicker + ' ' + newValue);
+                  } else {
+                    setCommandInput(newValue);
+                  }
+                  
                   // Abrir paleta cuando el usuario empieza a escribir
                   if (!commandPaletteOpen) {
                     setCommandPaletteOpen(true);
                   }
                 }}
-                onFocus={() => setCommandPaletteOpen(true)}
-                className="w-full px-3 py-2 font-mono text-sm text-slate-900 bg-transparent
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && activeQuoteTicker) {
+                    setActiveQuoteTicker(null);
+                    setCommandInput('');
+                  }
+                }}
+                onFocus={() => {
+                  if (!activeQuoteTicker) {
+                    setCommandPaletteOpen(true);
+                  }
+                }}
+                className={`w-full px-3 py-2 font-mono text-sm text-slate-900 bg-transparent
                          border-b-2 border-transparent focus:border-blue-500
-                         outline-none transition-all peer"
+                         outline-none transition-all ${activeQuoteTicker && !commandInput ? 'opacity-0 absolute' : ''}`}
               />
+              
+              {/* Mostrar TickerStrip encima cuando hay quote activo y no hay input */}
+              {activeQuoteTicker && !commandInput && (
+                <div 
+                  className="flex items-center py-2 cursor-text"
+                  onClick={() => inputRef.current?.focus()}
+                >
+                  <TickerStrip symbol={activeQuoteTicker} exchange="US" />
+                </div>
+              )}
+              
               {/* Placeholder con cursor parpadeante */}
-              {!commandInput && (
+              {!commandInput && !activeQuoteTicker && (
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
                   <span className="text-slate-400 font-mono text-sm">type a command</span>
                   <span className="w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse" />
                 </div>
               )}
             </div>
+            
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setHelpOpen(true)}
@@ -300,6 +338,17 @@ export default function ScannerPage() {
         onSearchChange={setCommandInput}
         onOpenHelp={() => setHelpOpen(true)}
         onExecuteTickerCommand={(ticker, command, exchange) => {
+          // Quick Quote (Q) se muestra inline en la navbar, no abre ventana
+          if (command === 'quote' || command === 'span') {
+            setActiveQuoteTicker(ticker);
+            setCommandPaletteOpen(false);
+            setCommandInput('');
+            // Enfocar el input oculto para capturar teclas
+            setTimeout(() => inputRef.current?.focus(), 50);
+            return;
+          }
+          // Limpiar el quote activo cuando se ejecuta otro comando
+          setActiveQuoteTicker(null);
           executeTickerCommand(ticker, command, exchange);
         }}
       />

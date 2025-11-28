@@ -472,7 +472,7 @@ class SessionDetector:
                 )
                 await self.event_bus.publish(day_event)
         
-        logger.info("Published session change event", event=event.model_dump())
+        logger.info("Published session change event", session_event=event.model_dump())
     
     async def get_current_status(self) -> MarketStatus:
         """Get current market status"""

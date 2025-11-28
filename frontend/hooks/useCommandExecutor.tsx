@@ -10,6 +10,23 @@ import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
 import { ChartContent } from '@/components/chart/ChartContent';
+import { TickerStrip } from '@/components/ticker/TickerStrip';
+
+// Wrapper para TickerStrip que obtiene onClose del contexto de ventana
+function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
+    const { closeWindow, windows } = useFloatingWindow();
+    
+    // Encontrar el ID de esta ventana por el título
+    const windowId = windows.find(w => w.title === `Quote: ${symbol}`)?.id;
+    
+    const handleClose = () => {
+        if (windowId) {
+            closeWindow(windowId);
+        }
+    };
+    
+    return <TickerStrip symbol={symbol} exchange={exchange} onClose={handleClose} />;
+}
 
 // Configuración de categorías del scanner
 const SCANNER_CATEGORIES: Record<string, { name: string; description: string }> = {
@@ -294,6 +311,28 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 300),
                     minWidth: 700,
                     minHeight: 450,
+                });
+                break;
+
+            case 'quote':
+            case 'span':
+                // Mostrar precio real-time del ticker en tira compacta
+                openWindow({
+                    title: `Quote: ${normalizedTicker}`,
+                    content: (
+                        <TickerStripWrapper 
+                            symbol={normalizedTicker} 
+                            exchange={exchange || 'US'}
+                        />
+                    ),
+                    width: 560,
+                    height: 48,
+                    x: Math.max(50, screenWidth / 2 - 280),
+                    y: 70,
+                    minWidth: 450,
+                    minHeight: 48,
+                    maxHeight: 48,
+                    hideHeader: true,
                 });
                 break;
 
