@@ -11,6 +11,7 @@ import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
+import { DescriptionContent } from '@/components/description/DescriptionContent';
 
 // Wrapper para TickerStrip que obtiene onClose del contexto de ventana
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -259,6 +260,19 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 300),
                     minWidth: 600,
                     minHeight: 400,
+                });
+                break;
+
+            case 'description':
+                openWindow({
+                    title: `Description: ${normalizedTicker}`,
+                    content: <DescriptionContent ticker={normalizedTicker} exchange={exchange} />,
+                    width: 1100,
+                    height: 700,
+                    x: Math.max(50, screenWidth / 2 - 550),
+                    y: Math.max(70, screenHeight / 2 - 350),
+                    minWidth: 900,
+                    minHeight: 550,
                 });
                 break;
 

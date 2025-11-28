@@ -29,7 +29,7 @@ import type { Ticker } from '@/lib/types';
 import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
-import TickerMetadataModal from './TickerMetadataModal';
+import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 
 // Zustand store
 import { useTickersStore, selectOrderedTickers } from '@/stores/useTickersStore';
@@ -79,10 +79,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
 
-  // Modal state
-  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
-  const [selectedTickerData, setSelectedTickerData] = useState<Ticker | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Command executor para abrir Description
+  const { executeTickerCommand } = useCommandExecutor();
 
   // ======================================================================
   // WEBSOCKET (RxJS Singleton)
@@ -254,11 +252,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               e.stopPropagation();
               const symbol = info.getValue();
               const tickerData = info.row.original;
-              setSelectedSymbol(symbol);
-              setSelectedTickerData(tickerData);
-              setIsModalOpen(true);
+              executeTickerCommand(symbol, 'description', tickerData.exchange);
             }}
-            title="Clic para ver metadatos"
+            title="Clic para ver descripción"
           >
             {info.getValue()}
           </div>
@@ -513,20 +509,6 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           rightActions={<TableSettings table={table} />}
         />
       </VirtualizedDataTable>
-
-      {/* Modal */}
-      {typeof window !== 'undefined' && (
-        <TickerMetadataModal
-          symbol={selectedSymbol}
-          tickerData={selectedTickerData}
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setSelectedSymbol(null);
-            setSelectedTickerData(null);
-          }}
-        />
-      )}
     </>
   );
 }

@@ -6,6 +6,7 @@ from .polygon import *
 from .fmp import *
 from .scanner import *
 from .market import *
+from .description import *
 
 __all__ = [
     # Polygon models
@@ -28,6 +29,7 @@ __all__ = [
     "FMPMarketCap",
     "FMPMarketCapBatch",
     "FMPScreenerResult",
+    "FMPKeyMetrics",
     # Scanner models
     "ScannerTicker",
     "ScannerResult",
@@ -39,5 +41,15 @@ __all__ = [
     "MarketHoliday",
     "SessionChangeEvent",
     "TradingDay",
+    # Description models
+    "FMPRatios",
+    "AnalystRating",
+    "PriceTarget",
+    "CompanyInfo",
+    "MarketStats",
+    "ValuationMetrics",
+    "DividendInfo",
+    "RiskMetrics",
+    "TickerDescription",
 ]
 

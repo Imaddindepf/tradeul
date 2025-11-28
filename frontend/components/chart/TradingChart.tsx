@@ -496,21 +496,57 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
             }
         });
 
-        // Handle resize
-        const handleResize = () => {
-            if (containerRef.current && chartRef.current) {
-                chartRef.current.applyOptions({
-                    width: containerRef.current.clientWidth,
-                    height: containerRef.current.clientHeight,
-                });
-            }
+        // Handle resize with proper size detection from ResizeObserver entries
+        let resizeTimeout: NodeJS.Timeout | null = null;
+        let lastWidth = 0;
+        let lastHeight = 0;
+
+        const applyResize = (width: number, height: number) => {
+            if (!chartRef.current || width <= 0 || height <= 0) return;
+            if (width === lastWidth && height === lastHeight) return;
+
+            lastWidth = width;
+            lastHeight = height;
+
+            // Apply new dimensions immediately
+            chartRef.current.applyOptions({ width, height });
+
+            // After resize completes, force timeScale to recalculate labels
+            if (resizeTimeout) clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                if (chartRef.current) {
+                    const timeScale = chartRef.current.timeScale();
+                    // Get current visible range before reset
+                    const visibleRange = timeScale.getVisibleLogicalRange();
+                    // Force complete recalculation
+                    timeScale.applyOptions({
+                        rightOffset: 5,
+                        barSpacing: 6,
+                    });
+                    // Restore visible range if it was set
+                    if (visibleRange) {
+                        timeScale.setVisibleLogicalRange(visibleRange);
+                    }
+                }
+            }, 150);
         };
 
-        const resizeObserver = new ResizeObserver(handleResize);
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                // Use contentRect for accurate dimensions
+                const { width, height } = entry.contentRect;
+                requestAnimationFrame(() => applyResize(width, height));
+            }
+        });
         resizeObserver.observe(containerRef.current);
-        handleResize();
+
+        // Initial size
+        if (containerRef.current) {
+            applyResize(containerRef.current.clientWidth, containerRef.current.clientHeight);
+        }
 
         return () => {
+            if (resizeTimeout) clearTimeout(resizeTimeout);
             resizeObserver.disconnect();
             chart.remove();
             chartRef.current = null;
@@ -658,6 +694,41 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
             setIsFullscreen(false);
         }
     };
+
+    // Listen for fullscreen changes and force chart resize
+    useEffect(() => {
+        const forceChartResize = () => {
+            if (chartRef.current && containerRef.current) {
+                const width = containerRef.current.clientWidth;
+                const height = containerRef.current.clientHeight;
+
+                if (width > 0 && height > 0) {
+                    chartRef.current.applyOptions({ width, height });
+                    // Recalculate time scale labels
+                    chartRef.current.timeScale().applyOptions({
+                        rightOffset: 5,
+                        barSpacing: 6,
+                    });
+                }
+            }
+        };
+
+        const handleFullscreenChange = () => {
+            const isNowFullscreen = !!document.fullscreenElement;
+            setIsFullscreen(isNowFullscreen);
+
+            // Force multiple resize attempts to ensure DOM has settled
+            // First attempt after short delay
+            setTimeout(forceChartResize, 50);
+            // Second attempt after DOM animation completes
+            setTimeout(forceChartResize, 200);
+            // Final attempt to catch any stragglers
+            setTimeout(forceChartResize, 500);
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
 
     // Get display data (hovered or last bar)
     const displayBar = hoveredBar || (data.length > 0 ? data[data.length - 1] : null);
@@ -864,8 +935,8 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
                 </div>
             </div>
 
-            {/* Chart container */}
-            <div className="flex-1 relative bg-white">
+            {/* Chart container - min-h-0 allows flex item to shrink properly */}
+            <div className="flex-1 min-h-0 relative bg-white overflow-hidden">
                 {loading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
                         <div className="flex items-center gap-2 text-slate-500">
