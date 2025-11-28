@@ -1,27 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import {
-    TrendingUp,
-    TrendingDown,
-    Zap,
-    Trophy,
-    AlertTriangle,
-    BarChart3,
-    X,
-    ArrowUp,
-    ArrowDown,
-    LayoutGrid,
-    FileText,
-    DollarSign,
-    Newspaper,
-    LineChart,
-    HelpCircle,
-    Settings,
-    Rocket,
-    ScanSearch,
-    Loader2,
-} from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { parseTerminalCommand, TICKER_COMMANDS, GLOBAL_COMMANDS } from '@/lib/terminal-parser';
@@ -44,29 +24,16 @@ type TickerResult = {
     displayName: string;
 };
 
-// Iconos para cada comando
-const COMMAND_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-    'graph': LineChart,
-    'dilution-tracker': BarChart3,
-    'financials': DollarSign,
-    'sec-filings': FileText,
-    'news': Newspaper,
-    'scanner': LayoutGrid,
-    'ipo': Rocket,
-    'settings': Settings,
-    'help': HelpCircle,
-};
-
 // Scanner commands
 const SCANNER_COMMANDS = [
-    { id: 'gappers_up', label: 'Gap Up', description: 'Gap up >= 2%', icon: TrendingUp },
-    { id: 'gappers_down', label: 'Gap Down', description: 'Gap down <= -2%', icon: TrendingDown },
-    { id: 'momentum_up', label: 'Momentum Up', description: 'Cambio >= 3%', icon: ArrowUp },
-    { id: 'momentum_down', label: 'Momentum Down', description: 'Cambio <= -3%', icon: ArrowDown },
-    { id: 'winners', label: 'Winners', description: 'Cambio >= 5%', icon: Trophy },
-    { id: 'losers', label: 'Losers', description: 'Cambio <= -5%', icon: AlertTriangle },
-    { id: 'anomalies', label: 'Anomalies', description: 'RVOL >= 3.0', icon: Zap },
-    { id: 'high_volume', label: 'High Volume', description: 'RVOL >= 2.0', icon: BarChart3 },
+    { id: 'gappers_up', label: 'Gap Up', description: 'Gap up >= 2%' },
+    { id: 'gappers_down', label: 'Gap Down', description: 'Gap down <= -2%' },
+    { id: 'momentum_up', label: 'Momentum Up', description: 'Cambio >= 3%' },
+    { id: 'momentum_down', label: 'Momentum Down', description: 'Cambio <= -3%' },
+    { id: 'winners', label: 'Winners', description: 'Cambio >= 5%' },
+    { id: 'losers', label: 'Losers', description: 'Cambio <= -5%' },
+    { id: 'anomalies', label: 'Anomalies', description: 'RVOL >= 3.0' },
+    { id: 'high_volume', label: 'High Volume', description: 'RVOL >= 2.0' },
 ];
 
 export function TerminalPalette({ 
@@ -359,9 +326,6 @@ export function TerminalPalette({
                                     {/* Command row */}
                                     {item.type !== 'instrument' && (
                                         <>
-                                            {item.icon && (
-                                                <item.icon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                                            )}
                                             <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold border border-slate-200 text-slate-700 rounded min-w-[60px] text-center">
                                                 {item.label}
                                             </span>
@@ -407,7 +371,6 @@ interface DisplayItem {
     type: 'instrument' | 'ticker-command' | 'global-command' | 'scanner';
     label: string;
     description: string;
-    icon?: React.ComponentType<{ className?: string }>;
     shortcut?: string | null;
     autocomplete?: string;
     ticker?: string;
@@ -430,7 +393,6 @@ function getDisplayItems(
             type: 'ticker-command' as const,
             label: key,
             description: cmd.description,
-            icon: COMMAND_ICONS[cmd.id],
             shortcut: cmd.shortcut,
             ticker: selectedTicker.symbol,
             commandId: cmd.id,
@@ -448,7 +410,6 @@ function getDisplayItems(
                 type: 'scanner' as const,
                 label: cmd.label,
                 description: cmd.description,
-                icon: cmd.icon,
                 scannerId: cmd.id,
                 autocomplete: `SC ${cmd.label}`,
             }));
@@ -476,7 +437,6 @@ function getDisplayItems(
                 type: 'global-command' as const,
                 label: key,
                 description: cmd.description,
-                icon: COMMAND_ICONS[cmd.id],
                 shortcut: cmd.shortcut,
                 commandId: cmd.id,
                 autocomplete: key,
