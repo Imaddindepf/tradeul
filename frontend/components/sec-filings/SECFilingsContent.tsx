@@ -40,15 +40,19 @@ type FilingsResponse = {
     filings: SECFiling[];
 };
 
-export function SECFilingsContent() {
+interface SECFilingsContentProps {
+    initialTicker?: string;
+}
+
+export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}) {
     const [historicalFilings, setHistoricalFilings] = useState<SECFiling[]>([]);
     const [realtimeFilings, setRealtimeFilings] = useState<SECFiling[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     // Estado separado: inputValue (lo que escribes) vs searchQuery (lo que se busca)
-    const [inputValue, setInputValue] = useState("");
-    const [searchQuery, setSearchQuery] = useState("");
+    const [inputValue, setInputValue] = useState(initialTicker || "");
+    const [searchQuery, setSearchQuery] = useState(initialTicker || "");
 
     const [formTypeFilter, setFormTypeFilter] = useState("");
     const [startDate, setStartDate] = useState("");
@@ -126,6 +130,13 @@ export function SECFilingsContent() {
             ws.send({ action: 'unsubscribe_sec_filings' });
         };
     }, [ws.isConnected, ws.messages$, ws]);
+
+    // Cargar datos cuando hay initialTicker
+    useEffect(() => {
+        if (initialTicker) {
+            fetchFilings(1, initialTicker);
+        }
+    }, [initialTicker]);
 
     // Auto-buscar cuando cambian filtros (o al inicio si todos están vacíos)
     useEffect(() => {

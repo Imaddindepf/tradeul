@@ -366,7 +366,9 @@ class SyncRedisTask:
                 )
                 
                 for key in keys:
-                    symbol = key.decode('utf-8').split(':')[-1]
+                    # Handle both bytes and str (depends on Redis client config)
+                    key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+                    symbol = key_str.split(':')[-1]
                     if symbol not in active_symbols:
                         await self.redis.client.delete(key)
                         cleaned += 1

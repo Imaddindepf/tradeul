@@ -6,8 +6,9 @@ import type { MarketSession } from '@/lib/types';
 import { Navbar, NavbarContent, UserMenu } from '@/components/layout/Navbar';
 import { PinnedCommands } from '@/components/layout/PinnedCommands';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
-import { CommandPalette } from '@/components/ui/CommandPalette';
-import { Settings2, LayoutGrid } from 'lucide-react';
+import { TerminalPalette } from '@/components/ui/TerminalPalette';
+import { HelpModal } from '@/components/ui/HelpModal';
+import { Settings2, LayoutGrid, HelpCircle } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -56,9 +57,10 @@ export default function ScannerPage() {
   const [mounted, setMounted] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandInput, setCommandInput] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const { windows, openWindow, closeWindow } = useFloatingWindow();
-  const { openScannerTable, closeScannerTable, isScannerTableOpen, SCANNER_CATEGORIES } = useCommandExecutor();
+  const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, SCANNER_CATEGORIES } = useCommandExecutor();
   const { getSavedLayout, hasLayout } = useLayoutPersistence();
   
   // WebSocket para recibir cambios de sesión en tiempo real
@@ -147,11 +149,12 @@ export default function ScannerPage() {
     }
   }, [mounted, hasLayout, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
 
-  // Montaje inicial
+  // Montaje inicial y keyboard shortcuts
   useEffect(() => {
     setMounted(true);
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+K: Abrir terminal
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         const input = document.querySelector('input[type="text"]') as HTMLInputElement;
@@ -159,6 +162,12 @@ export default function ScannerPage() {
           input.focus();
           setCommandPaletteOpen(true);
         }
+      }
+      
+      // ?: Abrir ayuda (solo si no estamos escribiendo en un input)
+      if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault();
+        setHelpOpen(true);
       }
     };
 
@@ -228,19 +237,41 @@ export default function ScannerPage() {
 
           {/* Command Prompt */}
           <div className="flex-1 flex items-center gap-2 relative">
-            <span className="text-slate-400 font-mono text-sm select-none">$</span>
-            <input
-              type="text"
-              value={commandInput}
-              onChange={(e) => setCommandInput(e.target.value)}
-              onFocus={() => setCommandPaletteOpen(true)}
-              placeholder="escribir comando..."
-              className="flex-1 px-3 py-2 font-mono text-sm text-slate-900
-                       placeholder:text-slate-400 bg-transparent
-                       border-b-2 border-transparent focus:border-blue-500
-                       outline-none transition-all"
-            />
-            <kbd className="text-xs text-slate-400 font-mono">Ctrl+K</kbd>
+            <span className="text-slate-400 font-mono text-sm select-none">{'>'}</span>
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={commandInput}
+                onChange={(e) => {
+                  setCommandInput(e.target.value.toUpperCase());
+                  // Abrir paleta cuando el usuario empieza a escribir
+                  if (!commandPaletteOpen) {
+                    setCommandPaletteOpen(true);
+                  }
+                }}
+                onFocus={() => setCommandPaletteOpen(true)}
+                className="w-full px-3 py-2 font-mono text-sm text-slate-900 bg-transparent
+                         border-b-2 border-transparent focus:border-blue-500
+                         outline-none transition-all peer"
+              />
+              {/* Placeholder con cursor parpadeante */}
+              {!commandInput && (
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
+                  <span className="text-slate-400 font-mono text-sm">type a command</span>
+                  <span className="w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse" />
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setHelpOpen(true)}
+                className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                title="Ayuda (?)"
+              >
+                <HelpCircle className="w-4 h-4" />
+              </button>
+              <kbd className="text-xs text-slate-400 font-mono px-1.5 py-0.5 bg-slate-100 rounded">Ctrl+K</kbd>
+            </div>
           </div>
 
           {/* Pinned Commands */}
@@ -261,15 +292,20 @@ export default function ScannerPage() {
         </div>
       </Navbar>
 
-      {/* Command Palette */}
-      <CommandPalette
+      {/* Terminal Palette */}
+      <TerminalPalette
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
-        onSelectCategory={handleToggleCategory}
-        activeCategories={Object.keys(SCANNER_CATEGORIES).filter(id => isScannerTableOpen(id))}
         searchValue={commandInput}
         onSearchChange={setCommandInput}
+        onOpenHelp={() => setHelpOpen(true)}
+        onExecuteTickerCommand={(ticker, command, exchange) => {
+          executeTickerCommand(ticker, command, exchange);
+        }}
       />
+      
+      {/* Help Modal */}
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {/* Main Content - usa variable CSS para el fondo */}
       <main

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from shared.utils.logger import get_logger
-from routers import analysis_router, sec_dilution_router
+from routers import analysis_router, sec_dilution_router, async_analysis_router
 
 logger = get_logger(__name__)
 
@@ -33,6 +33,7 @@ app.add_middleware(
 # Include routers
 app.include_router(analysis_router)
 app.include_router(sec_dilution_router)
+app.include_router(async_analysis_router)
 
 
 @app.get("/health")

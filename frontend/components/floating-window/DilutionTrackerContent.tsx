@@ -22,20 +22,34 @@ import { getTickerAnalysis, validateTicker, type TickerAnalysis } from "@/lib/di
 
 type TabType = "overview" | "dilution" | "holders" | "filings" | "financials";
 
-export function DilutionTrackerContent() {
+interface DilutionTrackerContentProps {
+  initialTicker?: string;
+}
+
+interface DilutionTrackerContentProps {
+  initialTicker?: string;
+}
+
+export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContentProps = {}) {
   const searchParams = useSearchParams();
 
   // Estados separados: input vs ticker seleccionado
-  const [inputValue, setInputValue] = useState("");
-  const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState(initialTicker || "");
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(initialTicker || null);
   const [activeTab, setActiveTab] = useState<TabType>("dilution");
   const [loading, setLoading] = useState(false);
   const [tickerData, setTickerData] = useState<TickerAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
-  // Cargar ticker y tab desde URL al montar el componente
+  // Cargar ticker y tab desde URL o prop initialTicker al montar el componente
   useEffect(() => {
+    // Prioridad: initialTicker > URL param
+    if (initialTicker && !selectedTicker) {
+      fetchTickerData(initialTicker);
+      return;
+    }
+
     const tickerFromUrl = searchParams.get('ticker');
     const tabFromUrl = searchParams.get('tab') as TabType;
 
@@ -48,7 +62,7 @@ export function DilutionTrackerContent() {
       }
       fetchTickerData(ticker);
     }
-  }, [searchParams, selectedTicker]);
+  }, [searchParams, selectedTicker, initialTicker]);
 
   const fetchTickerData = async (ticker: string) => {
     if (!validateTicker(ticker)) {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   AlertCircle, 
   ExternalLink, 
@@ -28,8 +29,212 @@ import {
   type CompletedOffering 
 } from "@/lib/dilution-api";
 
+// Fases del análisis SEC
+const ANALYSIS_PHASES = [
+  { id: 'init', label: 'Initializing analysis engine', icon: '⚡', duration: 500 },
+  { id: 'filings', label: 'Scanning SEC EDGAR filings', icon: '📁', duration: 1000 },
+  { id: 'download', label: 'Downloading regulatory documents', icon: '📥', duration: 2000 },
+  { id: 'parse', label: 'Parsing filing contents', icon: '📄', duration: 1500 },
+  { id: 'extract', label: 'Extracting dilution instruments', icon: '🔍', duration: 2000 },
+  { id: 'analyze', label: 'Deep analysis of securities', icon: '🔬', duration: 3000 },
+  { id: 'warrants', label: 'Processing warrant data', icon: '📊', duration: 1000 },
+  { id: 'atm', label: 'Analyzing ATM offerings', icon: '💹', duration: 1000 },
+  { id: 'shelf', label: 'Evaluating shelf registrations', icon: '📋', duration: 1000 },
+  { id: 'risk', label: 'Computing risk metrics', icon: '⚠️', duration: 500 },
+  { id: 'complete', label: 'Analysis complete', icon: '✓', duration: 0 },
+];
+
 interface SECDilutionSectionProps {
   ticker: string;
+}
+
+// Terminal Animation Component
+function SECAnalysisTerminal({ 
+  ticker, 
+  isActive, 
+  onComplete 
+}: { 
+  ticker: string; 
+  isActive: boolean;
+  onComplete: () => void;
+}) {
+  const [currentPhaseIdx, setCurrentPhaseIdx] = useState(0);
+  const [terminalLines, setTerminalLines] = useState<string[]>([]);
+  const [showCursor, setShowCursor] = useState(true);
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const completedRef = useRef(false);
+
+  // Blinking cursor
+  useEffect(() => {
+    const interval = setInterval(() => setShowCursor(prev => !prev), 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Progress through phases
+  useEffect(() => {
+    if (!isActive || completedRef.current) return;
+
+    const phase = ANALYSIS_PHASES[currentPhaseIdx];
+    if (!phase) return;
+
+    // Add terminal line
+    const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+    setTerminalLines(prev => [
+      ...prev.slice(-12),
+      `[${timestamp}] ${phase.icon} ${phase.label}...`
+    ]);
+
+    if (phase.id === 'complete') {
+      completedRef.current = true;
+      setTimeout(onComplete, 1000);
+      return;
+    }
+
+    // Move to next phase
+    const timer = setTimeout(() => {
+      setCurrentPhaseIdx(prev => Math.min(prev + 1, ANALYSIS_PHASES.length - 1));
+    }, phase.duration);
+
+    return () => clearTimeout(timer);
+  }, [currentPhaseIdx, isActive, onComplete]);
+
+  // Auto-scroll terminal
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [terminalLines]);
+
+  // Reset when ticker changes
+  useEffect(() => {
+    setCurrentPhaseIdx(0);
+    setTerminalLines([]);
+    completedRef.current = false;
+  }, [ticker]);
+
+  if (!isActive) return null;
+
+  const progress = Math.round((currentPhaseIdx / (ANALYSIS_PHASES.length - 1)) * 100);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="w-full bg-gradient-to-br from-slate-900 to-slate-800 rounded-xl border border-emerald-500/30 overflow-hidden font-mono text-sm shadow-2xl"
+    >
+      {/* Terminal Header */}
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-black/40 border-b border-emerald-500/20">
+        <div className="flex gap-1.5">
+          <div className="w-3 h-3 rounded-full bg-red-500" />
+          <div className="w-3 h-3 rounded-full bg-yellow-500" />
+          <div className="w-3 h-3 rounded-full bg-green-500" />
+        </div>
+        <span className="text-emerald-400 text-xs ml-2 font-semibold">
+          SEC DILUTION ANALYSIS — {ticker}
+        </span>
+        <div className="ml-auto flex items-center gap-3">
+          <span className="text-emerald-500 text-xs font-bold">{progress}%</span>
+          <div className="w-24 h-2 bg-slate-700 rounded-full overflow-hidden">
+            <motion.div
+              className="h-full bg-gradient-to-r from-emerald-500 to-cyan-400"
+              initial={{ width: 0 }}
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.3 }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 p-4">
+        {/* Left: Phase Diagram */}
+        <div className="space-y-1.5">
+          <div className="text-emerald-500/80 text-xs uppercase tracking-wider mb-2 font-bold">
+            Pipeline Status
+          </div>
+          {ANALYSIS_PHASES.slice(0, -1).map((phase, idx) => {
+            const status = idx < currentPhaseIdx ? 'completed' : idx === currentPhaseIdx ? 'running' : 'pending';
+            return (
+              <motion.div
+                key={phase.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.03 }}
+                className={`flex items-center gap-2 py-1 px-2 rounded text-xs transition-all ${
+                  status === 'running' 
+                    ? 'bg-emerald-500/20 border-l-2 border-emerald-400' 
+                    : status === 'completed'
+                    ? 'opacity-50'
+                    : 'opacity-30'
+                }`}
+              >
+                <div className="w-4 h-4 flex items-center justify-center">
+                  {status === 'completed' ? (
+                    <span className="text-emerald-400">✓</span>
+                  ) : status === 'running' ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full"
+                    />
+                  ) : (
+                    <span className="text-slate-600">○</span>
+                  )}
+                </div>
+                <span className="text-sm">{phase.icon}</span>
+                <span className={status === 'running' ? 'text-emerald-300' : 'text-slate-400'}>
+                  {phase.label}
+                </span>
+              </motion.div>
+            );
+          })}
+        </div>
+
+        {/* Right: Terminal Output */}
+        <div className="flex flex-col">
+          <div className="text-emerald-500/80 text-xs uppercase tracking-wider mb-2 font-bold">
+            System Log
+          </div>
+          <div
+            ref={terminalRef}
+            className="flex-1 bg-black/50 rounded border border-slate-700 p-3 max-h-56 overflow-y-auto"
+          >
+            <div className="text-cyan-400 text-xs mb-2">
+              $ sec-analyze --ticker {ticker} --deep --extract-all
+            </div>
+            <AnimatePresence mode="popLayout">
+              {terminalLines.map((line, idx) => (
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-slate-300 text-xs leading-relaxed"
+                >
+                  {line}
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            <span className={`inline-block w-2 h-4 bg-emerald-500 ml-1 ${showCursor ? 'opacity-100' : 'opacity-0'}`} />
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-4 py-2 bg-black/30 border-t border-emerald-500/10 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-4 text-slate-400">
+          <span><span className="text-emerald-500">◉</span> Connected to SEC EDGAR</span>
+          <span>Sources: 10-K, 10-Q, 8-K, S-1, S-3, DEF 14A</span>
+        </div>
+        <div className="text-slate-500">
+          {currentPhaseIdx >= ANALYSIS_PHASES.length - 1 ? (
+            <span className="text-emerald-400 font-semibold">✓ Analysis Complete</span>
+          ) : (
+            <span>Analyzing securities...</span>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
 }
 
 export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
@@ -37,6 +242,7 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTerminal, setShowTerminal] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -53,7 +259,12 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
         setError("No SEC dilution data available for this ticker");
       }
     } catch (err) {
-      setError("Failed to load SEC dilution data");
+      // Si hay 404, mostrar animación de análisis
+      if (err instanceof Error && err.message.includes('404')) {
+        setShowTerminal(true);
+      } else {
+        setError("Failed to load SEC dilution data");
+      }
       console.error(err);
     } finally {
       setLoading(false);
@@ -62,17 +273,34 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    setShowTerminal(true);  // Mostrar animación durante refresh
     try {
       const success = await refreshSECDilutionProfile(ticker);
-      if (success) {
-        await fetchData();
-      }
+      // La animación controla cuándo termina
     } catch (err) {
       console.error("Failed to refresh:", err);
-    } finally {
+      setShowTerminal(false);
       setRefreshing(false);
     }
   };
+
+  const handleAnalysisComplete = async () => {
+    // Cuando la animación termina, cargar los datos
+    setShowTerminal(false);
+    setRefreshing(false);
+    await fetchData();
+  };
+
+  // Mostrar terminal de análisis
+  if (showTerminal) {
+    return (
+      <SECAnalysisTerminal 
+        ticker={ticker}
+        isActive={showTerminal}
+        onComplete={handleAnalysisComplete}
+      />
+    );
+  }
 
   if (loading) {
     return (

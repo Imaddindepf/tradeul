@@ -165,5 +165,69 @@ export async function refreshSECDilutionProfile(symbol: string): Promise<SECDilu
   }
 }
 
+// ============================================================================
+// ASYNC ANALYSIS API
+// ============================================================================
+
+interface AsyncAnalysisResponse {
+  job_id: string;
+  ticker: string;
+  status: string;
+  poll_url: string;
+  ws_channel: string;
+}
+
+interface AnalysisStatus {
+  job_id: string;
+  phase: string;
+  phase_message: string;
+  progress: number;
+  updated_at: string;
+  data: Partial<TickerAnalysis>;
+  error: string | null;
+}
+
+/**
+ * Iniciar análisis asíncrono de un ticker
+ * Devuelve job_id para consultar el progreso
+ */
+export async function startAsyncAnalysis(ticker: string): Promise<AsyncAnalysisResponse> {
+  const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/async/${ticker}/start`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to start async analysis for ${ticker}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Obtener estado del análisis asíncrono
+ */
+export async function getAnalysisStatus(ticker: string, jobId: string): Promise<AnalysisStatus> {
+  const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/async/${ticker}/status/${jobId}`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to get analysis status for ${ticker}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Análisis rápido - solo datos básicos sin deep SEC analysis
+ */
+export async function getQuickAnalysis(ticker: string): Promise<TickerAnalysis> {
+  const response = await fetch(`${DILUTION_SERVICE_URL}/api/analysis/async/${ticker}/quick`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to get quick analysis for ${ticker}`);
+  }
+
+  return response.json();
+}
+
 export type { TickerAnalysis };
 

@@ -29,7 +29,11 @@ interface NewsArticle {
   isLive?: boolean;
 }
 
-export function NewsContent() {
+interface NewsContentProps {
+  initialTicker?: string;
+}
+
+export function NewsContent({ initialTicker }: NewsContentProps = {}) {
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +41,7 @@ export function NewsContent() {
   const [pausedBuffer, setPausedBuffer] = useState<NewsArticle[]>([]);
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
   const seenIdsRef = useRef<Set<string | number>>(new Set());
+  const [tickerFilter, setTickerFilter] = useState<string | null>(initialTicker || null);
 
   // WebSocket connection
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';

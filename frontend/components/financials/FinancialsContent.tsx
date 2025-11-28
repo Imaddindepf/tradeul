@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Building2, Landmark, HeartPulse, Cpu, ShoppingCart, Factory, Pickaxe, BarChart3 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
@@ -767,9 +767,13 @@ function SpecialRatios({ data, industry }: { data: FinancialData; industry: Indu
 // Main Component
 // ============================================================================
 
-export function FinancialsContent() {
-    const [inputValue, setInputValue] = useState('');
-    const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+interface FinancialsContentProps {
+    initialTicker?: string;
+}
+
+export function FinancialsContent({ initialTicker }: FinancialsContentProps = {}) {
+    const [inputValue, setInputValue] = useState(initialTicker || '');
+    const [selectedTicker, setSelectedTicker] = useState<string | null>(initialTicker || null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [data, setData] = useState<FinancialData | null>(null);
@@ -928,6 +932,13 @@ export function FinancialsContent() {
             setLoading(false);
         }
     }, []);
+
+    // Cargar datos automáticamente cuando hay initialTicker
+    useEffect(() => {
+        if (initialTicker && !data) {
+            fetchData(initialTicker);
+        }
+    }, [initialTicker, fetchData, data]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();

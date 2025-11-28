@@ -9,6 +9,7 @@ import { NewsContent } from '@/components/news/NewsContent';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
+import { ChartContent } from '@/components/chart/ChartContent';
 
 // Configuración de categorías del scanner
 const SCANNER_CATEGORIES: Record<string, { name: string; description: string }> = {
@@ -217,8 +218,93 @@ export function useCommandExecutor() {
         }
     }, [openWindow, openScannerTable]);
 
+    /**
+     * Ejecutar un comando con ticker específico
+     * Usado por el TerminalPalette para comandos tipo "AAPL DT"
+     * @param ticker - Símbolo del ticker
+     * @param commandId - ID del comando a ejecutar
+     * @param exchange - Exchange opcional (para TradingView)
+     */
+    const executeTickerCommand = useCallback((ticker: string, commandId: string, exchange?: string) => {
+        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+        const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+        
+        const normalizedTicker = ticker.toUpperCase();
+
+        switch (commandId) {
+            case 'graph':
+                openWindow({
+                    title: `Chart: ${normalizedTicker}`,
+                    content: <ChartContent ticker={normalizedTicker} exchange={exchange} />,
+                    width: 900,
+                    height: 600,
+                    x: Math.max(50, screenWidth / 2 - 450),
+                    y: Math.max(80, screenHeight / 2 - 300),
+                    minWidth: 600,
+                    minHeight: 400,
+                });
+                break;
+
+            case 'dilution-tracker':
+                openWindow({
+                    title: `DT: ${normalizedTicker}`,
+                    content: <DilutionTrackerContent initialTicker={normalizedTicker} />,
+                    width: 900,
+                    height: 600,
+                    x: Math.max(50, screenWidth / 2 - 450),
+                    y: Math.max(80, screenHeight / 2 - 300),
+                    minWidth: 600,
+                    minHeight: 400,
+                });
+                break;
+
+            case 'financials':
+                openWindow({
+                    title: `FA: ${normalizedTicker}`,
+                    content: <FinancialsContent initialTicker={normalizedTicker} />,
+                    width: 700,
+                    height: 550,
+                    x: Math.max(50, screenWidth / 2 - 350),
+                    y: Math.max(80, (screenHeight - 64) / 2 - 275 + 64),
+                    minWidth: 500,
+                    minHeight: 400,
+                });
+                break;
+
+            case 'sec-filings':
+                openWindow({
+                    title: `SEC: ${normalizedTicker}`,
+                    content: <SECFilingsContent initialTicker={normalizedTicker} />,
+                    width: 1000,
+                    height: 650,
+                    x: Math.max(50, screenWidth / 2 - 500),
+                    y: Math.max(80, screenHeight / 2 - 325),
+                    minWidth: 800,
+                    minHeight: 500,
+                });
+                break;
+
+            case 'news':
+                openWindow({
+                    title: `News: ${normalizedTicker}`,
+                    content: <NewsContent initialTicker={normalizedTicker} />,
+                    width: 900,
+                    height: 600,
+                    x: Math.max(50, screenWidth / 2 - 450),
+                    y: Math.max(80, screenHeight / 2 - 300),
+                    minWidth: 700,
+                    minHeight: 450,
+                });
+                break;
+
+            default:
+                console.warn(`Unknown ticker command: ${commandId}`);
+        }
+    }, [openWindow]);
+
     return {
         executeCommand,
+        executeTickerCommand,
         openScannerTable,
         closeScannerTable,
         isScannerTableOpen,
