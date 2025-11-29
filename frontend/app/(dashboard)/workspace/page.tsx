@@ -66,7 +66,7 @@ export default function ScannerPage() {
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, SCANNER_CATEGORIES } = useCommandExecutor();
   const { getSavedLayout, hasLayout } = useLayoutPersistence();
-  
+
   // WebSocket para recibir cambios de sesión en tiempo real
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const ws = useRxWebSocket(wsUrl, false);
@@ -88,7 +88,12 @@ export default function ScannerPage() {
       const categoryEntry = Object.entries(SCANNER_CATEGORIES).find(([_, cat]) => cat.name === categoryName);
       if (categoryEntry) {
         const [categoryId, category] = categoryEntry;
-        return <ScannerTableContent categoryId={categoryId} categoryName={category.name} />;
+        return (
+          <ScannerTableContent
+            categoryId={categoryId}
+            categoryName={category.name}
+          />
+        );
       }
     }
     return null;
@@ -167,7 +172,7 @@ export default function ScannerPage() {
           setCommandPaletteOpen(true);
         }
       }
-      
+
       // ?: Abrir ayuda (solo si no estamos escribiendo en un input)
       if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) {
         e.preventDefault();
@@ -201,7 +206,7 @@ export default function ScannerPage() {
     const subscription = ws.messages$.subscribe((message: any) => {
       if (message.type === 'market_session_change' && message.data) {
         console.log('📊 Market session changed:', message.data);
-        
+
         // Actualizar el estado de sesión inmediatamente
         setSession((prev) => ({
           ...prev,
@@ -242,7 +247,7 @@ export default function ScannerPage() {
           {/* Command Prompt / Quote Strip */}
           <div className="flex-1 flex items-center gap-2 relative">
             <span className="text-slate-400 font-mono text-sm select-none">{'>'}</span>
-            
+
             <div className="flex-1 relative">
               {/* Input siempre presente */}
               <input
@@ -251,7 +256,7 @@ export default function ScannerPage() {
                 value={commandInput}
                 onChange={(e) => {
                   const newValue = e.target.value.toUpperCase();
-                  
+
                   // Si hay un ticker activo y el usuario escribe algo nuevo
                   if (activeQuoteTicker && !commandInput && newValue) {
                     // Prefijar con el ticker activo
@@ -259,7 +264,7 @@ export default function ScannerPage() {
                   } else {
                     setCommandInput(newValue);
                   }
-                  
+
                   // Abrir paleta cuando el usuario empieza a escribir
                   if (!commandPaletteOpen) {
                     setCommandPaletteOpen(true);
@@ -280,17 +285,17 @@ export default function ScannerPage() {
                          border-b-2 border-transparent focus:border-blue-500
                          outline-none transition-all ${activeQuoteTicker && !commandInput ? 'opacity-0 absolute' : ''}`}
               />
-              
+
               {/* Mostrar TickerStrip encima cuando hay quote activo y no hay input */}
               {activeQuoteTicker && !commandInput && (
-                <div 
+                <div
                   className="flex items-center py-2 cursor-text"
                   onClick={() => inputRef.current?.focus()}
                 >
                   <TickerStrip symbol={activeQuoteTicker} exchange="US" />
                 </div>
               )}
-              
+
               {/* Placeholder con cursor parpadeante */}
               {!commandInput && !activeQuoteTicker && (
                 <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
@@ -299,7 +304,7 @@ export default function ScannerPage() {
                 </div>
               )}
             </div>
-            
+
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setHelpOpen(true)}
@@ -352,7 +357,7 @@ export default function ScannerPage() {
           executeTickerCommand(ticker, command, exchange);
         }}
       />
-      
+
       {/* Help Modal */}
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 

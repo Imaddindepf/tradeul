@@ -1030,12 +1030,26 @@ class ScannerEngine:
             # Serializar todos los tickers a JSON
             tickers_data = [ticker.model_dump(mode='json') for ticker in tickers]
             
-            # Guardar en Redis (TTL 60 seg - se refresca cada scan)
+            # Guardar en Redis con TTL largo para persistir en fin de semana
+            # TTL: 48 horas (172800 seg) - permite ver datos del viernes durante el fin de semana
             await self.redis.set(
                 cache_key,
                 tickers_data,
-                ttl=60,
+                ttl=172800,  # 48 horas en lugar de 60 seg
                 serialize=True  # Ya serializa internamente a JSON
+            )
+            
+            # También guardar en clave permanente (sin TTL) para último scan
+            last_scan_key = f"scanner:filtered_complete:LAST"
+            await self.redis.set(
+                last_scan_key,
+                {
+                    "tickers": tickers_data,
+                    "session": self.current_session.value,
+                    "timestamp": datetime.now().isoformat()
+                },
+                ttl=None,  # Sin expiración - siempre disponible
+                serialize=True
             )
             
             logger.debug(
@@ -1730,10 +1744,11 @@ class ScannerEngine:
             current_sequence = self.sequence_numbers.get(list_name, 0)
             
             # Guardar en key (snapshot)
+            # TTL 48 horas para que persista en fin de semana
             await self.redis.set(
                 f"scanner:category:{list_name}",
                 json.dumps(ranking_data),
-                ttl=3600  # 1 hora
+                ttl=172800  # 48 horas (igual que cache completo)
             )
             
             # Guardar sequence number (para sincronización)

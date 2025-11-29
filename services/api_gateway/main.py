@@ -29,9 +29,11 @@ from shared.models.description import (
     TickerDescription, CompanyInfo, MarketStats, ValuationMetrics,
     DividendInfo, RiskMetrics, AnalystRating, PriceTarget, FMPRatios
 )
+from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
+from routers.watchlist_router import router as watchlist_router
 
 # Configurar logger
 configure_logging(service_name="api_gateway")
@@ -124,6 +126,7 @@ app.add_middleware(
 # Registrar routers
 app.include_router(user_prefs_router)
 app.include_router(financials_router)
+app.include_router(watchlist_router)
 
 
 # ============================================================================
@@ -320,7 +323,23 @@ async def get_filtered_tickers(
                 "timestamp": datetime.now().isoformat()
             }
         
-        # Fallback: intentar leer del stream (por compatibilidad)
+        # Fallback 1: Intentar leer último scan guardado (sin TTL)
+        last_scan_key = "scanner:filtered_complete:LAST"
+        last_scan_data = await redis_client.get(last_scan_key, deserialize=True)
+        
+        if last_scan_data and isinstance(last_scan_data, dict):
+            last_tickers = last_scan_data.get("tickers", [])
+            if last_tickers and isinstance(last_tickers, list):
+                logger.info("using_last_scan_fallback", session=last_scan_data.get("session"), count=len(last_tickers))
+                tickers = last_tickers[:limit]
+                return {
+                    "tickers": tickers,
+                    "count": len(tickers),
+                    "timestamp": last_scan_data.get("timestamp", datetime.now().isoformat()),
+                    "source": "last_scan_cache"
+                }
+        
+        # Fallback 2: Intentar leer del stream (por compatibilidad)
         messages = await redis_client.read_stream_range(
             "stream:scanner:filtered",
             count=limit
@@ -782,6 +801,76 @@ async def get_ticker_description(
     except Exception as e:
         logger.error("description_error", symbol=symbol, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/ticker/{symbol}/snapshot", response_model=PolygonSingleTickerSnapshotResponse)
+async def get_ticker_snapshot(
+    symbol: str,
+    force_refresh: bool = Query(default=False, description="Force refresh from API")
+):
+    """
+    Get the most recent market data snapshot for a single ticker from Polygon.
+    
+    This endpoint consolidates the latest trade, quote, and aggregated data
+    (minute, day, and previous day) for the specified ticker.
+    
+    Snapshot data is cleared at 3:30 AM EST and begins updating as exchanges
+    report new information, which can start as early as 4:00 AM EST.
+    
+    Use Cases: 
+    - Fallback when WebSocket quotes are not available
+    - Focused monitoring, real-time analysis, price alerts
+    
+    Caches for 5 minutes (300 seconds) to reduce API calls.
+    """
+    global redis_client
+    symbol = symbol.upper()
+    cache_key = f"ticker_snapshot:{symbol}"
+    cache_ttl = 300  # 5 minutes
+    
+    try:
+        if not force_refresh and redis_client:
+            cached_data = await redis_client.get(cache_key)
+            if cached_data:
+                logger.debug("ticker_snapshot_cache_hit", symbol=symbol)
+                return cached_data
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Polygon Single Ticker Snapshot endpoint
+            # GET /v2/snapshot/locale/us/markets/stocks/tickers/{ticker}
+            polygon_url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
+            params = {"apiKey": settings.POLYGON_API_KEY}
+            
+            response = await client.get(polygon_url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Validate response structure
+            if data.get("status") != "OK":
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Snapshot not available for {symbol}: {data.get('status')}"
+                )
+            
+            # Parse response with Pydantic model
+            snapshot_response = PolygonSingleTickerSnapshotResponse(**data)
+            
+            # Cache the response
+            if redis_client:
+                await redis_client.set(cache_key, snapshot_response.model_dump(), ttl=cache_ttl)
+                logger.info("ticker_snapshot_cached", symbol=symbol)
+            
+            return snapshot_response
+            
+    except httpx.HTTPStatusError as e:
+        logger.error("ticker_snapshot_http_error", symbol=symbol, error=str(e), status_code=e.response.status_code)
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Snapshot not found for {symbol}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"API error: {e.response.text}")
+    except Exception as e:
+        logger.error("ticker_snapshot_fetch_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to fetch snapshot: {str(e)}")
 
 
 @app.get("/api/v1/rvol/{symbol}")

@@ -176,7 +176,7 @@ class PolygonSnapshot(BaseModel):
 
 class PolygonSnapshotResponse(BaseModel):
     """
-    Response wrapper for snapshot API
+    Response wrapper for full market snapshot API
     Endpoint: GET /v2/snapshot/locale/us/markets/stocks/tickers
     
     Contains snapshots for 10,000+ actively traded tickers
@@ -184,6 +184,58 @@ class PolygonSnapshotResponse(BaseModel):
     status: str = Field(..., description="Response status")
     count: Optional[int] = Field(None, description="Number of tickers returned")
     tickers: List[PolygonSnapshot] = Field(default_factory=list, description="Array of ticker snapshots")
+
+
+class PolygonSingleTickerSnapshotResponse(BaseModel):
+    """
+    Response wrapper for single ticker snapshot API
+    Endpoint: GET /v2/snapshot/locale/us/markets/stocks/tickers/{stocksTicker}
+    
+    Retrieve the most recent market data snapshot for a single ticker.
+    This endpoint consolidates the latest trade, quote, and aggregated data
+    (minute, day, and previous day) for the specified ticker.
+    
+    Snapshot data is cleared at 3:30 AM EST and begins updating as exchanges
+    report new information, which can start as early as 4:00 AM EST.
+    
+    Use Cases: Focused monitoring, real-time analysis, price alerts, investor relations.
+    
+    Plan Access: Included in Stocks plans (Basic, Starter, Developer, Advanced, Business)
+    Plan Recency: Real-time for Advanced/Business, 15-minute delayed for Starter/Developer
+    """
+    status: str = Field(..., description="Response status")
+    request_id: Optional[str] = Field(None, description="Request ID assigned by the server")
+    ticker: Optional[PolygonSnapshot] = Field(None, description="Snapshot data for the specified ticker")
+    
+    @property
+    def has_data(self) -> bool:
+        """Check if snapshot data is available"""
+        return self.ticker is not None
+    
+    @property
+    def last_quote(self) -> Optional[LastQuote]:
+        """Get last quote from snapshot if available"""
+        return self.ticker.lastQuote if self.ticker else None
+    
+    @property
+    def last_trade(self) -> Optional[LastTrade]:
+        """Get last trade from snapshot if available"""
+        return self.ticker.lastTrade if self.ticker else None
+    
+    @property
+    def current_price(self) -> Optional[float]:
+        """Get current price from snapshot"""
+        return self.ticker.current_price if self.ticker else None
+    
+    @property
+    def mid_price(self) -> Optional[float]:
+        """Get mid price from snapshot quote"""
+        return self.ticker.mid_price if self.ticker else None
+    
+    @property
+    def bid_ask_spread(self) -> Optional[float]:
+        """Get bid-ask spread from snapshot"""
+        return self.ticker.bid_ask_spread if self.ticker else None
 
 
 # =============================================

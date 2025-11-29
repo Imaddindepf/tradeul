@@ -61,8 +61,19 @@ export function TerminalPalette({
     // Detectar prefijo SC para scanner
     const hasScPrefix = search.toUpperCase().startsWith('SC');
     
+    // Verificar si hay comandos globales que empiecen con la búsqueda
+    const searchUpper = search.toUpperCase();
+    const hasMatchingCommands = Object.keys(GLOBAL_COMMANDS).some(
+        key => key.startsWith(searchUpper)
+    );
+    const isExactCommand = searchUpper in GLOBAL_COMMANDS;
+    
     // Detectar si parece un ticker (letras mayúsculas sin espacios)
-    const looksLikeTicker = /^[A-Z]{1,5}$/.test(search.toUpperCase()) && !hasScPrefix && !['SC', 'IPO', 'SET', 'HELP'].includes(search.toUpperCase());
+    // No tratar como ticker si es un comando exacto
+    const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper) 
+        && !hasScPrefix 
+        && !['SC', 'IPO', 'SET', 'HELP'].includes(searchUpper)
+        && !isExactCommand;
     
     // Buscar tickers cuando parece un ticker
     useEffect(() => {
@@ -208,7 +219,7 @@ export function TerminalPalette({
                     // SC es especial - muestra categorías del scanner
                     setSearch('SC ');
                     return;
-                } else {
+                } else if (item.commandId) {
                     executeCommand(item.commandId);
                 }
                 setSearch('');
@@ -415,9 +426,26 @@ function getDisplayItems(
             }));
     }
     
-    // Si hay resultados de búsqueda de tickers, mostrarlos
+    // Buscar comandos globales que coincidan
+    const matchingCommands: DisplayItem[] = [];
+    Object.entries(GLOBAL_COMMANDS).forEach(([key, cmd]) => {
+        const searchUpper = search.toUpperCase();
+        if (!search || key.startsWith(searchUpper) || cmd.name.toUpperCase().startsWith(searchUpper)) {
+            matchingCommands.push({
+                id: `global-${cmd.id}`,
+                type: 'global-command' as const,
+                label: key,
+                description: cmd.description,
+                shortcut: 'shortcut' in cmd ? cmd.shortcut : undefined,
+                commandId: cmd.id,
+                autocomplete: key,
+            });
+        }
+    });
+    
+    // Si hay resultados de búsqueda de tickers, combinarlos con comandos
     if (tickerResults.length > 0) {
-        return tickerResults.map(ticker => ({
+        const tickerItems = tickerResults.map(ticker => ({
             id: `ticker-${ticker.symbol}-${ticker.exchange}`,
             type: 'instrument' as const,
             label: ticker.symbol,
@@ -425,26 +453,18 @@ function getDisplayItems(
             tickerData: ticker,
             autocomplete: ticker.symbol + ' ',
         }));
+        
+        // Si hay comandos que coinciden, mostrarlos primero, luego los tickers
+        if (matchingCommands.length > 0) {
+            return [...matchingCommands, ...tickerItems];
+        }
+        
+        // Si no hay comandos, solo mostrar tickers
+        return tickerItems;
     }
     
-    // Default: comandos globales
-    const items: DisplayItem[] = [];
-    
-    Object.entries(GLOBAL_COMMANDS).forEach(([key, cmd]) => {
-        if (!search || key.includes(search.toUpperCase()) || cmd.name.toUpperCase().includes(search.toUpperCase())) {
-            items.push({
-                id: `global-${cmd.id}`,
-                type: 'global-command' as const,
-                label: key,
-                description: cmd.description,
-                shortcut: cmd.shortcut,
-                commandId: cmd.id,
-                autocomplete: key,
-            });
-        }
-    });
-    
-    return items;
+    // Si no hay tickers, mostrar comandos globales
+    return matchingCommands;
 }
 
 export default TerminalPalette;

@@ -7,10 +7,13 @@ from .fmp import *
 from .scanner import *
 from .market import *
 from .description import *
+from .watchlist import *
 
 __all__ = [
     # Polygon models
     "PolygonSnapshot",
+    "PolygonSnapshotResponse",
+    "PolygonSingleTickerSnapshotResponse",
     "PolygonTick",
     "PolygonQuote",
     "PolygonTrade",
@@ -51,5 +54,16 @@ __all__ = [
     "DividendInfo",
     "RiskMetrics",
     "TickerDescription",
+    # Watchlist models
+    "WatchlistColumn",
+    "WatchlistTicker",
+    "WatchlistTickerCreate",
+    "WatchlistTickerUpdate",
+    "Watchlist",
+    "WatchlistCreate",
+    "WatchlistUpdate",
+    "WatchlistReorder",
+    "WatchlistWithQuotes",
+    "QuoteMonitorState",
 ]
 

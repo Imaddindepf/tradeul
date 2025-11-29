@@ -12,6 +12,7 @@ import {
   Newspaper,
   User,
   Rocket,
+  List,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -29,6 +30,7 @@ export interface MainCommand {
  */
 export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'sc', label: 'SC', description: 'Scanner - Ver todas las tablas', icon: LayoutGrid },
+  { id: 'watchlist', label: 'WL', description: 'Quote Monitor - Watchlist con quotes en tiempo real', icon: List, shortcut: 'Ctrl+W' },
   { id: 'dt', label: 'DT', description: 'Dilution Tracker - Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D' },
   { id: 'sec', label: 'SEC', description: 'SEC Filings - Filings de la SEC en tiempo real', icon: FileText, shortcut: 'Ctrl+F' },
   { id: 'news', label: 'NEWS', description: 'News - Noticias del mercado en tiempo real', icon: Newspaper, shortcut: 'Ctrl+N' },

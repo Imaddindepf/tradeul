@@ -12,20 +12,21 @@ import { IPOContent } from '@/components/ipos/IPOContent';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
+import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/QuoteMonitor';
 
 // Wrapper para TickerStrip que obtiene onClose del contexto de ventana
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
     const { closeWindow, windows } = useFloatingWindow();
-    
+
     // Encontrar el ID de esta ventana por el título
     const windowId = windows.find(w => w.title === `Quote: ${symbol}`)?.id;
-    
+
     const handleClose = () => {
         if (windowId) {
             closeWindow(windowId);
         }
     };
-    
+
     return <TickerStrip symbol={symbol} exchange={exchange} onClose={handleClose} />;
 }
 
@@ -76,11 +77,8 @@ export function useCommandExecutor() {
                 <ScannerTableContent
                     categoryId={categoryId}
                     categoryName={category.name}
-                    onClose={() => {
-                        // Encontrar y cerrar la ventana por título
-                        const win = windows.find(w => w.title === title);
-                        if (win) closeWindow(win.id);
-                    }}
+                // onClose se maneja internamente en ScannerTableContent
+                // usando el contexto actualizado de windows
                 />
             ),
             width: 850,
@@ -91,7 +89,7 @@ export function useCommandExecutor() {
             minHeight: 300,
             hideHeader: true, // La tabla del scanner tiene su propia cabecera
         });
-    }, [openWindow, closeWindow, windows]);
+    }, [openWindow]);
 
     /**
      * Cerrar una tabla del scanner
@@ -220,6 +218,19 @@ export function useCommandExecutor() {
                 });
                 return null;
 
+            case 'watchlist':
+                openWindow({
+                    title: 'Quote Monitor',
+                    content: <QuoteMonitorContent />,
+                    width: 900,
+                    height: 500,
+                    x: Math.max(50, screenWidth / 2 - 450),
+                    y: Math.max(80, screenHeight / 2 - 250),
+                    minWidth: 700,
+                    minHeight: 350,
+                });
+                return null;
+
             case 'sc':
                 // SC es especial - abre el command palette
                 return 'sc';
@@ -246,7 +257,7 @@ export function useCommandExecutor() {
     const executeTickerCommand = useCallback((ticker: string, commandId: string, exchange?: string) => {
         const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
         const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-        
+
         const normalizedTicker = ticker.toUpperCase();
 
         switch (commandId) {
@@ -334,8 +345,8 @@ export function useCommandExecutor() {
                 openWindow({
                     title: `Quote: ${normalizedTicker}`,
                     content: (
-                        <TickerStripWrapper 
-                            symbol={normalizedTicker} 
+                        <TickerStripWrapper
+                            symbol={normalizedTicker}
                             exchange={exchange || 'US'}
                         />
                     ),

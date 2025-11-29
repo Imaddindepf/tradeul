@@ -136,18 +136,18 @@ class CompanyInfo(BaseModel):
 
 class MarketStats(BaseModel):
     """
-    Market statistics
+    Market statistics - all numeric fields as float to handle API variations
     """
     price: Optional[float] = None
     change: Optional[float] = None
     changePercent: Optional[float] = None
-    volume: Optional[int] = None
-    avgVolume: Optional[int] = None
+    volume: Optional[float] = None  # Changed to float - API may return float
+    avgVolume: Optional[float] = None  # Changed to float - API may return float
     
     # Market Cap & Float
     marketCap: Optional[float] = None
-    sharesOutstanding: Optional[int] = None
-    floatShares: Optional[int] = None
+    sharesOutstanding: Optional[float] = None  # Changed to float
+    floatShares: Optional[float] = None  # Changed to float
     
     # Ranges
     dayLow: Optional[float] = None

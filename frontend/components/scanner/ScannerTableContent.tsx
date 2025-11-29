@@ -1,38 +1,39 @@
 'use client';
 
-import { memo, useCallback } from 'react';
 import CategoryTableV2 from './CategoryTableV2';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 
 interface ScannerTableContentProps {
     categoryId: string;
     categoryName: string;
-    onClose?: () => void;
 }
 
 /**
  * Contenido de una tabla del scanner para usar dentro de FloatingWindow
- * Este componente NO incluye el wrapper FloatingWindowBase
  * 
- * Si no se proporciona onClose, el componente se auto-cierra buscando
- * su ventana por título en el contexto de ventanas flotantes.
+ * El cierre se maneja internamente usando el contexto de FloatingWindow,
+ * buscando la ventana por título en el momento del click (evita stale closures).
  */
-function ScannerTableContentComponent({ categoryId, categoryName, onClose }: ScannerTableContentProps) {
+export function ScannerTableContent({ categoryId, categoryName }: ScannerTableContentProps) {
     const { windows, closeWindow } = useFloatingWindow();
     
-    // Si no se proporciona onClose, crear uno que cierre la ventana por título
-    const handleClose = useCallback(() => {
-        if (onClose) {
-            onClose();
+    // Buscar y cerrar la ventana por título en el momento del click
+    const handleClose = () => {
+        const title = `Scanner: ${categoryName}`;
+        const win = windows.find(w => w.title === title);
+        
+        if (win) {
+            closeWindow(win.id);
         } else {
-            // Buscar la ventana por título y cerrarla
-            const title = `Scanner: ${categoryName}`;
-            const win = windows.find(w => w.title === title);
-            if (win) {
-                closeWindow(win.id);
+            // Fallback: buscar por nombre parcial
+            const fallbackWin = windows.find(w => 
+                w.title.includes(categoryName) || w.title.includes(categoryId)
+            );
+            if (fallbackWin) {
+                closeWindow(fallbackWin.id);
             }
         }
-    }, [onClose, categoryName, windows, closeWindow]);
+    };
     
     return (
         <div className="h-full w-full overflow-hidden flex flex-col bg-white">
@@ -44,6 +45,4 @@ function ScannerTableContentComponent({ categoryId, categoryName, onClose }: Sca
         </div>
     );
 }
-
-export const ScannerTableContent = memo(ScannerTableContentComponent);
 

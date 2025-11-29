@@ -69,11 +69,32 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const tickers = useTickersStore(selectOrderedTickers(listName));
 
   // Local UI state (no afecta datos)
-  const [sorting, setSorting] = useState<SortingState>([]);
+  // Ordenamiento inicial según la categoría
+  const getInitialSorting = (): SortingState => {
+    switch (listName) {
+      case 'high_volume':
+        return [{ id: 'volume_today', desc: true }];
+      case 'gappers_up':
+        return [{ id: 'change_percent', desc: true }];
+      case 'gappers_down':
+        return [{ id: 'change_percent', desc: false }];
+      case 'momentum_up':
+      case 'winners':
+        return [{ id: 'change_percent', desc: true }];
+      case 'momentum_down':
+      case 'losers':
+        return [{ id: 'change_percent', desc: false }];
+      default:
+        return [];
+    }
+  };
+  const [sorting, setSorting] = useState<SortingState>(getInitialSorting);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [columnVisibility, setColumnVisibility] = useState({});
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
   const [isReady, setIsReady] = useState(false);
+  const [noDataAvailable, setNoDataAvailable] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Animaciones (local state) - Solo para ranking changes, no precio
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
@@ -176,11 +197,24 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // ======================================================================
 
   useEffect(() => {
-    if (!ws.isConnected) return;
+    if (!ws.isConnected) {
+      setConnectionError('Connecting to server...');
+      return;
+    }
+
+    setConnectionError(null);
+
+    // Timeout para mostrar "sin datos" si no llegan datos en 10 segundos
+    const dataTimeout = setTimeout(() => {
+      if (!isReady) {
+        setNoDataAvailable(true);
+      }
+    }, 10000);
 
     // Subscribe to snapshots
     const snapshotSub = ws.snapshots$.subscribe((snapshot: any) => {
       if (snapshot.list === listName) {
+        setNoDataAvailable(false);
         handleSnapshot(snapshot);
       }
     });
@@ -200,12 +234,24 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       }
     });
 
+    // Subscribe to error messages (for "no data available" errors)
+    const errorMsgSub = ws.messages$.subscribe((msg: any) => {
+      if (msg.type === 'error' && msg.list === listName) {
+        if (msg.message?.includes('No snapshot available')) {
+          setNoDataAvailable(true);
+          setIsReady(true); // Stop loading state
+        }
+      }
+    });
+
     return () => {
+      clearTimeout(dataTimeout);
       snapshotSub.unsubscribe();
       deltaSub.unsubscribe();
       aggregateSub.unsubscribe();
+      errorMsgSub.unsubscribe();
     };
-  }, [ws.isConnected, ws.snapshots$, ws.deltas$, ws.aggregates$, listName, handleSnapshot, handleDelta, updateAggregates, debug]);
+  }, [ws.isConnected, ws.snapshots$, ws.deltas$, ws.aggregates$, ws.messages$, listName, handleSnapshot, handleDelta, updateAggregates, isReady, debug]);
 
   // ======================================================================
   // TABLE CONFIGURATION
@@ -467,13 +513,38 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // RENDER
   // ======================================================================
 
+  // Mensaje cuando no hay datos disponibles
+  if (noDataAvailable && data.length === 0) {
+    return (
+      <div className="h-full flex flex-col">
+        <MarketTableLayout
+          title={title}
+          isLive={ws.isConnected}
+          count={0}
+          listName={listName}
+          onClose={onClose}
+        />
+        <div className="flex-1 flex items-center justify-center bg-slate-50">
+          <div className="text-center p-6">
+            <h3 className="text-lg font-semibold text-slate-700 mb-2">
+              Sin datos disponibles
+            </h3>
+            <p className="text-sm text-slate-500 max-w-xs">
+              {connectionError || 'El mercado está cerrado. Los datos se actualizarán cuando el mercado abra.'}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <VirtualizedDataTable
         table={table}
         showResizeHandles={false}
         stickyHeader={true}
-        isLoading={!isReady}
+        isLoading={!isReady && !noDataAvailable}
         estimateSize={18}
         overscan={10}
         enableVirtualization={true}

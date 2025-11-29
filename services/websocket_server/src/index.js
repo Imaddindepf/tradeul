@@ -347,6 +347,7 @@ function transformToPolygonFormat(data) {
 
 /**
  * Obtener snapshot inicial desde Redis
+ * Con fallback a cache completo cuando las categorías no existen
  */
 async function getInitialSnapshot(listName) {
   try {
@@ -355,23 +356,45 @@ async function getInitialSnapshot(listName) {
       const cached = lastSnapshots.get(listName);
       const age = Date.now() - new Date(cached.timestamp).getTime();
 
-      // Si es reciente (< 1 minuto), usarlo
-      if (age < 60000) {
+      // Si es reciente (< 5 minutos), usarlo
+      if (age < 300000) {
         logger.debug({ listName, age_ms: age }, "Using cached snapshot");
         return cached;
       }
     }
 
-    // Obtener desde Redis
+    // Obtener desde Redis (categoría específica)
     const key = `scanner:category:${listName}`;
-    const data = await redisCommands.get(key);
+    let data = await redisCommands.get(key);
+    let rows = null;
+    let source = "category";
 
-    if (!data) {
-      logger.warn({ listName }, "No snapshot found in Redis");
-      return null;
+    if (data) {
+      rows = JSON.parse(data);
+    } else {
+      // FALLBACK: Intentar obtener del cache completo
+      logger.info({ listName }, "Category not found, trying complete cache fallback");
+      
+      const lastScanData = await redisCommands.get("scanner:filtered_complete:LAST");
+      if (lastScanData) {
+        const parsed = JSON.parse(lastScanData);
+        const allTickers = parsed.tickers || [];
+        
+        // Filtrar por categoría usando lógica similar al scanner
+        rows = filterTickersByCategory(allTickers, listName);
+        source = "fallback";
+        
+        logger.info(
+          { listName, totalTickers: allTickers.length, filtered: rows.length },
+          "📸 Using fallback from complete cache"
+        );
+      }
     }
 
-    const rows = JSON.parse(data);
+    if (!rows || rows.length === 0) {
+      logger.warn({ listName }, "No snapshot found in Redis (category or fallback)");
+      return null;
+    }
 
     // Obtener sequence number
     const sequenceKey = `scanner:sequence:${listName}`;
@@ -384,13 +407,14 @@ async function getInitialSnapshot(listName) {
       rows,
       timestamp: new Date().toISOString(),
       count: rows.length,
+      source, // Para debug
     };
 
     // Guardar en cache
     lastSnapshots.set(listName, snapshot);
 
     logger.info(
-      { listName, sequence: snapshot.sequence, count: rows.length },
+      { listName, sequence: snapshot.sequence, count: rows.length, source },
       "📸 Retrieved snapshot from Redis"
     );
 
@@ -398,6 +422,92 @@ async function getInitialSnapshot(listName) {
   } catch (err) {
     logger.error({ err, listName }, "Error getting snapshot");
     return null;
+  }
+}
+
+/**
+ * Filtrar tickers por categoría (fallback cuando categorías no existen)
+ */
+function filterTickersByCategory(tickers, listName) {
+  const MAX_PER_CATEGORY = 100;
+  
+  switch (listName) {
+    case "gappers_up":
+      return tickers
+        .filter(t => t.gap_percent > 0)
+        .sort((a, b) => (b.gap_percent || 0) - (a.gap_percent || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "gappers_down":
+      return tickers
+        .filter(t => t.gap_percent < 0)
+        .sort((a, b) => (a.gap_percent || 0) - (b.gap_percent || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "momentum_up":
+      return tickers
+        .filter(t => t.change_percent > 0)
+        .sort((a, b) => (b.change_percent || 0) - (a.change_percent || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "momentum_down":
+      return tickers
+        .filter(t => t.change_percent < 0)
+        .sort((a, b) => (a.change_percent || 0) - (b.change_percent || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "winners":
+      return tickers
+        .filter(t => t.change_percent > 5)
+        .sort((a, b) => (b.change_percent || 0) - (a.change_percent || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "losers":
+      return tickers
+        .filter(t => t.change_percent < -5)
+        .sort((a, b) => (a.change_percent || 0) - (b.change_percent || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "high_volume":
+      return tickers
+        .filter(t => t.rvol > 2)
+        .sort((a, b) => (b.rvol || 0) - (a.rvol || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "new_highs":
+      return tickers
+        .filter(t => t.price_from_high !== null && t.price_from_high >= -1)
+        .sort((a, b) => (b.price_from_high || -100) - (a.price_from_high || -100))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "new_lows":
+      return tickers
+        .filter(t => t.price_from_low !== null && t.price_from_low <= 1)
+        .sort((a, b) => (a.price_from_low || 100) - (b.price_from_low || 100))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "anomalies":
+      return tickers
+        .filter(t => t.rvol > 5 || Math.abs(t.change_percent || 0) > 10)
+        .sort((a, b) => (b.rvol || 0) - (a.rvol || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    case "reversals":
+      return tickers
+        .filter(t => {
+          const priceFromHigh = t.price_from_intraday_high || t.price_from_high;
+          const priceFromLow = t.price_from_intraday_low || t.price_from_low;
+          return (priceFromHigh !== null && priceFromHigh < -5) || 
+                 (priceFromLow !== null && priceFromLow > 5);
+        })
+        .sort((a, b) => Math.abs(b.change_percent || 0) - Math.abs(a.change_percent || 0))
+        .slice(0, MAX_PER_CATEGORY);
+    
+    default:
+      // Para categorías desconocidas, devolver top por score
+      return tickers
+        .sort((a, b) => (b.score || 0) - (a.score || 0))
+        .slice(0, MAX_PER_CATEGORY);
   }
 }
 

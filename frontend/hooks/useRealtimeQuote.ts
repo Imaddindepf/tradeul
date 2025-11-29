@@ -20,6 +20,10 @@ export interface QuoteData {
   spreadPercent: number;
   timestamp: string;
   lastUpdate: Date;
+  // Calculated change fields (from prevClose)
+  prevClose?: number;
+  change?: number;
+  changePercent?: number;
   // Métricas de latencia
   _latency?: {
     polygonTs: number;    // Timestamp original de Polygon (Unix MS)
@@ -47,6 +51,8 @@ interface QuoteMessage {
 // Singleton Quote Manager (comparte conexión WS)
 // ============================================================================
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 class QuoteManager {
   private static instance: QuoteManager | null = null;
   private ws: WebSocket | null = null;
@@ -54,19 +60,139 @@ class QuoteManager {
   private isConnected = false;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
-  
+
   // Suscripciones: symbol → Set<callback>
   private subscriptions = new Map<string, Set<(quote: QuoteData) => void>>();
-  
+
   // Cache del último quote por símbolo
   private lastQuotes = new Map<string, QuoteData>();
-  
+
+  // Cache de prevClose por símbolo (para calcular cambio %)
+  private prevCloseCache = new Map<string, number>();
+
+  // Cache de snapshots (para fallback cuando no hay quotes)
+  private snapshotCache = new Map<string, QuoteData>();
+  private snapshotFetching = new Set<string>(); // Evitar múltiples requests simultáneos
+
   // Subject para quotes
   private quotesSubject = new Subject<QuoteMessage>();
-  
+
   private debug = false;
 
-  private constructor() {}
+  private constructor() { }
+
+  // Fetch prevClose from lightweight prev-day endpoint
+  private async fetchPrevClose(symbol: string): Promise<number | null> {
+    // Check cache first
+    if (this.prevCloseCache.has(symbol)) {
+      return this.prevCloseCache.get(symbol)!;
+    }
+
+    try {
+      // Use lightweight prev-close endpoint (just 1 OHLC bar)
+      const res = await fetch(`${API_URL}/api/v1/ticker/${symbol}/prev-close`);
+      if (res.ok) {
+        const data = await res.json();
+        const prevClose = data.close || data.c;
+        if (prevClose) {
+          this.prevCloseCache.set(symbol, prevClose);
+          return prevClose;
+        }
+      }
+    } catch (e) {
+      // Silently fail - prevClose is optional
+    }
+    return null;
+  }
+
+  // Fetch snapshot as fallback when no quotes are available
+  private async fetchSnapshot(symbol: string): Promise<QuoteData | null> {
+    // Check if already fetching
+    if (this.snapshotFetching.has(symbol)) {
+      return null;
+    }
+
+    // Check cache first (snapshots are cached for 5 minutes on backend)
+    const cached = this.snapshotCache.get(symbol);
+    if (cached) {
+      const age = Date.now() - cached.lastUpdate.getTime();
+      if (age < 60000) { // Use cached snapshot if less than 1 minute old
+        return cached;
+      }
+    }
+
+    this.snapshotFetching.add(symbol);
+
+    try {
+      const res = await fetch(`${API_URL}/api/v1/ticker/${symbol}/snapshot`);
+      if (!res.ok) {
+        return null;
+      }
+
+      const data = await res.json();
+      const snapshot = data.ticker;
+
+      if (!snapshot || !snapshot.lastQuote) {
+        return null;
+      }
+
+      const lastQuote = snapshot.lastQuote;
+      const bidPrice = lastQuote.p || 0;
+      const askPrice = lastQuote.P || 0;
+      const bidSize = (lastQuote.s || 0) * 100; // Convert lots to shares
+      const askSize = (lastQuote.S || 0) * 100;
+
+      if (bidPrice === 0 || askPrice === 0) {
+        return null;
+      }
+
+      const midPrice = (bidPrice + askPrice) / 2;
+      const prevClose = snapshot.prevDay?.c || null;
+
+      // Calculate change if we have prevClose
+      let change: number | undefined;
+      let changePercent: number | undefined;
+      if (prevClose && prevClose > 0) {
+        change = midPrice - prevClose;
+        changePercent = ((midPrice - prevClose) / prevClose) * 100;
+        // Cache prevClose for future use
+        this.prevCloseCache.set(symbol, prevClose);
+      }
+
+      const quote: QuoteData = {
+        symbol,
+        bidPrice,
+        bidSize,
+        askPrice,
+        askSize,
+        midPrice,
+        spread: askPrice - bidPrice,
+        spreadPercent: ((askPrice - bidPrice) / askPrice) * 100,
+        timestamp: lastQuote.t?.toString() || Date.now().toString(),
+        lastUpdate: new Date(),
+        prevClose,
+        change,
+        changePercent,
+        // No latency metrics for snapshot (not real-time)
+      };
+
+      // Cache snapshot
+      this.snapshotCache.set(symbol, quote);
+
+      if (this.debug) {
+        console.log(`📊 [QuoteManager] Fetched snapshot for ${symbol}: bid=${bidPrice}, ask=${askPrice}`);
+      }
+
+      return quote;
+    } catch (e) {
+      if (this.debug) {
+        console.error(`📊 [QuoteManager] Error fetching snapshot for ${symbol}:`, e);
+      }
+      return null;
+    } finally {
+      this.snapshotFetching.delete(symbol);
+    }
+  }
 
   static getInstance(): QuoteManager {
     if (!QuoteManager.instance) {
@@ -96,7 +222,7 @@ class QuoteManager {
         if (this.debug) console.log('📊 [QuoteManager] Connected');
         this.isConnected = true;
         this.startHeartbeat();
-        
+
         // Re-suscribir a todos los símbolos activos
         this.subscriptions.forEach((_, symbol) => {
           this.sendSubscribe(symbol);
@@ -106,7 +232,7 @@ class QuoteManager {
       this.ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          
+
           if (message.type === 'quote') {
             this.handleQuote(message as QuoteMessage);
           }
@@ -133,7 +259,19 @@ class QuoteManager {
 
   private handleQuote(message: QuoteMessage) {
     const { symbol, data, timestamp } = message;
-    
+
+    // Get prevClose from cache
+    const prevClose = this.prevCloseCache.get(symbol);
+    const midPrice = (data.bidPrice + data.askPrice) / 2;
+
+    // Calculate change if we have prevClose
+    let change: number | undefined;
+    let changePercent: number | undefined;
+    if (prevClose && prevClose > 0) {
+      change = midPrice - prevClose;
+      changePercent = ((midPrice - prevClose) / prevClose) * 100;
+    }
+
     const quote: QuoteData = {
       symbol,
       bidPrice: data.bidPrice,
@@ -142,11 +280,15 @@ class QuoteManager {
       askSize: data.askSize,
       bidExchange: data.bidExchange,
       askExchange: data.askExchange,
-      midPrice: (data.bidPrice + data.askPrice) / 2,
+      midPrice,
       spread: data.askPrice - data.bidPrice,
       spreadPercent: ((data.askPrice - data.bidPrice) / data.askPrice) * 100,
       timestamp: data.timestamp,
       lastUpdate: new Date(),
+      // Change fields
+      prevClose,
+      change,
+      changePercent,
       // Pasar métricas de latencia si existen
       _latency: (data as any)._latency,
     };
@@ -166,18 +308,25 @@ class QuoteManager {
 
   subscribe(symbol: string, callback: (quote: QuoteData) => void): () => void {
     const symbolUpper = symbol.toUpperCase();
-    
+
     if (!this.subscriptions.has(symbolUpper)) {
       this.subscriptions.set(symbolUpper, new Set());
-      
+
       // Es el primer suscriptor, enviar subscribe al servidor
       if (this.isConnected) {
         this.sendSubscribe(symbolUpper);
       }
+
+      // Fetch prevClose in background (lightweight endpoint)
+      this.fetchPrevClose(symbolUpper).then(prevClose => {
+        if (this.debug && prevClose) {
+          console.log(`📊 [QuoteManager] Got prevClose for ${symbolUpper}: $${prevClose}`);
+        }
+      });
     }
-    
+
     this.subscriptions.get(symbolUpper)!.add(callback);
-    
+
     if (this.debug) {
       console.log(`📊 [QuoteManager] Subscribed to ${symbolUpper} (${this.subscriptions.get(symbolUpper)!.size} listeners)`);
     }
@@ -186,6 +335,21 @@ class QuoteManager {
     const lastQuote = this.lastQuotes.get(symbolUpper);
     if (lastQuote) {
       callback(lastQuote);
+    } else {
+      // No hay quote disponible, intentar obtener snapshot como fallback
+      this.fetchSnapshot(symbolUpper).then(snapshotQuote => {
+        if (snapshotQuote) {
+          // Guardar snapshot como último quote
+          this.lastQuotes.set(symbolUpper, snapshotQuote);
+          // Notificar al callback
+          callback(snapshotQuote);
+          // Notificar a todos los suscriptores
+          const callbacks = this.subscriptions.get(symbolUpper);
+          if (callbacks) {
+            callbacks.forEach(cb => cb(snapshotQuote));
+          }
+        }
+      });
     }
 
     // Retornar función de limpieza
@@ -193,15 +357,15 @@ class QuoteManager {
       const callbacks = this.subscriptions.get(symbolUpper);
       if (callbacks) {
         callbacks.delete(callback);
-        
+
         if (callbacks.size === 0) {
           this.subscriptions.delete(symbolUpper);
-          
+
           // Era el último suscriptor, enviar unsubscribe
           if (this.isConnected) {
             this.sendUnsubscribe(symbolUpper);
           }
-          
+
           if (this.debug) {
             console.log(`📊 [QuoteManager] Last listener removed for ${symbolUpper}`);
           }
@@ -212,7 +376,7 @@ class QuoteManager {
 
   subscribeMultiple(symbols: string[], callback: (quote: QuoteData) => void): () => void {
     const unsubscribes = symbols.map(symbol => this.subscribe(symbol, callback));
-    
+
     return () => {
       unsubscribes.forEach(unsub => unsub());
     };
@@ -256,7 +420,7 @@ class QuoteManager {
 
   private scheduleReconnect() {
     if (this.reconnectTimeout) return;
-    
+
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
       if (this.debug) console.log('📊 [QuoteManager] Reconnecting...');
