@@ -1,6 +1,8 @@
 """
 Cargador de Universo de Tickers desde Polygon
 Obtiene todos los tickers activos de US stocks y los sincroniza con Redis y TimescaleDB
+
+NOTA: Usa http_clients.polygon con connection pooling.
 """
 
 import asyncio
@@ -8,12 +10,12 @@ import sys
 from datetime import datetime, date
 from typing import List, Dict, Any, Optional
 import structlog
-import httpx
 from pydantic import BaseModel
 
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.config.settings import settings
+from http_clients import http_clients
 
 
 logger = structlog.get_logger()
@@ -81,104 +83,85 @@ class TickerUniverseLoader:
         next_url = None
         page = 1
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            while True:
-                try:
-                    if next_url:
-                        # Polygon devuelve next_url relativo (sin host)
-                        # Ejemplo: "/v3/reference/tickers?cursor=..."
-                        if next_url.startswith('http'):
-                            # Ya es URL completa
-                            url = f"{next_url}&apiKey={self.api_key}"
-                        else:
-                            # Es path relativo
-                            url = f"{self.base_url}{next_url}&apiKey={self.api_key}"
+        # Usar cliente Polygon con connection pooling
+        while True:
+            try:
+                if next_url:
+                    # Polygon devuelve next_url relativo (sin host)
+                    # Ejemplo: "/v3/reference/tickers?cursor=..."
+                    if next_url.startswith('http'):
+                        # Ya es URL completa - extraer path
+                        endpoint = next_url.replace("https://api.polygon.io", "")
                     else:
-                        # Primera request
-                        url = (
-                            f"{self.base_url}/v3/reference/tickers"
-                            f"?market={self.market}"
-                            f"&locale={self.locale}"
-                            f"&active={'true' if self.active_only else 'false'}"
-                            f"&limit={self.limit}"
-                            f"&apiKey={self.api_key}"
-                        )
-                    
-                    logger.debug(
-                        "fetching_page",
-                        page=page,
-                        url=url.replace(self.api_key, "***")
+                        # Es path relativo
+                        endpoint = next_url
+                else:
+                    # Primera request
+                    endpoint = (
+                        f"/v3/reference/tickers"
+                        f"?market={self.market}"
+                        f"&locale={self.locale}"
+                        f"&active={'true' if self.active_only else 'false'}"
+                        f"&limit={self.limit}"
                     )
-                    
-                    response = await client.get(url)
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    # Procesar resultados
-                    results = data.get("results", [])
-                    if not results:
-                        break
-                    
-                    for ticker_data in results:
-                        try:
-                            ticker = PolygonTicker(**ticker_data)
-                            all_tickers.append(ticker)
-                        except Exception as e:
-                            logger.warning(
-                                "invalid_ticker_data",
-                                ticker_data=ticker_data,
-                                error=str(e)
-                            )
-                    
-                    logger.info(
-                        "page_fetched",
-                        page=page,
-                        tickers_in_page=len(results),
-                        total_so_far=len(all_tickers)
-                    )
-                    
-                    # Verificar si hay más páginas
-                    next_url = data.get("next_url")
-                    if not next_url:
-                        break
-                    
-                    page += 1
-                    
-                    # Rate limiting: 5 requests per second
-                    await asyncio.sleep(0.2)
-                    
-                except httpx.HTTPError as e:
-                    logger.error(
-                        "http_error_fetching_tickers",
-                        page=page,
-                        error=str(e)
-                    )
-                    # NO romper - intentar siguiente página después de esperar
-                    if page > 30:  # Límite de seguridad
-                        logger.error("max_pages_exceeded", pages=30)
-                        break
-                    await asyncio.sleep(5)  # Esperar antes de continuar
-                    # Continuar con siguiente página (si existe next_url)
-                    if next_url:
-                        continue
-                    else:
-                        break
                 
-                except Exception as e:
-                    logger.error(
-                        "error_fetching_tickers",
-                        page=page,
-                        error=str(e)
-                    )
-                    # NO romper - intentar siguiente página
-                    if page > 30:
-                        logger.error("max_pages_exceeded", pages=30)
-                        break
-                    await asyncio.sleep(5)
-                    if next_url:
-                        continue
-                    else:
-                        break
+                logger.debug(
+                    "fetching_page",
+                    page=page,
+                    endpoint=endpoint
+                )
+                
+                # Usar cliente compartido
+                data = await http_clients.polygon.get(endpoint)
+                
+                if not data:
+                    logger.warning("no_data_from_polygon", page=page)
+                    break
+                
+                # Procesar resultados
+                results = data.get("results", [])
+                if not results:
+                    break
+                
+                for ticker_data in results:
+                    try:
+                        ticker = PolygonTicker(**ticker_data)
+                        all_tickers.append(ticker)
+                    except Exception as e:
+                        logger.warning(
+                            "invalid_ticker_data",
+                            ticker_data=ticker_data,
+                            error=str(e)
+                        )
+                
+                logger.info(
+                    "page_fetched",
+                    page=page,
+                    tickers_in_page=len(results),
+                    total_so_far=len(all_tickers)
+                )
+                
+                # Verificar si hay más páginas
+                next_url = data.get("next_url")
+                if not next_url:
+                    break
+                
+                page += 1
+                
+                # Rate limiting: 5 requests per second
+                await asyncio.sleep(0.2)
+                
+            except Exception as e:
+                logger.error(
+                    "error_fetching_tickers",
+                    page=page,
+                    error=str(e)
+                )
+                # NO romper - intentar siguiente página después de esperar
+                if page > 30:  # Límite de seguridad
+                    logger.error("max_pages_exceeded", pages=30)
+                    break
+                await asyncio.sleep(5)  # Esperar antes de continuar
         
         logger.info(
             "fetch_completed",

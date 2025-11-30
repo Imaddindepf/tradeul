@@ -2,13 +2,14 @@
 Historical Loader
 Loads historical and reference data from FMP API using BATCH endpoints
 Caches in Redis and persists to TimescaleDB
+
+NOTA: Usa http_clients.fmp con connection pooling.
 """
 
 import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-import httpx
 
 import sys
 sys.path.append('/app')
@@ -23,6 +24,7 @@ from shared.models.fmp import (
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -300,27 +302,22 @@ class HistoricalLoader:
         Endpoint: /api/v3/available-traded/list
         """
         try:
-            url = self.endpoints.AVAILABLE_TRADED
-            params = {"apikey": self.fmp_api_key}
+            # Usar cliente FMP con connection pooling
+            data = await http_clients.fmp.get_available_traded()
+            self.api_calls += 1
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, params=params)
-                self.api_calls += 1
+            if data:
+                # Filter US exchanges
+                us_stocks = [
+                    item for item in data
+                    if item.get("exchangeShortName") in ["NASDAQ", "NYSE", "AMEX"]
+                    and item.get("type") == "stock"
+                ]
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # Filter US exchanges
-                    us_stocks = [
-                        item for item in data
-                        if item.get("exchangeShortName") in ["NASDAQ", "NYSE", "AMEX"]
-                        and item.get("type") == "stock"
-                    ]
-                    
-                    if limit:
-                        us_stocks = us_stocks[:limit]
-                    
-                    return us_stocks
+                if limit:
+                    us_stocks = us_stocks[:limit]
+                
+                return us_stocks
             
             return []
         
@@ -338,36 +335,28 @@ class HistoricalLoader:
         
         try:
             while True:
-                url = self.endpoints.get_shares_float_url(page=page, limit=1000)
-                params = {"apikey": self.fmp_api_key}
+                # Usar cliente FMP con connection pooling
+                data = await http_clients.fmp.get_float_all(page=page, limit=1000)
+                self.api_calls += 1
                 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(url, params=params)
-                    self.api_calls += 1
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        
-                        if not data or len(data) == 0:
-                            break  # No more data
-                        
-                        # Process page
-                        for item in data:
-                            symbol = item.get("symbol")
-                            if symbol:
-                                float_data[symbol] = {
-                                    "floatShares": item.get("floatShares"),
-                                    "outstandingShares": item.get("outstandingShares"),
-                                    "freeFloat": item.get("freeFloat")
-                                }
-                        
-                        logger.info(f"Loaded float page {page}: {len(data)} items")
-                        
-                        # Continue to next page
-                        page += 1
-                        await asyncio.sleep(0.2)  # Rate limiting
-                    else:
-                        break
+                if not data or len(data) == 0:
+                    break  # No more data
+                
+                # Process page
+                for item in data:
+                    symbol = item.get("symbol")
+                    if symbol:
+                        float_data[symbol] = {
+                            "floatShares": item.get("floatShares"),
+                            "outstandingShares": item.get("outstandingShares"),
+                            "freeFloat": item.get("freeFloat")
+                        }
+                
+                logger.info(f"Loaded float page {page}: {len(data)} items")
+                
+                # Continue to next page
+                page += 1
+                await asyncio.sleep(0.2)  # Rate limiting
             
             return float_data
         
@@ -424,20 +413,16 @@ class HistoricalLoader:
     async def _fetch_batch_quotes(self, symbols: List[str]) -> Dict[str, FMPQuote]:
         """Fetch quotes for a batch of symbols (max 100)"""
         try:
-            url = self.endpoints.get_batch_quote_url(symbols)
-            params = {"apikey": self.fmp_api_key}
+            # Usar cliente FMP con connection pooling
+            data = await http_clients.fmp.get_batch_quotes(symbols)
+            self.api_calls += 1
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                self.api_calls += 1
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        item["symbol"]: FMPQuote(**item)
-                        for item in data
-                        if "symbol" in item
-                    }
+            if data:
+                return {
+                    item["symbol"]: FMPQuote(**item)
+                    for item in data
+                    if "symbol" in item
+                }
             
             return {}
         
@@ -448,20 +433,16 @@ class HistoricalLoader:
     async def _fetch_batch_profiles(self, symbols: List[str]) -> Dict[str, FMPProfile]:
         """Fetch profiles for a batch of symbols (max 100)"""
         try:
-            url = self.endpoints.get_batch_profile_url(symbols)
-            params = {"apikey": self.fmp_api_key}
+            # Usar cliente FMP con connection pooling
+            data = await http_clients.fmp.get_batch_profiles(symbols)
+            self.api_calls += 1
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                self.api_calls += 1
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        item["symbol"]: FMPProfile(**item)
-                        for item in data
-                        if "symbol" in item
-                    }
+            if data:
+                return {
+                    item["symbol"]: FMPProfile(**item)
+                    for item in data
+                    if "symbol" in item
+                }
             
             return {}
         
@@ -476,17 +457,12 @@ class HistoricalLoader:
     async def _fetch_fmp_profile(self, symbol: str) -> Optional[FMPProfile]:
         """Fetch company profile from FMP (single ticker)"""
         try:
-            url = self.endpoints.get_endpoint('PROFILE', symbol=symbol)
-            params = {"apikey": self.fmp_api_key}
+            # Usar cliente FMP con connection pooling
+            data = await http_clients.fmp.get_profile(symbol)
+            self.api_calls += 1
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                self.api_calls += 1
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if data and len(data) > 0:
-                        return FMPProfile(**data[0])
+            if data and len(data) > 0:
+                return FMPProfile(**data[0])
             
             return None
         
@@ -497,17 +473,12 @@ class HistoricalLoader:
     async def _fetch_fmp_quote(self, symbol: str) -> Optional[FMPQuote]:
         """Fetch quote from FMP (single ticker)"""
         try:
-            url = self.endpoints.get_endpoint('QUOTE', symbol=symbol)
-            params = {"apikey": self.fmp_api_key}
+            # Usar cliente FMP con connection pooling
+            data = await http_clients.fmp.get_quote(symbol)
+            self.api_calls += 1
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                self.api_calls += 1
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if data and len(data) > 0:
-                        return FMPQuote(**data[0])
+            if data and len(data) > 0:
+                return FMPQuote(**data[0])
             
             return None
         

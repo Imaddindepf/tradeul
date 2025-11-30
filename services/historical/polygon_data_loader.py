@@ -1,13 +1,14 @@
 """
 Polygon Data Loader
 Carga todos los datos históricos desde Polygon (sin depender de FMP batch)
+
+NOTA: Usa http_clients.polygon con connection pooling.
 """
 
 import asyncio
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
-import httpx
 from statistics import mean
 
 import sys
@@ -20,6 +21,7 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
 from shared.utils.polygon_helpers import normalize_ticker_for_reference_api
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -204,18 +206,12 @@ class PolygonDataLoader:
             if normalized_symbol != symbol:
                 logger.debug(f"Normalized preferred stock: {symbol} → {normalized_symbol}")
             
-            url = f"{self.base_url}/v3/reference/tickers/{normalized_symbol}"
-            params = {"apiKey": self.api_key}
+            # Usar cliente Polygon con connection pooling
+            results = await http_clients.polygon.get_ticker_details(normalized_symbol)
+            self.api_calls += 1
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                self.api_calls += 1
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    if "results" in data:
-                        return PolygonTickerDetails(**data["results"])
+            if results:
+                return PolygonTickerDetails(**results)
                     
             return None
         
@@ -234,27 +230,21 @@ class PolygonDataLoader:
             to_date = datetime.now().strftime("%Y-%m-%d")
             from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
             
-            url = (
-                f"{self.base_url}/v2/aggs/ticker/{symbol}/range/1/day/{from_date}/{to_date}"
+            # Usar cliente Polygon con connection pooling
+            data = await http_clients.polygon.get_aggregates(
+                symbol=symbol,
+                multiplier=1,
+                timespan="day",
+                from_date=from_date,
+                to_date=to_date
             )
-            params = {
-                "apiKey": self.api_key,
-                "adjusted": "true",
-                "sort": "asc"
-            }
+            self.api_calls += 1
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
-                self.api_calls += 1
+            if data and "results" in data and data["results"]:
+                volumes = [bar["v"] for bar in data["results"] if "v" in bar]
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    if "results" in data and data["results"]:
-                        volumes = [bar["v"] for bar in data["results"] if "v" in bar]
-                        
-                        if volumes:
-                            return int(mean(volumes))
+                if volumes:
+                    return int(mean(volumes))
             
             return None
         

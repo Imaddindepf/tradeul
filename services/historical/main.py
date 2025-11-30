@@ -41,6 +41,7 @@ from shared.events import (
 from historical_loader import HistoricalLoader
 from ticker_universe_loader import TickerUniverseLoader
 from polygon_data_loader import PolygonDataLoader
+from http_clients import http_clients
 
 # Configure logging
 configure_logging(service_name="historical")
@@ -368,7 +369,14 @@ async def lifespan(app: FastAPI):
     # 2. Initialize Event Bus
     event_bus = EventBus(redis_client, "historical")
     
-    # 3. Initialize loaders
+    # 3. Initialize HTTP clients with connection pooling
+    await http_clients.initialize(
+        fmp_api_key=settings.FMP_API_KEY,
+        polygon_api_key=settings.POLYGON_API_KEY
+    )
+    logger.info("http_clients_initialized_with_pooling")
+    
+    # 4. Initialize loaders
     historical_loader = HistoricalLoader(redis_client, timescale_client)
     ticker_universe_loader = TickerUniverseLoader(
         redis_client=redis_client,
@@ -381,18 +389,18 @@ async def lifespan(app: FastAPI):
         polygon_api_key=settings.POLYGON_API_KEY
     )
     
-    # 4. Register event handlers
+    # 5. Register event handlers
     event_bus.subscribe(EventType.SESSION_CHANGED, handle_session_changed)
     event_bus.subscribe(EventType.DAY_CHANGED, handle_day_changed)
     
-    # 5. Start event listener
+    # 6. Start event listener
     await event_bus.start_listening()
     logger.info("EventBus listener started")
     
-    # 6. Check data on startup (NUEVO - verificación automática)
+    # 7. Check data on startup (NUEVO - verificación automática)
     await check_and_cleanup_on_startup()
     
-    # 7. Start fallback task (última red de seguridad)
+    # 8. Start fallback task (última red de seguridad)
     fallback_task = asyncio.create_task(periodic_warmup_fallback())
     
     logger.info("Historical Service started successfully")
@@ -412,6 +420,9 @@ async def lifespan(app: FastAPI):
     
     # Stop event listener
     await event_bus.stop_listening()
+    
+    # Close HTTP clients
+    await http_clients.close()
     
     # Disconnect clients
     if timescale_client:
