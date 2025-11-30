@@ -34,6 +34,7 @@ from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
 from routers.watchlist_router import router as watchlist_router
+from http_clients import http_clients, HTTPClientManager
 
 # Configurar logger
 configure_logging(service_name="api_gateway")
@@ -47,6 +48,9 @@ redis_client: Optional[RedisClient] = None
 timescale_client: Optional[TimescaleClient] = None
 connection_manager: ConnectionManager = ConnectionManager()
 stream_broadcaster_task: Optional[asyncio.Task] = None
+
+# HTTP Clients Manager (connection pooling)
+# Acceso via: http_clients.polygon, http_clients.fmp, etc.
 
 
 # ============================================================================
@@ -75,6 +79,16 @@ async def lifespan(app: FastAPI):
     set_fmp_api_key(settings.FMP_API_KEY)
     logger.info("financials_router_configured_fmp")
     
+    # Inicializar HTTP Clients con connection pooling
+    # Esto evita crear conexiones por request - CRÍTICO para latencia
+    await http_clients.initialize(
+        polygon_api_key=settings.POLYGON_API_KEY,
+        fmp_api_key=settings.FMP_API_KEY,
+        sec_api_key=getattr(settings, 'SEC_API_IO_KEY', None),
+        elevenlabs_api_key=os.getenv("ELEVEN_LABS_API_KEY"),
+    )
+    logger.info("http_clients_initialized_with_pooling")
+    
     # Iniciar broadcaster de streams - DESACTIVADO: Ahora usamos servidor WebSocket dedicado
     # stream_broadcaster_task = asyncio.create_task(broadcast_streams())
     stream_broadcaster_task = None
@@ -93,6 +107,9 @@ async def lifespan(app: FastAPI):
             await stream_broadcaster_task
         except asyncio.CancelledError:
             pass
+    
+    # Cerrar HTTP clients (liberar conexiones)
+    await http_clients.close()
     
     if redis_client:
         await redis_client.disconnect()
@@ -298,17 +315,9 @@ async def get_filtered_tickers(
         Lista de tickers filtrados con sus métricas
     """
     try:
-        # Obtener sesión de mercado actual
-        try:
-            async with httpx.AsyncClient() as client:
-                session_response = await client.get("http://market_session:8002/api/session/current", timeout=2.0)
-                if session_response.status_code == 200:
-                    session_data = session_response.json()
-                    current_session = session_data.get('session', 'POST_MARKET')
-                else:
-                    current_session = 'POST_MARKET'
-        except:
-            current_session = 'POST_MARKET'
+        # Obtener sesión de mercado actual (usa cliente con connection pooling)
+        session_data = await http_clients.market_session.get_current_session()
+        current_session = session_data.get('session', 'POST_MARKET')
         
         # Leer desde cache del scanner (donde realmente se guardan los tickers)
         cache_key = f"scanner:filtered_complete:{current_session}"
@@ -449,25 +458,8 @@ async def search_tickers(
         Lista de tickers que coinciden con la búsqueda
     """
     try:
-        # Proxy a ticker-metadata-service
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(
-                f"http://ticker_metadata:8010/api/v1/metadata/search",
-                params={"q": q, "limit": limit}
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                logger.error(
-                    "metadata_search_error",
-                    query=q,
-                    status=response.status_code
-                )
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Search failed: {response.text}"
-                )
+        # Usa cliente con connection pooling para baja latencia
+        return await http_clients.ticker_metadata.search(q, limit)
     
     except httpx.TimeoutException:
         logger.error("metadata_search_timeout", query=q)
@@ -475,8 +467,9 @@ async def search_tickers(
     except httpx.ConnectError:
         logger.error("metadata_search_unavailable", query=q)
         raise HTTPException(status_code=503, detail="Metadata service unavailable")
-    except HTTPException:
-        raise
+    except httpx.HTTPStatusError as e:
+        logger.error("metadata_search_error", query=q, status=e.response.status_code)
+        raise HTTPException(status_code=e.response.status_code, detail=f"Search failed")
     except Exception as e:
         logger.error("metadata_search_error", query=q, error=str(e))
         raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
@@ -496,25 +489,14 @@ async def get_ticker_metadata(symbol: str):
     try:
         symbol = symbol.upper()
         
-        # Intentar obtener de ticker-metadata-service
+        # Intentar obtener de ticker-metadata-service (usa connection pooling)
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(
-                    f"http://ticker_metadata:8010/api/v1/metadata/{symbol}"
-                )
-                
-                if response.status_code == 200:
-                    logger.info("metadata_service_success", symbol=symbol)
-                    return response.json()
-                elif response.status_code == 404:
-                    # El servicio no encontró datos, usar fallback
-                    logger.info("metadata_service_404_using_fallback", symbol=symbol)
-                else:
-                    logger.warning(
-                        "metadata_service_error",
-                        symbol=symbol,
-                        status=response.status_code
-                    )
+            metadata = await http_clients.ticker_metadata.get_metadata(symbol)
+            if metadata:
+                logger.info("metadata_service_success", symbol=symbol)
+                return metadata
+            else:
+                logger.info("metadata_service_404_using_fallback", symbol=symbol)
         except httpx.TimeoutException:
             logger.warning("metadata_service_timeout", symbol=symbol)
         except httpx.ConnectError:
@@ -572,25 +554,20 @@ async def proxy_logo(url: str):
         StreamingResponse con la imagen
     """
     try:
-        # Agregar API key a la URL
-        separator = "&" if "?" in url else "?"
-        proxied_url = f"{url}{separator}apiKey={settings.POLYGON_API_KEY}"
+        # Usar cliente Polygon para proxy de logo
+        response = await http_clients.polygon.proxy_logo(url)
         
-        # Hacer request al logo
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(proxied_url)
-            
-            if response.status_code != 200:
-                raise HTTPException(status_code=404, detail="Logo not found")
-            
-            # Devolver la imagen como stream
-            return StreamingResponse(
-                iter([response.content]),
-                media_type=response.headers.get("content-type", "image/svg+xml"),
-                headers={
-                    "Cache-Control": "public, max-age=86400",  # Cache 24h
-                }
-            )
+        if response.status_code != 200:
+            raise HTTPException(status_code=404, detail="Logo not found")
+        
+        # Devolver la imagen como stream
+        return StreamingResponse(
+            iter([response.content]),
+            media_type=response.headers.get("content-type", "image/svg+xml"),
+            headers={
+                "Cache-Control": "public, max-age=86400",  # Cache 24h
+            }
+        )
     
     except HTTPException:
         raise
@@ -632,169 +609,161 @@ async def get_ticker_description(
                 logger.debug("description_cache_hit", symbol=symbol)
                 return cached
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # Parallel fetch all data sources
-            fmp_api_key = settings.FMP_API_KEY
-            polygon_api_key = settings.POLYGON_API_KEY
-            
-            # 1. Get metadata from Redis (already cached)
-            metadata = None
-            if redis_client:
-                metadata = await redis_client.get(f"metadata:ticker:{symbol}")
-            
-            # 2. Fetch FMP profile (for price, beta, CEO, etc)
-            profile_url = f"https://financialmodelingprep.com/stable/profile?symbol={symbol}&apikey={fmp_api_key}"
-            profile_resp = await client.get(profile_url)
-            profile_data = profile_resp.json()[0] if profile_resp.status_code == 200 and profile_resp.json() else {}
-            
-            # 3. Fetch FMP ratios
-            ratios_url = f"https://financialmodelingprep.com/stable/ratios?symbol={symbol}&limit=1&apikey={fmp_api_key}"
-            ratios_resp = await client.get(ratios_url)
-            ratios_data = ratios_resp.json()[0] if ratios_resp.status_code == 200 and ratios_resp.json() else {}
-            
-            # 4. Fetch analyst recommendations
-            analyst_url = f"https://financialmodelingprep.com/api/v3/analyst-stock-recommendations/{symbol}?apikey={fmp_api_key}"
-            analyst_resp = await client.get(analyst_url)
-            analyst_data = analyst_resp.json()[0] if analyst_resp.status_code == 200 and analyst_resp.json() else {}
-            
-            # 5. Fetch price targets (limit 10)
-            targets_url = f"https://financialmodelingprep.com/api/v4/price-target?symbol={symbol}&apikey={fmp_api_key}"
-            targets_resp = await client.get(targets_url)
-            targets_data = targets_resp.json()[:10] if targets_resp.status_code == 200 and targets_resp.json() else []
-            
-            # Build company info
-            company = CompanyInfo(
+        # Usar clientes HTTP con connection pooling
+        # 1. Get metadata from Redis (already cached)
+        metadata = None
+        if redis_client:
+            metadata = await redis_client.get(f"metadata:ticker:{symbol}")
+        
+        # 2. Fetch FMP profile (for price, beta, CEO, etc)
+        profile_list = await http_clients.fmp.get_profile(symbol)
+        profile_data = profile_list[0] if profile_list else {}
+        
+        # 3. Fetch FMP ratios
+        ratios_list = await http_clients.fmp.get_ratios(symbol, limit=1)
+        ratios_data = ratios_list[0] if ratios_list else {}
+        
+        # 4. Fetch analyst recommendations
+        analyst_list = await http_clients.fmp.get_analyst_recommendations(symbol)
+        analyst_data = analyst_list[0] if analyst_list else {}
+        
+        # 5. Fetch price targets (limit 10)
+        targets_list = await http_clients.fmp.get_price_targets(symbol)
+        targets_data = targets_list[:10] if targets_list else []
+        
+        # Build company info
+        company = CompanyInfo(
+            symbol=symbol,
+            name=profile_data.get("companyName") or (metadata.get("company_name") if metadata else symbol),
+            exchange=profile_data.get("exchange") or (metadata.get("exchange") if metadata else None),
+            exchangeFullName=profile_data.get("exchangeFullName"),
+            sector=profile_data.get("sector") or (metadata.get("sector") if metadata else None),
+            industry=profile_data.get("industry") or (metadata.get("industry") if metadata else None),
+            description=profile_data.get("description") or (metadata.get("description") if metadata else None),
+            ceo=profile_data.get("ceo"),
+            website=profile_data.get("website") or (metadata.get("homepage_url") if metadata else None),
+            address=profile_data.get("address"),
+            city=profile_data.get("city"),
+            state=profile_data.get("state"),
+            country=profile_data.get("country"),
+            phone=profile_data.get("phone") or (metadata.get("phone_number") if metadata else None),
+            employees=int(profile_data.get("fullTimeEmployees") or 0) if profile_data.get("fullTimeEmployees") else (metadata.get("total_employees") if metadata else None),
+            ipoDate=profile_data.get("ipoDate") or (metadata.get("list_date") if metadata else None),
+            logoUrl=profile_data.get("image") or (metadata.get("logo_url") if metadata else None),
+            iconUrl=metadata.get("icon_url") if metadata else None,
+        )
+        
+        # Build market stats
+        stats = MarketStats(
+            price=profile_data.get("price"),
+            change=profile_data.get("change"),
+            changePercent=profile_data.get("changePercentage"),
+            volume=profile_data.get("volume"),
+            avgVolume=profile_data.get("averageVolume") or (metadata.get("avg_volume_30d") if metadata else None),
+            marketCap=profile_data.get("marketCap") or (metadata.get("market_cap") if metadata else None),
+            sharesOutstanding=metadata.get("shares_outstanding") if metadata else None,
+            floatShares=metadata.get("float_shares") if metadata else None,
+            dayLow=None,  # Not in stable/profile
+            dayHigh=None,
+            yearLow=float(profile_data.get("range", "0-0").split("-")[0]) if profile_data.get("range") else None,
+            yearHigh=float(profile_data.get("range", "0-0").split("-")[1]) if profile_data.get("range") else None,
+            range52Week=profile_data.get("range"),
+            beta=profile_data.get("beta"),
+        )
+        
+        # Build valuation metrics
+        valuation = ValuationMetrics(
+            peRatio=ratios_data.get("priceToEarningsRatio"),
+            forwardPE=None,  # Need separate endpoint
+            pegRatio=ratios_data.get("priceToEarningsGrowthRatio"),
+            pbRatio=ratios_data.get("priceToBookRatio"),
+            psRatio=ratios_data.get("priceToSalesRatio"),
+            evToEbitda=ratios_data.get("enterpriseValueMultiple"),
+            evToRevenue=None,
+            enterpriseValue=None,
+        )
+        
+        # Build dividend info
+        dividend = DividendInfo(
+            trailingYield=ratios_data.get("dividendYieldPercentage"),
+            forwardYield=None,
+            payoutRatio=ratios_data.get("dividendPayoutRatio"),
+            dividendPerShare=ratios_data.get("dividendPerShare") or profile_data.get("lastDividend"),
+            exDividendDate=None,
+            dividendDate=None,
+            fiveYearAvgYield=None,
+        )
+        
+        # Build risk metrics
+        risk = RiskMetrics(
+            beta=profile_data.get("beta"),
+            shortInterest=None,  # Need separate endpoint
+            shortRatio=None,
+            shortPercentFloat=None,
+        )
+        
+        # Build analyst rating
+        analyst_rating = None
+        if analyst_data:
+            analyst_rating = AnalystRating(
                 symbol=symbol,
-                name=profile_data.get("companyName") or (metadata.get("company_name") if metadata else symbol),
-                exchange=profile_data.get("exchange") or (metadata.get("exchange") if metadata else None),
-                exchangeFullName=profile_data.get("exchangeFullName"),
-                sector=profile_data.get("sector") or (metadata.get("sector") if metadata else None),
-                industry=profile_data.get("industry") or (metadata.get("industry") if metadata else None),
-                description=profile_data.get("description") or (metadata.get("description") if metadata else None),
-                ceo=profile_data.get("ceo"),
-                website=profile_data.get("website") or (metadata.get("homepage_url") if metadata else None),
-                address=profile_data.get("address"),
-                city=profile_data.get("city"),
-                state=profile_data.get("state"),
-                country=profile_data.get("country"),
-                phone=profile_data.get("phone") or (metadata.get("phone_number") if metadata else None),
-                employees=int(profile_data.get("fullTimeEmployees") or 0) if profile_data.get("fullTimeEmployees") else (metadata.get("total_employees") if metadata else None),
-                ipoDate=profile_data.get("ipoDate") or (metadata.get("list_date") if metadata else None),
-                logoUrl=profile_data.get("image") or (metadata.get("logo_url") if metadata else None),
-                iconUrl=metadata.get("icon_url") if metadata else None,
+                date=analyst_data.get("date"),
+                analystRatingsbuy=analyst_data.get("analystRatingsbuy"),
+                analystRatingsHold=analyst_data.get("analystRatingsHold"),
+                analystRatingsSell=analyst_data.get("analystRatingsSell"),
+                analystRatingsStrongSell=analyst_data.get("analystRatingsStrongSell"),
+                analystRatingsStrongBuy=analyst_data.get("analystRatingsStrongBuy"),
             )
-            
-            # Build market stats
-            stats = MarketStats(
-                price=profile_data.get("price"),
-                change=profile_data.get("change"),
-                changePercent=profile_data.get("changePercentage"),
-                volume=profile_data.get("volume"),
-                avgVolume=profile_data.get("averageVolume") or (metadata.get("avg_volume_30d") if metadata else None),
-                marketCap=profile_data.get("marketCap") or (metadata.get("market_cap") if metadata else None),
-                sharesOutstanding=metadata.get("shares_outstanding") if metadata else None,
-                floatShares=metadata.get("float_shares") if metadata else None,
-                dayLow=None,  # Not in stable/profile
-                dayHigh=None,
-                yearLow=float(profile_data.get("range", "0-0").split("-")[0]) if profile_data.get("range") else None,
-                yearHigh=float(profile_data.get("range", "0-0").split("-")[1]) if profile_data.get("range") else None,
-                range52Week=profile_data.get("range"),
-                beta=profile_data.get("beta"),
-            )
-            
-            # Build valuation metrics
-            valuation = ValuationMetrics(
-                peRatio=ratios_data.get("priceToEarningsRatio"),
-                forwardPE=None,  # Need separate endpoint
-                pegRatio=ratios_data.get("priceToEarningsGrowthRatio"),
-                pbRatio=ratios_data.get("priceToBookRatio"),
-                psRatio=ratios_data.get("priceToSalesRatio"),
-                evToEbitda=ratios_data.get("enterpriseValueMultiple"),
-                evToRevenue=None,
-                enterpriseValue=None,
-            )
-            
-            # Build dividend info
-            dividend = DividendInfo(
-                trailingYield=ratios_data.get("dividendYieldPercentage"),
-                forwardYield=None,
-                payoutRatio=ratios_data.get("dividendPayoutRatio"),
-                dividendPerShare=ratios_data.get("dividendPerShare") or profile_data.get("lastDividend"),
-                exDividendDate=None,
-                dividendDate=None,
-                fiveYearAvgYield=None,
-            )
-            
-            # Build risk metrics
-            risk = RiskMetrics(
-                beta=profile_data.get("beta"),
-                shortInterest=None,  # Need separate endpoint
-                shortRatio=None,
-                shortPercentFloat=None,
-            )
-            
-            # Build analyst rating
-            analyst_rating = None
-            if analyst_data:
-                analyst_rating = AnalystRating(
-                    symbol=symbol,
-                    date=analyst_data.get("date"),
-                    analystRatingsbuy=analyst_data.get("analystRatingsbuy"),
-                    analystRatingsHold=analyst_data.get("analystRatingsHold"),
-                    analystRatingsSell=analyst_data.get("analystRatingsSell"),
-                    analystRatingsStrongSell=analyst_data.get("analystRatingsStrongSell"),
-                    analystRatingsStrongBuy=analyst_data.get("analystRatingsStrongBuy"),
-                )
-            
-            # Build price targets
-            price_targets = [
-                PriceTarget(
-                    symbol=symbol,
-                    publishedDate=t.get("publishedDate"),
-                    analystName=t.get("analystName"),
-                    analystCompany=t.get("analystCompany"),
-                    priceTarget=t.get("priceTarget"),
-                    adjPriceTarget=t.get("adjPriceTarget"),
-                    priceWhenPosted=t.get("priceWhenPosted"),
-                    newsTitle=t.get("newsTitle"),
-                    newsURL=t.get("newsURL"),
-                    newsPublisher=t.get("newsPublisher"),
-                )
-                for t in targets_data
-            ]
-            
-            # Calculate consensus target
-            consensus_target = None
-            target_upside = None
-            if price_targets:
-                valid_targets = [t.priceTarget for t in price_targets if t.priceTarget]
-                if valid_targets:
-                    consensus_target = sum(valid_targets) / len(valid_targets)
-                    if stats.price and consensus_target:
-                        target_upside = ((consensus_target - stats.price) / stats.price) * 100
-            
-            # Build complete description
-            description = TickerDescription(
+        
+        # Build price targets
+        price_targets = [
+            PriceTarget(
                 symbol=symbol,
-                company=company,
-                stats=stats,
-                valuation=valuation,
-                dividend=dividend,
-                risk=risk,
-                analystRating=analyst_rating,
-                priceTargets=price_targets,
-                consensusTarget=round(consensus_target, 2) if consensus_target else None,
-                targetUpside=round(target_upside, 2) if target_upside else None,
+                publishedDate=t.get("publishedDate"),
+                analystName=t.get("analystName"),
+                analystCompany=t.get("analystCompany"),
+                priceTarget=t.get("priceTarget"),
+                adjPriceTarget=t.get("adjPriceTarget"),
+                priceWhenPosted=t.get("priceWhenPosted"),
+                newsTitle=t.get("newsTitle"),
+                newsURL=t.get("newsURL"),
+                newsPublisher=t.get("newsPublisher"),
             )
-            
-            result = description.model_dump()
-            
-            # Cache result
-            if redis_client:
-                await redis_client.set(cache_key, result, ttl=cache_ttl)
-                logger.info("description_cached", symbol=symbol)
-            
-            return result
+            for t in targets_data
+        ]
+        
+        # Calculate consensus target
+        consensus_target = None
+        target_upside = None
+        if price_targets:
+            valid_targets = [t.priceTarget for t in price_targets if t.priceTarget]
+            if valid_targets:
+                consensus_target = sum(valid_targets) / len(valid_targets)
+                if stats.price and consensus_target:
+                    target_upside = ((consensus_target - stats.price) / stats.price) * 100
+        
+        # Build complete description
+        description = TickerDescription(
+            symbol=symbol,
+            company=company,
+            stats=stats,
+            valuation=valuation,
+            dividend=dividend,
+            risk=risk,
+            analystRating=analyst_rating,
+            priceTargets=price_targets,
+            consensusTarget=round(consensus_target, 2) if consensus_target else None,
+            targetUpside=round(target_upside, 2) if target_upside else None,
+        )
+        
+        result = description.model_dump()
+        
+        # Cache result
+        if redis_client:
+            await redis_client.set(cache_key, result, ttl=cache_ttl)
+            logger.info("description_cached", symbol=symbol)
+        
+        return result
     
     except HTTPException:
         raise
@@ -835,33 +804,25 @@ async def get_ticker_snapshot(
                 logger.debug("ticker_snapshot_cache_hit", symbol=symbol)
                 return cached_data
         
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # Polygon Single Ticker Snapshot endpoint
-            # GET /v2/snapshot/locale/us/markets/stocks/tickers/{ticker}
-            polygon_url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
-            params = {"apiKey": settings.POLYGON_API_KEY}
-            
-            response = await client.get(polygon_url, params=params)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Validate response structure
-            if data.get("status") != "OK":
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"Snapshot not available for {symbol}: {data.get('status')}"
-                )
-            
-            # Parse response with Pydantic model
-            snapshot_response = PolygonSingleTickerSnapshotResponse(**data)
-            
-            # Cache the response
-            if redis_client:
-                await redis_client.set(cache_key, snapshot_response.model_dump(), ttl=cache_ttl)
-                logger.info("ticker_snapshot_cached", symbol=symbol)
-            
-            return snapshot_response
+        # Usar cliente Polygon con connection pooling
+        data = await http_clients.polygon.get_snapshot(symbol)
+        
+        # Validate response structure
+        if data.get("status") != "OK":
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Snapshot not available for {symbol}: {data.get('status')}"
+            )
+        
+        # Parse response with Pydantic model
+        snapshot_response = PolygonSingleTickerSnapshotResponse(**data)
+        
+        # Cache the response
+        if redis_client:
+            await redis_client.set(cache_key, snapshot_response.model_dump(), ttl=cache_ttl)
+            logger.info("ticker_snapshot_cached", symbol=symbol)
+        
+        return snapshot_response
             
     except httpx.HTTPStatusError as e:
         logger.error("ticker_snapshot_http_error", symbol=symbol, error=str(e), status_code=e.response.status_code)
@@ -1002,29 +963,14 @@ async def proxy_news(
     Proxy para el servicio de News (Benzinga y futuras fuentes)
     """
     try:
-        params = {"limit": limit}
-        if ticker:
-            params["ticker"] = ticker
-        if channels:
-            params["channels"] = channels
-        if tags:
-            params["tags"] = tags
-        if author:
-            params["author"] = author
-        
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                "http://benzinga-news:8015/api/v1/news",
-                params=params
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Benzinga news service error: {response.text}"
-                )
+        # Usar cliente con connection pooling
+        return await http_clients.benzinga_news.get_news(
+            ticker=ticker,
+            channels=channels,
+            tags=tags,
+            author=author,
+            limit=limit
+        )
     
     except httpx.TimeoutException:
         logger.error("news_service_timeout")
@@ -1032,8 +978,8 @@ async def proxy_news(
     except httpx.ConnectError:
         logger.error("news_service_unavailable")
         raise HTTPException(status_code=503, detail="News service unavailable")
-    except HTTPException:
-        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Benzinga news service error")
     except Exception as e:
         logger.error("news_service_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -1043,25 +989,14 @@ async def proxy_news(
 async def proxy_news_latest(limit: int = Query(50, ge=1, le=200)):
     """Proxy para las últimas noticias"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                "http://benzinga-news:8015/api/v1/news/latest",
-                params={"limit": limit}
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=response.text
-                )
+        # Usar cliente con connection pooling
+        return await http_clients.benzinga_news.get_latest(limit)
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Service timeout")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Service unavailable")
-    except HTTPException:
-        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Service error")
     except Exception as e:
         logger.error("benzinga_latest_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -1071,25 +1006,14 @@ async def proxy_news_latest(limit: int = Query(50, ge=1, le=200)):
 async def proxy_news_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=200)):
     """Proxy para noticias por ticker"""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"http://benzinga-news:8015/api/v1/news/ticker/{ticker}",
-                params={"limit": limit}
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=response.text
-                )
+        # Usar cliente con connection pooling
+        return await http_clients.benzinga_news.get_by_ticker(ticker, limit)
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Service timeout")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail="Service unavailable")
-    except HTTPException:
-        raise
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Service error")
     except Exception as e:
         logger.error("news_ticker_error", error=str(e), ticker=ticker)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1210,45 +1134,27 @@ async def get_ipos(
                     "cache_ttl_hours": 24
                 }
         
-        # Fetch from Polygon API
-        polygon_url = "https://api.polygon.io/vX/reference/ipos"
-        params = {
-            "limit": 1000,  # Get max to cache
-            "order": "desc",
-            "sort": "listing_date",
-            "apiKey": settings.POLYGON_API_KEY
-        }
-        
+        # Fetch from Polygon API usando cliente con connection pooling
         all_results = []
-        next_url = None
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # First request
-            response = await client.get(polygon_url, params=params)
-            response.raise_for_status()
-            data = response.json()
+        # First request
+        data = await http_clients.polygon.get_ipos(limit=1000)
+        
+        if data.get("results"):
+            all_results.extend(data["results"])
+        
+        next_url = data.get("next_url")
+        
+        # Paginate to get more results (up to 3 pages = 3000 IPOs)
+        page_count = 1
+        while next_url and page_count < 3:
+            data = await http_clients.polygon.get_ipos_page(next_url)
             
             if data.get("results"):
                 all_results.extend(data["results"])
             
             next_url = data.get("next_url")
-            
-            # Paginate to get more results (up to 3 pages = 3000 IPOs)
-            page_count = 1
-            while next_url and page_count < 3:
-                # Add API key to next_url
-                separator = "&" if "?" in next_url else "?"
-                full_url = f"{next_url}{separator}apiKey={settings.POLYGON_API_KEY}"
-                
-                response = await client.get(full_url)
-                response.raise_for_status()
-                data = response.json()
-                
-                if data.get("results"):
-                    all_results.extend(data["results"])
-                
-                next_url = data.get("next_url")
-                page_count += 1
+            page_count += 1
         
         # Cache the full results (redis_client serializa automáticamente)
         if redis_client and all_results:
@@ -1379,55 +1285,30 @@ async def get_ipo_prospectus(
         filings = []
         search_method = "ticker"
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # First try: search by ticker
-            query = f'ticker:{ticker} AND {form_filter}'
-            response = await client.post(
-                SEC_API_S1_424B4_URL,
-                headers={
-                    "Authorization": sec_api_key,
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "query": query,
-                    "from": "0",
-                    "size": "10",
-                    "sort": [{"filedAt": {"order": "desc"}}]
-                }
-            )
-            response.raise_for_status()
-            data = response.json()
-            filings = data.get("data", [])
+        # Usar cliente SEC-API con connection pooling
+        if not http_clients.sec_api:
+            raise HTTPException(status_code=503, detail="SEC API client not initialized")
+        
+        # First try: search by ticker
+        query = f'ticker:{ticker} AND {form_filter}'
+        data = await http_clients.sec_api.search_s1_424b4(query, size=10)
+        filings = data.get("data", [])
+        
+        # Second try: if no results and issuer_name provided, search by company name
+        if not filings and issuer_name:
+            # Clean issuer name for search (remove special chars, take first meaningful words)
+            clean_name = issuer_name.replace(",", "").replace(".", "").replace("Inc", "").replace("Ltd", "").replace("Corp", "").strip()
+            # Take first 3-4 words to avoid too specific search
+            name_parts = clean_name.split()[:4]
+            search_name = " ".join(name_parts)
             
-            # Second try: if no results and issuer_name provided, search by company name
-            if not filings and issuer_name:
-                # Clean issuer name for search (remove special chars, take first meaningful words)
-                clean_name = issuer_name.replace(",", "").replace(".", "").replace("Inc", "").replace("Ltd", "").replace("Corp", "").strip()
-                # Take first 3-4 words to avoid too specific search
-                name_parts = clean_name.split()[:4]
-                search_name = " ".join(name_parts)
+            if search_name:
+                query = f'entityName:"{search_name}" AND {form_filter}'
+                logger.info("ipo_prospectus_fallback_search", ticker=ticker, search_name=search_name)
                 
-                if search_name:
-                    query = f'entityName:"{search_name}" AND {form_filter}'
-                    logger.info("ipo_prospectus_fallback_search", ticker=ticker, search_name=search_name)
-                    
-                    response = await client.post(
-                        SEC_API_S1_424B4_URL,
-                        headers={
-                            "Authorization": sec_api_key,
-                            "Content-Type": "application/json"
-                        },
-                        json={
-                            "query": query,
-                            "from": "0",
-                            "size": "10",
-                            "sort": [{"filedAt": {"order": "desc"}}]
-                        }
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-                    filings = data.get("data", [])
-                    search_method = "entity_name"
+                data = await http_clients.sec_api.search_s1_424b4(query, size=10)
+                filings = data.get("data", [])
+                search_method = "entity_name"
         
         if not filings:
             # For pending IPOs, this is expected - S-1 might not be filed yet
@@ -1543,18 +1424,18 @@ FMP_DAILY_URL = "https://financialmodelingprep.com/api/v3/historical-price-full"
 
 
 async def fetch_polygon_chunk(
-    client: httpx.AsyncClient,
     symbol: str,
     multiplier: int,
     timespan: str,
     to_date: str,
-    api_key: str,
     limit: int = 500
 ) -> tuple[List[dict], Optional[int]]:
     """
     Fetch chart data from Polygon - optimized for speed.
     Uses 50000 limit to get all data in one request.
     Returns (bars, oldest_timestamp) for lazy loading pagination.
+    
+    NOTA: Usa http_clients.polygon con connection pooling.
     """
     from datetime import datetime as dt, timedelta
     
@@ -1577,17 +1458,15 @@ async def fetch_polygon_chunk(
     
     from_date = (to_dt - timedelta(days=days_needed)).strftime("%Y-%m-%d")
     
-    url = f"{POLYGON_AGGS_URL}/{symbol}/range/{multiplier}/{timespan}/{from_date}/{to_date}"
-    params = {
-        "adjusted": "true",
-        "sort": "asc",
-        "limit": "50000",  # Max limit - get all in one request
-        "apiKey": api_key
-    }
-    
-    response = await client.get(url, params=params)
-    response.raise_for_status()
-    data = response.json()
+    # Usar cliente Polygon con connection pooling
+    data = await http_clients.polygon.get_aggregates(
+        symbol=symbol,
+        multiplier=multiplier,
+        timespan=timespan,
+        from_date=from_date,
+        to_date=to_date,
+        limit=50000  # Max limit - get all in one request
+    )
     
     results = data.get("results", [])
     
@@ -1617,24 +1496,17 @@ async def fetch_polygon_chunk(
 
 
 async def fetch_fmp_chunk(
-    client: httpx.AsyncClient,
     symbol: str,
     to_date: str,
-    api_key: str,
     limit: int = 1000
 ) -> tuple[List[dict], Optional[int]]:
     """
     Fetch a chunk of daily data from FMP.
-    """
-    url = f"{FMP_DAILY_URL}/{symbol}"
-    params = {
-        "apikey": api_key,
-        "to": to_date
-    }
     
-    response = await client.get(url, params=params)
-    response.raise_for_status()
-    raw_data = response.json()
+    NOTA: Usa http_clients.fmp con connection pooling.
+    """
+    # Usar cliente FMP con connection pooling
+    raw_data = await http_clients.fmp.get_historical_prices(symbol, to_date)
     
     historical = raw_data.get("historical", [])
     if not historical:
@@ -1750,33 +1622,23 @@ async def get_chart_data(
         oldest_time = None
         source = "unknown"
         
-        async with httpx.AsyncClient(timeout=15.0) as client:  # Shorter timeout for faster response
-            if interval == "1day":
-                # Use FMP for daily data
-                fmp_api_key = settings.FMP_API_KEY
-                if not fmp_api_key:
-                    raise HTTPException(status_code=503, detail="FMP API not configured")
-                
-                chart_data, oldest_time = await fetch_fmp_chunk(
-                    client, symbol, to_date, fmp_api_key, bars_limit
-                )
-                source = "fmp"
-            else:
-                # Use Polygon for intraday data
-                polygon_api_key = settings.POLYGON_API_KEY
-                if not polygon_api_key:
-                    raise HTTPException(status_code=503, detail="Polygon API not configured")
-                
-                chart_data, oldest_time = await fetch_polygon_chunk(
-                    client,
-                    symbol,
-                    config["polygon_multiplier"],
-                    config["polygon_timespan"],
-                    to_date,
-                    polygon_api_key,
-                    bars_limit
-                )
-                source = "polygon"
+        # Usar clientes HTTP con connection pooling (ya inicializados)
+        if interval == "1day":
+            # Use FMP for daily data
+            chart_data, oldest_time = await fetch_fmp_chunk(
+                symbol, to_date, bars_limit
+            )
+            source = "fmp"
+        else:
+            # Use Polygon for intraday data
+            chart_data, oldest_time = await fetch_polygon_chunk(
+                symbol,
+                config["polygon_multiplier"],
+                config["polygon_timespan"],
+                to_date,
+                bars_limit
+            )
+            source = "polygon"
         
         has_more = oldest_time is not None
         
@@ -1918,8 +1780,6 @@ async def websocket_scanner(websocket: WebSocket):
 # Eleven Labs TTS Proxy (para evitar CORS)
 # ============================================================================
 
-ELEVEN_LABS_API_KEY = os.getenv("ELEVEN_LABS_API_KEY", "sk_de1264233de2ce0c2dbd3303d41ba82ae52886bef15aaa1e")
-
 @app.post("/api/v1/tts/speak")
 async def text_to_speech(request: Request):
     """
@@ -1934,43 +1794,32 @@ async def text_to_speech(request: Request):
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
         
-        # Limitar texto a 500 caracteres
-        text = text[:500]
+        if not http_clients.elevenlabs:
+            raise HTTPException(status_code=503, detail="TTS service not configured")
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-                headers={
-                    "Accept": "audio/mpeg",
-                    "Content-Type": "application/json",
-                    "xi-api-key": ELEVEN_LABS_API_KEY,
-                },
-                json={
-                    "text": text,
-                    "model_id": "eleven_multilingual_v2",
-                    "language_code": language_code,  # Forzar idioma español
-                    "voice_settings": {
-                        "stability": 0.5,
-                        "similarity_boost": 0.75
-                    }
-                }
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"Eleven Labs error: {response.status_code} - {response.text}")
-                raise HTTPException(status_code=response.status_code, detail=f"TTS service error: {response.text}")
-            
-            return Response(
-                content=response.content,
-                media_type="audio/mpeg",
-                headers={
-                    "Content-Disposition": "inline",
-                    "Cache-Control": "no-cache"
-                }
-            )
+        # Usar cliente Eleven Labs con connection pooling
+        audio_content = await http_clients.elevenlabs.text_to_speech(
+            text=text,
+            voice_id=voice_id,
+            language_code=language_code
+        )
+        
+        return Response(
+            content=audio_content,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "inline",
+                "Cache-Control": "no-cache"
+            }
+        )
             
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="TTS service timeout")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Eleven Labs error: {e.response.status_code}")
+        raise HTTPException(status_code=e.response.status_code, detail="TTS service error")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"TTS error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
