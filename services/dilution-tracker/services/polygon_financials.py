@@ -1,18 +1,20 @@
 """
 Polygon Financials Service
 Obtiene financial statements desde Polygon API v1 (endpoints específicos)
+
+NOTA: Usa http_clients.polygon con connection pooling.
 """
 
 import sys
 sys.path.append('/app')
 
-import httpx
 from typing import Optional, List, Dict
 from datetime import datetime
 from decimal import Decimal
 
 from shared.utils.logger import get_logger
 from models.financial_models import FinancialStatementCreate, FinancialPeriod
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -126,32 +128,22 @@ class PolygonFinancialsService:
         timeframe: str,
         limit: int
     ) -> Optional[List[Dict]]:
-        """Fetch desde un endpoint específico de Polygon"""
-        url = f"{self.BASE_URL}/{endpoint}"
-        params = {
-            'tickers': ticker,
-            'timeframe': timeframe,
-            'limit': limit,
-            'sort': 'period_end.desc',  # Más recientes primero
-            'apiKey': self.api_key
-        }
-        
+        """Fetch desde un endpoint específico de Polygon usando cliente compartido"""
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    results = data.get('results', [])
-                    return results if results else None
-                
-                logger.warning(
-                    "polygon_endpoint_error",
-                    endpoint=endpoint,
-                    ticker=ticker,
-                    status=response.status_code
-                )
-                return None
+            # Usar cliente Polygon con connection pooling
+            # El endpoint de financials es diferente al base_url del cliente
+            data = await http_clients.polygon.get_financials(ticker, limit=limit)
+            
+            if data:
+                results = data.get('results', [])
+                return results if results else None
+            
+            logger.warning(
+                "polygon_endpoint_error",
+                endpoint=endpoint,
+                ticker=ticker
+            )
+            return None
                 
         except Exception as e:
             logger.error(

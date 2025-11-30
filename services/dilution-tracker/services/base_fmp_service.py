@@ -1,14 +1,16 @@
 """
 Base FMP Service
 Cliente base para todas las integraciones con Financial Modeling Prep API
+
+NOTA: Usa http_clients.fmp con connection pooling para mejor rendimiento.
 """
 
 import sys
 sys.path.append('/app')
 
-import httpx
 from typing import Optional, Dict, Any, List
 from shared.utils.logger import get_logger
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -17,14 +19,13 @@ class BaseFMPService:
     """
     Servicio base para FMP API
     Maneja autenticación, rate limiting y errores comunes
-    """
     
-    BASE_URL_V3 = "https://financialmodelingprep.com/api/v3"
-    BASE_URL_V4 = "https://financialmodelingprep.com/api/v4"
+    NOTA: Usa cliente HTTP compartido con connection pooling
+    """
     
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.timeout = 30.0
+        # El cliente HTTP compartido se inicializa en el lifespan de FastAPI
     
     async def _get(
         self,
@@ -33,7 +34,7 @@ class BaseFMPService:
         version: str = "v3"
     ) -> Optional[Any]:
         """
-        Hacer GET request a FMP API
+        Hacer GET request a FMP API usando cliente compartido
         
         Args:
             endpoint: Endpoint (sin base URL)
@@ -43,56 +44,8 @@ class BaseFMPService:
         Returns:
             Response JSON o None si falla
         """
-        base_url = self.BASE_URL_V4 if version == "v4" else self.BASE_URL_V3
-        url = f"{base_url}/{endpoint}"
-        
-        # Agregar API key a params
-        if params is None:
-            params = {}
-        params['apikey'] = self.api_key
-        
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # FMP a veces retorna {"Error Message": "..."}
-                    if isinstance(data, dict) and "Error Message" in data:
-                        logger.warning(
-                            "fmp_error_response",
-                            endpoint=endpoint,
-                            error=data["Error Message"]
-                        )
-                        return None
-                    
-                    logger.debug("fmp_success", endpoint=endpoint)
-                    return data
-                
-                elif response.status_code == 429:
-                    logger.warning("fmp_rate_limited", endpoint=endpoint)
-                    return None
-                
-                elif response.status_code == 404:
-                    logger.warning("fmp_not_found", endpoint=endpoint)
-                    return None
-                
-                else:
-                    logger.error(
-                        "fmp_error",
-                        endpoint=endpoint,
-                        status_code=response.status_code
-                    )
-                    return None
-                    
-        except httpx.TimeoutException:
-            logger.error("fmp_timeout", endpoint=endpoint)
-            return None
-        
-        except Exception as e:
-            logger.error("fmp_exception", endpoint=endpoint, error=str(e))
-            return None
+        # Usar cliente FMP compartido con connection pooling
+        return await http_clients.fmp.get(endpoint, params, version)
     
     async def _batch_get(
         self,

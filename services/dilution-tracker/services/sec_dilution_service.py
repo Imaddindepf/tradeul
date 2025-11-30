@@ -34,6 +34,7 @@ from models.sec_dilution_models import (
     DilutionProfileMetadata
 )
 from repositories.sec_dilution_repository import SECDilutionRepository
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -431,36 +432,27 @@ class SECDilutionService:
             if result and result['cik']:
                 return result['cik'], result['company_name']
             
-            # Si no está en BD, usar SEC EDGAR API
+            # Si no está en BD, usar SEC EDGAR API (con cliente compartido)
             url = f"{self.SEC_EDGAR_BASE_URL}/submissions/CIK{ticker}.json"
             
-            headers = {
-                "User-Agent": "TradeulApp contact@tradeul.com"
-            }
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
-                
-                if response.status_code == 200:
-                    data = response.json()
+            content = await http_clients.sec_gov.get_filing_content(url)
+            if content:
+                try:
+                    data = json.loads(content)
                     cik = data.get('cik')
                     company_name = data.get('name')
                     return str(cik).zfill(10), company_name
+                except json.JSONDecodeError:
+                    pass
             
-            # Fallback: usar SEC company tickers JSON
-            url = "https://www.sec.gov/files/company_tickers.json"
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    for key, company in data.items():
-                        if company.get('ticker') == ticker:
-                            cik = str(company.get('cik_str')).zfill(10)
-                            company_name = company.get('title')
-                            return cik, company_name
+            # Fallback: usar SEC company tickers JSON (con cliente compartido)
+            data = await http_clients.sec_gov.get_company_tickers()
+            if data:
+                for key, company in data.items():
+                    if company.get('ticker') == ticker:
+                        cik = str(company.get('cik_str')).zfill(10)
+                        company_name = company.get('title')
+                        return cik, company_name
             
             return None, None
             
@@ -528,42 +520,35 @@ class SECDilutionService:
             while len(all_filings) < max_filings:
                 query["from"] = str(from_index)
                 
-                params = {"token": sec_api_key}
+                # Usar cliente SEC-API con connection pooling
+                data = await http_clients.sec_api.query_api(query) if http_clients.sec_api else None
                 
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        f"{base_url}",
-                        params=params,
-                        json=query
-                    )
-                    
-                    if response.status_code != 200:
-                        logger.warning("sec_api_io_error", ticker=ticker, status=response.status_code, body=response.text[:200])
-                        break
-                    
-                    data = response.json()
-                    filings_batch = data.get('filings', [])
-                    
-                    if not filings_batch:
-                        break
-                    
-                    # Convertir formato SEC-API.io a nuestro formato
-                    for filing in filings_batch:
-                        all_filings.append({
-                            'form_type': filing.get('formType', ''),
-                            'filing_date': filing.get('filedAt', '')[:10],  # "2024-01-01T00:00:00" -> "2024-01-01"
-                            'accession_number': filing.get('accessionNo', ''),
-                            'primary_document': '',
-                            'url': filing.get('linkToFilingDetails', filing.get('linkToTxt', ''))
-                        })
-                    
-                    logger.info("sec_api_io_batch_processed", ticker=ticker, from_index=from_index, count=len(filings_batch))
-                    
-                    # Si devuelve menos de 200, es la última página
-                    if len(filings_batch) < 200:
-                        break
-                    
-                    from_index += 200
+                if not data:
+                    logger.warning("sec_api_io_error", ticker=ticker)
+                    break
+                
+                filings_batch = data.get('filings', [])
+                
+                if not filings_batch:
+                    break
+                
+                # Convertir formato SEC-API.io a nuestro formato
+                for filing in filings_batch:
+                    all_filings.append({
+                        'form_type': filing.get('formType', ''),
+                        'filing_date': filing.get('filedAt', '')[:10],  # "2024-01-01T00:00:00" -> "2024-01-01"
+                        'accession_number': filing.get('accessionNo', ''),
+                        'primary_document': '',
+                        'url': filing.get('linkToFilingDetails', filing.get('linkToTxt', ''))
+                    })
+                
+                logger.info("sec_api_io_batch_processed", ticker=ticker, from_index=from_index, count=len(filings_batch))
+                
+                # Si devuelve menos de 200, es la última página
+                if len(filings_batch) < 200:
+                    break
+                
+                from_index += 200
             
             logger.info("sec_api_io_search_completed", ticker=ticker, total=len(all_filings))
             
@@ -613,46 +598,42 @@ class SECDilutionService:
             logger.info("fmp_filings_search_started", ticker=ticker)
             
             while page < max_pages:
-                params = {
-                    "page": page,
-                    "apikey": fmp_api_key
-                }
+                # Usar cliente FMP con connection pooling
+                filings_batch = await http_clients.fmp.get(
+                    f"sec_filings/{ticker}",
+                    params={"page": page}
+                )
                 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(base_url, params=params)
-                    
-                    if response.status_code != 200:
-                        logger.warning("fmp_api_error", ticker=ticker, page=page, status=response.status_code)
-                        break
-                    
-                    filings_batch = response.json()
-                    
-                    # Si no hay más filings, terminar
-                    if not filings_batch or len(filings_batch) == 0:
-                        break
-                    
-                    # Convertir formato FMP a nuestro formato
-                    for filing in filings_batch:
-                        # Filtrar solo desde 2010 (consistente con SEC-API)
-                        filing_date = filing.get('fillingDate', filing.get('acceptedDate', ''))
-                        if filing_date and filing_date >= '2010-01-01':
-                            # Normalizar tipo de filing (FMP usa "10K" pero necesitamos "10-K")
-                            form_type = self._normalize_form_type(filing.get('type', ''))
-                            all_filings.append({
-                                'form_type': form_type,
-                                'filing_date': filing_date,
-                                'accession_number': filing.get('accessionNumber', ''),
-                                'primary_document': '',  # FMP no lo proporciona
-                                'url': filing.get('finalLink', filing.get('link', ''))
-                            })
-                    
-                    logger.info("fmp_page_processed", ticker=ticker, page=page, filings_in_page=len(filings_batch))
-                    
-                    # Si la página devuelve menos de 100, es la última
-                    if len(filings_batch) < 100:
-                        break
-                    
-                    page += 1
+                if filings_batch is None:
+                    logger.warning("fmp_api_error", ticker=ticker, page=page)
+                    break
+                
+                # Si no hay más filings, terminar
+                if not filings_batch or len(filings_batch) == 0:
+                    break
+                
+                # Convertir formato FMP a nuestro formato
+                for filing in filings_batch:
+                    # Filtrar solo desde 2010 (consistente con SEC-API)
+                    filing_date = filing.get('fillingDate', filing.get('acceptedDate', ''))
+                    if filing_date and filing_date >= '2010-01-01':
+                        # Normalizar tipo de filing (FMP usa "10K" pero necesitamos "10-K")
+                        form_type = self._normalize_form_type(filing.get('type', ''))
+                        all_filings.append({
+                            'form_type': form_type,
+                            'filing_date': filing_date,
+                            'accession_number': filing.get('accessionNumber', ''),
+                            'primary_document': '',  # FMP no lo proporciona
+                            'url': filing.get('finalLink', filing.get('link', ''))
+                        })
+                
+                logger.info("fmp_page_processed", ticker=ticker, page=page, filings_in_page=len(filings_batch))
+                
+                # Si la página devuelve menos de 100, es la última
+                if len(filings_batch) < 100:
+                    break
+                
+                page += 1
             
             logger.info("fmp_filings_search_completed", ticker=ticker, total_filings=len(all_filings), pages=page+1)
             
@@ -672,42 +653,42 @@ class SECDilutionService:
         try:
             url = f"{self.SEC_EDGAR_BASE_URL}/submissions/CIK{cik}.json"
             
-            headers = {
-                "User-Agent": "TradeulApp contact@tradeul.com"
-            }
+            # Usar cliente SEC.gov con connection pooling
+            content = await http_clients.sec_gov.get_filing_content(url)
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers)
-                
-                if response.status_code != 200:
-                    logger.error("sec_api_error", cik=cik, status=response.status_code)
-                    return []
-                
-                data = response.json()
-                
-                filings_data = data.get('filings', {}).get('recent', {})
-                
-                if not filings_data:
-                    return []
-                
-                # Construir lista de filings
-                filings = []
-                
-                form_types = filings_data.get('form', [])
-                filing_dates = filings_data.get('filingDate', [])
-                accession_numbers = filings_data.get('accessionNumber', [])
-                primary_documents = filings_data.get('primaryDocument', [])
-                
-                for i in range(len(form_types)):
-                    filings.append({
-                        'form_type': form_types[i],
-                        'filing_date': filing_dates[i],
-                        'accession_number': accession_numbers[i],
-                        'primary_document': primary_documents[i],
-                        'url': self._construct_filing_url(cik, accession_numbers[i], primary_documents[i])
-                    })
-                
-                return filings
+            if not content:
+                logger.error("sec_api_error", cik=cik)
+                return []
+            
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                logger.error("sec_json_parse_error", cik=cik)
+                return []
+            
+            filings_data = data.get('filings', {}).get('recent', {})
+            
+            if not filings_data:
+                return []
+            
+            # Construir lista de filings
+            filings = []
+            
+            form_types = filings_data.get('form', [])
+            filing_dates = filings_data.get('filingDate', [])
+            accession_numbers = filings_data.get('accessionNumber', [])
+            primary_documents = filings_data.get('primaryDocument', [])
+            
+            for i in range(len(form_types)):
+                filings.append({
+                    'form_type': form_types[i],
+                    'filing_date': filing_dates[i],
+                    'accession_number': accession_numbers[i],
+                    'primary_document': primary_documents[i],
+                    'url': self._construct_filing_url(cik, accession_numbers[i], primary_documents[i])
+                })
+            
+            return filings
                 
         except Exception as e:
             logger.error("fetch_recent_filings_failed", cik=cik, error=str(e))
@@ -728,11 +709,7 @@ class SECDilutionService:
         """
         try:
             # Usar el browse-edgar para buscar específicamente 424B
-            url = f"https://www.sec.gov/cgi-bin/browse-edgar"
-            
-            headers = {
-                "User-Agent": "TradeulApp contact@tradeul.com"
-            }
+            url = "https://www.sec.gov/cgi-bin/browse-edgar"
             
             params = {
                 "action": "getcompany",
@@ -744,59 +721,63 @@ class SECDilutionService:
                 "output": "atom"  # Formato XML/Atom para parsear
             }
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(url, headers=headers, params=params)
+            # Construir URL con params para usar cliente SEC.gov
+            query_string = "&".join(f"{k}={v}" for k, v in params.items())
+            full_url = f"{url}?{query_string}"
+            
+            # Usar cliente SEC.gov con connection pooling
+            content = await http_clients.sec_gov.get_filing_content(full_url)
+            
+            if not content:
+                logger.warning("sec_424b_search_failed", cik=cik)
+                return []
+            
+            # Parsear XML/Atom
+            soup = BeautifulSoup(content, 'xml')
+            
+            entries = soup.find_all('entry')
+            
+            filings_424b = []
+            
+            for entry in entries:
+                # Extraer datos del entry
+                title_elem = entry.find('title')
+                updated_elem = entry.find('updated')
+                link_elem = entry.find('link', {'type': 'text/html'})
                 
-                if response.status_code != 200:
-                    logger.warning("sec_424b_search_failed", cik=cik, status=response.status_code)
-                    return []
+                if not title_elem or not link_elem:
+                    continue
                 
-                # Parsear XML/Atom
-                soup = BeautifulSoup(response.text, 'xml')
+                title = title_elem.text.strip()
+                filing_url = link_elem.get('href', '')
+                filing_date = updated_elem.text.split('T')[0] if updated_elem else None
                 
-                entries = soup.find_all('entry')
+                # Extraer tipo de form del title (ej: "424B5  - Prospectus...")
+                form_match = re.search(r'(424B\d+)', title)
+                form_type = form_match.group(1) if form_match else '424B5'
                 
-                filings_424b = []
-                
-                for entry in entries:
-                    # Extraer datos del entry
-                    title_elem = entry.find('title')
-                    updated_elem = entry.find('updated')
-                    link_elem = entry.find('link', {'type': 'text/html'})
+                # Extraer accession number y primary document de la URL
+                # URL: https://www.sec.gov/Archives/edgar/data/CIK/accession/filename.htm
+                url_parts = filing_url.split('/')
+                if len(url_parts) >= 3:
+                    accession_number = url_parts[-2] if len(url_parts) > 2 else ''
+                    primary_document = url_parts[-1] if len(url_parts) > 1 else ''
                     
-                    if not title_elem or not link_elem:
-                        continue
+                    # Convertir accession number a formato con guiones
+                    if accession_number and len(accession_number) == 18:
+                        accession_number = f"{accession_number[:10]}-{accession_number[10:12]}-{accession_number[12:]}"
                     
-                    title = title_elem.text.strip()
-                    filing_url = link_elem.get('href', '')
-                    filing_date = updated_elem.text.split('T')[0] if updated_elem else None
-                    
-                    # Extraer tipo de form del title (ej: "424B5  - Prospectus...")
-                    form_match = re.search(r'(424B\d+)', title)
-                    form_type = form_match.group(1) if form_match else '424B5'
-                    
-                    # Extraer accession number y primary document de la URL
-                    # URL: https://www.sec.gov/Archives/edgar/data/CIK/accession/filename.htm
-                    url_parts = filing_url.split('/')
-                    if len(url_parts) >= 3:
-                        accession_number = url_parts[-2] if len(url_parts) > 2 else ''
-                        primary_document = url_parts[-1] if len(url_parts) > 1 else ''
-                        
-                        # Convertir accession number a formato con guiones
-                        if accession_number and len(accession_number) == 18:
-                            accession_number = f"{accession_number[:10]}-{accession_number[10:12]}-{accession_number[12:]}"
-                        
-                        filings_424b.append({
-                            'form_type': form_type,
-                            'filing_date': filing_date,
-                            'accession_number': accession_number,
-                            'primary_document': primary_document,
-                            'url': filing_url
-                        })
-                
-                logger.info("424b_search_completed", cik=cik, found=len(filings_424b))
-                
-                return filings_424b
+                    filings_424b.append({
+                        'form_type': form_type,
+                        'filing_date': filing_date,
+                        'accession_number': accession_number,
+                        'primary_document': primary_document,
+                        'url': filing_url
+                    })
+            
+            logger.info("424b_search_completed", cik=cik, found=len(filings_424b))
+            
+            return filings_424b
                 
         except Exception as e:
             logger.error("fetch_424b_filings_failed", cik=cik, error=str(e))
