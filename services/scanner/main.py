@@ -34,6 +34,7 @@ from shared.events import EventBus, EventType, Event
 
 from scanner_engine import ScannerEngine
 from scanner_categories import ScannerCategory
+from http_clients import http_clients
 
 # Configure logging
 configure_logging(service_name="scanner")
@@ -148,6 +149,13 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient()
     await timescale_client.connect()
     
+    # Initialize HTTP clients with connection pooling
+    await http_clients.initialize(
+        market_session_host=settings.market_session_host,
+        market_session_port=settings.market_session_port
+    )
+    logger.info("http_clients_initialized_with_pooling")
+    
     # 🔥 Initialize Redis Stream Manager (auto-trimming)
     stream_manager = initialize_stream_manager(redis_client)
     await stream_manager.start()
@@ -203,6 +211,9 @@ async def lifespan(app: FastAPI):
     stream_manager = get_stream_manager()
     await stream_manager.stop()
     logger.info("✅ RedisStreamManager stopped")
+    
+    # Close HTTP clients
+    await http_clients.close()
     
     if timescale_client:
         await timescale_client.disconnect()

@@ -2,6 +2,8 @@
 Scanner Engine
 Core scanning logic: combines real-time data with historical data,
 calculates RVOL, applies filters, and publishes results
+
+NOTA: Usa http_clients con connection pooling para llamadas HTTP.
 """
 
 import asyncio
@@ -10,7 +12,6 @@ import json
 import traceback
 from datetime import datetime, time as time_type
 from typing import Optional, List, Dict, Any, Tuple, Set
-import httpx
 
 import sys
 sys.path.append('/app')
@@ -33,6 +34,7 @@ from shared.utils.redis_stream_manager import get_stream_manager
 # Importar nuevos módulos de categorización
 from gap_calculator import GapCalculator, GapTracker
 from scanner_categories import ScannerCategorizer, ScannerCategory
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -1454,13 +1456,10 @@ class ScannerEngine:
             if session_str:
                 self.current_session = MarketSession(session_str)
             else:
-                # Fallback: HTTP si no está en Redis
-                url = f"http://{settings.market_session_host}:{settings.market_session_port}/api/session/current"
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url)
-                if response.status_code == 200:
-                    data = response.json()
-                    self.current_session = MarketSession(data["current_session"])
+                # Fallback: HTTP si no está en Redis (usando cliente compartido)
+                current_session = await http_clients.market_session.get_current_session()
+                if current_session:
+                    self.current_session = MarketSession(current_session)
         
         except Exception as e:
             logger.error("Error updating market session", error=str(e))
