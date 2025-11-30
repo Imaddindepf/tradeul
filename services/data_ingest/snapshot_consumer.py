@@ -1,12 +1,13 @@
 """
 Snapshot Consumer
 Fetches snapshots from Polygon and publishes to Redis
+
+NOTA: Usa http_clients.polygon con connection pooling para alta frecuencia.
 """
 
 import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-import httpx
 
 import sys
 sys.path.append('/app')
@@ -15,6 +16,7 @@ from shared.config.settings import settings
 from shared.models.polygon import PolygonSnapshot, PolygonSnapshotResponse
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -81,56 +83,37 @@ class SnapshotConsumer:
             raise
     
     async def _fetch_polygon_snapshot(self) -> List[PolygonSnapshot]:
-        """Fetch snapshot from Polygon API"""
+        """Fetch snapshot from Polygon API usando cliente compartido"""
         try:
-            params = {
-                "apiKey": self.api_key,
-            }
+            # Usar cliente Polygon con connection pooling
+            data = await http_clients.polygon.get_all_tickers_snapshot()
             
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(self.base_url, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # Parse response con tolerancia (no all-or-nothing)
-                    tickers_raw = data.get("tickers", [])
-                    if not isinstance(tickers_raw, list):
-                        logger.warning("Unexpected response format from Polygon")
-                        return []
-
-                    parsed: List[PolygonSnapshot] = []
-                    failed_parse_count = 0
-                    for t in tickers_raw:
-                        try:
-                            parsed.append(PolygonSnapshot(**t))
-                        except Exception:
-                            failed_parse_count += 1
-
-                    # Log estadística de parsing para detectar problemas reales de validación
-                    logger.info(
-                        "polygon_parse_stats",
-                        raw_total=len(tickers_raw),
-                        parsed=len(parsed),
-                        failed_parse=failed_parse_count
-                    )
-
-                    return parsed
-                
-                elif response.status_code == 429:
-                    logger.warning("Rate limited by Polygon API")
+            if data:
+                # Parse response con tolerancia (no all-or-nothing)
+                tickers_raw = data.get("tickers", [])
+                if not isinstance(tickers_raw, list):
+                    logger.warning("Unexpected response format from Polygon")
                     return []
-                
-                else:
-                    logger.error(
-                        "Error fetching from Polygon",
-                        status_code=response.status_code,
-                        response=response.text[:200]
-                    )
-                    return []
-        
-        except httpx.TimeoutException:
-            logger.error("Timeout fetching from Polygon")
+
+                parsed: List[PolygonSnapshot] = []
+                failed_parse_count = 0
+                for t in tickers_raw:
+                    try:
+                        parsed.append(PolygonSnapshot(**t))
+                    except Exception:
+                        failed_parse_count += 1
+
+                # Log estadística de parsing para detectar problemas reales de validación
+                logger.info(
+                    "polygon_parse_stats",
+                    raw_total=len(tickers_raw),
+                    parsed=len(parsed),
+                    failed_parse=failed_parse_count
+                )
+
+                return parsed
+            
+            # Si no hay data (rate limited o error), el cliente ya logueó
             return []
         
         except Exception as e:

@@ -17,7 +17,6 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-import httpx
 
 import sys
 sys.path.append('/app')
@@ -34,6 +33,7 @@ from shared.utils.redis_stream_manager import (
 from shared.events import EventBus, EventType, Event
 
 from snapshot_consumer import SnapshotConsumer
+from http_clients import http_clients
 
 # Configure logging
 configure_logging(service_name="data_ingest")
@@ -138,6 +138,14 @@ async def lifespan(app: FastAPI):
     await stream_manager.start()
     logger.info("✅ RedisStreamManager initialized and started")
     
+    # Initialize HTTP clients with connection pooling
+    await http_clients.initialize(
+        polygon_api_key=settings.polygon_api_key,
+        market_session_host=settings.market_session_host,
+        market_session_port=settings.market_session_port
+    )
+    logger.info("http_clients_initialized_with_pooling")
+    
     # Initialize snapshot consumer
     snapshot_consumer = SnapshotConsumer(redis_client)
     
@@ -173,6 +181,9 @@ async def lifespan(app: FastAPI):
     stream_manager = get_stream_manager()
     await stream_manager.stop()
     logger.info("✅ RedisStreamManager stopped")
+    
+    # Close HTTP clients
+    await http_clients.close()
     
     if redis_client:
         await redis_client.disconnect()
@@ -240,13 +251,10 @@ async def get_current_market_session() -> Optional[MarketSession]:
         if session_str:
             return MarketSession(session_str)
         
-        # Fallback: HTTP si no está en Redis
-        url = f"{settings.get_service_url('market_session')}/api/session/current"
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                return MarketSession(data["current_session"])
+        # Fallback: HTTP si no está en Redis (usando cliente compartido)
+        current_session = await http_clients.market_session.get_current_session()
+        if current_session:
+            return MarketSession(current_session)
     
     except Exception as e:
         logger.error("Error getting market session", error=str(e))
