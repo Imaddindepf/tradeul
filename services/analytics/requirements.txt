@@ -9,7 +9,7 @@ pydantic==2.5.0
 pydantic-settings==2.1.0
 
 # Async & HTTP
-httpx==0.25.2
+httpx[http2]==0.25.2
 aiohttp==3.9.1
 asyncio==3.4.3
 

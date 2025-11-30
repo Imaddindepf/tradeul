@@ -11,13 +11,16 @@ Características:
 
 NOTA: El reseteo por nuevo día se maneja externamente via EventBus (DAY_CHANGED).
 Este componente NO detecta días nuevos por sí mismo.
+
+NOTA: Usa http_clients.polygon con connection pooling.
 """
 
 import structlog
 from datetime import datetime, date, time
 from typing import Dict, List, Optional, Tuple
-import httpx
 import os
+
+from http_clients import http_clients
 
 logger = structlog.get_logger(__name__)
 
@@ -152,57 +155,50 @@ class IntradayTracker:
             Dict con high/low o None si falla
         """
         try:
-            url = f"https://api.polygon.io/v2/aggs/ticker/{symbol}/range/1/minute/{from_ts}/{to_ts}"
+            # Usar cliente Polygon con connection pooling
+            data = await http_clients.polygon.get_minute_aggregates(
+                symbol=symbol,
+                from_ts=from_ts,
+                to_ts=to_ts
+            )
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(url, params={
-                    "apiKey": self.polygon_api_key,
-                    "adjusted": "true",
-                    "sort": "asc"
-                })
-                
-                if resp.status_code != 200:
-                    logger.warning(
-                        "polygon_recovery_failed",
-                        symbol=symbol,
-                        status=resp.status_code
-                    )
-                    return None
-                
-                data = resp.json()
-                results = data.get("results", [])
-                
-                if not results:
-                    logger.debug("no_intraday_data", symbol=symbol)
-                    return None
-                
-                # Extraer TODOS los highs y lows
-                highs = [bar["h"] for bar in results if "h" in bar and bar["h"]]
-                lows = [bar["l"] for bar in results if "l" in bar and bar["l"]]
-                
-                if not highs or not lows:
-                    return None
-                
-                intraday_high = max(highs)
-                intraday_low = min(lows)
-                
-                # Encontrar cuándo ocurrió el máximo
-                max_bar = max(results, key=lambda x: x.get("h", 0))
-                max_time = datetime.fromtimestamp(max_bar["t"] / 1000)
-                
-                # Encontrar cuándo ocurrió el mínimo
-                min_bar = min(results, key=lambda x: x.get("l", float('inf')))
-                min_time = datetime.fromtimestamp(min_bar["t"] / 1000)
-                
-                return {
-                    "high": intraday_high,
-                    "low": intraday_low,
-                    "high_time": max_time.strftime("%H:%M:%S"),
-                    "low_time": min_time.strftime("%H:%M:%S"),
-                    "date": today.isoformat(),
-                    "recovered": True,
-                    "bars_count": len(results)
-                }
+            if not data:
+                logger.warning("polygon_recovery_failed", symbol=symbol)
+                return None
+            
+            results = data.get("results", [])
+            
+            if not results:
+                logger.debug("no_intraday_data", symbol=symbol)
+                return None
+            
+            # Extraer TODOS los highs y lows
+            highs = [bar["h"] for bar in results if "h" in bar and bar["h"]]
+            lows = [bar["l"] for bar in results if "l" in bar and bar["l"]]
+            
+            if not highs or not lows:
+                return None
+            
+            intraday_high = max(highs)
+            intraday_low = min(lows)
+            
+            # Encontrar cuándo ocurrió el máximo
+            max_bar = max(results, key=lambda x: x.get("h", 0))
+            max_time = datetime.fromtimestamp(max_bar["t"] / 1000)
+            
+            # Encontrar cuándo ocurrió el mínimo
+            min_bar = min(results, key=lambda x: x.get("l", float('inf')))
+            min_time = datetime.fromtimestamp(min_bar["t"] / 1000)
+            
+            return {
+                "high": intraday_high,
+                "low": intraday_low,
+                "high_time": max_time.strftime("%H:%M:%S"),
+                "low_time": min_time.strftime("%H:%M:%S"),
+                "date": today.isoformat(),
+                "recovered": True,
+                "bars_count": len(results)
+            }
         
         except Exception as e:
             logger.error("recovery_error", symbol=symbol, error=str(e))

@@ -31,6 +31,7 @@ from shared.events import EventBus, EventType, Event
 from rvol_calculator import RVOLCalculator
 from shared.utils.atr_calculator import ATRCalculator
 from intraday_tracker import IntradayTracker
+from http_clients import http_clients
 
 # Configurar logger
 configure_logging(service_name="analytics")
@@ -149,6 +150,10 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient()
     await timescale_client.connect()
     
+    # Initialize HTTP clients with connection pooling
+    await http_clients.initialize(polygon_api_key=settings.POLYGON_API_KEY)
+    logger.info("http_clients_initialized_with_pooling")
+    
     # Inicializar calculador de RVOL (con soporte de pre/post market)
     rvol_calculator = RVOLCalculator(
         redis_client=redis_client,
@@ -238,6 +243,9 @@ async def lifespan(app: FastAPI):
     # 🚀 FIX: Cerrar HTTP client global
     if rvol_calculator:
         await rvol_calculator.close()
+    
+    # Close HTTP clients
+    await http_clients.close()
     
     if redis_client:
         await redis_client.disconnect()
