@@ -11,7 +11,6 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import httpx
 
 import sys
 sys.path.append('/app')
@@ -28,6 +27,7 @@ from shared.events import (
 )
 
 from session_detector import SessionDetector
+from http_clients import http_clients
 
 # Configure logging
 configure_logging(service_name="market_session")
@@ -59,6 +59,10 @@ async def lifespan(app: FastAPI):
     redis_client = RedisClient()
     await redis_client.connect()
     
+    # Initialize HTTP clients with connection pooling
+    await http_clients.initialize(polygon_api_key=settings.polygon_api_key)
+    logger.info("http_clients_initialized_with_pooling")
+    
     # Initialize Event Bus
     event_bus = EventBus(redis_client, "market_session")
     
@@ -82,6 +86,9 @@ async def lifespan(app: FastAPI):
             await background_task
         except asyncio.CancelledError:
             pass
+    
+    # Close HTTP clients
+    await http_clients.close()
     
     if redis_client:
         await redis_client.disconnect()

@@ -1,13 +1,14 @@
 """
 Session Detector
 Handles market session detection and management
+
+NOTA: Usa http_clients.polygon con connection pooling.
 """
 
 import asyncio
 from datetime import datetime, date, time, timedelta
 from typing import Optional, List, Dict, Any
 import pytz
-import httpx
 from dateutil import parser as date_parser
 
 import sys
@@ -25,6 +26,7 @@ from shared.enums.market_session import MarketSession
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 from shared.events import EventBus, create_day_changed_event, create_session_changed_event
+from http_clients import http_clients
 
 logger = get_logger(__name__)
 
@@ -87,30 +89,25 @@ class SessionDetector:
             logger.info("Detected initial session", session=self.last_session)
     
     async def _load_holidays_from_polygon(self) -> None:
-        """Load market holidays from Polygon API"""
+        """Load market holidays from Polygon API usando cliente compartido"""
         try:
-            url = "https://api.polygon.io/v1/marketstatus/upcoming"
-            params = {"apiKey": settings.polygon_api_key}
+            # Usar cliente Polygon con connection pooling
+            data = await http_clients.polygon.get_upcoming_holidays()
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params)
+            if data:
+                # Parse holidays (Polygon returns dict with numeric keys)
+                from shared.models.polygon import PolygonMarketHolidaysResponse
+                holidays_response = PolygonMarketHolidaysResponse.from_dict_response(data)
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # Parse holidays (Polygon returns dict with numeric keys)
-                    from shared.models.polygon import PolygonMarketHolidaysResponse
-                    holidays_response = PolygonMarketHolidaysResponse.from_dict_response(data)
-                    
-                    # Cache holidays in Redis
-                    await self._cache_holidays(holidays_response.holidays)
-                    
-                    logger.info(
-                        "Loaded holidays from Polygon",
-                        count=len(holidays_response.holidays)
-                    )
-                else:
-                    logger.warning("Failed to load holidays from Polygon", status=response.status_code)
+                # Cache holidays in Redis
+                await self._cache_holidays(holidays_response.holidays)
+                
+                logger.info(
+                    "Loaded holidays from Polygon",
+                    count=len(holidays_response.holidays)
+                )
+            else:
+                logger.warning("Failed to load holidays from Polygon")
         
         except Exception as e:
             logger.error("Error loading holidays from Polygon", error=str(e))
@@ -283,30 +280,22 @@ class SessionDetector:
     
     async def _fetch_polygon_market_status(self):
         """
-        Fetch real-time market status from Polygon
+        Fetch real-time market status from Polygon usando cliente compartido
         Endpoint: GET /v1/marketstatus/now
         
         Returns:
             PolygonMarketStatus or None if failed
         """
         try:
-            url = "https://api.polygon.io/v1/marketstatus/now"
-            params = {"apiKey": settings.polygon_api_key}
+            # Usar cliente Polygon con connection pooling
+            data = await http_clients.polygon.get_market_status_now()
             
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url, params=params)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    from shared.models.polygon import PolygonMarketStatus as PolyStatus
-                    return PolyStatus(**data)
-                else:
-                    logger.warning(
-                        "Failed to fetch Polygon market status",
-                        status_code=response.status_code
-                    )
-                    return None
+            if data:
+                from shared.models.polygon import PolygonMarketStatus as PolyStatus
+                return PolyStatus(**data)
+            else:
+                logger.warning("Failed to fetch Polygon market status")
+                return None
         
         except Exception as e:
             logger.error("Error fetching Polygon market status", error=str(e))
