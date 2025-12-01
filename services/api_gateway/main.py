@@ -16,7 +16,7 @@ import structlog
 import httpx
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query, Request
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query, Request, Depends
 from fastapi.responses import JSONResponse, StreamingResponse, Response, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -33,8 +33,10 @@ from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
+from routes.proxy import router as proxy_router
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
+from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
 
 # Configurar logger
 configure_logging(service_name="api_gateway")
@@ -89,6 +91,14 @@ async def lifespan(app: FastAPI):
     )
     logger.info("http_clients_initialized_with_pooling")
     
+    # Inicializar Clerk JWT Verifier (pre-carga JWKS para auth)
+    if getattr(settings, 'auth_enabled', False):
+        try:
+            await clerk_jwt_verifier.initialize()
+            logger.info("clerk_jwt_verifier_initialized")
+        except Exception as e:
+            logger.warning(f"clerk_jwt_init_failed error={e} - auth will be disabled")
+    
     # Iniciar broadcaster de streams - DESACTIVADO: Ahora usamos servidor WebSocket dedicado
     # stream_broadcaster_task = asyncio.create_task(broadcast_streams())
     stream_broadcaster_task = None
@@ -140,10 +150,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Auth Middleware (PASIVO - lee token pero NO bloquea)
+# Controlado por AUTH_ENABLED env var (default: false)
+app.add_middleware(
+    PassiveAuthMiddleware,
+    enabled=getattr(settings, 'auth_enabled', False)
+)
+
 # Registrar routers
 app.include_router(user_prefs_router)
 app.include_router(financials_router)
 app.include_router(watchlist_router)
+app.include_router(proxy_router)  # Incluye endpoints de dilution, SEC filings, etc.
 
 
 # ============================================================================
@@ -270,6 +288,23 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "redis_connected": redis_client is not None,
         "timescale_connected": timescale_client is not None
+    }
+
+
+@app.get("/api/v1/auth/me")
+async def get_current_user_info(user: AuthenticatedUser = Depends(get_current_user)):
+    """
+    Endpoint de prueba para verificar autenticación.
+    Devuelve los datos del usuario autenticado.
+    """
+    return {
+        "authenticated": True,
+        "user_id": user.id,
+        "email": user.email,
+        "name": user.display_name,
+        "is_admin": user.is_admin,
+        "is_premium": user.is_premium,
+        "roles": user.roles,
     }
 
 
@@ -832,6 +867,61 @@ async def get_ticker_snapshot(
     except Exception as e:
         logger.error("ticker_snapshot_fetch_error", symbol=symbol, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to fetch snapshot: {str(e)}")
+
+
+@app.get("/api/v1/ticker/{symbol}/prev-close")
+async def get_ticker_prev_close(
+    symbol: str,
+    user: AuthenticatedUser = Depends(get_current_user)  # 🔒 Requiere auth
+):
+    """
+    Get previous day's close price for a ticker (lightweight endpoint).
+    
+    Returns only the prev_close value from the snapshot, useful for calculating
+    change percentages without fetching the full snapshot.
+    """
+    global redis_client
+    symbol = symbol.upper()
+    cache_key = f"ticker_prev_close:{symbol}"
+    cache_ttl = 3600  # 1 hora (prev_close no cambia durante el día)
+    
+    try:
+        # Check cache first
+        if redis_client:
+            cached = await redis_client.get(cache_key)
+            if cached:
+                return {"symbol": symbol, "close": float(cached), "c": float(cached), "cached": True}
+        
+        # Fetch snapshot (usa cache interno del snapshot endpoint)
+        snapshot_data = await http_clients.polygon.get_snapshot(symbol)
+        
+        if snapshot_data.get("status") != "OK":
+            raise HTTPException(status_code=404, detail=f"Ticker {symbol} not found")
+        
+        # Extract prevDay close
+        ticker_data = snapshot_data.get("ticker", {})
+        prev_day = ticker_data.get("prevDay", {})
+        prev_close = prev_day.get("c")  # Close price
+        
+        if prev_close is None:
+            raise HTTPException(status_code=404, detail=f"Previous close not available for {symbol}")
+        
+        # Cache the result
+        if redis_client:
+            await redis_client.set(cache_key, str(prev_close), ttl=cache_ttl)
+        
+        return {
+            "symbol": symbol,
+            "close": prev_close,
+            "c": prev_close,
+            "cached": False
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching prev_close for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/rvol/{symbol}")
@@ -1681,19 +1771,47 @@ async def get_chart_data(
 # ============================================================================
 
 @app.websocket("/ws/scanner")
-async def websocket_scanner(websocket: WebSocket):
+async def websocket_scanner(
+    websocket: WebSocket,
+    token: str = Query(None)  # Token JWT en query param: ws://...?token=xxx
+):
     """
     WebSocket para datos del scanner en tiempo real
+    
+    🔒 AUTENTICACIÓN:
+    - Requiere token JWT en query param: ws://host/ws/scanner?token=<jwt>
+    - Para refresh de token (sin desconectar): {"action": "refresh_token", "token": "<new_jwt>"}
     
     El cliente puede enviar comandos:
     - {"action": "subscribe", "symbols": ["AAPL", "TSLA"]}
     - {"action": "unsubscribe", "symbols": ["AAPL"]}
     - {"action": "subscribe_all"}
+    - {"action": "refresh_token", "token": "<new_jwt>"}
     
     El servidor envía:
     - {"type": "rvol", "symbol": "AAPL", "data": {...}}
     - {"type": "aggregate", "symbol": "AAPL", "data": {...}}
     """
+    # =============================================
+    # AUTENTICACIÓN AL CONECTAR
+    # =============================================
+    user = None
+    ws_auth_enabled = getattr(settings, 'auth_enabled', False)
+    
+    if ws_auth_enabled:
+        if not token:
+            logger.warning("ws_connection_rejected reason=missing_token")
+            await websocket.close(code=4001, reason="Token required")
+            return
+        
+        try:
+            user = await clerk_jwt_verifier.verify_token(token)
+            logger.info(f"ws_authenticated user_id={user.id}")
+        except Exception as e:
+            logger.warning(f"ws_connection_rejected reason=invalid_token error={e}")
+            await websocket.close(code=4003, reason="Invalid token")
+            return
+    
     connection_id = str(uuid.uuid4())
     
     await connection_manager.connect(websocket, connection_id)
@@ -1754,6 +1872,32 @@ async def websocket_scanner(websocket: WebSocket):
                     connection_id
                 )
             
+            elif action == "refresh_token":
+                # Refresh token sin desconectar (Clerk tokens expiran en 60s)
+                new_token = data.get("token")
+                if new_token and ws_auth_enabled:
+                    try:
+                        user = await clerk_jwt_verifier.verify_token(new_token)
+                        logger.debug(f"ws_token_refreshed user_id={user.id}")
+                        await connection_manager.send_personal_message(
+                            {
+                                "type": "token_refreshed",
+                                "success": True,
+                                "timestamp": datetime.now().isoformat()
+                            },
+                            connection_id
+                        )
+                    except Exception as e:
+                        logger.warning(f"ws_token_refresh_failed error={e}")
+                        await connection_manager.send_personal_message(
+                            {
+                                "type": "token_refresh_failed",
+                                "error": str(e),
+                                "timestamp": datetime.now().isoformat()
+                            },
+                            connection_id
+                        )
+            
             elif action == "ping":
                 await connection_manager.send_personal_message(
                     {
@@ -1781,10 +1925,15 @@ async def websocket_scanner(websocket: WebSocket):
 # ============================================================================
 
 @app.post("/api/v1/tts/speak")
-async def text_to_speech(request: Request):
+async def text_to_speech(
+    request: Request,
+    user: AuthenticatedUser = Depends(get_current_user)  # 🔒 Requiere auth - endpoint costoso
+):
     """
     Proxy para Eleven Labs TTS - evita problemas de CORS
+    PROTEGIDO: Requiere autenticación (endpoint costoso - Eleven Labs $$$)
     """
+    logger.info(f"tts_request user_id={user.id}")
     try:
         body = await request.json()
         text = body.get("text", "")

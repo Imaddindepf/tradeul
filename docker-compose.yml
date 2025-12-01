@@ -348,6 +348,9 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Clerk Auth
+      WS_AUTH_ENABLED: ${WS_AUTH_ENABLED:-false}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
     logging:
       driver: "json-file"
       options:

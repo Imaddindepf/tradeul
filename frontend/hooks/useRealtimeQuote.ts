@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Subject, filter, map, takeUntil } from 'rxjs';
+import { authFetchStandalone } from './useAuthFetch';
+import { useAuth } from '@clerk/nextjs';
 
 // ============================================================================
 // Tipos
@@ -57,7 +59,11 @@ class QuoteManager {
   private static instance: QuoteManager | null = null;
   private ws: WebSocket | null = null;
   private url: string = '';
-  private isConnected = false;
+  private _isConnected = false;
+
+  get isConnected(): boolean {
+    return this._isConnected;
+  }
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
 
@@ -78,11 +84,18 @@ class QuoteManager {
   private quotesSubject = new Subject<QuoteMessage>();
 
   private debug = false;
+  private getTokenFn: (() => Promise<string | null>) | null = null;
 
   private constructor() { }
 
+  // Configurar función para obtener token de Clerk
+  setGetToken(getToken: () => Promise<string | null>) {
+    this.getTokenFn = getToken;
+  }
+
   // Fetch prevClose from lightweight prev-day endpoint
-  private async fetchPrevClose(symbol: string): Promise<number | null> {
+  // getToken debe ser pasado desde el hook que usa esta clase
+  private async fetchPrevClose(symbol: string, getToken?: () => Promise<string | null>): Promise<number | null> {
     // Check cache first
     if (this.prevCloseCache.has(symbol)) {
       return this.prevCloseCache.get(symbol)!;
@@ -90,7 +103,17 @@ class QuoteManager {
 
     try {
       // Use lightweight prev-close endpoint (just 1 OHLC bar)
-      const res = await fetch(`${API_URL}/api/v1/ticker/${symbol}/prev-close`);
+      // Si tenemos getToken, usar authFetchStandalone
+      let res: Response;
+      if (getToken) {
+        res = await authFetchStandalone(
+          `${API_URL}/api/v1/ticker/${symbol}/prev-close`,
+          getToken
+        );
+      } else {
+        res = await fetch(`${API_URL}/api/v1/ticker/${symbol}/prev-close`);
+      }
+
       if (res.ok) {
         const data = await res.json();
         const prevClose = data.close || data.c;
@@ -202,7 +225,13 @@ class QuoteManager {
   }
 
   connect(url: string, debug: boolean = false) {
-    if (this.ws && this.url === url && this.isConnected) {
+    // Si la URL cambió (ej: se añadió token de auth), reconectar
+    if (this.url && this.url !== url && this._isConnected) {
+      if (debug) console.log('📊 [QuoteManager] URL changed, reconnecting...', { old: this.url.substring(0, 50), new: url.substring(0, 50) });
+      this.disconnect();
+    }
+
+    if (this.ws && this.url === url && this._isConnected) {
       if (debug) console.log('📊 [QuoteManager] Already connected');
       return;
     }
@@ -220,7 +249,7 @@ class QuoteManager {
 
       this.ws.onopen = () => {
         if (this.debug) console.log('📊 [QuoteManager] Connected');
-        this.isConnected = true;
+        this._isConnected = true;
         this.startHeartbeat();
 
         // Re-suscribir a todos los símbolos activos
@@ -243,7 +272,7 @@ class QuoteManager {
 
       this.ws.onclose = () => {
         if (this.debug) console.log('📊 [QuoteManager] Disconnected');
-        this.isConnected = false;
+        this._isConnected = false;
         this.stopHeartbeat();
         this.scheduleReconnect();
       };
@@ -313,12 +342,12 @@ class QuoteManager {
       this.subscriptions.set(symbolUpper, new Set());
 
       // Es el primer suscriptor, enviar subscribe al servidor
-      if (this.isConnected) {
+      if (this._isConnected) {
         this.sendSubscribe(symbolUpper);
       }
 
       // Fetch prevClose in background (lightweight endpoint)
-      this.fetchPrevClose(symbolUpper).then(prevClose => {
+      this.fetchPrevClose(symbolUpper, this.getTokenFn || undefined).then(prevClose => {
         if (this.debug && prevClose) {
           console.log(`📊 [QuoteManager] Got prevClose for ${symbolUpper}: $${prevClose}`);
         }
@@ -446,7 +475,7 @@ class QuoteManager {
       this.ws.close();
       this.ws = null;
     }
-    this.isConnected = false;
+    this._isConnected = false;
     this.subscriptions.clear();
     this.lastQuotes.clear();
   }
@@ -490,20 +519,75 @@ export function useRealtimeQuote(
   options: UseRealtimeQuoteOptions = {}
 ): UseRealtimeQuoteReturn {
   const { debug = false } = options;
+  const { getToken } = useAuth();
   const [quote, setQuote] = useState<QuoteData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const managerRef = useRef<QuoteManager>(QuoteManager.getInstance());
   const initializedRef = useRef(false);
 
-  // Inicializar manager
+  // Inicializar manager y configurar getToken
   useEffect(() => {
     if (!initializedRef.current) {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-      managerRef.current.connect(wsUrl, debug);
-      initializedRef.current = true;
+      // Configurar getToken primero
+      managerRef.current.setGetToken(getToken);
+
+      // Construir URL con token si estamos autenticados
+      async function initConnection() {
+        const baseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+
+        try {
+          const token = await getToken();
+          let wsUrl = baseUrl;
+
+          if (token) {
+            // Añadir token a la URL
+            const separator = baseUrl.includes('?') ? '&' : '?';
+            wsUrl = `${baseUrl}${separator}token=${token}`;
+            if (debug) console.log('📊 [QuoteManager] Connecting with auth token');
+          }
+
+          managerRef.current.connect(wsUrl, debug);
+          initializedRef.current = true;
+        } catch (error) {
+          // Si falla obtener token, conectar sin auth
+          console.warn('📊 [QuoteManager] Failed to get token, connecting without auth:', error);
+          managerRef.current.connect(baseUrl, debug);
+          initializedRef.current = true;
+        }
+      }
+
+      initConnection();
     }
-  }, [debug]);
+  }, [debug, getToken]);
+
+  // Refresh token periódicamente (Clerk tokens expiran en 60s)
+  useEffect(() => {
+    if (!initializedRef.current) return;
+
+    async function refreshToken() {
+      try {
+        const newToken = await getToken();
+        if (newToken && managerRef.current.isConnected) {
+          // Enviar refresh_token al servidor
+          const ws = (managerRef.current as any).ws;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              action: 'refresh_token',
+              token: newToken,
+            }));
+            if (debug) console.log('📊 [QuoteManager] Token refreshed');
+          }
+        }
+      } catch (error) {
+        console.error('📊 [QuoteManager] Token refresh failed:', error);
+      }
+    }
+
+    // Refresh cada 50 segundos
+    const interval = setInterval(refreshToken, 50000);
+    return () => clearInterval(interval);
+  }, [getToken, debug]);
 
   // Suscribirse al símbolo
   useEffect(() => {

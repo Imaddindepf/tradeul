@@ -20,6 +20,7 @@ const Redis = require("ioredis");
 const pino = require("pino");
 const { v4: uuidv4 } = require("uuid");
 const { subscribeToNewDayEvents, subscribeToSessionChangeEvents, setConnectionsRef } = require("./cache_cleaner");
+const { verifyClerkToken, extractTokenFromUrl, isAuthEnabled } = require("./clerkAuth");
 
 // Logger
 const logger = pino({
@@ -1577,18 +1578,43 @@ const wss = new WebSocket.Server({
 });
 
 // Manejar conexiones WebSocket
-wss.on("connection", (ws, req) => {
+wss.on("connection", async (ws, req) => {
   const connectionId = uuidv4();
   ws.connectionId = connectionId;
+  
+  // =============================================
+  // 🔒 AUTENTICACIÓN JWT (si está habilitada)
+  // =============================================
+  let user = null;
+  
+  if (isAuthEnabled()) {
+    const token = extractTokenFromUrl(req.url);
+    
+    if (!token) {
+      logger.warn({ connectionId, ip: req.socket.remoteAddress }, "❌ Connection rejected: missing token");
+      ws.close(4001, "Token required");
+      return;
+    }
+    
+    try {
+      user = await verifyClerkToken(token);
+      logger.info({ connectionId, userId: user.sub }, "🔐 Authenticated");
+    } catch (err) {
+      logger.warn({ connectionId, error: err.message }, "❌ Connection rejected: invalid token");
+      ws.close(4003, "Invalid token");
+      return;
+    }
+  }
 
   connections.set(connectionId, {
     ws,
     subscriptions: new Set(),
     sequence_numbers: new Map(),
+    user, // Guardar info del usuario
   });
 
   logger.info(
-    { connectionId, ip: req.socket.remoteAddress },
+    { connectionId, ip: req.socket.remoteAddress, userId: user?.sub },
     "✅ Client connected"
   );
 
@@ -1598,6 +1624,7 @@ wss.on("connection", (ws, req) => {
     connection_id: connectionId,
     message: "Connected to Tradeul Scanner (Hybrid: Rankings + Real-time)",
     timestamp: new Date().toISOString(),
+    authenticated: !!user,
   });
 
   // Manejar mensajes del cliente
@@ -1606,6 +1633,45 @@ wss.on("connection", (ws, req) => {
       const json = Buffer.from(message).toString("utf-8");
       const data = JSON.parse(json);
       const { action } = data;
+
+      // =============================================
+      // REFRESH TOKEN (sin desconectar)
+      // =============================================
+      if (action === "refresh_token") {
+        const newToken = data.token;
+        
+        if (!newToken) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'token' parameter"
+          });
+          return;
+        }
+        
+        if (isAuthEnabled()) {
+          try {
+            const newUser = await verifyClerkToken(newToken);
+            const conn = connections.get(connectionId);
+            if (conn) {
+              conn.user = newUser;
+              logger.debug({ connectionId, userId: newUser.sub }, "🔐 Token refreshed");
+            }
+            sendMessage(connectionId, {
+              type: "token_refreshed",
+              success: true,
+              timestamp: new Date().toISOString()
+            });
+          } catch (err) {
+            logger.warn({ connectionId, error: err.message }, "❌ Token refresh failed");
+            sendMessage(connectionId, {
+              type: "token_refresh_failed",
+              error: err.message,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+        return;
+      }
 
       // =============================================
       // SUBSCRIBE TO LIST

@@ -18,8 +18,9 @@
     "ws": "^8.18.0",
     "ioredis": "^5.3.2",
     "pino": "^9.2.0",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0"
   },
   "devDependencies": {}
 }
-

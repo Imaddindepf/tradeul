@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from fastapi import APIRouter, HTTPException, Header, Depends
 import structlog
+from auth import get_current_user, AuthenticatedUser
 
 logger = structlog.get_logger(__name__)
 
@@ -83,15 +84,7 @@ def get_timescale():
     return _timescale_client
 
 
-async def get_user_id(authorization: Optional[str] = Header(None)) -> str:
-    """
-    Extrae el user_id del header Authorization.
-    En producción, esto validaría el JWT de Clerk.
-    Por ahora, aceptamos el user_id directamente en un header custom.
-    """
-    # Header custom: X-User-ID (para desarrollo)
-    # En producción: validar JWT de Clerk
-    return authorization or "anonymous"
+# Ya no necesitamos get_user_id, usamos get_current_user de auth.dependencies
 
 
 # ============================================================================
@@ -100,7 +93,7 @@ async def get_user_id(authorization: Optional[str] = Header(None)) -> str:
 
 @router.get("/preferences", response_model=UserPreferencesResponse)
 async def get_preferences(
-    user_id: str = Header(..., alias="X-User-ID"),
+    user: AuthenticatedUser = Depends(get_current_user),
     db=Depends(get_timescale)
 ):
     """
@@ -108,6 +101,7 @@ async def get_preferences(
     Si no existen, retorna valores por defecto.
     """
     try:
+        user_id = user.id
         query = """
             SELECT 
                 user_id,
@@ -167,7 +161,7 @@ async def get_preferences(
 @router.put("/preferences")
 async def save_preferences(
     prefs: UserPreferencesRequest,
-    user_id: str = Header(..., alias="X-User-ID"),
+    user: AuthenticatedUser = Depends(get_current_user),
     db=Depends(get_timescale)
 ):
     """
@@ -175,6 +169,7 @@ async def save_preferences(
     Solo actualiza los campos proporcionados.
     """
     try:
+        user_id = user.id
         # Construir query de upsert dinámico
         updates = []
         values = [user_id]
@@ -294,13 +289,14 @@ async def save_preferences(
 
 @router.delete("/preferences")
 async def delete_preferences(
-    user_id: str = Header(..., alias="X-User-ID"),
+    user: AuthenticatedUser = Depends(get_current_user),
     db=Depends(get_timescale)
 ):
     """
     Elimina todas las preferencias del usuario (reset a defaults).
     """
     try:
+        user_id = user.id
         query = "DELETE FROM user_preferences WHERE user_id = $1"
         await db.execute(query, user_id)
         
@@ -319,13 +315,14 @@ async def delete_preferences(
 @router.patch("/preferences/colors")
 async def update_colors(
     colors: ColorPreferences,
-    user_id: str = Header(..., alias="X-User-ID"),
+    user: AuthenticatedUser = Depends(get_current_user),
     db=Depends(get_timescale)
 ):
     """
     Actualiza solo los colores del usuario.
     """
     try:
+        user_id = user.id
         query = """
             INSERT INTO user_preferences (user_id, colors)
             VALUES ($1, $2::jsonb)
@@ -351,13 +348,14 @@ async def update_colors(
 @router.patch("/preferences/layout")
 async def update_layout(
     layouts: List[WindowLayout],
-    user_id: str = Header(..., alias="X-User-ID"),
+    user: AuthenticatedUser = Depends(get_current_user),
     db=Depends(get_timescale)
 ):
     """
     Actualiza solo el layout de ventanas del usuario.
     """
     try:
+        user_id = user.id
         layouts_json = json.dumps([l.model_dump() for l in layouts])
         
         query = """

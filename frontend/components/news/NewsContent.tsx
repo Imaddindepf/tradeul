@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useRxWebSocket } from '@/hooks/useRxWebSocket';
+import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
 import { useSquawk } from '@/hooks/useSquawk';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
@@ -43,9 +43,9 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
   const seenIdsRef = useRef<Set<string | number>>(new Set());
   const [tickerFilter, setTickerFilter] = useState<string | null>(initialTicker || null);
 
-  // WebSocket connection
+  // WebSocket connection con Auth
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-  const ws = useRxWebSocket(wsUrl, false);
+  const ws = useAuthWebSocket(wsUrl);
 
   // Squawk (text-to-speech)
   const squawk = useSquawk();

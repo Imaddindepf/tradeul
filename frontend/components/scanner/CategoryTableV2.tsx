@@ -34,8 +34,9 @@ import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 // Zustand store
 import { useTickersStore, selectOrderedTickers } from '@/stores/useTickersStore';
 
-// RxJS WebSocket
-import { useRxWebSocket, useListSubscription } from '@/hooks/useRxWebSocket';
+// RxJS WebSocket con Auth
+import { useListSubscription } from '@/hooks/useRxWebSocket';
+import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
 
 const columnHelper = createColumnHelper<Ticker>();
 
@@ -110,8 +111,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const debug = process.env.NODE_ENV === 'development';
 
-  // Singleton WebSocket (compartido entre todas las tablas)
-  const ws = useRxWebSocket(wsUrl, debug);
+  // Singleton WebSocket con Auth (compartido entre todas las tablas)
+  const ws = useAuthWebSocket(wsUrl, { debug });
 
   // Auto-subscribe/unsubscribe a la lista
   useListSubscription(listName, debug);
