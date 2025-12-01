@@ -32,8 +32,11 @@ const SCANNER_COMMANDS = [
     { id: 'momentum_down', label: 'Momentum Down', description: 'Cambio <= -3%' },
     { id: 'winners', label: 'Winners', description: 'Cambio >= 5%' },
     { id: 'losers', label: 'Losers', description: 'Cambio <= -5%' },
+    { id: 'new_highs', label: 'Nuevos Máximos', description: 'Máximos del día' },
+    { id: 'new_lows', label: 'Nuevos Mínimos', description: 'Mínimos del día' },
     { id: 'anomalies', label: 'Anomalies', description: 'RVOL >= 3.0' },
     { id: 'high_volume', label: 'High Volume', description: 'RVOL >= 2.0' },
+    { id: 'reversals', label: 'Reversals', description: 'Cambios de dirección' },
 ];
 
 export function TerminalPalette({ 

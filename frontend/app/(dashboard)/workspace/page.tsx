@@ -51,7 +51,7 @@ function adaptMarketSession(session: MarketSession) {
   };
 }
 
-const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners'];
+const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners', 'new_highs', 'new_lows', 'high_volume'];
 
 export default function ScannerPage() {
   const [session, setSession] = useState<MarketSession | null>(null);
