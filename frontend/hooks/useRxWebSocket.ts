@@ -434,7 +434,9 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     managerRef.current.connect(url, debug);
   }, [url, debug]);
 
-  return {
+  // Memoizar el objeto retornado para evitar re-renders infinitos
+  // Solo cambia cuando isConnected o connectionId cambian
+  return useMemo(() => ({
     isConnected,
     connectionId,
     messages$: managerRef.current.messages$,
@@ -444,7 +446,7 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     errors$: managerRef.current.errors$,
     send,
     reconnect,
-  };
+  }), [isConnected, connectionId, send, reconnect]);
 }
 
 // ============================================================================

@@ -190,7 +190,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [listName, ws]);
+  }, [listName, ws.isConnected, ws.send]);
 
   // ======================================================================
   // STREAM SUBSCRIPTIONS
@@ -251,7 +251,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       aggregateSub.unsubscribe();
       errorMsgSub.unsubscribe();
     };
-  }, [ws.isConnected, ws.snapshots$, ws.deltas$, ws.aggregates$, ws.messages$, listName, handleSnapshot, handleDelta, updateAggregates, isReady, debug]);
+    // NOTA: isReady removido de dependencias para evitar bucle infinito
+    // El timeout usa isReady solo para lectura, no necesita re-suscribirse cuando cambia
+  }, [ws.isConnected, ws.snapshots$, ws.deltas$, ws.aggregates$, ws.messages$, listName, handleSnapshot, handleDelta, updateAggregates]);
 
   // ======================================================================
   // TABLE CONFIGURATION
