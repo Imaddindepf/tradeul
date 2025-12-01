@@ -3,7 +3,38 @@
 import { useState, useEffect } from 'react';
 import { Monitor, ArrowRight } from 'lucide-react';
 
-const MIN_DESKTOP_WIDTH = 1024;
+/**
+ * Detecta si es un dispositivo móvil REAL (no ventana pequeña en desktop)
+ * Usa User-Agent + touch detection
+ */
+function isMobileDevice(): boolean {
+    if (typeof window === 'undefined') return false;
+
+    const userAgent = navigator.userAgent.toLowerCase();
+
+    // Detectar móviles y tablets por User-Agent
+    const mobileKeywords = [
+        'android',
+        'webos',
+        'iphone',
+        'ipad',
+        'ipod',
+        'blackberry',
+        'windows phone',
+        'opera mini',
+        'iemobile',
+        'mobile',
+    ];
+
+    const isMobileUA = mobileKeywords.some(keyword => userAgent.includes(keyword));
+
+    // Detectar por capacidades táctiles + pantalla pequeña (tablets grandes OK)
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const isSmallScreen = window.screen.width < 1024; // screen.width es físico, no ventana
+
+    // Es móvil si: User-Agent dice móvil O (tiene touch Y pantalla física pequeña)
+    return isMobileUA || (hasTouch && isSmallScreen);
+}
 
 export function MobileBlocker({ children }: { children: React.ReactNode }) {
     const [isMobile, setIsMobile] = useState(false);
@@ -11,14 +42,9 @@ export function MobileBlocker({ children }: { children: React.ReactNode }) {
     const [dismissed, setDismissed] = useState(false);
 
     useEffect(() => {
-        const checkDevice = () => {
-            setIsMobile(window.innerWidth < MIN_DESKTOP_WIDTH);
-            setIsChecking(false);
-        };
-
-        checkDevice();
-        window.addEventListener('resize', checkDevice);
-        return () => window.removeEventListener('resize', checkDevice);
+        // Solo detectar una vez al montar (no en resize)
+        setIsMobile(isMobileDevice());
+        setIsChecking(false);
     }, []);
 
     if (isChecking) {
@@ -52,7 +78,6 @@ export function MobileBlocker({ children }: { children: React.ReactNode }) {
                     <div className="w-24 h-16 rounded-xl bg-white border-2 border-slate-200 shadow-xl flex items-center justify-center">
                         <Monitor className="w-10 h-10 text-blue-500" />
                     </div>
-                    {/* Decorative elements */}
                     <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">
                         <span className="text-white text-xs font-bold">!</span>
                     </div>
@@ -66,9 +91,8 @@ export function MobileBlocker({ children }: { children: React.ReactNode }) {
                     </h1>
 
                     <p className="text-slate-500 leading-relaxed">
-                        Para operar con todas las herramientas profesionales,
-                        necesitas una pantalla de al menos{' '}
-                        <span className="font-semibold text-slate-700">{MIN_DESKTOP_WIDTH}px</span>.
+                        Esta plataforma profesional de trading requiere un ordenador
+                        para funcionar correctamente con todas sus herramientas.
                     </p>
 
                     {/* Visual hint */}
