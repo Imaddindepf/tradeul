@@ -201,6 +201,22 @@ class Settings(BaseSettings):
     jwt_expiration_hours: int = Field(default=24, description="JWT expiration in hours")
     
     # =============================================
+    # CLERK AUTHENTICATION
+    # =============================================
+    clerk_publishable_key: Optional[str] = Field(default=None, description="Clerk Publishable Key (pk_test_... or pk_live_...)")
+    clerk_secret_key: Optional[str] = Field(default=None, description="Clerk Secret Key (sk_test_... or sk_live_...)")
+    clerk_jwks_cache_ttl: int = Field(default=3600, description="JWKS cache TTL in seconds (default 1 hour)")
+    auth_enabled: bool = Field(default=False, description="Enable authentication (set to true in production)")
+    
+    @property
+    def CLERK_PUBLISHABLE_KEY(self) -> Optional[str]:
+        return self.clerk_publishable_key
+    
+    @property
+    def CLERK_SECRET_KEY(self) -> Optional[str]:
+        return self.clerk_secret_key
+    
+    # =============================================
     # PERFORMANCE
     # =============================================
     worker_threads: int = Field(default=4, description="Worker threads")

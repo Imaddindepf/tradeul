@@ -4,6 +4,32 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useUserPreferencesStore, UserPreferences, ColorPreferences, FontFamily } from '@/stores/useUserPreferencesStore';
 
+/**
+ * Helper para hacer fetch autenticado con JWT de Clerk
+ */
+async function authFetch(
+    url: string,
+    getToken: () => Promise<string | null>,
+    options: RequestInit = {}
+): Promise<Response> {
+    const token = await getToken();
+
+    const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+    };
+
+    // Añadir Authorization header si tenemos token
+    if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    }
+
+    return fetch(url, {
+        ...options,
+        headers,
+    });
+}
+
 // Tipos para la API
 interface WindowLayoutAPI {
     id: string;
@@ -38,7 +64,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
  * 3. Al hacer logout → limpiar estado local
  */
 export function useClerkSync() {
-    const { isSignedIn, userId } = useAuth();
+    const { isSignedIn, userId, getToken } = useAuth();
     const { user } = useUser();
 
     // Estado del store
@@ -73,13 +99,12 @@ export function useClerkSync() {
         isLoadingRef.current = true;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/v1/user/preferences`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-User-ID': userId,
-                },
-            });
+            // Usar JWT en lugar de X-User-ID (más seguro)
+            const response = await authFetch(
+                `${API_BASE_URL}/api/v1/user/preferences`,
+                getToken,
+                { method: 'GET' }
+            );
 
             if (response.ok) {
                 const data: UserPreferencesAPI = await response.json();
@@ -122,7 +147,7 @@ export function useClerkSync() {
         } finally {
             isLoadingRef.current = false;
         }
-    }, [userId, setTickUpColor, setTickDownColor, setBackgroundColor, setPrimaryColor, setFont, setColorScheme, saveWindowLayouts]);
+    }, [userId, getToken, setTickUpColor, setTickDownColor, setBackgroundColor, setPrimaryColor, setFont, setColorScheme, saveWindowLayouts]);
 
     /**
      * Guardar preferencias en el servidor
@@ -157,14 +182,15 @@ export function useClerkSync() {
                 columnOrder,
             };
 
-            const response = await fetch(`${API_BASE_URL}/api/v1/user/preferences`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-User-ID': userId,
-                },
-                body: JSON.stringify(payload),
-            });
+            // Usar JWT en lugar de X-User-ID (más seguro)
+            const response = await authFetch(
+                `${API_BASE_URL}/api/v1/user/preferences`,
+                getToken,
+                {
+                    method: 'PUT',
+                    body: JSON.stringify(payload),
+                }
+            );
 
             if (response.ok) {
                 const result = await response.json();
@@ -174,7 +200,7 @@ export function useClerkSync() {
         } catch (error) {
             console.error('[ClerkSync] Error guardando preferencias:', error);
         }
-    }, [userId, colors, theme, windowLayouts, savedFilters, columnVisibility, columnOrder]);
+    }, [userId, getToken, colors, theme, windowLayouts, savedFilters, columnVisibility, columnOrder]);
 
     /**
      * Sincronización debounced (evita muchas llamadas al servidor)
@@ -236,7 +262,7 @@ export function useClerkSync() {
  * Hook simplificado para solo guardar el layout
  */
 export function useSaveLayoutToCloud() {
-    const { isSignedIn, userId } = useAuth();
+    const { isSignedIn, userId, getToken } = useAuth();
     const windowLayouts = useUserPreferencesStore((s) => s.windowLayouts);
 
     const saveLayout = useCallback(async () => {
@@ -256,21 +282,22 @@ export function useSaveLayoutToCloud() {
                 zIndex: w.zIndex,
             }));
 
-            const response = await fetch(`${API_BASE_URL}/api/v1/user/preferences/layout`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-User-ID': userId,
-                },
-                body: JSON.stringify(layouts),
-            });
+            // Usar JWT en lugar de X-User-ID (más seguro)
+            const response = await authFetch(
+                `${API_BASE_URL}/api/v1/user/preferences/layout`,
+                getToken,
+                {
+                    method: 'PATCH',
+                    body: JSON.stringify(layouts),
+                }
+            );
 
             return response.ok;
         } catch (error) {
             console.error('[ClerkSync] Error guardando layout:', error);
             return false;
         }
-    }, [isSignedIn, userId, windowLayouts]);
+    }, [isSignedIn, userId, getToken, windowLayouts]);
 
     return { saveLayout, isSignedIn };
 }

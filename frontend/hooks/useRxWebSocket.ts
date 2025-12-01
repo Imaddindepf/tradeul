@@ -82,6 +82,12 @@ class WebSocketManager {
       return;
     }
 
+    // Si la URL cambió (ej: se añadió token de auth), reconectar
+    if (this.url && this.url !== url) {
+      if (debugMode) console.log('🔄 [RxWS] URL changed, reconnecting...', { old: this.url.substring(0, 50), new: url.substring(0, 50) });
+      this.disconnect();
+    }
+
     this.url = url;
     this.debug = debugMode;
 
@@ -242,7 +248,7 @@ class WebSocketManager {
   }
 
   private connectWithSharedWorker(url: string, debugMode: boolean) {
-    if (this.debug) console.log('🚀 [RxWS] Using SharedWorker for:', url);
+
 
     this.sharedWorker = new SharedWorker('/workers/websocket-shared.js', {
       name: 'tradeul-websocket'

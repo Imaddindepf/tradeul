@@ -5,9 +5,9 @@ import { ArrowUp, ArrowDown, Minus, Building2 } from "lucide-react";
 interface Holder {
   holder_name: string;
   shares_held: number;
-  ownership_percent: number;
-  position_change: number;
-  position_change_percent: number;
+  ownership_percent: number | null;
+  position_change: number | null;
+  position_change_percent: number | null;
   change_direction: "increase" | "decrease" | "new" | "unchanged";
   report_date: string;
   form_type: string;
@@ -40,7 +40,8 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
     );
   }
 
-  const formatShares = (shares: number) => {
+  const formatShares = (shares: number | null | undefined) => {
+    if (shares == null) return '—';
     if (shares >= 1_000_000_000) {
       return `${(shares / 1_000_000_000).toFixed(2)}B`;
     }
@@ -122,7 +123,7 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
               {/* Ownership % */}
               <td className="py-4 px-4 text-right">
                 <span className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {holder.ownership_percent.toFixed(2)}%
+                  {holder.ownership_percent != null ? `${holder.ownership_percent.toFixed(2)}%` : '—'}
                 </span>
               </td>
 
@@ -137,7 +138,7 @@ export function HoldersTable({ holders, loading = false }: HoldersTableProps) {
               <td className="py-4 px-4 text-right">
                 <div className="flex items-center justify-end gap-2">
                   {getChangeIcon(holder.change_direction)}
-                  {holder.position_change !== 0 && holder.change_direction !== "new" && (
+                  {holder.position_change != null && holder.position_change !== 0 && holder.change_direction !== "new" && (
                     <span className={`text-sm font-medium ${getChangeColor(holder.change_direction)}`}>
                       {holder.position_change > 0 ? '+' : ''}
                       {formatShares(holder.position_change)}
