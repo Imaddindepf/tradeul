@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Command } from 'cmdk';
 import {
     ScanSearch,
@@ -44,27 +45,30 @@ type CommandItem = {
 };
 
 // Comandos principales - extendidos desde la fuente centralizada
+// Nota: El grupo se traduce dinámicamente en el componente
 const MAIN_COMMANDS: CommandItem[] = COMMANDS_BASE.map(cmd => ({
     ...cmd,
-    group: 'Comandos principales',
+    group: 'mainCommands', // Clave de traducción
 }));
 
 // Comandos del scanner (prefijo SC)
+// Nota: Las descripciones se traducen dinámicamente en el componente
 const SCANNER_COMMANDS: CommandItem[] = [
-    { id: 'gappers_up', label: 'SC Gap Up', description: 'Gap up ≥ 2%', icon: TrendingUp, shortcut: 'Ctrl+1', group: 'Scanner' },
-    { id: 'gappers_down', label: 'SC Gap Down', description: 'Gap down ≤ -2%', icon: TrendingDown, shortcut: 'Ctrl+2', group: 'Scanner' },
-    { id: 'momentum_up', label: 'SC Momentum Alcista', description: 'Cambio ≥ 3%', icon: ArrowUp, shortcut: 'Ctrl+3', group: 'Scanner' },
-    { id: 'momentum_down', label: 'SC Momentum Bajista', description: 'Cambio ≤ -3%', icon: ArrowDown, shortcut: 'Ctrl+4', group: 'Scanner' },
-    { id: 'winners', label: 'SC Mayores Ganadores', description: 'Cambio ≥ 5%', icon: Trophy, shortcut: 'Ctrl+5', group: 'Scanner' },
-    { id: 'losers', label: 'SC Mayores Perdedores', description: 'Cambio ≤ -5%', icon: AlertTriangle, shortcut: 'Ctrl+6', group: 'Scanner' },
-    { id: 'new_highs', label: 'SC Nuevos Máximos', description: 'Máximos del día', icon: TrendingUp, group: 'Scanner' },
-    { id: 'new_lows', label: 'SC Nuevos Mínimos', description: 'Mínimos del día', icon: TrendingDown, group: 'Scanner' },
-    { id: 'anomalies', label: 'SC Anomalías', description: 'RVOL ≥ 3.0', icon: Zap, shortcut: 'Ctrl+7', group: 'Scanner' },
-    { id: 'high_volume', label: 'SC Alto Volumen', description: 'RVOL ≥ 2.0', icon: BarChart3, group: 'Scanner' },
-    { id: 'reversals', label: 'SC Reversals', description: 'Cambios de dirección', icon: ScanSearch, group: 'Scanner' },
+    { id: 'gappers_up', label: 'SC Gap Up', description: 'scanner.gapUpDescription', icon: TrendingUp, shortcut: 'Ctrl+1', group: 'scanner' },
+    { id: 'gappers_down', label: 'SC Gap Down', description: 'scanner.gapDownDescription', icon: TrendingDown, shortcut: 'Ctrl+2', group: 'scanner' },
+    { id: 'momentum_up', label: 'SC Momentum Up', description: 'scanner.momentumUpDescription', icon: ArrowUp, shortcut: 'Ctrl+3', group: 'scanner' },
+    { id: 'momentum_down', label: 'SC Momentum Down', description: 'scanner.momentumDownDescription', icon: ArrowDown, shortcut: 'Ctrl+4', group: 'scanner' },
+    { id: 'winners', label: 'SC Top Gainers', description: 'scanner.topGainersDescription', icon: Trophy, shortcut: 'Ctrl+5', group: 'scanner' },
+    { id: 'losers', label: 'SC Top Losers', description: 'scanner.topLosersDescription', icon: AlertTriangle, shortcut: 'Ctrl+6', group: 'scanner' },
+    { id: 'new_highs', label: 'SC New Highs', description: 'scanner.newHighsDescription', icon: TrendingUp, group: 'scanner' },
+    { id: 'new_lows', label: 'SC New Lows', description: 'scanner.newLowsDescription', icon: TrendingDown, group: 'scanner' },
+    { id: 'anomalies', label: 'SC Anomalies', description: 'scanner.anomaliesDescription', icon: Zap, shortcut: 'Ctrl+7', group: 'scanner' },
+    { id: 'high_volume', label: 'SC High Volume', description: 'scanner.highVolumeDescription', icon: BarChart3, group: 'scanner' },
+    { id: 'reversals', label: 'SC Reversals', description: 'scanner.reversalsDescription', icon: ScanSearch, group: 'scanner' },
 ];
 
 export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCategories = [], searchValue = '', onSearchChange }: CommandPaletteProps) {
+    const { t } = useTranslation();
     const search = searchValue.toLowerCase().trim();
     const setSearch = onSearchChange || (() => { });
     const { executeCommand } = useCommandExecutor();
@@ -101,7 +105,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         }
 
         // Comandos que abren ventanas flotantes
-        if (['dt', 'settings', 'sec', 'news', 'fa', 'ipo', 'profile'].includes(value)) {
+        if (['dt', 'settings', 'sec', 'news', 'fa', 'ipo', 'profile', 'filters'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);
@@ -217,7 +221,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                     {/* Header minimalista */}
                     <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
                         <span className="text-xs text-slate-500 uppercase tracking-wide font-mono">
-                            {hasScPrefix ? 'Scanner' : hasDtPrefix ? 'Dilution Tracker' : 'Commands'}
+                            {hasScPrefix ? t('commandPalette.scanner') : hasDtPrefix ? t('commandPalette.dilutionTracker') : t('commandPalette.commands')}
                         </span>
                         <button
                             onClick={() => {
@@ -232,7 +236,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
 
                     <Command.List className="overflow-y-auto p-1" style={{ maxHeight: 'calc(100vh - 200px)' }}>
                         <Command.Empty className="py-8 text-center text-xs text-slate-400">
-                            No se encontraron comandos.
+                            {t('commands.noCommandsFound')}
                         </Command.Empty>
 
                         {/* COMANDOS PRINCIPALES (sin prefijo o prefijo desconocido) */}
@@ -252,7 +256,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                             <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmd.label}
                                             </span>
-                                            <span className="text-xs text-slate-600">{cmd.description}</span>
+                                            <span className="text-xs text-slate-600">{t(cmd.description)}</span>
                                         </Command.Item>
                                     );
                                 })}
@@ -279,7 +283,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                             <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmdName}
                                             </span>
-                                            <span className="text-xs text-slate-600">{cmd.description}</span>
+                                            <span className="text-xs text-slate-600">{t(cmd.description)}</span>
                                         </Command.Item>
                                     );
                                 })}

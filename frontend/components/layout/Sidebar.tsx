@@ -26,7 +26,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    name: 'Escáner',
+    name: 'Scanner',
     href: '/scanner',
     icon: ScanSearch,
   },
@@ -48,7 +48,7 @@ const navItems: NavItem[] = [
     comingSoon: true,
   },
   {
-    name: 'Configuración',
+    name: 'Settings',
     href: '/settings',
     icon: Settings,
     comingSoon: true,

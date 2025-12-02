@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, AlertTriangle, TrendingUp, Clock, CheckCircle, XCircle, HelpCircle, Rocket, FileText, ExternalLink, Loader2 } from 'lucide-react';
 
 // ============================================================================
@@ -100,6 +101,7 @@ function formatDate(dateStr: string | undefined): string {
 // ============================================================================
 
 export function IPOContent() {
+  const { t } = useTranslation();
   const [ipos, setIpos] = useState<IPO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -254,14 +256,14 @@ export function IPOContent() {
         <table className="w-full text-[10px] border-collapse">
           <thead className="bg-slate-100 sticky top-0">
             <tr className="text-left text-slate-500 uppercase tracking-wide">
-              <th className="px-1 py-0.5 font-medium w-12">Ticker</th>
-              <th className="px-1 py-0.5 font-medium w-10 text-center">Status</th>
-              <th className="px-1 py-0.5 font-medium">Company</th>
-              <th className="px-1 py-0.5 font-medium w-14 text-center">Exch</th>
-              <th className="px-1 py-0.5 font-medium w-14 text-right">Price</th>
-              <th className="px-1 py-0.5 font-medium w-16 text-right">Size</th>
-              <th className="px-1 py-0.5 font-medium w-14 text-right">Shares</th>
-              <th className="px-1 py-0.5 font-medium w-16 text-center">Date</th>
+              <th className="px-1 py-0.5 font-medium w-12">{t('ipo.tableHeaders.ticker')}</th>
+              <th className="px-1 py-0.5 font-medium w-10 text-center">{t('ipo.tableHeaders.status')}</th>
+              <th className="px-1 py-0.5 font-medium">{t('ipo.tableHeaders.company')}</th>
+              <th className="px-1 py-0.5 font-medium w-14 text-center">{t('ipo.tableHeaders.exchange')}</th>
+              <th className="px-1 py-0.5 font-medium w-14 text-right">{t('ipo.tableHeaders.price')}</th>
+              <th className="px-1 py-0.5 font-medium w-16 text-right">{t('ipo.tableHeaders.size')}</th>
+              <th className="px-1 py-0.5 font-medium w-14 text-right">{t('ipo.tableHeaders.shares')}</th>
+              <th className="px-1 py-0.5 font-medium w-16 text-center">{t('ipo.tableHeaders.date')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">

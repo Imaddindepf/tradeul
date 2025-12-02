@@ -76,7 +76,7 @@ function injectScannerContent(
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   
-  <!-- Tailwind CSS con configuración personalizada -->
+  <!-- Tailwind CSS with custom configuration -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -195,7 +195,7 @@ function injectScannerContent(
       <div class="text-center">
         <div class="animate-spin rounded-full h-14 w-14 border-b-4 border-blue-600 mx-auto mb-4"></div>
         <p class="text-slate-900 font-semibold text-base">Conectando...</p>
-        <p class="text-slate-600 text-sm mt-2">Estableciendo conexión WebSocket</p>
+        <p class="text-slate-600 text-sm mt-2">Establishing WebSocket connection</p>
       </div>
     </div>
   </div>
@@ -543,7 +543,7 @@ function injectScannerContent(
       
       const html = \`
         <div class="h-screen flex flex-col bg-white">
-          <!-- Header (IDÉNTICO a MarketTableLayout) -->
+          <!-- Header (IDENTICAL to MarketTableLayout) -->
           <div class="flex items-center justify-between px-3 py-2 bg-white border-b-2 border-blue-500">
             <div class="flex items-center gap-4">
               <div class="flex items-center gap-2">

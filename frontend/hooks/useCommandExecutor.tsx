@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
+import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
 import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from '@/components/floating-window';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
@@ -30,34 +32,45 @@ function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: st
     return <TickerStrip symbol={symbol} exchange={exchange} onClose={handleClose} />;
 }
 
-// Configuración de categorías del scanner
-const SCANNER_CATEGORIES: Record<string, { name: string; description: string }> = {
-    'gappers_up': { name: 'Gap Up', description: 'Gap up ≥ 2%' },
-    'gappers_down': { name: 'Gap Down', description: 'Gap down ≤ -2%' },
-    'momentum_up': { name: 'Momentum Alcista', description: 'Cambio ≥ 3%' },
-    'momentum_down': { name: 'Momentum Bajista', description: 'Cambio ≤ -3%' },
-    'winners': { name: 'Mayores Ganadores', description: 'Cambio ≥ 5%' },
-    'losers': { name: 'Mayores Perdedores', description: 'Cambio ≤ -5%' },
-    'new_highs': { name: 'Nuevos Máximos', description: 'Máximos del día' },
-    'new_lows': { name: 'Nuevos Mínimos', description: 'Mínimos del día' },
-    'anomalies': { name: 'Anomalías', description: 'RVOL ≥ 3.0' },
-    'high_volume': { name: 'Alto Volumen', description: 'RVOL ≥ 2.0' },
-    'reversals': { name: 'Reversals', description: 'Cambios de dirección' },
-};
-
 /**
  * Hook centralizado para ejecutar comandos
  * Usado por CommandPalette, PinnedCommands y para abrir tablas del scanner
  * UNA SOLA FUENTE DE VERDAD para tamaños y posiciones de ventanas
  */
 export function useCommandExecutor() {
+    const { t } = useTranslation();
     const { openWindow, closeWindow, windows } = useFloatingWindow();
+
+    // Obtener categorías del scanner con traducciones
+    const getScannerCategory = useCallback((categoryId: string) => {
+        const categoryMap: Record<string, { nameKey: string; descriptionKey: string }> = {
+            'gappers_up': { nameKey: 'scanner.gapUp', descriptionKey: 'scanner.gapUpDescription' },
+            'gappers_down': { nameKey: 'scanner.gapDown', descriptionKey: 'scanner.gapDownDescription' },
+            'momentum_up': { nameKey: 'scanner.momentumUp', descriptionKey: 'scanner.momentumUpDescription' },
+            'momentum_down': { nameKey: 'scanner.momentumDown', descriptionKey: 'scanner.momentumDownDescription' },
+            'winners': { nameKey: 'scanner.topGainers', descriptionKey: 'scanner.topGainersDescription' },
+            'losers': { nameKey: 'scanner.topLosers', descriptionKey: 'scanner.topLosersDescription' },
+            'new_highs': { nameKey: 'scanner.newHighs', descriptionKey: 'scanner.newHighsDescription' },
+            'new_lows': { nameKey: 'scanner.newLows', descriptionKey: 'scanner.newLowsDescription' },
+            'anomalies': { nameKey: 'scanner.anomalies', descriptionKey: 'scanner.anomaliesDescription' },
+            'high_volume': { nameKey: 'scanner.highVolume', descriptionKey: 'scanner.highVolumeDescription' },
+            'reversals': { nameKey: 'scanner.reversals', descriptionKey: 'scanner.reversalsDescription' },
+        };
+
+        const category = categoryMap[categoryId];
+        if (!category) return null;
+
+        return {
+            name: t(category.nameKey),
+            description: t(category.descriptionKey),
+        };
+    }, [t]);
 
     /**
      * Abrir una tabla del scanner como ventana flotante
      */
     const openScannerTable = useCallback((categoryId: string, index: number = 0) => {
-        const category = SCANNER_CATEGORIES[categoryId];
+        const category = getScannerCategory(categoryId);
         if (!category) {
             console.warn(`Unknown scanner category: ${categoryId}`);
             return null;
@@ -95,7 +108,7 @@ export function useCommandExecutor() {
      * Cerrar una tabla del scanner
      */
     const closeScannerTable = useCallback((categoryId: string) => {
-        const category = SCANNER_CATEGORIES[categoryId];
+        const category = getScannerCategory(categoryId);
         if (!category) return;
 
         const title = `Scanner: ${category.name}`;
@@ -103,18 +116,18 @@ export function useCommandExecutor() {
         if (win) {
             closeWindow(win.id);
         }
-    }, [windows, closeWindow]);
+    }, [windows, closeWindow, getScannerCategory]);
 
     /**
      * Verificar si una tabla del scanner está abierta
      */
     const isScannerTableOpen = useCallback((categoryId: string): boolean => {
-        const category = SCANNER_CATEGORIES[categoryId];
+        const category = getScannerCategory(categoryId);
         if (!category) return false;
 
         const title = `Scanner: ${category.name}`;
         return windows.some(w => w.title === title);
-    }, [windows]);
+    }, [windows, getScannerCategory]);
 
     /**
      * Ejecutar un comando
@@ -135,6 +148,19 @@ export function useCommandExecutor() {
                     y: 80,
                     minWidth: 260,
                     minHeight: 220,
+                });
+                return null;
+
+            case 'filters':
+                openWindow({
+                    title: 'Filter Manager',
+                    content: <FilterManagerContent />,
+                    width: 500,
+                    height: 600,
+                    x: screenWidth / 2 - 250,
+                    y: screenHeight / 2 - 300,
+                    minWidth: 400,
+                    minHeight: 400,
                 });
                 return null;
 
@@ -237,7 +263,7 @@ export function useCommandExecutor() {
 
             default:
                 // Verificar si es una categoría del scanner
-                if (SCANNER_CATEGORIES[commandId]) {
+                if (getScannerCategory(commandId)) {
                     openScannerTable(commandId, 0);
                     return null;
                 }
@@ -245,7 +271,7 @@ export function useCommandExecutor() {
                 console.warn(`Unknown command: ${commandId}`);
                 return null;
         }
-    }, [openWindow, openScannerTable]);
+    }, [openWindow, openScannerTable, getScannerCategory]);
 
     /**
      * Ejecutar un comando con ticker específico
@@ -372,6 +398,6 @@ export function useCommandExecutor() {
         openScannerTable,
         closeScannerTable,
         isScannerTableOpen,
-        SCANNER_CATEGORIES,
+        getScannerCategory,
     };
 }

@@ -116,7 +116,7 @@ export function TableSettings<T>({ table }: TableSettingsProps<T>) {
               }`}
             >
               <Eye className="w-3 h-3 inline mr-1" />
-              Columnas
+              Columns
             </button>
             <button
               onClick={() => setActiveTab('order')}

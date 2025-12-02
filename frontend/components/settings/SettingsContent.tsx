@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { usePinnedCommands } from '@/hooks/usePinnedCommands';
 import { useUserPreferencesStore, FontFamily } from '@/stores/useUserPreferencesStore';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useSaveLayoutToCloud } from '@/hooks/useClerkSync';
-import { Pin, RotateCcw, Save, Layout, Trash2, Check, Cloud, CloudOff } from 'lucide-react';
+import { Pin, RotateCcw, Save, Layout, Trash2, Check, Cloud, CloudOff, Globe } from 'lucide-react';
 import { MAIN_COMMANDS } from '@/lib/commands';
+import { AVAILABLE_LANGUAGES, changeLanguage, getCurrentLanguage, type LanguageCode } from '@/lib/i18n';
 
 const PRESET_COLORS = {
   tickUp: ['#10b981', '#22c55e', '#84cc16', '#14b8a6', '#06b6d4'],
@@ -46,6 +48,7 @@ function ColorRow({ label, value, onChange, presets }: { label: string; value: s
 }
 
 export function SettingsContent() {
+  const { t, i18n } = useTranslation();
   const { togglePin, isPinned } = usePinnedCommands();
   const colors = useUserPreferencesStore((state) => state.colors);
   const theme = useUserPreferencesStore((state) => state.theme);
@@ -54,26 +57,32 @@ export function SettingsContent() {
   const setBackgroundColor = useUserPreferencesStore((state) => state.setBackgroundColor);
   const setFont = useUserPreferencesStore((state) => state.setFont);
   const resetColors = useUserPreferencesStore((state) => state.resetColors);
-  
+
   const { saveLayout, hasLayout, clearLayout, savedCount } = useLayoutPersistence();
   const { saveLayout: saveToCloud, isSignedIn } = useSaveLayoutToCloud();
   const [saved, setSaved] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [currentLang, setCurrentLang] = useState<LanguageCode>(getCurrentLanguage());
 
   const [tab, setTab] = useState<'colors' | 'layout' | 'cmds'>('colors');
+
+  const handleLanguageChange = async (lang: LanguageCode) => {
+    await changeLanguage(lang);
+    setCurrentLang(lang);
+  };
 
   const handleSaveLayout = async () => {
     // Guardar localmente
     saveLayout();
     setSaved(true);
-    
+
     // Si está logueado, sincronizar con la nube
     if (isSignedIn) {
       setSyncing(true);
       await saveToCloud();
       setSyncing(false);
     }
-    
+
     setTimeout(() => setSaved(false), 2000);
   };
 
@@ -85,19 +94,19 @@ export function SettingsContent() {
           onClick={() => setTab('colors')}
           className={`flex-1 py-1 text-[9px] font-medium uppercase tracking-wide ${tab === 'colors' ? 'text-blue-600 border-b border-blue-600' : 'text-slate-400'}`}
         >
-          Colors
+          {t('settings.tabs.colors')}
         </button>
         <button
           onClick={() => setTab('layout')}
           className={`flex-1 py-1 text-[9px] font-medium uppercase tracking-wide ${tab === 'layout' ? 'text-blue-600 border-b border-blue-600' : 'text-slate-400'}`}
         >
-          Layout
+          {t('settings.tabs.layout')}
         </button>
         <button
           onClick={() => setTab('cmds')}
           className={`flex-1 py-1 text-[9px] font-medium uppercase tracking-wide ${tab === 'cmds' ? 'text-blue-600 border-b border-blue-600' : 'text-slate-400'}`}
         >
-          Cmds
+          {t('settings.tabs.commands')}
         </button>
       </div>
 
@@ -105,13 +114,34 @@ export function SettingsContent() {
       <div className="flex-1 overflow-y-auto p-1.5">
         {tab === 'colors' && (
           <div className="space-y-1.5">
-            <ColorRow label="Up" value={colors.tickUp} onChange={setTickUpColor} presets={PRESET_COLORS.tickUp} />
-            <ColorRow label="Down" value={colors.tickDown} onChange={setTickDownColor} presets={PRESET_COLORS.tickDown} />
-            <ColorRow label="Fondo" value={colors.background} onChange={setBackgroundColor} presets={PRESET_COLORS.background} />
+            {/* Language Selector */}
+            <div className="flex items-center gap-1.5 py-1 border-b border-slate-100 pb-2 mb-2">
+              <Globe className="w-3 h-3 text-slate-400" />
+              <span className="text-[9px] text-slate-500 w-12">{t('settings.language')}</span>
+              <div className="flex gap-1">
+                {AVAILABLE_LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => handleLanguageChange(lang.code)}
+                    className={`px-2 py-0.5 text-[9px] rounded transition-colors flex items-center gap-1 ${currentLang === lang.code
+                        ? 'bg-blue-100 text-blue-700 font-medium'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
+                  >
+                    <span>{lang.flag}</span>
+                    <span>{lang.code.toUpperCase()}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <ColorRow label={t('settings.colors.tickUp')} value={colors.tickUp} onChange={setTickUpColor} presets={PRESET_COLORS.tickUp} />
+            <ColorRow label={t('settings.colors.tickDown')} value={colors.tickDown} onChange={setTickDownColor} presets={PRESET_COLORS.tickDown} />
+            <ColorRow label={t('settings.colors.background')} value={colors.background} onChange={setBackgroundColor} presets={PRESET_COLORS.background} />
 
             {/* Font */}
             <div className="flex items-center gap-1.5 py-0.5 border-t border-slate-100 pt-1.5">
-              <span className="text-[9px] text-slate-500 w-12">Font</span>
+              <span className="text-[9px] text-slate-500 w-12">{t('settings.font')}</span>
               <select
                 value={theme.font}
                 onChange={(e) => setFont(e.target.value as FontFamily)}
@@ -134,7 +164,7 @@ export function SettingsContent() {
             </div>
 
             <button onClick={resetColors} className="flex items-center gap-1 text-[9px] text-slate-400 hover:text-slate-600 mt-1">
-              <RotateCcw className="w-2.5 h-2.5" /> Reset
+              <RotateCcw className="w-2.5 h-2.5" /> {t('settings.reset')}
             </button>
           </div>
         )}
@@ -142,27 +172,26 @@ export function SettingsContent() {
         {tab === 'layout' && (
           <div className="space-y-2">
             <p className="text-[9px] text-slate-500">
-              Guarda la posición de tus ventanas para restaurarlas después.
+              {t('settings.saveLayoutDescription')}
             </p>
-            
+
             {/* Save Layout */}
             <button
               onClick={handleSaveLayout}
-              className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[9px] font-medium transition-colors ${
-                saved 
-                  ? 'bg-green-100 text-green-700' 
+              className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-[9px] font-medium transition-colors ${saved
+                  ? 'bg-green-100 text-green-700'
                   : 'bg-blue-500 text-white hover:bg-blue-600'
-                }`} 
+                }`}
             >
               {saved ? (
                 <>
                   <Check className="w-3 h-3" />
-                  Guardado
+                  {t('settings.saved')}
                 </>
               ) : (
                 <>
                   <Save className="w-3 h-3" />
-                  Guardar Layout
+                  {t('settings.saveLayout')}
                 </>
               )}
             </button>
@@ -173,13 +202,13 @@ export function SettingsContent() {
                 <div className="flex items-center gap-1.5">
                   <Layout className="w-3 h-3 text-slate-400" />
                   <span className="text-[9px] text-slate-600">
-                    {savedCount} ventana{savedCount !== 1 ? 's' : ''} guardada{savedCount !== 1 ? 's' : ''}
+                    {t('settings.windowsSaved', { count: savedCount })}
                   </span>
                 </div>
                 <button
                   onClick={clearLayout}
                   className="p-0.5 rounded hover:bg-red-100 text-slate-400 hover:text-red-600 transition-colors"
-                  title="Borrar layout guardado"
+                  title={t('settings.clearLayout')}
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -191,12 +220,12 @@ export function SettingsContent() {
               {isSignedIn ? (
                 <>
                   <Cloud className="w-2.5 h-2.5 text-green-500" />
-                  <span>Sincronizado con tu cuenta</span>
+                  <span>{t('settings.synced')}</span>
                 </>
               ) : (
                 <>
                   <CloudOff className="w-2.5 h-2.5" />
-                  <span>Solo guardado local</span>
+                  <span>{t('settings.localOnly')}</span>
                 </>
               )}
             </div>

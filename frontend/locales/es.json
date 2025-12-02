@@ -1,0 +1,317 @@
+{
+  "common": {
+    "loading": "Cargando...",
+    "error": "Error",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "search": "Buscar",
+    "filter": "Filtrar",
+    "clear": "Limpiar",
+    "apply": "Aplicar",
+    "back": "Volver",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "page": "Página",
+    "of": "de",
+    "noResults": "No se encontraron resultados",
+    "noData": "Sin datos disponibles",
+    "live": "En vivo",
+    "offline": "Desconectado",
+    "connected": "Conectado",
+    "disconnected": "Desconectado"
+  },
+  "commands": {
+    "title": "COMANDOS",
+    "typeCommand": "escribe un comando",
+    "noCommandsFound": "No se encontraron comandos.",
+    "sc": {
+      "name": "Scanner",
+      "description": "Abrir scanner de mercado"
+    },
+    "dt": {
+      "name": "Dilution Tracker",
+      "description": "Análisis de dilución"
+    },
+    "fa": {
+      "name": "Financial Analysis",
+      "description": "Balance, Income, Cash Flow"
+    },
+    "sec": {
+      "name": "SEC Filings",
+      "description": "Filings de la SEC en tiempo real"
+    },
+    "news": {
+      "name": "News",
+      "description": "Noticias del mercado"
+    },
+    "ipo": {
+      "name": "IPOs",
+      "description": "Ofertas Públicas Iniciales"
+    },
+    "wl": {
+      "name": "Quote Monitor",
+      "description": "Watchlist con quotes en tiempo real"
+    },
+    "profile": {
+      "name": "Profile",
+      "description": "Tu perfil y cuenta"
+    },
+    "settings": {
+      "name": "Settings",
+      "description": "Configuración de la app"
+    },
+    "filters": {
+      "name": "Scanner Filters",
+      "description": "Filtros del scanner en tiempo real"
+    },
+    "help": {
+      "name": "Help",
+      "description": "Mostrar ayuda del terminal"
+    }
+  },
+  "scanner": {
+    "gapUp": "Gap Up",
+    "gapDown": "Gap Down",
+    "momentumUp": "Momentum Alcista",
+    "momentumDown": "Momentum Bajista",
+    "topGainers": "Mayores Ganadores",
+    "topLosers": "Mayores Perdedores",
+    "newHighs": "Nuevos Máximos",
+    "newLows": "Nuevos Mínimos",
+    "anomalies": "Anomalías",
+    "highVolume": "Alto Volumen",
+    "reversals": "Reversiones",
+    "marketClosed": "El mercado está cerrado. Los datos se actualizarán cuando abra.",
+    "clickDescription": "Clic para ver descripción",
+    "gapUpDescription": "Gap alcista ≥ 2%",
+    "gapDownDescription": "Gap bajista ≤ -2%",
+    "momentumUpDescription": "Cambio ≥ 3%",
+    "momentumDownDescription": "Cambio ≤ -3%",
+    "topGainersDescription": "Cambio ≥ 5%",
+    "topLosersDescription": "Cambio ≤ -5%",
+    "newHighsDescription": "Máximos diarios",
+    "newLowsDescription": "Mínimos diarios",
+    "anomaliesDescription": "RVOL ≥ 3.0",
+    "highVolumeDescription": "RVOL ≥ 2.0",
+    "reversalsDescription": "Cambios de dirección",
+    "tableHeaders": {
+      "symbol": "Símbolo",
+      "price": "Precio",
+      "gapPercent": "Gap %",
+      "volume": "Volumen",
+      "rvol": "RVOL",
+      "marketCap": "Capitalización",
+      "float": "Float",
+      "atrPercent": "ATR%",
+      "atrUsed": "ATR Usado"
+    }
+  },
+  "news": {
+    "title": "Noticias",
+    "loadingNews": "Cargando noticias...",
+    "errorLoading": "Error al cargar noticias",
+    "newsFor": "Noticia de {{ticker}}",
+    "readMore": "Leer artículo completo en Benzinga",
+    "openOriginal": "Abrir Original",
+    "fullContentNotAvailable": "Contenido del artículo no disponible",
+    "openOnBenzinga": "Abrir en Benzinga",
+    "headline": "Título",
+    "date": "Fecha",
+    "time": "Hora",
+    "ticker": "Ticker",
+    "source": "Fuente"
+  },
+  "secFilings": {
+    "title": "SEC Filings",
+    "loading": "Cargando...",
+    "noFilingsFound": "No se encontraron filings",
+    "errorLoading": "Error al cargar filings",
+    "page": "Página {{current}} de {{total}}",
+    "tableHeaders": {
+      "ticker": "Ticker",
+      "form": "Formulario",
+      "description": "Descripción",
+      "date": "Fecha",
+      "time": "Hora"
+    }
+  },
+  "dilution": {
+    "title": "Dilution Tracker",
+    "invalidTicker": "Ticker inválido",
+    "errorLoading": "Error al cargar datos",
+    "enterSymbol": "Ingresa un símbolo de acción para ver su análisis de dilución",
+    "llmEngine": "Motor LLM + ML",
+    "responseDelayed": "La respuesta puede demorarse mientras procesamos el análisis"
+  },
+  "settings": {
+    "title": "Configuración",
+    "language": "Idioma",
+    "languageDescription": "Selecciona tu idioma preferido",
+    "theme": "Tema",
+    "layout": "Diseño",
+    "saveLayout": "Guardar Layout",
+    "saveLayoutDescription": "Guarda la posición de tus ventanas para restaurarlas después.",
+    "saved": "¡Guardado!",
+    "reset": "Restablecer",
+    "font": "Fuente",
+    "clearLayout": "Borrar layout guardado",
+    "windowsSaved": "{{count}} ventana guardada",
+    "windowsSaved_plural": "{{count}} ventanas guardadas",
+    "synced": "Sincronizado con tu cuenta",
+    "localOnly": "Solo guardado local",
+    "tabs": {
+      "colors": "Colores",
+      "layout": "Diseño",
+      "commands": "Comandos"
+    },
+    "colors": {
+      "tickUp": "Alza",
+      "tickDown": "Baja",
+      "background": "Fondo"
+    }
+  },
+  "navbar": {
+    "signOut": "Cerrar Sesión",
+    "profile": "Perfil",
+    "user": "Usuario"
+  },
+  "sidebar": {
+    "scanner": "Escáner",
+    "settings": "Configuración"
+  },
+  "errors": {
+    "somethingWentWrong": "¡Algo salió mal!",
+    "criticalError": "Ha ocurrido un error crítico en la aplicación.",
+    "reloadApp": "Recargar aplicación",
+    "pageNotFound": "Página no encontrada",
+    "pageNotFoundDescription": "Lo sentimos, la página que buscas no existe.",
+    "couldNotConnect": "No se pudo conectar al servidor"
+  },
+  "mobile": {
+    "designedForDesktop": "Diseñado para escritorio",
+    "openFromComputer": "Abre Tradeul desde tu ordenador",
+    "professionalPlatform": "Esta plataforma profesional de trading requiere un ordenador para funcionar correctamente con todas sus herramientas.",
+    "continueAnyway": "Continuar de todos modos"
+  },
+  "help": {
+    "title": "Ayuda",
+    "tabs": {
+      "gettingStarted": "Primeros Pasos",
+      "keystrokes": "Atajos",
+      "commands": "Comandos"
+    },
+    "terminal": "Terminal",
+    "terminalDescription": "El Terminal es un sistema de comandos CLI. Accede haciendo click en el prompt o presionando",
+    "useCommands": "Usa comandos para acceder a todas las funciones.",
+    "syntax": "Sintaxis",
+    "example": "Ejemplo",
+    "toOpenChart": "Para abrir un gráfico de Apple:",
+    "exampleDescription": "AAPL es el ticker. G es el comando (Graph).",
+    "tickerCommands": "Comandos con Ticker",
+    "globalCommands": "Comandos Globales",
+    "shortcuts": {
+      "openTerminal": "Abrir terminal",
+      "close": "Cerrar",
+      "executeCommand": "Ejecutar comando",
+      "autocomplete": "Autocompletar",
+      "showHelp": "Mostrar ayuda"
+    }
+  },
+  "floatingWindow": {
+    "openInNewWindow": "Abrir en nueva ventana",
+    "closeTable": "Cerrar tabla",
+    "poppedOutMessage": "Este componente ha sido abierto en otra ventana",
+    "poppedOutDescription": "Haz clic abajo para cerrar la ventana externa y continuar aquí",
+    "closeExternalResume": "Cerrar Externa y Continuar"
+  },
+  "tickerSearch": {
+    "noName": "Sin nombre",
+    "noTickersFound": "No se encontraron tickers para \"{{query}}\""
+  },
+  "pinnedCommands": {
+    "noFavorites": "Sin favoritos"
+  },
+  "commandPalette": {
+    "commands": "Comandos",
+    "scanner": "Scanner",
+    "dilutionTracker": "Dilution Tracker",
+    "mainCommands": "Comandos principales"
+  },
+  "ipo": {
+    "tableHeaders": {
+      "ticker": "Ticker",
+      "status": "Estado",
+      "company": "Empresa",
+      "exchange": "Bolsa",
+      "price": "Precio",
+      "size": "Tamaño",
+      "shares": "Acciones",
+      "date": "Fecha"
+    }
+  },
+  "workspace": {
+    "noWindowsOpen": "No hay ventanas abiertas",
+    "useCommandToOpen": "Usa Ctrl+K o escribe un comando para abrir tablas del scanner"
+  },
+  "terminalCommands": {
+    "tickerCommands": {
+      "Q": {
+        "description": "Precio bid/ask en tiempo real"
+      },
+      "DES": {
+        "description": "Perfil completo: info, gráfico, estadísticas, analista"
+      },
+      "G": {
+        "description": "Gráfico del ticker con TradingView"
+      },
+      "DT": {
+        "description": "Análisis de dilución del ticker"
+      },
+      "FA": {
+        "description": "Balance, Income, Cash Flow"
+      },
+      "SEC": {
+        "description": "Filings de la SEC para este ticker"
+      },
+      "NEWS": {
+        "description": "Noticias del ticker"
+      }
+    },
+    "globalCommands": {
+      "SC": {
+        "description": "Abrir scanner de mercado"
+      },
+      "DT": {
+        "description": "Análisis de dilución"
+      },
+      "FA": {
+        "description": "Balance, Income, Cash Flow"
+      },
+      "SEC": {
+        "description": "Filings de la SEC en tiempo real"
+      },
+      "NEWS": {
+        "description": "Noticias del mercado"
+      },
+      "IPO": {
+        "description": "Ofertas Públicas Iniciales"
+      },
+      "WL": {
+        "description": "Watchlist con quotes en tiempo real"
+      },
+      "PROFILE": {
+        "description": "Tu perfil y cuenta"
+      },
+      "SET": {
+        "description": "Configuración de la app"
+      },
+      "FILTERS": {
+        "description": "Filtros del scanner en tiempo real"
+      },
+      "HELP": {
+        "description": "Mostrar ayuda del terminal"
+      }
+    }
+  }
+}

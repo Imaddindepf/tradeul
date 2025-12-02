@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import { Pin } from 'lucide-react';
 import { usePinnedCommands } from '@/hooks/usePinnedCommands';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -11,6 +12,7 @@ interface PinnedCommandsProps {
 }
 
 export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
+  const { t } = useTranslation();
   const { pinnedCommands, loaded } = usePinnedCommands();
   const { executeCommand } = useCommandExecutor();
 
@@ -35,7 +37,7 @@ export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
       <button
         onClick={() => executeCommand('settings')}
         className="p-2 rounded-lg hover:bg-blue-50 transition-colors group"
-        title="Settings"
+        title={t('settings.title')}
       >
         <Pin className="w-5 h-5 text-blue-500 group-hover:text-blue-600 transition-colors" />
       </button>
@@ -63,7 +65,7 @@ export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
           )}
         </div>
       ) : (
-        <span className="text-xs text-slate-400 italic">Sin favoritos</span>
+        <span className="text-xs text-slate-400 italic">{t('pinnedCommands.noFavorites')}</span>
       )}
     </div>
   );

@@ -83,12 +83,12 @@ export default function Home() {
             <SignedOut>
               <SignInButton mode="modal">
                 <button className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
-                  Iniciar Sesión
+                  Sign In
                 </button>
               </SignInButton>
               <SignUpButton mode="modal">
                 <button className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm">
-                  Comenzar
+                  Get Started
                 </button>
               </SignUpButton>
             </SignedOut>
@@ -98,7 +98,7 @@ export default function Home() {
                 href="/workspace"
                 className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors flex items-center gap-1.5"
               >
-                Ir al Workspace <ArrowRight className="w-3.5 h-3.5" />
+                Go to Workspace <ArrowRight className="w-3.5 h-3.5" />
               </Link>
               <UserButton afterSignOutUrl="/" />
             </SignedIn>
@@ -132,13 +132,13 @@ export default function Home() {
             <SignedOut>
               <SignUpButton mode="modal">
                 <button className="group px-7 py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl flex items-center gap-2">
-                  Comenzar Gratis
+                  Start Free
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
                 </button>
               </SignUpButton>
               <SignInButton mode="modal">
                 <button className="px-7 py-3.5 border border-slate-200 bg-white text-slate-700 font-medium rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
-                  Ya tengo cuenta
+                  I have an account
                 </button>
               </SignInButton>
             </SignedOut>
@@ -148,7 +148,7 @@ export default function Home() {
                 href="/workspace"
                 className="group px-7 py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
               >
-                Abrir Workspace
+                Open Workspace
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
               </Link>
             </SignedIn>
@@ -162,8 +162,8 @@ export default function Home() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { value: '8K+', label: 'Tickers' },
-              { value: '<50ms', label: 'Latencia' },
-              { value: '24/7', label: 'Monitoreo' },
+              { value: '<50ms', label: 'Latency' },
+              { value: '24/7', label: 'Monitoring' },
               { value: 'Real-Time', label: 'Data Feed' },
             ].map((stat) => (
               <div 
@@ -183,8 +183,8 @@ export default function Home() {
         <div className="max-w-4xl mx-auto">
           {/* Section Header */}
           <div className="text-center mb-12">
-            <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Todo lo que necesitas</h2>
-            <p className="text-slate-500">Herramientas profesionales. Sin complicaciones.</p>
+            <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Everything you need</h2>
+            <p className="text-slate-500">Professional tools. No complications.</p>
           </div>
 
           {/* Feature Cards */}
@@ -219,7 +219,7 @@ export default function Home() {
               >
                 {!feature.active && (
                   <span className="absolute top-3 right-3 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">
-                    PRONTO
+                    SOON
                   </span>
                 )}
                 <div className={`w-11 h-11 rounded-lg flex items-center justify-center mb-4 ${
@@ -301,16 +301,16 @@ export default function Home() {
       <section className="relative py-20 px-6">
         <div className="max-w-xl mx-auto text-center">
           <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-4">
-            ¿Listo para empezar?
+Ready to get started?
           </h2>
           <p className="text-slate-500 mb-8">
-            Únete a traders que exigen mejores herramientas.
+            Join traders who demand better tools.
           </p>
           
           <SignedOut>
             <SignUpButton mode="modal">
               <button className="group px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold text-lg rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl flex items-center gap-2 mx-auto">
-                Comenzar Gratis
+                Start Free
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
               </button>
             </SignUpButton>

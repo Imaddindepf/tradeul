@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import {
     Search,
     FileText,
@@ -40,12 +41,14 @@ type SECFiling = {
 type ViewMode = 'realtime' | 'historical';
 
 export function SECFilingsRealtime() {
+    const { t } = useTranslation();
+
     // Estado de vista
     const [viewMode, setViewMode] = useState<ViewMode>('realtime');
-    
+
     // Filings en tiempo real
     const [realtimeFilings, setRealtimeFilings] = useState<SECFiling[]>([]);
-    
+
     // Filings históricos
     const [historicalFilings, setHistoricalFilings] = useState<SECFiling[]>([]);
     const [loading, setLoading] = useState(false);
@@ -61,7 +64,7 @@ export function SECFilingsRealtime() {
     const [formTypeFilter, setFormTypeFilter] = useState("");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
-    
+
     // Filtros en tiempo real (aplicados localmente)
     const [realtimeTickerFilter, setRealtimeTickerFilter] = useState("");
     const [realtimeFormFilter, setRealtimeFormFilter] = useState("");
@@ -90,7 +93,7 @@ export function SECFilingsRealtime() {
         ws.onopen = () => {
             console.log('✅ WebSocket connected');
             setWsConnected(true);
-            
+
             // Suscribirse a SEC Filings
             ws.send(JSON.stringify({
                 action: 'subscribe_sec_filings'
@@ -101,11 +104,11 @@ export function SECFilingsRealtime() {
         ws.onmessage = (event) => {
             try {
                 const message = JSON.parse(event.data);
-                
+
                 // Manejar filings en tiempo real
                 if (message.type === 'sec_filing' && message.filing) {
                     const filing = message.filing;
-                    
+
                     // Aplicar filtros locales antes de agregar
                     if (realtimeTickerFilter && filing.ticker !== realtimeTickerFilter.toUpperCase()) {
                         return;
@@ -113,21 +116,21 @@ export function SECFilingsRealtime() {
                     if (realtimeFormFilter && filing.formType !== realtimeFormFilter.toUpperCase()) {
                         return;
                     }
-                    
+
                     console.log('📄 New SEC filing received:', filing.ticker, filing.formType);
-                    
+
                     // Agregar al inicio de la lista
                     setRealtimeFilings(prev => {
                         // Evitar duplicados
                         const exists = prev.some(f => f.accessionNo === filing.accessionNo);
                         if (exists) return prev;
-                        
+
                         // Mantener solo últimos 500 filings
                         const newFilings = [filing, ...prev].slice(0, 500);
                         return newFilings;
                     });
                 }
-                
+
                 // Confirmar suscripción
                 else if (message.type === 'subscribed' && message.channel === 'SEC_FILINGS') {
                     console.log('✅ Subscription confirmed:', message.message);
@@ -189,7 +192,7 @@ export function SECFilingsRealtime() {
             setCurrentPage(page);
         } catch (err) {
             console.error('Error fetching historical filings:', err);
-            setError(err instanceof Error ? err.message : "Error al cargar filings");
+            setError(err instanceof Error ? err.message : t('secFilings.errorLoading'));
             setHistoricalFilings([]);
             setTotalResults(0);
         } finally {
@@ -211,7 +214,7 @@ export function SECFilingsRealtime() {
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         setSearchQuery(inputValue);
-        
+
         if (viewMode === 'historical') {
             setCurrentPage(1);
             fetchHistoricalFilings(1, inputValue);
@@ -230,7 +233,7 @@ export function SECFilingsRealtime() {
         setRealtimeTickerFilter("");
         setRealtimeFormFilter("");
         setCurrentPage(1);
-        
+
         if (viewMode === 'historical') {
             setHistoricalFilings([]);
             setTotalResults(0);
@@ -352,11 +355,10 @@ export function SECFilingsRealtime() {
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setViewMode('realtime')}
-                        className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 ${
-                            viewMode === 'realtime'
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 ${viewMode === 'realtime'
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                            }`}
                     >
                         <Zap className="w-3 h-3" />
                         Real-Time
@@ -364,18 +366,17 @@ export function SECFilingsRealtime() {
                     </button>
                     <button
                         onClick={() => setViewMode('historical')}
-                        className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 ${
-                            viewMode === 'historical'
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
-                        }`}
+                        className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 ${viewMode === 'historical'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100'
+                            }`}
                     >
                         <Database className="w-3 h-3" />
                         Historical
                     </button>
-                    
+
                     <div className="flex-1"></div>
-                    
+
                     {viewMode === 'realtime' && (
                         <div className="text-xs text-slate-600 font-mono flex items-center gap-1.5">
                             <span className={`inline-block w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
@@ -470,19 +471,19 @@ export function SECFilingsRealtime() {
                     <thead className="sticky top-0 bg-slate-100 border-b border-slate-200">
                         <tr>
                             <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Ticker
+                                {t('secFilings.tableHeaders.ticker')}
                             </th>
                             <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Form
+                                {t('secFilings.tableHeaders.form')}
                             </th>
                             <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Description
+                                {t('secFilings.tableHeaders.description')}
                             </th>
                             <th className="px-2 py-1 text-right text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Date
+                                {t('secFilings.tableHeaders.date')}
                             </th>
                             <th className="px-2 py-1 text-right text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Time
+                                {t('secFilings.tableHeaders.time')}
                             </th>
                         </tr>
                     </thead>
@@ -491,7 +492,7 @@ export function SECFilingsRealtime() {
                             <tr>
                                 <td colSpan={5} className="px-2 py-6 text-center">
                                     <RefreshCw className="w-6 h-6 mx-auto mb-1 text-blue-500 animate-spin" />
-                                    <p className="text-slate-500 text-xs">Cargando...</p>
+                                    <p className="text-slate-500 text-xs">{t('common.loading')}</p>
                                 </td>
                             </tr>
                         ) : currentFilings.length === 0 ? (
@@ -499,9 +500,9 @@ export function SECFilingsRealtime() {
                                 <td colSpan={5} className="px-2 py-6 text-center">
                                     <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                                     <p className="text-slate-500 font-medium text-xs">
-                                        {viewMode === 'realtime' 
-                                            ? 'Esperando filings en tiempo real...' 
-                                            : 'No se encontraron filings'}
+                                        {viewMode === 'realtime'
+                                            ? 'Esperando filings en tiempo real...'
+                                            : t('secFilings.noFilingsFound')}
                                     </p>
                                 </td>
                             </tr>
@@ -552,7 +553,7 @@ export function SECFilingsRealtime() {
                     <div className="flex items-center gap-2">
                         <span>{totalResults.toLocaleString()} total</span>
                         <span className="text-slate-400">|</span>
-                        <span>Página {currentPage} de {Math.ceil(totalResults / PAGE_SIZE)}</span>
+                        <span>{t('secFilings.page', { current: currentPage, total: Math.ceil(totalResults / PAGE_SIZE) })}</span>
                     </div>
 
                     <div className="flex items-center gap-1">

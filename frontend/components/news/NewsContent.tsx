@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
 import { useSquawk } from '@/hooks/useSquawk';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
-import { ExternalLink } from 'lucide-react';
+import { TickerSearch } from '@/components/common/TickerSearch';
+import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // Decodifica entidades HTML como &#39; &amp; &quot; etc.
 function decodeHtmlEntities(text: string): string {
@@ -33,7 +35,10 @@ interface NewsContentProps {
   initialTicker?: string;
 }
 
+const ITEMS_PER_PAGE = 200;
+
 export function NewsContent({ initialTicker }: NewsContentProps = {}) {
+  const { t } = useTranslation();
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +46,9 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
   const [pausedBuffer, setPausedBuffer] = useState<NewsArticle[]>([]);
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
   const seenIdsRef = useRef<Set<string | number>>(new Set());
-  const [tickerFilter, setTickerFilter] = useState<string | null>(initialTicker || null);
+  const [tickerFilter, setTickerFilter] = useState<string>(initialTicker || '');
+  const [tickerInputValue, setTickerInputValue] = useState<string>(initialTicker || '');
+  const [currentPage, setCurrentPage] = useState(1);
 
   // WebSocket connection con Auth
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
@@ -55,7 +62,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
     const fetchNews = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${apiUrl}/news/api/v1/news?limit=200`);
+        const response = await fetch(`${apiUrl}/news/api/v1/news?limit=1000`);
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -73,7 +80,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
         setLoading(false);
       } catch (err) {
         console.error('Error fetching news:', err);
-        setError('Error loading news');
+        setError(t('news.errorLoading'));
         setLoading(false);
       }
     };
@@ -109,13 +116,12 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
           } else {
             setNews(prev => [liveArticle, ...prev]);
 
-            // Squawk: leer la noticia en español
+            // Squawk: read the news aloud
             const ticker = article.tickers?.[0] || '';
-            // Prefijo en español para forzar el idioma
             const decodedTitle = decodeHtmlEntities(article.title);
             const squawkText = ticker
-              ? `Noticia de ${ticker}. ${decodedTitle}`
-              : `Noticia. ${decodedTitle}`;
+              ? t('news.newsFor', { ticker }) + '. ' + decodedTitle
+              : t('news.title') + '. ' + decodedTitle;
             console.log('🎙️ Squawk:', { isEnabled: squawk.isEnabled, text: squawkText.substring(0, 50) });
             squawk.speak(squawkText);
           }
@@ -136,6 +142,35 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
     setIsPaused(!isPaused);
   }, [isPaused, pausedBuffer]);
 
+  // Apply ticker filter
+  const handleApplyFilter = useCallback(() => {
+    setTickerFilter(tickerInputValue.toUpperCase().trim());
+    setCurrentPage(1); // Reset to first page when filtering
+  }, [tickerInputValue]);
+
+  // Filter news by ticker
+  const filteredNews = useMemo(() => {
+    if (!tickerFilter) return news;
+    return news.filter(article =>
+      article.tickers?.some(t => t.toUpperCase().includes(tickerFilter))
+    );
+  }, [news, tickerFilter]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredNews.length / ITEMS_PER_PAGE);
+  const paginatedNews = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredNews.slice(start, end);
+  }, [filteredNews, currentPage]);
+
+  // Reset page if it exceeds total pages after filtering
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, totalPages]);
+
   // Format date/time
   const formatDateTime = (isoString: string) => {
     try {
@@ -154,7 +189,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
       <div className="flex items-center justify-center h-full bg-white">
         <div className="text-center">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
-          <p className="text-slate-600 text-sm">Cargando noticias...</p>
+          <p className="text-slate-600 text-sm">{t('news.loadingNews')}</p>
         </div>
       </div>
     );
@@ -190,7 +225,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
             onClick={() => setSelectedArticle(null)}
             className="px-2 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-medium flex items-center gap-1"
           >
-            ← Back
+            ← {t('common.back')}
           </button>
           <div className="text-xs text-slate-600 font-mono flex items-center gap-2">
             {ticker && (
@@ -210,7 +245,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
             className="px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs font-medium flex items-center gap-1"
           >
             <ExternalLink className="w-3 h-3" />
-            Open Original
+            {t('news.openOriginal')}
           </a>
         </div>
 
@@ -245,13 +280,13 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm"
                 >
-                  Read full article on Benzinga
+                  {t('news.readMore')}
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               </div>
             ) : (
               <div className="text-center py-8">
-                <p className="text-slate-500 mb-4">Full article content not available</p>
+                <p className="text-slate-500 mb-4">{t('news.fullContentNotAvailable')}</p>
                 <a
                   href={selectedArticle.url}
                   target="_blank"
@@ -259,7 +294,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
                   className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  Open on Benzinga
+                  {t('news.openOnBenzinga')}
                 </a>
               </div>
             )}
@@ -279,7 +314,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
               className={`w-1.5 h-1.5 rounded-full ${ws.isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}
             />
             <span className={`text-xs font-medium ${ws.isConnected ? 'text-emerald-600' : 'text-slate-500'}`}>
-              {ws.isConnected ? 'Live' : 'Offline'}
+              {ws.isConnected ? t('common.live') : t('common.offline')}
             </span>
           </div>
 
@@ -296,11 +331,75 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
           {isPaused && pausedBuffer.length > 0 && (
             <span className="text-amber-600 text-xs font-medium">(+{pausedBuffer.length})</span>
           )}
+
+          {/* Ticker Filter - Using shared TickerSearch component */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); handleApplyFilter(); }}
+            className="flex items-center gap-1.5 ml-3 pl-3 border-l border-slate-300"
+          >
+            <TickerSearch
+              value={tickerInputValue}
+              onChange={(value) => {
+                setTickerInputValue(value);
+                // Clear filter when input is cleared
+                if (!value) {
+                  setTickerFilter('');
+                  setCurrentPage(1);
+                }
+              }}
+              onSelect={(ticker) => {
+                setTickerInputValue(ticker.symbol);
+                setTickerFilter(ticker.symbol.toUpperCase());
+                setCurrentPage(1);
+              }}
+              placeholder={t('news.ticker')}
+              className="w-24"
+            />
+            <button
+              type="submit"
+              className="px-2.5 py-0.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 font-medium transition-colors"
+            >
+              {t('common.filter')}
+            </button>
+          </form>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-600 font-mono">{news.length}</span>
-          {liveCount > 0 && <span className="text-xs text-emerald-600">({liveCount} live)</span>}
+        <div className="flex items-center gap-3">
+          {/* Stats */}
+          <div className="flex items-center gap-2 text-xs">
+            {tickerFilter && (
+              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-mono font-medium">
+                {tickerFilter}
+              </span>
+            )}
+            <span className="text-slate-600 font-mono">
+              {filteredNews.length}{tickerFilter ? ` / ${news.length}` : ''}
+            </span>
+            {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1 border-l border-slate-300 pl-3">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft className="w-4 h-4 text-slate-600" />
+              </button>
+              <span className="text-xs text-slate-600 font-mono min-w-[60px] text-center">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="w-4 h-4 text-slate-600" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -309,15 +408,15 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
         <table className="w-full border-collapse text-xs">
           <thead className="bg-slate-100 sticky top-0">
             <tr className="text-left text-slate-600 uppercase tracking-wide">
-              <th className="px-2 py-1.5 font-medium">Headline</th>
-              <th className="px-2 py-1.5 font-medium w-24 text-center">Date</th>
-              <th className="px-2 py-1.5 font-medium w-20 text-center">Time</th>
-              <th className="px-2 py-1.5 font-medium w-16 text-center">Ticker</th>
-              <th className="px-2 py-1.5 font-medium w-36">Source</th>
+              <th className="px-2 py-1.5 font-medium">{t('news.headline')}</th>
+              <th className="px-2 py-1.5 font-medium w-24 text-center">{t('news.date')}</th>
+              <th className="px-2 py-1.5 font-medium w-20 text-center">{t('news.time')}</th>
+              <th className="px-2 py-1.5 font-medium w-16 text-center">{t('news.ticker')}</th>
+              <th className="px-2 py-1.5 font-medium w-36">{t('news.source')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {news.map((article, i) => {
+            {paginatedNews.map((article, i) => {
               const dt = formatDateTime(article.published);
               const ticker = article.tickers?.[0] || '—';
 

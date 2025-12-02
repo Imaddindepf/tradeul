@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, ExternalLink } from 'lucide-react';
 import { FloatingWindow as FloatingWindowType, useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
@@ -10,6 +11,7 @@ interface FloatingWindowProps {
 }
 
 export function FloatingWindow({ window }: FloatingWindowProps) {
+  const { t } = useTranslation();
   const { closeWindow, updateWindow } = useFloatingWindow();
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -120,13 +122,13 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     } else if (window.title.includes(' — ')) {
       // Gráfico financiero: "AAPL — Revenue"
       const { openFinancialChartWindow } = require('@/lib/window-injector');
-      
+
       // Extraer ticker y metricLabel del título "AAPL — Revenue"
       const [ticker, metricLabel] = window.title.split(' — ');
-      
+
       // Buscar en el registro global de datos de gráficos
       const globalChartData = (globalThis as any).__financialChartData || {};
-      
+
       // Buscar por ticker y cualquier métrica que coincida
       let chartData = null;
       for (const key of Object.keys(globalChartData)) {
@@ -138,7 +140,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           }
         }
       }
-      
+
       if (chartData) {
         popOutWindow = openFinancialChartWindow(
           chartData,
@@ -185,19 +187,19 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         }
       }
 
-      // Mapeo de nombres a listNames
+      // Mapeo de nombres a listNames (usando traducciones)
       const LIST_NAME_MAP: Record<string, string> = {
-        'Gap Up': 'gappers_up',
-        'Gap Down': 'gappers_down',
-        'Momentum Alcista': 'momentum_up',
-        'Momentum Bajista': 'momentum_down',
-        'Mayores Ganadores': 'winners',
-        'Mayores Perdedores': 'losers',
-        'Nuevos Máximos': 'new_highs',
-        'Nuevos Mínimos': 'new_lows',
-        'Anomalías': 'anomalies',
-        'Alto Volumen': 'high_volume',
-        'Reversals': 'reversals',
+        [t('scanner.gapUp')]: 'gappers_up',
+        [t('scanner.gapDown')]: 'gappers_down',
+        [t('scanner.momentumUp')]: 'momentum_up',
+        [t('scanner.momentumDown')]: 'momentum_down',
+        [t('scanner.topGainers')]: 'winners',
+        [t('scanner.topLosers')]: 'losers',
+        [t('scanner.newHighs')]: 'new_highs',
+        [t('scanner.newLows')]: 'new_lows',
+        [t('scanner.anomalies')]: 'anomalies',
+        [t('scanner.highVolume')]: 'high_volume',
+        [t('scanner.reversals')]: 'reversals',
       };
 
       listName = listName || LIST_NAME_MAP[categoryName] || '';
@@ -296,8 +298,8 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                   handleOpenNewWindow();
                 }}
                 className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
-                aria-label="Abrir en nueva ventana"
-                title="Abrir en nueva ventana"
+                aria-label={t('floatingWindow.openInNewWindow')}
+                title={t('floatingWindow.openInNewWindow')}
               >
                 <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-600" />
               </button>
@@ -312,7 +314,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                   handleClose();
                 }}
                 className="p-1.5 rounded hover:bg-red-100 transition-colors group"
-                aria-label="Cerrar"
+                aria-label={t('common.close')}
               >
                 <X className="w-4 h-4 text-slate-600 group-hover:text-red-600" />
               </button>
@@ -329,16 +331,16 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                 <ExternalLink className="w-8 h-8 text-blue-600" />
               </div>
               <p className="text-slate-700 font-medium text-center mb-2">
-                This component has been popped out into another window
+                {t('floatingWindow.poppedOutMessage')}
               </p>
               <p className="text-slate-500 text-sm text-center mb-6">
-                Click below to close external window and resume here
+                {t('floatingWindow.poppedOutDescription')}
               </p>
               <button
                 onClick={handleClosePopOut}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
               >
-                Close External & Resume
+                {t('floatingWindow.closeExternalResume')}
               </button>
             </div>
           ) : (

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getMarketSession } from '@/lib/api';
 import type { MarketSession } from '@/lib/types';
 import { Navbar, NavbarContent, UserMenu } from '@/components/layout/Navbar';
@@ -15,6 +16,7 @@ import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
+import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
@@ -54,6 +56,7 @@ function adaptMarketSession(session: MarketSession) {
 const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners', 'new_highs', 'new_lows', 'high_volume'];
 
 export default function ScannerPage() {
+  const { t } = useTranslation();
   const [session, setSession] = useState<MarketSession | null>(null);
   const [mounted, setMounted] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -64,7 +67,7 @@ export default function ScannerPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { windows, openWindow, closeWindow } = useFloatingWindow();
-  const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, SCANNER_CATEGORIES } = useCommandExecutor();
+  const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, getScannerCategory } = useCommandExecutor();
   const { getSavedLayout, hasLayout } = useLayoutPersistence();
 
   // WebSocket con Auth para recibir cambios de sesión en tiempo real
@@ -77,6 +80,7 @@ export default function ScannerPage() {
   // Función para reconstruir contenido de ventana por título
   const getWindowContent = useCallback((title: string) => {
     if (title === 'Settings') return <SettingsContent />;
+    if (title === 'Filter Manager' || title === 'Filtros') return <FilterManagerContent />;
     if (title === 'Dilution Tracker') return <DilutionTrackerContent />;
     if (title === 'SEC Filings') return <SECFilingsContent />;
     if (title === 'News') return <NewsContent />;
@@ -85,19 +89,22 @@ export default function ScannerPage() {
     // Verificar si es una tabla del scanner
     if (title.startsWith('Scanner: ')) {
       const categoryName = title.replace('Scanner: ', '');
-      const categoryEntry = Object.entries(SCANNER_CATEGORIES).find(([_, cat]) => cat.name === categoryName);
-      if (categoryEntry) {
-        const [categoryId, category] = categoryEntry;
-        return (
-          <ScannerTableContent
-            categoryId={categoryId}
-            categoryName={category.name}
-          />
-        );
+      // Buscar el categoryId que corresponde a este nombre traducido
+      const categoryIds = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 'winners', 'losers', 'new_highs', 'new_lows', 'anomalies', 'high_volume', 'reversals'];
+      for (const categoryId of categoryIds) {
+        const category = getScannerCategory(categoryId);
+        if (category && category.name === categoryName) {
+          return (
+            <ScannerTableContent
+              categoryId={categoryId}
+              categoryName={category.name}
+            />
+          );
+        }
       }
     }
     return null;
-  }, [SCANNER_CATEGORIES]);
+  }, [getScannerCategory]);
 
   // Restaurar layout guardado O abrir tablas por defecto
   useEffect(() => {
@@ -371,20 +378,23 @@ export default function ScannerPage() {
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-slate-500">
               <LayoutGrid className="h-16 w-16 mx-auto mb-4 text-slate-300" />
-              <p className="text-xl font-semibold text-slate-700">No hay ventanas abiertas</p>
+              <p className="text-xl font-semibold text-slate-700">{t('workspace.noWindowsOpen')}</p>
               <p className="text-sm mt-2 text-slate-500">
-                Usa Ctrl+K o escribe un comando para abrir tablas del scanner
+                {t('workspace.useCommandToOpen')}
               </p>
               <div className="mt-4 flex gap-2 justify-center">
-                {DEFAULT_CATEGORIES.slice(0, 3).map((catId) => (
-                  <button
-                    key={catId}
-                    onClick={() => openScannerTable(catId, 0)}
-                    className="px-3 py-1.5 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600"
-                  >
-                    {SCANNER_CATEGORIES[catId]?.name || catId}
-                  </button>
-                ))}
+                {DEFAULT_CATEGORIES.slice(0, 3).map((catId) => {
+                  const category = getScannerCategory(catId);
+                  return (
+                    <button
+                      key={catId}
+                      onClick={() => openScannerTable(catId, 0)}
+                      className="px-3 py-1.5 text-xs font-medium bg-blue-500 text-white rounded-md hover:bg-blue-600"
+                    >
+                      {category?.name || catId}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>

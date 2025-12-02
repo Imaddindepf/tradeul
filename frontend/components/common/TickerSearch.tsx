@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search, X, Loader2, AlertCircle } from 'lucide-react';
 
 type TickerResult = {
@@ -24,10 +25,12 @@ export function TickerSearch({
     value,
     onChange,
     onSelect,
-    placeholder = "Ticker",
+    placeholder,
     className = "",
     autoFocus = false
 }: TickerSearchProps) {
+    const { t } = useTranslation();
+    const defaultPlaceholder = placeholder || t('news.ticker');
     const [results, setResults] = useState<TickerResult[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -55,13 +58,13 @@ export function TickerSearch({
 
         setLoading(true);
         setError(null);
-        
+
         try {
             // Usar API Gateway (puerto 8000) en vez de servicio directo
             // Esto evita problemas de firewall y centraliza el acceso
             const response = await fetch(
                 `http://157.180.45.153:8000/api/v1/metadata/search?q=${encodeURIComponent(query)}&limit=10`,
-                { 
+                {
                     signal: abortControllerRef.current.signal,
                     // Add timeout
                     ...(typeof window !== 'undefined' && {
@@ -69,13 +72,13 @@ export function TickerSearch({
                     })
                 }
             );
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
-            
+
             const data = await response.json();
-            
+
             // Validar que tenemos results array
             if (!data.results || !Array.isArray(data.results)) {
                 console.warn('Invalid response format:', data);
@@ -83,18 +86,18 @@ export function TickerSearch({
                 setIsOpen(false);
                 return;
             }
-            
+
             setResults(data.results);
             setIsOpen(data.results.length > 0);
-            
+
         } catch (error: any) {
             // Ignorar errores de abort (cuando el usuario sigue escribiendo)
             if (error.name === 'AbortError') {
                 return;
             }
-            
+
             console.error('❌ Error fetching ticker results:', error);
-            setError('No se pudo conectar al servidor');
+            setError(t('errors.couldNotConnect'));
             setResults([]);
             setIsOpen(false);
         } finally {
@@ -140,7 +143,7 @@ export function TickerSearch({
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault();
-                setSelectedIndex(prev => 
+                setSelectedIndex(prev =>
                     prev < results.length - 1 ? prev + 1 : prev
                 );
                 break;
@@ -187,11 +190,11 @@ export function TickerSearch({
                             setIsOpen(true);
                         }
                     }}
-                    placeholder={placeholder}
+                    placeholder={defaultPlaceholder}
                     autoFocus={autoFocus}
                     className={`w-full px-1.5 py-0.5 ${value ? 'pr-6' : ''} border ${error ? 'border-red-400' : 'border-slate-300'} rounded bg-white text-slate-900 text-xs focus:outline-none focus:ring-1 ${error ? 'focus:ring-red-500' : 'focus:ring-blue-500'} placeholder:text-slate-400 font-mono ${className}`}
                 />
-                
+
                 {/* Right icons */}
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                     {loading && (
@@ -203,14 +206,14 @@ export function TickerSearch({
                         </span>
                     )}
                     {value && !loading && (
-                    <button
-                        type="button"
-                        onClick={handleClear}
+                        <button
+                            type="button"
+                            onClick={handleClear}
                             className="text-slate-400 hover:text-slate-600 p-0.5"
-                    >
-                        <X className="w-3 h-3" />
-                    </button>
-                )}
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -226,21 +229,20 @@ export function TickerSearch({
                             type="button"
                             onClick={() => handleSelect(ticker)}
                             onMouseEnter={() => setSelectedIndex(index)}
-                            className={`w-full px-2 py-1.5 text-left text-xs hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 ${
-                                index === selectedIndex ? 'bg-blue-50' : ''
-                            }`}
+                            className={`w-full px-2 py-1.5 text-left text-xs hover:bg-blue-50 transition-colors border-b border-slate-100 last:border-0 ${index === selectedIndex ? 'bg-blue-50' : ''
+                                }`}
                         >
                             <div className="flex items-center gap-2">
                                 <span className="font-mono font-semibold text-blue-600 min-w-[50px]">
                                     {ticker.symbol}
                                 </span>
                                 <span className="text-slate-600 flex-1 truncate">
-                                    {ticker.name || 'Sin nombre'}
+                                    {ticker.name || t('tickerSearch.noName')}
                                 </span>
                                 {ticker.exchange && (
                                     <span className="text-[10px] text-slate-400 font-mono uppercase">
-                                    {ticker.exchange}
-                                </span>
+                                        {ticker.exchange}
+                                    </span>
                                 )}
                             </div>
                         </button>
@@ -255,7 +257,7 @@ export function TickerSearch({
                     className="absolute z-50 w-full min-w-[250px] mt-0.5 bg-white border border-slate-300 rounded shadow-lg"
                 >
                     <div className="px-2 py-2 text-xs text-slate-500 text-center">
-                        No se encontraron tickers para "{value}"
+                        {t('tickerSearch.noTickersFound', { query: value })}
                     </div>
                 </div>
             )}

@@ -9,6 +9,7 @@ import {
 } from 'next/font/google';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ClientThemeProvider } from '@/components/settings/ClientThemeProvider';
+import { I18nProvider } from '@/components/providers/I18nProvider';
 
 // UI Font
 const outfit = Outfit({ 
@@ -58,9 +59,11 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en" className={`${outfit.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable}`}>
         <body className="font-sans antialiased">
-          <ClientThemeProvider>
-          {children}
-          </ClientThemeProvider>
+          <I18nProvider>
+            <ClientThemeProvider>
+              {children}
+            </ClientThemeProvider>
+          </I18nProvider>
           <div id="portal-root" />
         </body>
       </html>

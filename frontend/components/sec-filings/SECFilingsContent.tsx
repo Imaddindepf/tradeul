@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useTranslation } from 'react-i18next';
 import {
     Search,
     FileText,
@@ -45,6 +46,7 @@ interface SECFilingsContentProps {
 }
 
 export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}) {
+    const { t } = useTranslation();
     const [historicalFilings, setHistoricalFilings] = useState<SECFiling[]>([]);
     const [realtimeFilings, setRealtimeFilings] = useState<SECFiling[]>([]);
     const [loading, setLoading] = useState(false);
@@ -99,7 +101,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
             data.filings.forEach(f => seenAccessions.current.add(f.accessionNo));
         } catch (err) {
             console.error('Error fetching filings:', err);
-            setError(err instanceof Error ? err.message : "Error al cargar filings");
+            setError(err instanceof Error ? err.message : t('secFilings.errorLoading'));
             setHistoricalFilings([]);
             setTotalResults(0);
         } finally {
@@ -438,19 +440,19 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                     <thead className="sticky top-0 bg-slate-100 border-b border-slate-200">
                         <tr>
                             <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Ticker
+                                {t('secFilings.tableHeaders.ticker')}
                             </th>
                             <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Form
+                                {t('secFilings.tableHeaders.form')}
                             </th>
                             <th className="px-2 py-1 text-left text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Description
+                                {t('secFilings.tableHeaders.description')}
                             </th>
                             <th className="px-2 py-1 text-right text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Date
+                                {t('secFilings.tableHeaders.date')}
                             </th>
                             <th className="px-2 py-1 text-right text-[10px] font-semibold text-slate-700 uppercase tracking-wide">
-                                Time
+                                {t('secFilings.tableHeaders.time')}
                             </th>
                         </tr>
                     </thead>
@@ -459,14 +461,14 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                             <tr>
                                 <td colSpan={5} className="px-2 py-6 text-center">
                                     <RefreshCw className="w-6 h-6 mx-auto mb-1 text-blue-500 animate-spin" />
-                                    <p className="text-slate-500 text-xs">Cargando...</p>
+                                    <p className="text-slate-500 text-xs">{t('common.loading')}</p>
                                 </td>
                             </tr>
                         ) : displayedFilings.length === 0 ? (
                             <tr>
                                 <td colSpan={5} className="px-2 py-6 text-center">
                                     <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                                    <p className="text-slate-500 font-medium text-xs">No se encontraron filings</p>
+                                    <p className="text-slate-500 font-medium text-xs">{t('secFilings.noFilingsFound')}</p>
                                 </td>
                             </tr>
                         ) : (
@@ -517,7 +519,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                 <div className="flex items-center gap-2">
                     <span>{totalResults.toLocaleString()} total</span>
                     <span className="text-slate-400">|</span>
-                    <span>Página {currentPage} de {Math.ceil(totalResults / PAGE_SIZE)}</span>
+                    <span>{t('secFilings.page', { current: currentPage, total: Math.ceil(totalResults / PAGE_SIZE) })}</span>
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -574,7 +576,7 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
 
                 <div className="flex items-center gap-1.5">
                     <span className={`inline-block w-1.5 h-1.5 rounded-full ${ws.isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}></span>
-                    <span className="text-[10px]">{ws.isConnected ? 'Live' : 'Offline'}</span>
+                    <span className="text-[10px]">{ws.isConnected ? t('common.live') : t('common.offline')}</span>
                 </div>
             </div>
         </div>

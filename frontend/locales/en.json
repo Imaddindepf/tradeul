@@ -1,0 +1,317 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "search": "Search",
+    "filter": "Filter",
+    "clear": "Clear",
+    "apply": "Apply",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "page": "Page",
+    "of": "of",
+    "noResults": "No results found",
+    "noData": "No data available",
+    "live": "Live",
+    "offline": "Offline",
+    "connected": "Connected",
+    "disconnected": "Disconnected"
+  },
+  "commands": {
+    "title": "COMMANDS",
+    "typeCommand": "type a command",
+    "noCommandsFound": "No commands found.",
+    "sc": {
+      "name": "Scanner",
+      "description": "Open market scanner"
+    },
+    "dt": {
+      "name": "Dilution Tracker",
+      "description": "Dilution analysis"
+    },
+    "fa": {
+      "name": "Financial Analysis",
+      "description": "Balance, Income, Cash Flow"
+    },
+    "sec": {
+      "name": "SEC Filings",
+      "description": "Real-time SEC filings"
+    },
+    "news": {
+      "name": "News",
+      "description": "Market news"
+    },
+    "ipo": {
+      "name": "IPOs",
+      "description": "Initial Public Offerings"
+    },
+    "wl": {
+      "name": "Quote Monitor",
+      "description": "Watchlist with real-time quotes"
+    },
+    "profile": {
+      "name": "Profile",
+      "description": "Your profile and account"
+    },
+    "settings": {
+      "name": "Settings",
+      "description": "App settings"
+    },
+    "filters": {
+      "name": "Scanner Filters",
+      "description": "Real-time scanner filters"
+    },
+    "help": {
+      "name": "Help",
+      "description": "Show terminal help"
+    }
+  },
+  "scanner": {
+    "gapUp": "Gap Up",
+    "gapDown": "Gap Down",
+    "momentumUp": "Momentum Up",
+    "momentumDown": "Momentum Down",
+    "topGainers": "Top Gainers",
+    "topLosers": "Top Losers",
+    "newHighs": "New Highs",
+    "newLows": "New Lows",
+    "anomalies": "Anomalies",
+    "highVolume": "High Volume",
+    "reversals": "Reversals",
+    "marketClosed": "Market is closed. Data will update when the market opens.",
+    "clickDescription": "Click to view description",
+    "gapUpDescription": "Gap up ≥ 2%",
+    "gapDownDescription": "Gap down ≤ -2%",
+    "momentumUpDescription": "Change ≥ 3%",
+    "momentumDownDescription": "Change ≤ -3%",
+    "topGainersDescription": "Change ≥ 5%",
+    "topLosersDescription": "Change ≤ -5%",
+    "newHighsDescription": "Daily highs",
+    "newLowsDescription": "Daily lows",
+    "anomaliesDescription": "RVOL ≥ 3.0",
+    "highVolumeDescription": "RVOL ≥ 2.0",
+    "reversalsDescription": "Direction changes",
+    "tableHeaders": {
+      "symbol": "Symbol",
+      "price": "Price",
+      "gapPercent": "Gap %",
+      "volume": "Volume",
+      "rvol": "RVOL",
+      "marketCap": "Market Cap",
+      "float": "Float",
+      "atrPercent": "ATR%",
+      "atrUsed": "ATR Used"
+    }
+  },
+  "news": {
+    "title": "News",
+    "loadingNews": "Loading news...",
+    "errorLoading": "Error loading news",
+    "newsFor": "News for {{ticker}}",
+    "readMore": "Read full article on Benzinga",
+    "openOriginal": "Open Original",
+    "fullContentNotAvailable": "Full article content not available",
+    "openOnBenzinga": "Open on Benzinga",
+    "headline": "Headline",
+    "date": "Date",
+    "time": "Time",
+    "ticker": "Ticker",
+    "source": "Source"
+  },
+  "secFilings": {
+    "title": "SEC Filings",
+    "loading": "Loading...",
+    "noFilingsFound": "No filings found",
+    "errorLoading": "Error loading filings",
+    "page": "Page {{current}} of {{total}}",
+    "tableHeaders": {
+      "ticker": "Ticker",
+      "form": "Form",
+      "description": "Description",
+      "date": "Date",
+      "time": "Time"
+    }
+  },
+  "dilution": {
+    "title": "Dilution Tracker",
+    "invalidTicker": "Invalid ticker",
+    "errorLoading": "Error loading data",
+    "enterSymbol": "Enter a stock symbol to view its dilution analysis",
+    "llmEngine": "LLM + ML Engine",
+    "responseDelayed": "Response may be delayed while we process the analysis"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "languageDescription": "Select your preferred language",
+    "theme": "Theme",
+    "layout": "Layout",
+    "saveLayout": "Save Layout",
+    "saveLayoutDescription": "Save your window positions to restore them later.",
+    "saved": "Saved!",
+    "reset": "Reset",
+    "font": "Font",
+    "clearLayout": "Clear saved layout",
+    "windowsSaved": "{{count}} window saved",
+    "windowsSaved_plural": "{{count}} windows saved",
+    "synced": "Synced with your account",
+    "localOnly": "Local storage only",
+    "tabs": {
+      "colors": "Colors",
+      "layout": "Layout",
+      "commands": "Commands"
+    },
+    "colors": {
+      "tickUp": "Up",
+      "tickDown": "Down",
+      "background": "BG"
+    }
+  },
+  "navbar": {
+    "signOut": "Sign Out",
+    "profile": "Profile",
+    "user": "User"
+  },
+  "sidebar": {
+    "scanner": "Scanner",
+    "settings": "Settings"
+  },
+  "errors": {
+    "somethingWentWrong": "Something went wrong!",
+    "criticalError": "A critical error has occurred in the application.",
+    "reloadApp": "Reload application",
+    "pageNotFound": "Page not found",
+    "pageNotFoundDescription": "Sorry, the page you are looking for does not exist.",
+    "couldNotConnect": "Could not connect to server"
+  },
+  "mobile": {
+    "designedForDesktop": "Designed for desktop",
+    "openFromComputer": "Open Tradeul from your computer",
+    "professionalPlatform": "This professional trading platform requires a computer to work properly with all its tools.",
+    "continueAnyway": "Continue anyway"
+  },
+  "help": {
+    "title": "Help",
+    "tabs": {
+      "gettingStarted": "Getting Started",
+      "keystrokes": "Keystrokes",
+      "commands": "Commands"
+    },
+    "terminal": "Terminal",
+    "terminalDescription": "The Terminal is a CLI command system. Access it by clicking on the prompt or pressing",
+    "useCommands": "Use commands to access all features.",
+    "syntax": "Syntax",
+    "example": "Example",
+    "toOpenChart": "To open an Apple chart:",
+    "exampleDescription": "AAPL is the ticker. G is the command (Graph).",
+    "tickerCommands": "Ticker Commands",
+    "globalCommands": "Global Commands",
+    "shortcuts": {
+      "openTerminal": "Open terminal",
+      "close": "Close",
+      "executeCommand": "Execute command",
+      "autocomplete": "Autocomplete",
+      "showHelp": "Show help"
+    }
+  },
+  "floatingWindow": {
+    "openInNewWindow": "Open in new window",
+    "closeTable": "Close table",
+    "poppedOutMessage": "This component has been popped out into another window",
+    "poppedOutDescription": "Click below to close external window and resume here",
+    "closeExternalResume": "Close External & Resume"
+  },
+  "tickerSearch": {
+    "noName": "No name",
+    "noTickersFound": "No tickers found for \"{{query}}\""
+  },
+  "pinnedCommands": {
+    "noFavorites": "No favorites"
+  },
+  "commandPalette": {
+    "commands": "Commands",
+    "scanner": "Scanner",
+    "dilutionTracker": "Dilution Tracker",
+    "mainCommands": "Main Commands"
+  },
+  "ipo": {
+    "tableHeaders": {
+      "ticker": "Ticker",
+      "status": "Status",
+      "company": "Company",
+      "exchange": "Exch",
+      "price": "Price",
+      "size": "Size",
+      "shares": "Shares",
+      "date": "Date"
+    }
+  },
+  "workspace": {
+    "noWindowsOpen": "No windows open",
+    "useCommandToOpen": "Use Ctrl+K or type a command to open scanner tables"
+  },
+  "terminalCommands": {
+    "tickerCommands": {
+      "Q": {
+        "description": "Real-time bid/ask price"
+      },
+      "DES": {
+        "description": "Full profile: info, chart, stats, analyst"
+      },
+      "G": {
+        "description": "Ticker chart with TradingView"
+      },
+      "DT": {
+        "description": "Ticker dilution analysis"
+      },
+      "FA": {
+        "description": "Balance, Income, Cash Flow"
+      },
+      "SEC": {
+        "description": "SEC filings for this ticker"
+      },
+      "NEWS": {
+        "description": "Ticker news"
+      }
+    },
+    "globalCommands": {
+      "SC": {
+        "description": "Open market scanner"
+      },
+      "DT": {
+        "description": "Dilution analysis"
+      },
+      "FA": {
+        "description": "Balance, Income, Cash Flow"
+      },
+      "SEC": {
+        "description": "Real-time SEC filings"
+      },
+      "NEWS": {
+        "description": "Market news"
+      },
+      "IPO": {
+        "description": "Initial Public Offerings"
+      },
+      "WL": {
+        "description": "Watchlist with real-time quotes"
+      },
+      "PROFILE": {
+        "description": "Your profile and account"
+      },
+      "SET": {
+        "description": "App settings"
+      },
+      "FILTERS": {
+        "description": "Real-time scanner filters"
+      },
+      "HELP": {
+        "description": "Show terminal help"
+      }
+    }
+  }
+}

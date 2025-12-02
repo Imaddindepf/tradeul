@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ExternalLink, X } from 'lucide-react';
 import { openScannerWindow } from '@/lib/window-injector';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
@@ -26,6 +27,7 @@ export function MarketTableLayout({
   listName,
   onClose,
 }: MarketTableLayoutProps) {
+  const { t } = useTranslation();
   const { windows, updateWindow } = useFloatingWindow();
 
   const handleOpenNewWindow = () => {
@@ -78,7 +80,7 @@ export function MarketTableLayout({
         <div className="flex items-center gap-1.5">
           <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
           <span className={`text-xs font-medium ${isLive ? 'text-emerald-600' : 'text-slate-500'}`}>
-            {isLive ? 'Live' : 'Offline'}
+            {isLive ? t('common.live') : t('common.offline')}
           </span>
         </div>
 
@@ -117,7 +119,7 @@ export function MarketTableLayout({
           <button
             onClick={handleOpenNewWindow}
             className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
-            title="Abrir en nueva ventana"
+            title="Open in new window"
           >
             <ExternalLink className="w-4 h-4 text-slate-600 group-hover:text-blue-600" />
           </button>
@@ -130,7 +132,7 @@ export function MarketTableLayout({
           <button
             onClick={onClose}
             className="p-1.5 rounded hover:bg-red-100 transition-colors group"
-            title="Cerrar tabla"
+            title="Close table"
           >
             <X className="w-4 h-4 text-slate-600 group-hover:text-red-600" />
           </button>

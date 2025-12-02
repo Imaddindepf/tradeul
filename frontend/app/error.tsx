@@ -32,7 +32,7 @@ export default function Error({
           </svg>
         </div>
         <h2 className="text-2xl font-bold text-gray-900 text-center mb-2">
-          ¡Algo salió mal!
+          Something went wrong!
         </h2>
         <p className="text-gray-600 text-center mb-6">
           Ha ocurrido un error inesperado. Por favor, intenta de nuevo.

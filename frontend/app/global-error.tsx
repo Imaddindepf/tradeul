@@ -31,7 +31,7 @@ export default function GlobalError({
               Error Global
             </h2>
             <p className="text-gray-600 text-center mb-6">
-              Ha ocurrido un error crítico en la aplicación.
+              A critical error has occurred in the application.
             </p>
             {error.message && (
               <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-4">
@@ -42,7 +42,7 @@ export default function GlobalError({
               onClick={reset}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200"
             >
-              Recargar aplicación
+              Reload application
             </button>
           </div>
         </div>

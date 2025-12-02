@@ -13,6 +13,7 @@ import {
   User,
   Rocket,
   List,
+  Filter,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -29,15 +30,16 @@ export interface MainCommand {
  * Usados por: CommandPalette, PinnedCommands, SettingsContent
  */
 export const MAIN_COMMANDS: MainCommand[] = [
-  { id: 'sc', label: 'SC', description: 'Scanner - Ver todas las tablas', icon: LayoutGrid },
-  { id: 'watchlist', label: 'WL', description: 'Quote Monitor - Watchlist con quotes en tiempo real', icon: List, shortcut: 'Ctrl+W' },
-  { id: 'dt', label: 'DT', description: 'Dilution Tracker - Análisis de dilución', icon: BarChart3, shortcut: 'Ctrl+D' },
-  { id: 'sec', label: 'SEC', description: 'SEC Filings - Filings de la SEC en tiempo real', icon: FileText, shortcut: 'Ctrl+F' },
-  { id: 'news', label: 'NEWS', description: 'News - Noticias del mercado en tiempo real', icon: Newspaper, shortcut: 'Ctrl+N' },
-  { id: 'fa', label: 'FA', description: 'Financial Analysis - Balance, Income, Cash Flow', icon: DollarSign },
-  { id: 'ipo', label: 'IPO', description: 'IPOs - Initial Public Offerings en tiempo real', icon: Rocket },
-  { id: 'profile', label: 'PROFILE', description: 'User Profile - Tu perfil y configuración de cuenta', icon: User },
-  { id: 'settings', label: 'SET', description: 'Settings - Configuración de la app', icon: Settings, shortcut: 'Ctrl+,' },
+  { id: 'sc', label: 'SC', description: 'commands.sc.description', icon: LayoutGrid },
+  { id: 'watchlist', label: 'WL', description: 'commands.wl.description', icon: List, shortcut: 'Ctrl+W' },
+  { id: 'dt', label: 'DT', description: 'commands.dt.description', icon: BarChart3, shortcut: 'Ctrl+D' },
+  { id: 'sec', label: 'SEC', description: 'commands.sec.description', icon: FileText },
+  { id: 'news', label: 'NEWS', description: 'commands.news.description', icon: Newspaper, shortcut: 'Ctrl+N' },
+  { id: 'fa', label: 'FA', description: 'commands.fa.description', icon: DollarSign },
+  { id: 'ipo', label: 'IPO', description: 'commands.ipo.description', icon: Rocket },
+  { id: 'profile', label: 'PROFILE', description: 'commands.profile.description', icon: User },
+  { id: 'settings', label: 'SET', description: 'commands.settings.description', icon: Settings, shortcut: 'Ctrl+,' },
+  { id: 'filters', label: 'FILTERS', description: 'commands.filters.description', icon: Filter, shortcut: 'Ctrl+Shift+F' },
 ];
 
 /**

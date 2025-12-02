@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { ReactNode, useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { User, Settings, LogOut } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
@@ -27,7 +28,7 @@ export function Navbar({ children }: NavbarProps) {
   return (
     <nav
       className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 shadow-sm"
-      style={{ 
+      style={{
         zIndex: Z_INDEX.NAVBAR,
       }}
     >
@@ -55,6 +56,7 @@ interface NavbarContentProps {
  * Exportado para uso en cualquier navbar personalizado
  */
 export function UserMenu() {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { signOut } = useClerk();
@@ -65,7 +67,7 @@ export function UserMenu() {
   const handleOpenProfile = () => {
     setIsOpen(false);
     openWindow({
-      title: USER_PROFILE_WINDOW_CONFIG.title,
+      title: t('navbar.profile'),
       content: <UserProfileContent />,
       width: USER_PROFILE_WINDOW_CONFIG.width,
       height: USER_PROFILE_WINDOW_CONFIG.height,
@@ -106,9 +108,9 @@ export function UserMenu() {
         className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg"
       >
         {user?.imageUrl ? (
-          <img 
-            src={user.imageUrl} 
-            alt="Avatar" 
+          <img
+            src={user.imageUrl}
+            alt="Avatar"
             className="w-9 h-9 rounded-full object-cover"
           />
         ) : (
@@ -118,14 +120,14 @@ export function UserMenu() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div 
+        <div
           className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 overflow-hidden"
           style={{ zIndex: Z_INDEX.MODAL }}
         >
           {/* User Info Header */}
           <div className="px-4 py-3 border-b border-slate-100">
             <p className="text-sm font-medium text-slate-900 truncate">
-              {user?.fullName || 'Usuario'}
+              {user?.fullName || t('navbar.user')}
             </p>
             <p className="text-xs text-slate-500 truncate">
               {user?.emailAddresses?.[0]?.emailAddress}
@@ -139,7 +141,7 @@ export function UserMenu() {
               className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors"
             >
               <User className="w-4 h-4" />
-              <span>Profile</span>
+              <span>{t('navbar.profile')}</span>
             </button>
 
             <button
@@ -150,7 +152,7 @@ export function UserMenu() {
               className="w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-3 transition-colors"
             >
               <Settings className="w-4 h-4" />
-              <span>Settings</span>
+              <span>{t('settings.title')}</span>
             </button>
           </div>
 
@@ -161,7 +163,7 @@ export function UserMenu() {
               className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              <span>Cerrar Sesión</span>
+              <span>{t('navbar.signOut')}</span>
             </button>
           </div>
         </div>

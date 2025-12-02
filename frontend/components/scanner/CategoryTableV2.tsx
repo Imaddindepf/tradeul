@@ -16,6 +16,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   useReactTable,
   getCoreRowModel,
@@ -38,6 +39,10 @@ import { useTickersStore, selectOrderedTickers } from '@/stores/useTickersStore'
 import { useListSubscription } from '@/hooks/useRxWebSocket';
 import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
 
+// User Filters - Zustand store para reactividad en tiempo real
+import { useFiltersStore } from '@/stores/useFiltersStore';
+import { passesFilter } from '@/lib/scanner/filterEngine';
+
 const columnHelper = createColumnHelper<Ticker>();
 
 // ============================================================================
@@ -55,6 +60,8 @@ interface CategoryTableV2Props {
 // ============================================================================
 
 export default function CategoryTableV2({ title, listName, onClose }: CategoryTableV2Props) {
+  const { t } = useTranslation();
+
   // ======================================================================
   // STATE (Zustand + local UI state)
   // ======================================================================
@@ -67,7 +74,25 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const getList = useTickersStore((state) => state.getList);
 
   // Get tickers for this list (memoized selector)
-  const tickers = useTickersStore(selectOrderedTickers(listName));
+  const baseTickers = useTickersStore(selectOrderedTickers(listName));
+
+  // User filters - Zustand store para reactividad en tiempo real
+  const activeFilters = useFiltersStore((state) => state.activeFilters);
+  const hasActiveFilters = useFiltersStore((state) => state.hasActiveFilters);
+
+  // Serializar filtros para detectar cambios correctamente
+  const filtersKey = JSON.stringify(activeFilters);
+
+  // Apply filters with useMemo for performance
+  const tickers = useMemo(() => {
+    if (!hasActiveFilters) {
+      return baseTickers; // No filters = show all
+    }
+
+    // Aplicar filtros del store directamente
+    return baseTickers.filter(ticker => passesFilter(ticker, activeFilters));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseTickers, filtersKey, hasActiveFilters]);
 
   // Local UI state (no afecta datos)
   // Ordenamiento inicial según la categoría
@@ -287,7 +312,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         ),
       }),
       columnHelper.accessor('symbol', {
-        header: 'Symbol',
+        header: t('scanner.tableHeaders.symbol'),
         size: 75,
         minSize: 55,
         maxSize: 120,
@@ -303,14 +328,14 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               const tickerData = info.row.original;
               executeTickerCommand(symbol, 'description', tickerData.exchange);
             }}
-            title="Clic para ver descripción"
+            title={t('scanner.clickDescription')}
           >
             {info.getValue()}
           </div>
         ),
       }),
       columnHelper.accessor('price', {
-        header: 'Price',
+        header: t('scanner.tableHeaders.price'),
         size: 80,
         minSize: 60,
         maxSize: 120,
@@ -326,7 +351,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         },
       }),
       columnHelper.accessor('change_percent', {
-        header: 'Gap %',
+        header: t('scanner.tableHeaders.gapPercent'),
         size: 85,
         minSize: 70,
         maxSize: 130,
@@ -347,7 +372,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         },
       }),
       columnHelper.accessor('volume_today', {
-        header: 'Volume',
+        header: t('scanner.tableHeaders.volume'),
         size: 90,
         minSize: 70,
         maxSize: 140,
@@ -362,7 +387,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       }),
       columnHelper.accessor((row) => row.rvol_slot ?? row.rvol, {
         id: 'rvol',
-        header: 'RVOL',
+        header: t('scanner.tableHeaders.rvol'),
         size: 70,
         minSize: 55,
         maxSize: 100,
@@ -390,7 +415,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         },
       }),
       columnHelper.accessor('market_cap', {
-        header: 'Market Cap',
+        header: t('scanner.tableHeaders.marketCap'),
         size: 100,
         minSize: 80,
         maxSize: 160,
@@ -402,7 +427,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         ),
       }),
       columnHelper.accessor('float_shares', {
-        header: 'Float',
+        header: t('scanner.tableHeaders.float'),
         size: 90,
         minSize: 70,
         maxSize: 140,
@@ -414,7 +439,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         ),
       }),
       columnHelper.accessor('atr_percent', {
-        header: 'ATR%',
+        header: t('scanner.tableHeaders.atrPercent'),
         size: 70,
         minSize: 60,
         maxSize: 100,
@@ -456,7 +481,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         },
         {
           id: 'atr_used',
-          header: 'ATR Used',
+          header: t('scanner.tableHeaders.atrUsed'),
           size: 85,
           minSize: 70,
           maxSize: 120,
@@ -530,10 +555,10 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         <div className="flex-1 flex items-center justify-center bg-slate-50">
           <div className="text-center p-6">
             <h3 className="text-lg font-semibold text-slate-700 mb-2">
-              Sin datos disponibles
+              {t('common.noData')}
             </h3>
             <p className="text-sm text-slate-500 max-w-xs">
-              {connectionError || 'El mercado está cerrado. Los datos se actualizarán cuando el mercado abra.'}
+              {connectionError || t('scanner.marketClosed')}
             </p>
           </div>
         </div>

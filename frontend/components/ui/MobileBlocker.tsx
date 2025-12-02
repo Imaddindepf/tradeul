@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Monitor, ArrowRight } from 'lucide-react';
 
 /**
@@ -37,6 +38,7 @@ function isMobileDevice(): boolean {
 }
 
 export function MobileBlocker({ children }: { children: React.ReactNode }) {
+    const { t } = useTranslation();
     const [isMobile, setIsMobile] = useState(false);
     const [isChecking, setIsChecking] = useState(true);
     const [dismissed, setDismissed] = useState(false);
@@ -87,12 +89,11 @@ export function MobileBlocker({ children }: { children: React.ReactNode }) {
                 {/* Message */}
                 <div className="max-w-xs space-y-4">
                     <h1 className="text-2xl font-bold text-slate-900">
-                        Diseñado para escritorio
+                        {t('mobile.designedForDesktop')}
                     </h1>
 
                     <p className="text-slate-500 leading-relaxed">
-                        Esta plataforma profesional de trading requiere un ordenador
-                        para funcionar correctamente con todas sus herramientas.
+                        {t('mobile.professionalPlatform')}
                     </p>
 
                     {/* Visual hint */}
@@ -105,7 +106,7 @@ export function MobileBlocker({ children }: { children: React.ReactNode }) {
                     </div>
 
                     <p className="text-sm text-slate-400">
-                        Abre Tradeul desde tu ordenador
+                        {t('mobile.openFromComputer')}
                     </p>
                 </div>
             </div>
@@ -116,7 +117,7 @@ export function MobileBlocker({ children }: { children: React.ReactNode }) {
                     onClick={() => setDismissed(true)}
                     className="w-full py-3 px-4 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all active:scale-[0.98]"
                 >
-                    Continuar de todos modos
+                    {t('mobile.continueAnyway')}
                 </button>
             </div>
         </div>

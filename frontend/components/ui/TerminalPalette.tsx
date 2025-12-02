@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Loader2 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -28,25 +29,26 @@ type TickerResult = {
 const SCANNER_COMMANDS = [
     { id: 'gappers_up', label: 'Gap Up', description: 'Gap up >= 2%' },
     { id: 'gappers_down', label: 'Gap Down', description: 'Gap down <= -2%' },
-    { id: 'momentum_up', label: 'Momentum Up', description: 'Cambio >= 3%' },
-    { id: 'momentum_down', label: 'Momentum Down', description: 'Cambio <= -3%' },
-    { id: 'winners', label: 'Winners', description: 'Cambio >= 5%' },
-    { id: 'losers', label: 'Losers', description: 'Cambio <= -5%' },
-    { id: 'new_highs', label: 'Nuevos Máximos', description: 'Máximos del día' },
-    { id: 'new_lows', label: 'Nuevos Mínimos', description: 'Mínimos del día' },
+    { id: 'momentum_up', label: 'Momentum Up', description: 'Change >= 3%' },
+    { id: 'momentum_down', label: 'Momentum Down', description: 'Change <= -3%' },
+    { id: 'winners', label: 'Winners', description: 'Change >= 5%' },
+    { id: 'losers', label: 'Losers', description: 'Change <= -5%' },
+    { id: 'new_highs', label: 'New Highs', description: 'Daily highs' },
+    { id: 'new_lows', label: 'New Lows', description: 'Daily lows' },
     { id: 'anomalies', label: 'Anomalies', description: 'RVOL >= 3.0' },
     { id: 'high_volume', label: 'High Volume', description: 'RVOL >= 2.0' },
-    { id: 'reversals', label: 'Reversals', description: 'Cambios de dirección' },
+    { id: 'reversals', label: 'Reversals', description: 'Direction changes' },
 ];
 
-export function TerminalPalette({ 
-    open, 
-    onOpenChange, 
-    searchValue = '', 
+export function TerminalPalette({
+    open,
+    onOpenChange,
+    searchValue = '',
     onSearchChange,
     onOpenHelp,
     onExecuteTickerCommand,
 }: TerminalPaletteProps) {
+    const { t } = useTranslation();
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [tickerResults, setTickerResults] = useState<TickerResult[]>([]);
     const [loadingTickers, setLoadingTickers] = useState(false);
@@ -54,30 +56,30 @@ export function TerminalPalette({
     const listRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const { executeCommand, openScannerTable } = useCommandExecutor();
-    
+
     const search = searchValue.trim();
-    const setSearch = onSearchChange || (() => {});
-    
-    // Parsear el comando
-    const parsed = parseTerminalCommand(search);
-    
+    const setSearch = onSearchChange || (() => { });
+
+    // Parsear el comando con traducción
+    const parsed = parseTerminalCommand(search, t);
+
     // Detectar prefijo SC para scanner
     const hasScPrefix = search.toUpperCase().startsWith('SC');
-    
+
     // Verificar si hay comandos globales que empiecen con la búsqueda
     const searchUpper = search.toUpperCase();
     const hasMatchingCommands = Object.keys(GLOBAL_COMMANDS).some(
         key => key.startsWith(searchUpper)
     );
     const isExactCommand = searchUpper in GLOBAL_COMMANDS;
-    
+
     // Detectar si parece un ticker (letras mayúsculas sin espacios)
     // No tratar como ticker si es un comando exacto
-    const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper) 
-        && !hasScPrefix 
-        && !['SC', 'IPO', 'SET', 'HELP'].includes(searchUpper)
+    const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper)
+        && !hasScPrefix
+        && !['SC', 'IPO', 'SET', 'HELP', 'FILTERS'].includes(searchUpper)
         && !isExactCommand;
-    
+
     // Buscar tickers cuando parece un ticker
     useEffect(() => {
         if (!open) {
@@ -88,7 +90,7 @@ export function TerminalPalette({
             }
             return;
         }
-        
+
         if (looksLikeTicker && search.length >= 1) {
             // Cancelar búsqueda anterior
             if (abortControllerRef.current) {
@@ -97,9 +99,9 @@ export function TerminalPalette({
             // Crear nuevo controller
             const controller = new AbortController();
             abortControllerRef.current = controller;
-            
+
             setLoadingTickers(true);
-            
+
             const timer = setTimeout(async () => {
                 try {
                     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -107,7 +109,7 @@ export function TerminalPalette({
                         `${apiUrl}/api/v1/metadata/search?q=${encodeURIComponent(search)}&limit=8`,
                         { signal: controller.signal }
                     );
-                    
+
                     if (response.ok) {
                         const data = await response.json();
                         setTickerResults(data.results || []);
@@ -120,7 +122,7 @@ export function TerminalPalette({
                     setLoadingTickers(false);
                 }
             }, 150);
-            
+
             return () => {
                 clearTimeout(timer);
                 controller.abort();
@@ -132,15 +134,15 @@ export function TerminalPalette({
             }
         }
     }, [search, looksLikeTicker, open]);
-    
+
     // Reset selectedIndex cuando cambia la búsqueda
     useEffect(() => {
         setSelectedIndex(0);
     }, [search]);
-    
+
     // Generar items a mostrar
-    const items = getDisplayItems(parsed, hasScPrefix, search, tickerResults, selectedTicker);
-    
+    const items = getDisplayItems(parsed, hasScPrefix, search, tickerResults, selectedTicker, t);
+
     // Scroll to selected
     useEffect(() => {
         if (listRef.current && items.length > 0) {
@@ -148,11 +150,11 @@ export function TerminalPalette({
             el?.scrollIntoView({ block: 'nearest' });
         }
     }, [selectedIndex, items.length]);
-    
+
     // Keyboard navigation
     useEffect(() => {
         if (!open) return;
-        
+
         const handleKeyDown = (e: KeyboardEvent) => {
             switch (e.key) {
                 case 'ArrowDown':
@@ -188,13 +190,13 @@ export function TerminalPalette({
                     break;
             }
         };
-        
+
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [open, items, selectedIndex, onOpenChange, setSearch, search, selectedTicker]);
-    
+
     // Cerrar al hacer click fuera (manejado por overlay en el render)
-    
+
     const handleSelect = useCallback((item: DisplayItem) => {
         switch (item.type) {
             case 'instrument':
@@ -204,7 +206,7 @@ export function TerminalPalette({
                     setSearch(item.tickerData.symbol + ' ');
                 }
                 break;
-                
+
             case 'ticker-command':
                 if (item.ticker && item.commandId) {
                     // Pasar el exchange del ticker seleccionado
@@ -214,7 +216,7 @@ export function TerminalPalette({
                 setSelectedTicker(null);
                 onOpenChange(false);
                 break;
-                
+
             case 'global-command':
                 if (item.commandId === 'help') {
                     onOpenHelp?.();
@@ -229,7 +231,7 @@ export function TerminalPalette({
                 setSelectedTicker(null);
                 onOpenChange(false);
                 break;
-                
+
             case 'scanner':
                 if (item.scannerId) {
                     openScannerTable(item.scannerId, 0);
@@ -240,24 +242,24 @@ export function TerminalPalette({
                 break;
         }
     }, [executeCommand, openScannerTable, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
-    
+
     if (!open) return null;
-    
+
     const handleClose = () => {
         setSearch('');
         setSelectedTicker(null);
         onOpenChange(false);
     };
-    
+
     return (
         <>
             {/* Overlay invisible para cerrar al hacer click fuera */}
-            <div 
-                className="fixed inset-0" 
+            <div
+                className="fixed inset-0"
                 style={{ zIndex: Z_INDEX.MODAL_BASE }}
                 onClick={handleClose}
             />
-            
+
             <div
                 data-terminal-palette
                 className="fixed left-4 top-16 animate-slideDown"
@@ -270,111 +272,111 @@ export function TerminalPalette({
                 }}
             >
                 <div className="border border-slate-200 bg-white shadow-xl overflow-hidden">
-                {/* Header con ticker seleccionado */}
-                <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
-                    <div className="flex items-center gap-2">
-                        {selectedTicker ? (
-                            <>
-                                <span className="text-[10px] text-slate-400 uppercase tracking-wide font-mono">Commands for</span>
-                                <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-blue-100 text-blue-700 rounded">
-                                    {selectedTicker.symbol}
+                    {/* Header con ticker seleccionado */}
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+                        <div className="flex items-center gap-2">
+                            {selectedTicker ? (
+                                <>
+                                    <span className="text-[10px] text-slate-400 uppercase tracking-wide font-mono">Commands for</span>
+                                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold bg-blue-100 text-blue-700 rounded">
+                                        {selectedTicker.symbol}
+                                    </span>
+                                </>
+                            ) : (
+                                <span className="text-[10px] text-slate-400 uppercase tracking-wide font-mono">
+                                    {hasScPrefix ? 'Scanner' : looksLikeTicker && tickerResults.length > 0 ? 'Instruments' : 'Commands'}
                                 </span>
-                            </>
+                            )}
+                            {loadingTickers && <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />}
+                        </div>
+                        <button
+                            onClick={() => {
+                                onOpenChange(false);
+                                setSearch('');
+                                setSelectedTicker(null);
+                            }}
+                            className="text-slate-400 hover:text-slate-600"
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    </div>
+
+                    {/* List */}
+                    <div
+                        ref={listRef}
+                        className="overflow-y-auto"
+                        style={{ maxHeight: 'calc(100vh - 220px)' }}
+                    >
+                        {items.length === 0 ? (
+                            <div className="py-6 text-center text-[11px] text-slate-400">
+                                {loadingTickers ? t('common.loading') : t('common.noResults')}
+                            </div>
                         ) : (
-                            <span className="text-[10px] text-slate-400 uppercase tracking-wide font-mono">
-                                {hasScPrefix ? 'Scanner' : looksLikeTicker && tickerResults.length > 0 ? 'Instruments' : 'Commands'}
-                            </span>
-                        )}
-                        {loadingTickers && <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />}
-                    </div>
-                    <button
-                        onClick={() => {
-                            onOpenChange(false);
-                            setSearch('');
-                            setSelectedTicker(null);
-                        }}
-                        className="text-slate-400 hover:text-slate-600"
-                    >
-                        <X className="w-3 h-3" />
-                    </button>
-                </div>
-                
-                {/* List */}
-                <div 
-                    ref={listRef}
-                    className="overflow-y-auto" 
-                    style={{ maxHeight: 'calc(100vh - 220px)' }}
-                >
-                    {items.length === 0 ? (
-                        <div className="py-6 text-center text-[11px] text-slate-400">
-                            {loadingTickers ? 'Buscando...' : 'No se encontraron resultados'}
-                        </div>
-                    ) : (
-                        <div className="py-1">
-                            {items.map((item, index) => (
-                                <div
-                                    key={item.id}
-                                    data-index={index}
-                                    onClick={() => handleSelect(item)}
-                                    className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors
+                            <div className="py-1">
+                                {items.map((item, index) => (
+                                    <div
+                                        key={item.id}
+                                        data-index={index}
+                                        onClick={() => handleSelect(item)}
+                                        className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors
                                         ${index === selectedIndex ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
-                                >
-                                    {/* Instrument row */}
-                                    {item.type === 'instrument' && item.tickerData && (
-                                        <>
-                                            <span className="px-1 py-0.5 text-[9px] font-bold bg-blue-600 text-white rounded">
-                                                EQ
-                                            </span>
-                                            <span className="text-[11px] font-mono font-semibold text-slate-800 w-12">
-                                                {item.tickerData.symbol}
-                                            </span>
-                                            <span className="text-[9px] text-slate-400 font-mono w-6">
-                                                {item.tickerData.exchange?.slice(0, 2) || 'US'}
-                                            </span>
-                                            <span className="text-[10px] text-slate-600 flex-1 truncate">
-                                                {item.tickerData.name}
-                                            </span>
-                                        </>
-                                    )}
-                                    
-                                    {/* Command row */}
-                                    {item.type !== 'instrument' && (
-                                        <>
-                                            <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold border border-slate-200 text-slate-700 rounded min-w-[60px] text-center">
-                                                {item.label}
-                                            </span>
-                                            <span className="text-[10px] text-slate-500 flex-1 truncate">
-                                                {item.description}
-                                            </span>
-                                            {item.shortcut && (
-                                                <span className="text-[9px] text-slate-400 font-mono">
-                                                    {item.shortcut}
+                                    >
+                                        {/* Instrument row */}
+                                        {item.type === 'instrument' && item.tickerData && (
+                                            <>
+                                                <span className="px-1 py-0.5 text-[9px] font-bold bg-blue-600 text-white rounded">
+                                                    EQ
                                                 </span>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-                
-                {/* Footer */}
-                <div className="flex items-center justify-between px-3 py-1 border-t border-slate-200 bg-slate-50">
-                    <div className="flex items-center gap-3 text-[9px] text-slate-400 font-mono">
-                        <span>↑↓ nav</span>
-                        <span>Tab complete</span>
-                        <span>Enter select</span>
+                                                <span className="text-[11px] font-mono font-semibold text-slate-800 w-12">
+                                                    {item.tickerData.symbol}
+                                                </span>
+                                                <span className="text-[9px] text-slate-400 font-mono w-6">
+                                                    {item.tickerData.exchange?.slice(0, 2) || 'US'}
+                                                </span>
+                                                <span className="text-[10px] text-slate-600 flex-1 truncate">
+                                                    {item.tickerData.name}
+                                                </span>
+                                            </>
+                                        )}
+
+                                        {/* Command row */}
+                                        {item.type !== 'instrument' && (
+                                            <>
+                                                <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold border border-slate-200 text-slate-700 rounded min-w-[60px] text-center">
+                                                    {item.label}
+                                                </span>
+                                                <span className="text-[10px] text-slate-500 flex-1 truncate">
+                                                    {item.description}
+                                                </span>
+                                                {item.shortcut && (
+                                                    <span className="text-[9px] text-slate-400 font-mono">
+                                                        {item.shortcut}
+                                                    </span>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
-                    <button 
-                        onClick={onOpenHelp}
-                        className="text-[9px] text-slate-400 hover:text-blue-600 font-mono"
-                    >
-                        ? help
-                    </button>
+
+                    {/* Footer */}
+                    <div className="flex items-center justify-between px-3 py-1 border-t border-slate-200 bg-slate-50">
+                        <div className="flex items-center gap-3 text-[9px] text-slate-400 font-mono">
+                            <span>↑↓ nav</span>
+                            <span>Tab complete</span>
+                            <span>Enter select</span>
+                        </div>
+                        <button
+                            onClick={onOpenHelp}
+                            className="text-[9px] text-slate-400 hover:text-blue-600 font-mono"
+                        >
+                            ? help
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
         </>
     );
 }
@@ -394,11 +396,12 @@ interface DisplayItem {
 }
 
 function getDisplayItems(
-    parsed: ReturnType<typeof parseTerminalCommand>, 
-    hasScPrefix: boolean, 
-    search: string, 
+    parsed: ReturnType<typeof parseTerminalCommand>,
+    hasScPrefix: boolean,
+    search: string,
     tickerResults: TickerResult[],
-    selectedTicker: TickerResult | null
+    selectedTicker: TickerResult | null,
+    t: (key: string) => string
 ): DisplayItem[] {
     // Si hay un ticker seleccionado, mostrar comandos para ese ticker
     if (selectedTicker) {
@@ -406,14 +409,14 @@ function getDisplayItems(
             id: `cmd-${cmd.id}`,
             type: 'ticker-command' as const,
             label: key,
-            description: cmd.description,
+            description: t(cmd.descriptionKey),
             shortcut: cmd.shortcut,
             ticker: selectedTicker.symbol,
             commandId: cmd.id,
             autocomplete: `${selectedTicker.symbol} ${key}`,
         }));
     }
-    
+
     // Si es prefijo SC, mostrar categorías del scanner
     if (hasScPrefix) {
         const filter = search.toUpperCase().replace('SC', '').trim();
@@ -428,7 +431,7 @@ function getDisplayItems(
                 autocomplete: `SC ${cmd.label}`,
             }));
     }
-    
+
     // Buscar comandos globales que coincidan
     const matchingCommands: DisplayItem[] = [];
     Object.entries(GLOBAL_COMMANDS).forEach(([key, cmd]) => {
@@ -438,14 +441,14 @@ function getDisplayItems(
                 id: `global-${cmd.id}`,
                 type: 'global-command' as const,
                 label: key,
-                description: cmd.description,
+                description: t(cmd.descriptionKey),
                 shortcut: 'shortcut' in cmd ? cmd.shortcut : undefined,
                 commandId: cmd.id,
                 autocomplete: key,
             });
         }
     });
-    
+
     // Si hay resultados de búsqueda de tickers, combinarlos con comandos
     if (tickerResults.length > 0) {
         const tickerItems = tickerResults.map(ticker => ({
@@ -456,16 +459,16 @@ function getDisplayItems(
             tickerData: ticker,
             autocomplete: ticker.symbol + ' ',
         }));
-        
+
         // Si hay comandos que coinciden, mostrarlos primero, luego los tickers
         if (matchingCommands.length > 0) {
             return [...matchingCommands, ...tickerItems];
         }
-        
+
         // Si no hay comandos, solo mostrar tickers
         return tickerItems;
     }
-    
+
     // Si no hay tickers, mostrar comandos globales
     return matchingCommands;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from "next/navigation";
 import {
   TrendingUp,
@@ -9,7 +10,9 @@ import {
   FileText,
   DollarSign,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Sparkles,
+  Clock
 } from "lucide-react";
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { HoldersTable } from "@/app/(dashboard)/dilution-tracker/_components/HoldersTable";
@@ -31,6 +34,7 @@ interface DilutionTrackerContentProps {
 }
 
 export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContentProps = {}) {
+  const { t } = useTranslation();
   const searchParams = useSearchParams();
 
   // Estados separados: input vs ticker seleccionado
@@ -66,7 +70,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
   const fetchTickerData = async (ticker: string) => {
     if (!validateTicker(ticker)) {
-      setError("Ticker inválido");
+      setError(t('dilution.invalidTicker'));
       return;
     }
 
@@ -78,7 +82,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
       setTickerData(data);
       setSelectedTicker(ticker);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al cargar datos");
+      setError(err instanceof Error ? err.message : t('dilution.errorLoading'));
       setTickerData(null);
     } finally {
       setLoading(false);
@@ -93,7 +97,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
   };
 
   const tabs: { id: TabType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-    { id: "dilution", label: "Dilución", icon: TrendingUp },
+    { id: "dilution", label: "Dilution", icon: TrendingUp },
     { id: "holders", label: "Holders", icon: Building2 },
     { id: "filings", label: "Filings", icon: FileText },
     { id: "financials", label: "Financieros", icon: DollarSign },
@@ -101,6 +105,22 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
   return (
     <div className="h-full flex flex-col bg-white">
+      {/* Beta Banner */}
+      <div className="px-3 py-2 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-b border-amber-200">
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-bold uppercase tracking-wider shadow-sm">
+            <Sparkles className="w-3 h-3" />
+            Beta
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-amber-800">
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <span>
+              <span className="font-medium">{t('dilution.llmEngine')}:</span> {t('dilution.responseDelayed')}
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* Search Bar - Compacto */}
       <div className="px-2 py-1.5 border-b border-slate-300 bg-slate-50">
         <form onSubmit={handleSearch} className="flex items-center gap-1.5">
@@ -108,7 +128,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
             value={inputValue}
             onChange={setInputValue}
             onSelect={(ticker) => {
-              // Buscar inmediatamente al seleccionar
+              // Search immediately on select
               setInputValue(ticker.symbol);
               fetchTickerData(ticker.symbol);
             }}
@@ -145,7 +165,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
           <div className="bg-white border-b border-slate-200 p-4">
             {/* Company Name */}
             <h2 className="text-xl font-bold text-slate-900 mb-2">
-              {loading ? "Loading..." : tickerData?.summary?.company_name || selectedTicker}
+              {loading ? t('common.loading') : tickerData?.summary?.company_name || selectedTicker}
             </h2>
 
             {/* Info Lines */}
@@ -257,7 +277,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
           <div className="text-center">
             <BarChart3 className="w-16 h-16 mx-auto mb-4 text-slate-300" />
             <p className="text-lg font-medium">Busca un ticker para comenzar</p>
-            <p className="text-sm mt-2">Ingresa un símbolo de acción para ver su análisis de dilución</p>
+            <p className="text-sm mt-2">{t('dilution.enterSymbol')}</p>
           </div>
         </div>
       )}
