@@ -32,6 +32,7 @@ from shared.models.description import (
 from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
+from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client
 from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
 from routes.proxy import router as proxy_router
 from routers.watchlist_router import router as watchlist_router
@@ -70,10 +71,11 @@ async def lifespan(app: FastAPI):
     redis_client = RedisClient()
     await redis_client.connect()
     
-    # Inicializar TimescaleDB (requerido para preferencias de usuario)
+    # Inicializar TimescaleDB (requerido para preferencias de usuario y filtros)
     timescale_client = TimescaleClient()
     await timescale_client.connect()
-    set_timescale_client(timescale_client)
+    set_timescale_client(timescale_client)  # Para user_prefs
+    set_user_filters_timescale_client(timescale_client)  # Para user_filters
     logger.info("timescale_connected")
     
     # Configurar router de financials con Redis y FMP API key
@@ -159,6 +161,7 @@ app.add_middleware(
 
 # Registrar routers
 app.include_router(user_prefs_router)
+app.include_router(user_filters_router)
 app.include_router(financials_router)
 app.include_router(watchlist_router)
 app.include_router(proxy_router)  # Incluye endpoints de dilution, SEC filings, etc.
@@ -1047,7 +1050,7 @@ async def proxy_news(
     channels: Optional[str] = Query(None, description="Filter by channels"),
     tags: Optional[str] = Query(None, description="Filter by tags"),
     author: Optional[str] = Query(None, description="Filter by author"),
-    limit: int = Query(50, ge=1, le=200, description="Limit results")
+    limit: int = Query(50, ge=1, le=2000, description="Limit results")
 ):
     """
     Proxy para el servicio de News (Benzinga y futuras fuentes)

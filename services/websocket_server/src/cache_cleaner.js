@@ -105,7 +105,9 @@ async function subscribeToNewDayEvents(redisSubscriber, lastSnapshots) {
  */
 async function subscribeToSessionChangeEvents(redisSubscriber) {
   try {
-    await redisSubscriber.subscribe("events:session_change", (message, channel) => {
+    // IMPORTANTE: El canal debe coincidir con el que usa EventBus en Python
+    // EventType.SESSION_CHANGED = "session:changed" → canal = "events:session:changed"
+    await redisSubscriber.subscribe("events:session:changed", (message, channel) => {
       try {
         if (!message) {
           logger.debug({ channel }, "Subscribed to session change channel");
@@ -151,7 +153,7 @@ async function subscribeToSessionChangeEvents(redisSubscriber) {
     });
     
     logger.info(
-      { channel: "events:session_change" },
+      { channel: "events:session:changed" },
       "📡 Subscribed to market session change events"
     );
   } catch (err) {

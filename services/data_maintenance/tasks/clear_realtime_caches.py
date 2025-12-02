@@ -169,8 +169,12 @@ class ClearRealtimeCachesTask:
         # Patrón de keys que podrían ser del día anterior
         # Por ahora no hay keys específicas, pero podemos agregar según necesidad
         patterns_to_check = [
-            # Ejemplo: "cache:intraday:*"
-            # Por ahora, los servicios manejan su propia limpieza al recibir el evento
+            # Scanner caches - DEBEN limpiarse cada día
+            "scanner:filtered_complete:*",
+            "scanner:category:*",
+            "scanner:sequence:*",
+            # Snapshot enriched del día anterior
+            "snapshot:enriched:*",
         ]
         
         for pattern in patterns_to_check:

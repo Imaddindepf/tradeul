@@ -168,7 +168,7 @@ async def get_news(
     author: Optional[str] = QueryParam(None, description="Filter by author"),
     date_from: Optional[str] = QueryParam(None, description="Start date (YYYY-MM-DD or ISO 8601)"),
     date_to: Optional[str] = QueryParam(None, description="End date (YYYY-MM-DD or ISO 8601)"),
-    limit: int = QueryParam(50, ge=1, le=200, description="Limit results")
+    limit: int = QueryParam(50, ge=1, le=2000, description="Limit results")
 ):
     """
     Get news articles with optional filters
@@ -221,7 +221,7 @@ async def get_news(
 
 @app.get("/api/v1/news/latest")
 async def get_latest_news(
-    limit: int = QueryParam(50, ge=1, le=200, description="Limit results")
+    limit: int = QueryParam(50, ge=1, le=2000, description="Limit results")
 ):
     """Get the latest news articles from cache"""
     try:
@@ -241,7 +241,7 @@ async def get_latest_news(
 @app.get("/api/v1/news/ticker/{ticker}")
 async def get_news_by_ticker(
     ticker: str,
-    limit: int = QueryParam(50, ge=1, le=200, description="Limit results")
+    limit: int = QueryParam(50, ge=1, le=2000, description="Limit results")
 ):
     """Get news for a specific ticker"""
     try:

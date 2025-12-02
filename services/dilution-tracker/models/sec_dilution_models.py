@@ -5,7 +5,7 @@ Models para warrants, ATM offerings, shelf registrations y completed offerings
 
 from datetime import date, datetime
 from typing import Optional, List
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, Field, validator
 
 
@@ -97,6 +97,17 @@ class ShelfRegistrationModel(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    @validator('total_capacity', 'remaining_capacity', 'current_raisable_amount', 
+               'total_amount_raised', 'total_amount_raised_last_12mo', pre=True)
+    def validate_decimal_fields(cls, v):
+        """Validate and convert decimal fields, handling invalid values gracefully"""
+        if v is None or v == '' or v == 'null':
+            return None
+        try:
+            return Decimal(str(v))
+        except (ValueError, TypeError, InvalidOperation):
+            return None
     
     @validator('is_baby_shelf', pre=True)
     def validate_baby_shelf(cls, v):

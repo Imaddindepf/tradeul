@@ -36,8 +36,8 @@ class BenzingaNewsStreamManager:
     LAST_POLL_KEY = "benzinga:news:last_poll"  # Timestamp del último poll
     
     # Configuración
-    CACHE_LATEST_SIZE = 500  # Mantener últimas 500 noticias
-    CACHE_BY_TICKER_SIZE = 100  # Últimas 100 noticias por ticker
+    CACHE_LATEST_SIZE = 2000  # Mantener últimas 2000 noticias
+    CACHE_BY_TICKER_SIZE = 500  # Últimas 500 noticias por ticker
     DEDUP_TTL = 86400 * 7  # 7 días para deduplicación
     
     def __init__(
@@ -284,7 +284,7 @@ class BenzingaNewsStreamManager:
             await self.redis.xadd(
                 self.STREAM_KEY,
                 stream_payload,
-                maxlen=1000
+                maxlen=2000
             )
             
             logger.debug(
