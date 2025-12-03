@@ -17,6 +17,7 @@ import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
+import TickersWithNewsTable from '@/components/scanner/TickersWithNewsTable';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
@@ -90,10 +91,14 @@ export default function ScannerPage() {
     if (title.startsWith('Scanner: ')) {
       const categoryName = title.replace('Scanner: ', '');
       // Buscar el categoryId que corresponde a este nombre traducido
-      const categoryIds = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 'winners', 'losers', 'new_highs', 'new_lows', 'anomalies', 'high_volume', 'reversals'];
+      const categoryIds = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 'winners', 'losers', 'new_highs', 'new_lows', 'anomalies', 'high_volume', 'reversals', 'with_news'];
       for (const categoryId of categoryIds) {
         const category = getScannerCategory(categoryId);
         if (category && category.name === categoryName) {
+          // Caso especial: tabla de intersección Scanner + News
+          if (categoryId === 'with_news') {
+            return <TickersWithNewsTable title={`Scanner: ${category.name}`} />;
+          }
           return (
             <ScannerTableContent
               categoryId={categoryId}

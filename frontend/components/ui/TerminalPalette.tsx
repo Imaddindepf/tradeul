@@ -38,6 +38,7 @@ const SCANNER_COMMANDS = [
     { id: 'anomalies', label: 'Anomalies', description: 'RVOL >= 3.0' },
     { id: 'high_volume', label: 'High Volume', description: 'RVOL >= 2.0' },
     { id: 'reversals', label: 'Reversals', description: 'Direction changes' },
+    { id: 'with_news', label: 'With News', description: 'Scanner tickers with news today' },
 ];
 
 export function TerminalPalette({

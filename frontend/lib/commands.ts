@@ -43,12 +43,31 @@ export const MAIN_COMMANDS: MainCommand[] = [
 ];
 
 /**
- * Mapeo rápido de id → label
- * Generado automáticamente desde MAIN_COMMANDS
+ * Labels de categorías del scanner (para PinnedCommands)
  */
-export const COMMAND_LABELS: Record<string, string> = Object.fromEntries(
-  MAIN_COMMANDS.map(cmd => [cmd.id, cmd.label])
-);
+export const SCANNER_CATEGORY_LABELS: Record<string, string> = {
+  'gappers_up': 'Gap Up',
+  'gappers_down': 'Gap Down',
+  'momentum_up': 'Mom Up',
+  'momentum_down': 'Mom Down',
+  'winners': 'Winners',
+  'losers': 'Losers',
+  'new_highs': 'Highs',
+  'new_lows': 'Lows',
+  'anomalies': 'Anomalies',
+  'high_volume': 'Volume',
+  'reversals': 'Reversals',
+  'with_news': 'With News',
+};
+
+/**
+ * Mapeo rápido de id → label
+ * Combina comandos principales + categorías del scanner
+ */
+export const COMMAND_LABELS: Record<string, string> = {
+  ...Object.fromEntries(MAIN_COMMANDS.map(cmd => [cmd.id, cmd.label])),
+  ...SCANNER_CATEGORY_LABELS,
+};
 
 /**
  * Obtener label de un comando por su id

@@ -9,6 +9,7 @@ import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG 
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
+import TickersWithNewsTable from '@/components/scanner/TickersWithNewsTable';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
 import { ChartContent } from '@/components/chart/ChartContent';
@@ -55,6 +56,7 @@ export function useCommandExecutor() {
             'anomalies': { nameKey: 'scanner.anomalies', descriptionKey: 'scanner.anomaliesDescription' },
             'high_volume': { nameKey: 'scanner.highVolume', descriptionKey: 'scanner.highVolumeDescription' },
             'reversals': { nameKey: 'scanner.reversals', descriptionKey: 'scanner.reversalsDescription' },
+            'with_news': { nameKey: 'scanner.withNews', descriptionKey: 'scanner.withNewsDescription' },
         };
 
         const category = categoryMap[categoryId];
@@ -84,6 +86,25 @@ export function useCommandExecutor() {
         const offsetX = (index % 5) * 50;
         const offsetY = (index % 5) * 40;
 
+        // Caso especial: tabla de "Tickers with News" (intersección scanner + news)
+        if (categoryId === 'with_news') {
+            return openWindow({
+                title,
+                content: (
+                    <TickersWithNewsTable
+                        title={category.name}
+                    />
+                ),
+                width: 900,
+                height: 500,
+                x: baseX + offsetX,
+                y: baseY + offsetY,
+                minWidth: 600,
+                minHeight: 300,
+                hideHeader: true,
+            });
+        }
+
         return openWindow({
             title,
             content: (
@@ -102,7 +123,7 @@ export function useCommandExecutor() {
             minHeight: 300,
             hideHeader: true, // La tabla del scanner tiene su propia cabecera
         });
-    }, [openWindow]);
+    }, [openWindow, getScannerCategory]);
 
     /**
      * Cerrar una tabla del scanner

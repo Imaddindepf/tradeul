@@ -2,6 +2,7 @@
 
 import { ReactNode } from 'react';
 import { Navbar } from './Navbar';
+import { AnnouncementBanner } from './AnnouncementBanner';
 import { FloatingWindowProvider } from '@/contexts/FloatingWindowContext';
 import { FloatingWindowManager } from '@/components/floating-window/FloatingWindowManager';
 
@@ -13,6 +14,8 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <FloatingWindowProvider>
       <div className="min-h-screen bg-slate-50">
+        {/* Announcement Banner - floating toast */}
+        <AnnouncementBanner />
         <Navbar />
         <main className="w-full">
           {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
