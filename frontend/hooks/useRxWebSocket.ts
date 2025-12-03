@@ -9,6 +9,13 @@
  */
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+
+// Versión del SharedWorker - incrementar para forzar recarga en todos los usuarios
+const SHARED_WORKER_VERSION = 'v2';
+
+// Debug solo si está explícitamente habilitado via variable de entorno
+// En producción NUNCA se muestran logs de WebSocket
+const WS_DEBUG_ENABLED = process.env.NEXT_PUBLIC_WS_DEBUG === 'true';
 import {
   Observable,
   Subject,
@@ -76,20 +83,24 @@ class WebSocketManager {
   }
 
   connect(url: string, debugMode: boolean = false) {
+    // Debug controlado SOLO por variable de entorno (no por parámetro)
+    // Esto evita logs en producción aunque alguien pase debug: true
+    const effectiveDebug = WS_DEBUG_ENABLED && debugMode;
+    
     // Si ya hay una conexión con la misma URL, no hacer nada
     if ((this.ws$ || this.sharedWorker) && this.url === url) {
-      if (debugMode) console.log('🔄 [RxWS] Already connected, reusing connection');
+      if (effectiveDebug) console.log('🔄 [RxWS] Already connected, reusing connection');
       return;
     }
 
     // Si la URL cambió (ej: se añadió token de auth), reconectar
     if (this.url && this.url !== url) {
-      if (debugMode) console.log('🔄 [RxWS] URL changed, reconnecting...', { old: this.url.substring(0, 50), new: url.substring(0, 50) });
+      if (effectiveDebug) console.log('🔄 [RxWS] URL changed, reconnecting...');
       this.disconnect();
     }
 
     this.url = url;
-    this.debug = debugMode;
+    this.debug = effectiveDebug;
 
     // Limpiar conexiones anteriores
     if (this.ws$) {
@@ -271,8 +282,9 @@ class WebSocketManager {
   private connectWithSharedWorker(url: string, debugMode: boolean) {
 
 
-    this.sharedWorker = new SharedWorker('/workers/websocket-shared.js', {
-      name: 'tradeul-websocket'
+    // Añadir versión al URL para forzar recarga cuando hay cambios
+    this.sharedWorker = new SharedWorker(`/workers/websocket-shared.js?${SHARED_WORKER_VERSION}`, {
+      name: `tradeul-websocket-${SHARED_WORKER_VERSION}`
     });
     this.workerPort = this.sharedWorker.port;
 
@@ -489,6 +501,7 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
 export function useListSubscription(listName: string, debug: boolean = false) {
   const manager = WebSocketManager.getInstance();
   const [isConnected, setIsConnected] = useState(false);
+  const effectiveDebug = WS_DEBUG_ENABLED && debug;
 
   // Track connection state
   useEffect(() => {
@@ -500,14 +513,14 @@ export function useListSubscription(listName: string, debug: boolean = false) {
   useEffect(() => {
     if (!isConnected) return;
 
-    if (debug) console.log(`🔗 [useListSubscription] Subscribing to: ${listName}`);
+    if (effectiveDebug) console.log(`🔗 [useListSubscription] Subscribing to: ${listName}`);
     manager.subscribe(listName);
 
     return () => {
-      if (debug) console.log(`🔗 [useListSubscription] Unsubscribing from: ${listName}`);
+      if (effectiveDebug) console.log(`🔗 [useListSubscription] Unsubscribing from: ${listName}`);
       manager.unsubscribe(listName);
     };
-  }, [listName, isConnected]);
+  }, [listName, isConnected, effectiveDebug]);
 }
 
 // ============================================================================
@@ -517,6 +530,7 @@ export function useListSubscription(listName: string, debug: boolean = false) {
 export function useMultiListSubscription(listNames: string[], debug: boolean = false) {
   const manager = WebSocketManager.getInstance();
   const [isConnected, setIsConnected] = useState(false);
+  const effectiveDebug = WS_DEBUG_ENABLED && debug;
 
   // Track connection state
   useEffect(() => {
@@ -528,7 +542,7 @@ export function useMultiListSubscription(listNames: string[], debug: boolean = f
   useEffect(() => {
     if (!isConnected || listNames.length === 0) return;
 
-    if (debug) console.log(`🔗 [useMultiListSubscription] Subscribing to ${listNames.length} lists:`, listNames);
+    if (effectiveDebug) console.log(`🔗 [useMultiListSubscription] Subscribing to ${listNames.length} lists:`, listNames);
 
     // Suscribirse a todas las listas
     listNames.forEach(listName => {
@@ -536,10 +550,10 @@ export function useMultiListSubscription(listNames: string[], debug: boolean = f
     });
 
     return () => {
-      if (debug) console.log(`🔗 [useMultiListSubscription] Unsubscribing from ${listNames.length} lists`);
+      if (effectiveDebug) console.log(`🔗 [useMultiListSubscription] Unsubscribing from ${listNames.length} lists`);
       listNames.forEach(listName => {
         manager.unsubscribe(listName);
       });
     };
-  }, [listNames.join(','), isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [listNames.join(','), isConnected, effectiveDebug]); // eslint-disable-line react-hooks/exhaustive-deps
 }

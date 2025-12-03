@@ -23,10 +23,17 @@ let connectionInfo = {
 let heartbeatTimer = null;
 
 // ============================================================================
-// LOGGING
+// LOGGING - Solo errores en producción
 // ============================================================================
 
+// Solo enviar logs de error al main thread
+// Los logs de info/warn están desactivados para reducir ruido en consola
 function log(level, message, data) {
+  // Solo enviar errores críticos
+  if (level !== 'error') {
+    return;
+  }
+  
   const logMsg = {
     type: 'log',
     level: level,
@@ -54,12 +61,14 @@ function connectWebSocket(url) {
   }
 
   try {
-    log('info', '🚀 SharedWorker connecting to: ' + url);
+    // Log silenciado - descomentar para debug
+    // log('info', '🚀 SharedWorker connecting to: ' + url);
     ws = new WebSocket(url);
     connectionInfo.url = url;
 
     ws.onopen = function() {
-      log('info', '✅ SharedWorker WebSocket connected');
+      // Log silenciado - descomentar para debug
+      // log('info', '✅ SharedWorker WebSocket connected');
       connectionInfo.isConnected = true;
       connectionInfo.reconnectAttempts = 0;
 
@@ -83,7 +92,8 @@ function connectWebSocket(url) {
     };
 
     ws.onclose = function() {
-      log('warn', '❌ SharedWorker WebSocket closed');
+      // Log silenciado - descomentar para debug
+      // log('warn', '❌ SharedWorker WebSocket closed');
       connectionInfo.isConnected = false;
       stopHeartbeat();
       broadcastStatus();
@@ -98,7 +108,8 @@ function connectWebSocket(url) {
         }
 
         connectionInfo.reconnectTimer = setTimeout(function() {
-          log('info', '🔄 Reconnecting (attempt ' + connectionInfo.reconnectAttempts + ')');
+          // Log silenciado - descomentar para debug
+          // log('info', '🔄 Reconnecting (attempt ' + connectionInfo.reconnectAttempts + ')');
           connectWebSocket(connectionInfo.url);
         }, backoff);
       }
@@ -203,17 +214,18 @@ function resubscribeAllLists() {
     allLists.forEach(function(list) {
       ws.send(JSON.stringify({ action: 'subscribe_list', list: list }));
     });
-    log('info', '📋 Re-subscribed to ' + allLists.size + ' lists');
+    // Log silenciado - descomentar para debug
+    // log('info', '📋 Re-subscribed to ' + allLists.size + ' lists');
     }
     
     if (hasNewsSubscribers) {
       ws.send(JSON.stringify({ action: 'subscribe_benzinga_news' }));
-      log('info', '📰 Re-subscribed to news');
+      // log('info', '📰 Re-subscribed to news');
     }
     
     if (hasSECSubscribers) {
       ws.send(JSON.stringify({ action: 'subscribe_sec' }));
-      log('info', '📄 Re-subscribed to SEC');
+      // log('info', '📄 Re-subscribed to SEC');
     }
   }
 }
@@ -237,12 +249,13 @@ function handlePortMessage(port, data) {
     case 'update_token':
       if (data.url) {
         connectionInfo.url = data.url; // Actualizar URL para futuras reconexiones
-        log('info', '🔐 Token URL updated for future reconnections');
+        // Log silenciado - descomentar para debug
+        // log('info', '🔐 Token URL updated for future reconnections');
         
         // Si estamos conectados, enviar refresh_token al servidor
         if (ws && ws.readyState === WebSocket.OPEN && data.token) {
           ws.send(JSON.stringify({ action: 'refresh_token', token: data.token }));
-          log('info', '🔐 Sent refresh_token to server');
+          // log('info', '🔐 Sent refresh_token to server');
         }
       }
       break;
@@ -250,7 +263,8 @@ function handlePortMessage(port, data) {
     // 🔐 RECONECTAR CON NUEVO TOKEN (cuando el servidor rechaza por token expirado)
     case 'reconnect_with_token':
       if (data.url) {
-        log('info', '🔐 Reconnecting with fresh token');
+        // Log silenciado - descomentar para debug
+        // log('info', '🔐 Reconnecting with fresh token');
         connectionInfo.url = data.url;
         if (ws) {
           ws.close();

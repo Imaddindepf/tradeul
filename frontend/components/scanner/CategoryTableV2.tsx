@@ -134,7 +134,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // ======================================================================
 
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-  const debug = process.env.NODE_ENV === 'development';
+  const debug = false; // Cambiar a true para logs de WebSocket
 
   // Singleton WebSocket con Auth (compartido entre todas las tablas)
   const ws = useAuthWebSocket(wsUrl, { debug });

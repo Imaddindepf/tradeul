@@ -80,7 +80,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"  # Solo accesible via Caddy
     deploy:
       resources:
         limits:
@@ -189,7 +189,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "8009:8000"
+      - "127.0.0.1:8009:8000"  # Solo accesible via Caddy
     healthcheck:
       test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5.0)" ]
       interval: 60s
@@ -364,7 +364,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"  # Solo accesible via Caddy
     deploy:
       resources:
         limits:
@@ -385,7 +385,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"  # Solo accesible via Caddy
     deploy:
       resources:
         limits:
@@ -425,7 +425,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "8012:8012"
+      - "127.0.0.1:8012:8012"  # Solo accesible via Caddy
     deploy:
       resources:
         limits:
