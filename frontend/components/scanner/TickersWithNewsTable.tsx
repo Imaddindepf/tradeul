@@ -487,10 +487,12 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         header: () => (
           <div className="flex items-center gap-1">
             <span>{t('scanner.tableHeaders.tables') || 'Tables'}</span>
-            <Info 
-              className="w-3 h-3 text-slate-400 hover:text-blue-500 cursor-help" 
+            <span 
               title="G↑=Gap Up | G↓=Gap Down | M↑=Momentum Up | M↓=Momentum Down | W=Winners | L=Losers | H=New Highs | Lo=New Lows | A=Anomalies | V=High Volume | R=Reversals"
-            />
+              className="cursor-help"
+            >
+              <Info className="w-3 h-3 text-slate-400 hover:text-blue-500" />
+            </span>
           </div>
         ),
         size: 140,
