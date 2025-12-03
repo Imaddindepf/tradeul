@@ -130,48 +130,6 @@ function isFromTodayTradingSession(published: string): boolean {
 const columnHelper = createColumnHelper<TickerWithNews>();
 
 // ============================================================================
-// TABLES HEADER WITH TOOLTIP COMPONENT
-// ============================================================================
-
-function TablesHeaderWithTooltip() {
-  const { t } = useTranslation();
-  const [showTooltip, setShowTooltip] = useState(false);
-
-  return (
-    <div className="flex items-center gap-1 relative">
-      <span>{t('scanner.tableHeaders.tables') || 'Tables'}</span>
-      <div 
-        className="relative"
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-      >
-        <Info className="w-3 h-3 text-slate-400 hover:text-blue-500 cursor-help" />
-        {showTooltip && (
-          <div className="absolute left-0 top-full mt-1 z-[9999]">
-            <div className="bg-slate-900 text-white text-[10px] rounded-md shadow-xl px-3 py-2 whitespace-nowrap border border-slate-700">
-              <div className="font-semibold mb-1.5 text-blue-400">{t('scanner.tablesLegend')}</div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-                <span><b className="text-emerald-400">G↑</b> Gap Up</span>
-                <span><b className="text-rose-400">G↓</b> Gap Down</span>
-                <span><b className="text-emerald-400">M↑</b> Momentum Up</span>
-                <span><b className="text-rose-400">M↓</b> Momentum Down</span>
-                <span><b className="text-emerald-400">W</b> Winners</span>
-                <span><b className="text-rose-400">L</b> Losers</span>
-                <span><b className="text-emerald-400">H</b> New Highs</span>
-                <span><b className="text-rose-400">Lo</b> New Lows</span>
-                <span><b className="text-amber-400">A</b> Anomalies</span>
-                <span><b className="text-blue-400">V</b> High Volume</span>
-                <span><b className="text-purple-400">R</b> Reversals</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
 // MINI NEWS WINDOW COMPONENT
 // ============================================================================
 
@@ -526,7 +484,33 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         },
       }),
       columnHelper.accessor('scannerCategories', {
-        header: () => <TablesHeaderWithTooltip />,
+        header: () => (
+          <div className="flex items-center gap-1 relative group">
+            <span>{t('scanner.tableHeaders.tables') || 'Tables'}</span>
+            <div className="relative">
+              <Info className="w-3 h-3 text-slate-400 group-hover:text-blue-500 cursor-help" />
+              {/* Tooltip - CSS only */}
+              <div className="absolute left-0 top-full mt-1 z-[9999] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 pointer-events-none">
+                <div className="bg-slate-900 text-white text-[10px] rounded-md shadow-xl px-3 py-2 whitespace-nowrap border border-slate-700">
+                  <div className="font-semibold mb-1.5 text-blue-400">{t('scanner.tablesLegend')}</div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                    <span><b className="text-emerald-400">G↑</b> Gap Up</span>
+                    <span><b className="text-rose-400">G↓</b> Gap Down</span>
+                    <span><b className="text-emerald-400">M↑</b> Momentum Up</span>
+                    <span><b className="text-rose-400">M↓</b> Momentum Down</span>
+                    <span><b className="text-emerald-400">W</b> Winners</span>
+                    <span><b className="text-rose-400">L</b> Losers</span>
+                    <span><b className="text-emerald-400">H</b> New Highs</span>
+                    <span><b className="text-rose-400">Lo</b> New Lows</span>
+                    <span><b className="text-amber-400">A</b> Anomalies</span>
+                    <span><b className="text-blue-400">V</b> High Volume</span>
+                    <span><b className="text-purple-400">R</b> Reversals</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ),
         size: 140,
         cell: (info) => {
           // Mapear nombres de categorías a etiquetas MUY cortas
