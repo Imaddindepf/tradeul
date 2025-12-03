@@ -144,9 +144,19 @@ app = FastAPI(
 )
 
 # CORS Middleware
+# Nota: allow_credentials=True requiere orígenes específicos (no "*")
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3000",
+    "http://157.180.45.153:3000",
+    "http://157.180.45.153:3001",
+    "https://tradeul.com",
+    "https://www.tradeul.com",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # En producción: especificar dominios exactos
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

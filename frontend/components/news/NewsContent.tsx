@@ -182,16 +182,19 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
 
   // Apply ticker filter
   const handleApplyFilter = useCallback(() => {
-    setTickerFilter(tickerInputValue.toUpperCase().trim());
+    const newFilter = tickerInputValue.toUpperCase().trim();
+    console.log('[News Filter] Applying filter:', newFilter, 'from input:', tickerInputValue);
+    setTickerFilter(newFilter);
     setCurrentPage(1); // Reset to first page when filtering
   }, [tickerInputValue]);
 
-  // Filter news by ticker
+  // Filter news by ticker (coincidencia exacta)
   const filteredNews = useMemo(() => {
     if (!tickerFilter) return news;
-    return news.filter(article =>
-      article.tickers?.some(t => t.toUpperCase().includes(tickerFilter))
+    const filtered = news.filter(article =>
+      article.tickers?.some(t => t.toUpperCase() === tickerFilter)
     );
+    return filtered;
   }, [news, tickerFilter]);
 
   // Pagination
@@ -260,7 +263,10 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
         {/* Header del viewer */}
         <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
           <button
-            onClick={() => setSelectedArticle(null)}
+            onClick={() => {
+              console.log('[News Filter] Going back. Current filter:', tickerFilter, 'Input:', tickerInputValue);
+              setSelectedArticle(null);
+            }}
             className="px-2 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-medium flex items-center gap-1"
           >
             ← {t('common.back')}
@@ -456,7 +462,11 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
           <tbody className="divide-y divide-slate-100">
             {paginatedNews.map((article, i) => {
               const dt = formatDateTime(article.published);
-              const ticker = article.tickers?.[0] || '—';
+              // Si hay filtro activo, mostrar el ticker que coincide; si no, mostrar el primero
+              const displayTicker = tickerFilter 
+                ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
+                : (article.tickers?.[0] || '—');
+              const hasMultipleTickers = (article.tickers?.length || 0) > 1;
 
               return (
                 <tr
@@ -477,7 +487,10 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
                   <td className="px-2 py-1 text-center text-slate-500 font-mono">{dt.date}</td>
                   <td className="px-2 py-1 text-center text-slate-500 font-mono">{dt.time}</td>
                   <td className="px-2 py-1 text-center">
-                    <span className="text-blue-600 font-mono font-semibold">{ticker}</span>
+                    <span className="text-blue-600 font-mono font-semibold">
+                      {displayTicker}
+                      {hasMultipleTickers && <span className="text-slate-400 text-[10px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
+                    </span>
                   </td>
                   <td className="px-2 py-1 text-slate-500 truncate" style={{ maxWidth: '140px' }}>
                     {article.author}

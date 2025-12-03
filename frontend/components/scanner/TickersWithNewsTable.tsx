@@ -135,7 +135,7 @@ const columnHelper = createColumnHelper<TickerWithNews>();
 
 function MiniNewsWindow({ ticker, articles }: { ticker: string; articles: NewsArticle[] }) {
   const { t } = useTranslation();
-  
+
   const formatTime = (isoString: string) => {
     try {
       const d = new Date(isoString);
@@ -203,22 +203,22 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   const applyDeltas = useTickersStore((state) => state.applyDeltas);
 
   // WebSocket para procesar snapshots de todas las categorías
-  const rxWs = useRxWebSocket();
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+  const rxWs = useRxWebSocket(wsUrl);
 
   // User Filters - Zustand store para reactividad en tiempo real
   const activeFilters = useFiltersStore((state) => state.activeFilters);
   const hasActiveFilters = useFiltersStore((state) => state.hasActiveFilters);
   const filtersKey = JSON.stringify(activeFilters); // Para detectar cambios
 
-  // WebSocket status
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+  // WebSocket status (reusa wsUrl de arriba)
   const ws = useAuthWebSocket(wsUrl);
 
   // ======================================================================
   // SUSCRIBIRSE A TODAS LAS CATEGORÍAS DEL SCANNER
   // Esto permite que la tabla funcione aunque no tengas otras tablas abiertas
   // ======================================================================
-  
+
   useMultiListSubscription(SCANNER_CATEGORIES);
 
   // ======================================================================
@@ -309,12 +309,12 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
       list.tickers.forEach((ticker, symbol) => {
         const upper = symbol.toUpperCase();
         scannerTickers.add(upper);
-        
+
         // Guardar el ticker data
         if (!tickerDataMap.has(upper)) {
           tickerDataMap.set(upper, ticker);
         }
-        
+
         // Añadir la categoría a la lista de categorías del ticker
         if (!tickerCategoriesMap.has(upper)) {
           tickerCategoriesMap.set(upper, []);
@@ -487,24 +487,12 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         header: () => (
           <div className="flex items-center gap-1">
             <span>{t('scanner.tableHeaders.tables') || 'Tables'}</span>
-            {/* Tooltip container with CSS hover - appears instantly */}
-            <div className="relative inline-block group/tip">
-              <Info className="w-3 h-3 text-slate-400 group-hover/tip:text-blue-500 cursor-help" />
-              <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/tip:block z-[99999] pointer-events-none">
-                <div className="bg-slate-900 text-white text-[10px] rounded-lg shadow-2xl px-3 py-2 whitespace-nowrap border border-slate-600">
-                  <div className="font-bold text-blue-400 mb-1">{t('scanner.tablesLegend')}</div>
-                  <div className="space-y-0.5">
-                    <div><span className="text-emerald-400 font-bold">G↑</span> Gap Up  <span className="text-rose-400 font-bold">G↓</span> Gap Down</div>
-                    <div><span className="text-emerald-400 font-bold">M↑</span> Mom Up  <span className="text-rose-400 font-bold">M↓</span> Mom Down</div>
-                    <div><span className="text-emerald-400 font-bold">W</span> Winners  <span className="text-rose-400 font-bold">L</span> Losers</div>
-                    <div><span className="text-emerald-400 font-bold">H</span> Highs  <span className="text-rose-400 font-bold">Lo</span> Lows</div>
-                    <div><span className="text-amber-400 font-bold">A</span> Anomalies  <span className="text-blue-400 font-bold">V</span> Volume  <span className="text-purple-400 font-bold">R</span> Reversals</div>
-                  </div>
-                  {/* Arrow */}
-                  <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-900"></div>
-                </div>
-              </div>
-            </div>
+            <span
+              className="cursor-help"
+              title="G↑=Gap Up | G↓=Gap Down | M↑=Momentum Up | M↓=Momentum Down | W=Winners | L=Losers | H=New Highs | Lo=New Lows | A=Anomalies | V=High Volume | R=Reversals"
+            >
+              <Info className="w-3 h-3 text-slate-400 hover:text-blue-500" />
+            </span>
           </div>
         ),
         size: 140,
@@ -523,15 +511,15 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
             'high_volume': 'V',
             'reversals': 'R',
           };
-          
+
           // Filtrar: solo categorías válidas que tengan label
           const rawCategories = info.getValue() || [];
-          const categories = rawCategories.filter((cat): cat is string => 
+          const categories = rawCategories.filter((cat): cat is string =>
             typeof cat === 'string' && cat.length > 0 && categoryLabels[cat] !== undefined
           );
-          
+
           if (categories.length === 0) return <span className="text-slate-400">—</span>;
-          
+
           // Mostrar como texto simple separado por espacios (no se corta)
           return (
             <span className="text-[10px] font-medium text-slate-600">
