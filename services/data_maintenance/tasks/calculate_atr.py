@@ -101,19 +101,23 @@ class CalculateATRTask:
             )
             
             # 🔥 VALIDACIÓN: Verificar que se calculó ATR para suficientes tickers
-            MIN_ATR_SUCCESS = 10000
-            success_rate = success_count / len(symbols) if len(symbols) > 0 else 0
+            # Los "skipped" cuentan como éxito porque ya tienen ATR válido en cache
+            MIN_ATR_VALID = 10000
+            valid_count = success_count + skipped_count  # Skipped = ya en cache = válido
+            valid_rate = valid_count / len(symbols) if len(symbols) > 0 else 0
             
-            if success_count < MIN_ATR_SUCCESS or success_rate < 0.8:
+            if valid_count < MIN_ATR_VALID or valid_rate < 0.8:
                 logger.error(
                     "insufficient_atr_calculated",
-                    expected_min=MIN_ATR_SUCCESS,
-                    actual=success_count,
-                    success_rate=f"{success_rate*100:.1f}%"
+                    expected_min=MIN_ATR_VALID,
+                    actual=valid_count,
+                    new_calculated=success_count,
+                    from_cache=skipped_count,
+                    valid_rate=f"{valid_rate*100:.1f}%"
                 )
                 return {
                     "success": False,
-                    "error": f"Insufficient ATR: {success_count} < {MIN_ATR_SUCCESS} (rate: {success_rate*100:.1f}%)",
+                    "error": f"Insufficient ATR: {valid_count} < {MIN_ATR_VALID} (rate: {valid_rate*100:.1f}%)",
                     "symbols_total": len(symbols),
                     "symbols_success": success_count,
                     "symbols_failed": failed_count,

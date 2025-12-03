@@ -392,9 +392,14 @@ async function getInitialSnapshot(listName) {
       }
     }
 
-    if (!rows || rows.length === 0) {
-      logger.warn({ listName }, "No snapshot found in Redis (category or fallback)");
-      return null;
+    // Si no hay datos, devolver snapshot vacío en lugar de null
+    // Esto permite que el cliente sepa que la suscripción fue aceptada
+    if (!rows) {
+      rows = [];
+    }
+    
+    if (rows.length === 0) {
+      logger.info({ listName }, "No tickers in category, returning empty snapshot");
     }
 
     // Obtener sequence number

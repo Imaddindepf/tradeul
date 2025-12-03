@@ -123,14 +123,12 @@ export function useAuthWebSocket(
                 const newToken = await getToken();
                 if (newToken && newToken !== tokenRef.current) {
                     tokenRef.current = newToken;
+                    const newUrl = buildAuthUrl(baseUrl, newToken);
 
-                    // Enviar nuevo token al servidor via mensaje WebSocket
-                    ws.send({
-                        action: 'refresh_token',
-                        token: newToken,
-                    });
+                    // 🔐 Actualizar token en SharedWorker + enviar refresh al servidor
+                    ws.updateToken(newUrl, newToken);
 
-                    if (debug) console.log('🔐 [AuthWS] Token refreshed via WS message');
+                    if (debug) console.log('🔐 [AuthWS] Token refreshed (URL + server)');
                 }
             } catch (error) {
                 console.error('🔐 [AuthWS] Token refresh failed:', error);
@@ -145,7 +143,7 @@ export function useAuthWebSocket(
                 clearInterval(refreshTimerRef.current);
             }
         };
-    }, [isSignedIn, ws.isConnected, ws.send, getToken, refreshInterval, debug, isAuthenticated]);
+    }, [isSignedIn, ws.isConnected, ws.updateToken, getToken, refreshInterval, debug, isAuthenticated, baseUrl]);
 
     return useMemo(() => ({
         ...ws,

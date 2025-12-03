@@ -134,21 +134,35 @@ class LoadVolumeSlotsTask:
                 days_skipped=len(existing_dates)
             )
             
-            # 🔥 VALIDACIÓN: Verificar que se cargaron suficientes datos
-            # ~12,000 tickers × 78 slots × days = ~936,000 records/día
-            MIN_RECORDS_PER_DAY = 500000  # Mínimo 500K records por día
-            expected_records = len(trading_days) * MIN_RECORDS_PER_DAY
+            # 🔥 VALIDACIÓN: Verificar datos
+            # Si ya tenemos suficientes días completos, consideramos éxito
+            MIN_COMPLETE_DAYS = 5  # Necesitamos al menos 5 días para RVOL
             
-            if len(trading_days) > 0 and records_inserted < MIN_RECORDS_PER_DAY:
+            if len(existing_dates) >= MIN_COMPLETE_DAYS:
+                logger.info(
+                    "volume_slots_validation_passed",
+                    complete_days=len(existing_dates),
+                    new_records=records_inserted,
+                    message="Sufficient historical data available"
+                )
+            elif records_inserted == 0 and len(trading_days) > 0:
+                logger.warning(
+                    "volume_slots_no_new_data",
+                    days_attempted=len(trading_days),
+                    days_complete=len(existing_dates),
+                    message="No new data, may be normal for current day"
+                )
+            
+            # Solo falla si no tenemos suficientes días históricos
+            if len(existing_dates) < MIN_COMPLETE_DAYS and records_inserted == 0:
                 logger.error(
-                    "insufficient_volume_slots_loaded",
-                    expected_min=MIN_RECORDS_PER_DAY,
-                    actual=records_inserted,
-                    days_attempted=len(trading_days)
+                    "insufficient_volume_slots_history",
+                    expected_min_days=MIN_COMPLETE_DAYS,
+                    actual_days=len(existing_dates)
                 )
                 return {
                     "success": False,
-                    "error": f"Insufficient data: loaded {records_inserted} records, expected >= {MIN_RECORDS_PER_DAY}",
+                    "error": f"Insufficient history: {len(existing_dates)} days, need >= {MIN_COMPLETE_DAYS}",
                     "symbols_processed": len(symbols),
                     "records_inserted": records_inserted,
                     "days_loaded": len(trading_days),

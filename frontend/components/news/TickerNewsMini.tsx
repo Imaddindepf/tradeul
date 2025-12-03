@@ -58,7 +58,7 @@ export function TickerNewsMini({ ticker }: TickerNewsMiniProps) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-blue-600">{ticker}</span>
           <span className="text-xs text-slate-500">
-            {articles.length} {articles.length === 1 ? 'noticia' : 'noticias'}
+            {articles.length} {t('news.articles', { count: articles.length })}
           </span>
         </div>
       </div>

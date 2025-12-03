@@ -98,7 +98,8 @@
     "reversalsDescription": "Cambios de dirección",
     "withNewsDescription": "Tickers del scanner con noticias de hoy",
     "noTickersWithNews": "Sin tickers con noticias",
-    "noTickersWithNewsDescription": "Los tickers de las tablas del scanner con noticias de la sesión de hoy aparecerán aquí",
+    "noTickersWithNewsDescription": "Abre primero alguna tabla del scanner (Gap Up, Momentum, etc.)",
+    "noTickersWithNewsButScanner": "Hay {{count}} tickers en el scanner, pero ninguno tiene noticias hoy.",
     "tickersWithNews": "tickers con noticias",
     "tableHeaders": {
       "symbol": "Símbolo",
@@ -113,7 +114,8 @@
       "news": "Noticias",
       "lastNews": "Última",
       "tables": "Tablas"
-    }
+    },
+    "tablesLegend": "Leyenda:"
   },
   "news": {
     "title": "Noticias",
@@ -129,7 +131,9 @@
     "date": "Fecha",
     "time": "Hora",
     "ticker": "Ticker",
-    "source": "Fuente"
+    "source": "Fuente",
+    "articles": "noticia",
+    "articles_plural": "noticias"
   },
   "secFilings": {
     "title": "SEC Filings",
@@ -144,6 +148,43 @@
       "date": "Fecha",
       "time": "Hora"
     }
+  },
+  "description": {
+    "errorLoading": "Error al cargar datos",
+    "noData": "Sin datos",
+    "stats": "Estadísticas",
+    "price": "Precio",
+    "sharesOut": "Acciones",
+    "marketCap": "Cap. Mercado",
+    "float": "Float",
+    "avgVol": "Vol. Prom",
+    "analystRatings": "Ratings Analistas",
+    "strongBuy": "Compra Fuerte",
+    "buy": "Comprar",
+    "hold": "Mantener",
+    "sell": "Vender",
+    "noRatings": "Sin calificaciones",
+    "priceTargets": "Objetivos Precio",
+    "consensus": "Consenso",
+    "upside": "Potencial",
+    "52wLow": "Mín 52S",
+    "52wHigh": "Máx 52S",
+    "noTargets": "Sin objetivos",
+    "marketInfo": "Info Mercado",
+    "exchange": "Bolsa",
+    "currency": "Moneda",
+    "employees": "Empleados",
+    "ipoDate": "Fecha IPO",
+    "valuationRatios": "Ratios Valoración",
+    "dividendYield": "Dividendo",
+    "yield": "Rendimiento",
+    "payoutRatio": "Ratio Pago",
+    "divPerShare": "Div/Acción",
+    "riskSentiment": "Riesgo",
+    "shortInterest": "Interés Corto",
+    "shortRatio": "Ratio Corto",
+    "recentTargets": "Objetivos Recientes",
+    "unknown": "Desconocido"
   },
   "dilution": {
     "title": "Dilution Tracker",

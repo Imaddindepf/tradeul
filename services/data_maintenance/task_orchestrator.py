@@ -313,35 +313,45 @@ class TaskOrchestrator:
     def _validate_task_result(self, task_name: str, result: Dict) -> bool:
         """
         🔥 VALIDACIÓN: Verificar que la tarea cargó suficientes datos
+        Considera datos existentes (skipped/cached) como válidos
         """
-        # Si no cargó nada porque todo ya estaba completo, es OK
         days_skipped = result.get("days_skipped", 0)
         days_loaded = result.get("days_loaded", 0)
-        
-        if days_loaded == 0 and days_skipped > 0:
-            return True  # No había nada que cargar
-        
-        # Validaciones por tipo de tarea
         records = result.get("records_inserted", 0)
         symbols_success = result.get("symbols_success", 0)
+        symbols_skipped = result.get("symbols_skipped", 0)  # Ya en cache = válido
         
         if task_name == "ohlc_daily":
-            MIN_OHLC = 10000
-            if days_loaded > 0 and records < MIN_OHLC:
-                logger.warning("ohlc_validation_failed", expected=MIN_OHLC, actual=records)
+            MIN_COMPLETE_DAYS = 14  # Necesitamos 14 días para ATR
+            # Si tenemos suficientes días históricos completos, es éxito
+            if days_skipped >= MIN_COMPLETE_DAYS:
+                logger.info("ohlc_validation_passed", complete_days=days_skipped, new_records=records)
+                return True
+            # Si intentamos cargar pero no había datos (día actual sin cerrar), OK si tenemos historial
+            if days_loaded > 0 and records == 0 and days_skipped >= MIN_COMPLETE_DAYS:
+                logger.info("ohlc_current_day_no_data", days_complete=days_skipped)
+                return True
+            if days_loaded > 0 and records < 10000 and days_skipped < MIN_COMPLETE_DAYS:
+                logger.warning("ohlc_validation_failed", expected_days=MIN_COMPLETE_DAYS, actual_days=days_skipped)
                 return False
         
         elif task_name == "volume_slots":
-            MIN_SLOTS = 500000
-            if days_loaded > 0 and records < MIN_SLOTS:
-                logger.warning("volume_slots_validation_failed", expected=MIN_SLOTS, actual=records)
+            MIN_COMPLETE_DAYS = 5
+            if days_skipped >= MIN_COMPLETE_DAYS:
+                return True
+            if days_loaded > 0 and records < 500000 and days_skipped < MIN_COMPLETE_DAYS:
+                logger.warning("volume_slots_validation_failed", expected_days=MIN_COMPLETE_DAYS, actual_days=days_skipped)
                 return False
         
         elif task_name == "calculate_atr":
             MIN_ATR = 10000
-            if symbols_success < MIN_ATR:
-                logger.warning("atr_validation_failed", expected=MIN_ATR, actual=symbols_success)
-                return False
+            # Símbolos en cache (skipped) también cuentan como válidos
+            valid_total = symbols_success + symbols_skipped
+            if valid_total >= MIN_ATR:
+                logger.info("atr_validation_passed", new=symbols_success, cached=symbols_skipped, total=valid_total)
+                return True
+            logger.warning("atr_validation_failed", expected=MIN_ATR, actual=valid_total)
+            return False
         
         return True
     

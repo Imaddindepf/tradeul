@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, ExternalLink, TrendingUp, TrendingDown, Users, Building2, Calendar, Globe, Phone } from 'lucide-react';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { TradingChart } from '@/components/chart/TradingChart';
@@ -140,6 +141,7 @@ SectionHeader.displayName = 'SectionHeader';
 // ============================================================================
 
 function DescriptionContentComponent({ ticker, exchange }: DescriptionContentProps) {
+  const { t } = useTranslation();
   const [data, setData] = useState<TickerDescription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -155,11 +157,11 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
       setData(result);
     } catch (err) {
       console.error('Description fetch error:', err);
-      setError(err instanceof Error ? err.message : 'Error loading data');
+      setError(err instanceof Error ? err.message : t('description.errorLoading'));
     } finally {
       setLoading(false);
     }
-  }, [ticker]);
+  }, [ticker, t]);
 
   useEffect(() => {
     fetchData();
@@ -176,7 +178,7 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
   if (error || !data) {
     return (
       <div className="flex items-center justify-center h-full bg-white text-red-500">
-        Error: {error || 'No data'}
+        {t('common.error')}: {error || t('description.noData')}
       </div>
     );
   }
@@ -261,17 +263,17 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
             <div className="grid grid-cols-3 gap-4 p-3 bg-slate-50">
               {/* Stats */}
               <div>
-                <SectionHeader title="Stats" />
-                <StatRow label="Price" value={`$${formatNumber(stats.price)}`} />
-                <StatRow label="Shares Out" value={formatCompact(stats.sharesOutstanding)} />
-                <StatRow label="Market Cap" value={formatCompact(stats.marketCap)} />
-                <StatRow label="Float" value={formatCompact(stats.floatShares)} />
-                <StatRow label="Avg Vol" value={formatCompact(stats.avgVolume)} />
+                <SectionHeader title={t('description.stats')} />
+                <StatRow label={t('description.price')} value={`$${formatNumber(stats.price)}`} />
+                <StatRow label={t('description.sharesOut')} value={formatCompact(stats.sharesOutstanding)} />
+                <StatRow label={t('description.marketCap')} value={formatCompact(stats.marketCap)} />
+                <StatRow label={t('description.float')} value={formatCompact(stats.floatShares)} />
+                <StatRow label={t('description.avgVol')} value={formatCompact(stats.avgVolume)} />
               </div>
 
               {/* Analyst Ratings */}
               <div>
-                <SectionHeader title="Analyst Ratings" />
+                <SectionHeader title={t('description.analystRatings')} />
                 {analystRating && totalAnalysts > 0 ? (
                   <>
                     <div className="flex items-center gap-1 mb-1">
@@ -290,32 +292,32 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
                         />
                       </div>
                     </div>
-                    <StatRow label="Strong Buy" value={String(analystRating.analystRatingsStrongBuy || 0)} valueClass="text-green-600" />
-                    <StatRow label="Buy" value={String(analystRating.analystRatingsbuy || 0)} valueClass="text-green-600" />
-                    <StatRow label="Hold" value={String(analystRating.analystRatingsHold || 0)} valueClass="text-yellow-600" />
-                    <StatRow label="Sell" value={String((analystRating.analystRatingsSell || 0) + (analystRating.analystRatingsStrongSell || 0))} valueClass="text-red-600" />
+                    <StatRow label={t('description.strongBuy')} value={String(analystRating.analystRatingsStrongBuy || 0)} valueClass="text-green-600" />
+                    <StatRow label={t('description.buy')} value={String(analystRating.analystRatingsbuy || 0)} valueClass="text-green-600" />
+                    <StatRow label={t('description.hold')} value={String(analystRating.analystRatingsHold || 0)} valueClass="text-yellow-600" />
+                    <StatRow label={t('description.sell')} value={String((analystRating.analystRatingsSell || 0) + (analystRating.analystRatingsStrongSell || 0))} valueClass="text-red-600" />
                   </>
                 ) : (
-                  <div className="text-xs text-slate-400">No ratings available</div>
+                  <div className="text-xs text-slate-400">{t('description.noRatings')}</div>
                 )}
               </div>
 
               {/* Price Targets */}
               <div>
-                <SectionHeader title="Price Targets" />
+                <SectionHeader title={t('description.priceTargets')} />
                 {consensusTarget ? (
                   <>
-                    <StatRow label="Consensus" value={`$${formatNumber(consensusTarget)}`} valueClass="text-blue-600" />
+                    <StatRow label={t('description.consensus')} value={`$${formatNumber(consensusTarget)}`} valueClass="text-blue-600" />
                     <StatRow 
-                      label="Upside" 
+                      label={t('description.upside')} 
                       value={formatPercent(targetUpside)} 
                       valueClass={targetUpside && targetUpside > 0 ? 'text-green-600' : 'text-red-600'} 
                     />
-                    <StatRow label="52W Low" value={`$${formatNumber(stats.yearLow)}`} />
-                    <StatRow label="52W High" value={`$${formatNumber(stats.yearHigh)}`} />
+                    <StatRow label={t('description.52wLow')} value={`$${formatNumber(stats.yearLow)}`} />
+                    <StatRow label={t('description.52wHigh')} value={`$${formatNumber(stats.yearHigh)}`} />
                   </>
                 ) : (
-                  <div className="text-xs text-slate-400">No targets available</div>
+                  <div className="text-xs text-slate-400">{t('description.noTargets')}</div>
                 )}
               </div>
             </div>
@@ -325,17 +327,17 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
           <div className="overflow-auto p-3 bg-slate-50">
             {/* Market Info */}
             <div className="mb-4">
-              <SectionHeader title="Market Info" />
-              <StatRow label="Exchange" value={company.exchange || '-'} />
-              <StatRow label="Currency" value="USD" />
-              <StatRow label="Float" value={formatCompact(stats.floatShares)} />
-              <StatRow label="Employees" value={formatCompact(company.employees)} />
-              {company.ipoDate && <StatRow label="IPO Date" value={company.ipoDate} />}
+              <SectionHeader title={t('description.marketInfo')} />
+              <StatRow label={t('description.exchange')} value={company.exchange || '-'} />
+              <StatRow label={t('description.currency')} value="USD" />
+              <StatRow label={t('description.float')} value={formatCompact(stats.floatShares)} />
+              <StatRow label={t('description.employees')} value={formatCompact(company.employees)} />
+              {company.ipoDate && <StatRow label={t('description.ipoDate')} value={company.ipoDate} />}
             </div>
 
             {/* Valuation Ratios */}
             <div className="mb-4">
-              <SectionHeader title="Valuation Ratios" />
+              <SectionHeader title={t('description.valuationRatios')} />
               <StatRow label="P/E" value={formatRatio(valuation.peRatio)} />
               <StatRow label="P/B" value={formatRatio(valuation.pbRatio)} />
               <StatRow label="P/S" value={formatRatio(valuation.psRatio)} />
@@ -345,29 +347,29 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
 
             {/* Dividend */}
             <div className="mb-4">
-              <SectionHeader title="Dividend & Yield" />
-              <StatRow label="Yield" value={formatPercent(dividend.trailingYield)} valueClass={dividend.trailingYield ? 'text-green-600' : ''} />
-              <StatRow label="Payout Ratio" value={formatPercent(dividend.payoutRatio ? dividend.payoutRatio * 100 : undefined)} />
-              <StatRow label="Div/Share" value={dividend.dividendPerShare ? `$${formatNumber(dividend.dividendPerShare)}` : '-'} />
+              <SectionHeader title={t('description.dividendYield')} />
+              <StatRow label={t('description.yield')} value={formatPercent(dividend.trailingYield)} valueClass={dividend.trailingYield ? 'text-green-600' : ''} />
+              <StatRow label={t('description.payoutRatio')} value={formatPercent(dividend.payoutRatio ? dividend.payoutRatio * 100 : undefined)} />
+              <StatRow label={t('description.divPerShare')} value={dividend.dividendPerShare ? `$${formatNumber(dividend.dividendPerShare)}` : '-'} />
             </div>
 
             {/* Risk */}
             <div className="mb-4">
-              <SectionHeader title="Risk & Sentiment" />
+              <SectionHeader title={t('description.riskSentiment')} />
               <StatRow label="Beta" value={formatRatio(risk.beta)} />
-              {risk.shortInterest && <StatRow label="Short Interest" value={formatCompact(risk.shortInterest)} />}
-              {risk.shortRatio && <StatRow label="Short Ratio" value={formatRatio(risk.shortRatio)} />}
+              {risk.shortInterest && <StatRow label={t('description.shortInterest')} value={formatCompact(risk.shortInterest)} />}
+              {risk.shortRatio && <StatRow label={t('description.shortRatio')} value={formatRatio(risk.shortRatio)} />}
             </div>
 
             {/* Recent Price Targets */}
             {priceTargets.length > 0 && (
               <div>
-                <SectionHeader title="Recent Targets" />
+                <SectionHeader title={t('description.recentTargets')} />
                 <div className="space-y-1.5">
                   {priceTargets.slice(0, 5).map((target, i) => (
                     <div key={i} className="text-[10px]">
                       <div className="flex justify-between">
-                        <span className="text-slate-500 truncate max-w-[120px]">{target.analystCompany || 'Unknown'}</span>
+                        <span className="text-slate-500 truncate max-w-[120px]">{target.analystCompany || t('description.unknown')}</span>
                         <span className="text-green-600 font-mono">${target.priceTarget}</span>
                       </div>
                     </div>

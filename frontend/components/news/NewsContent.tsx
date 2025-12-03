@@ -9,6 +9,9 @@ import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 
+// Store para tickers con noticias (intersección scanner + news)
+import { useNewsTickersStore } from '@/stores/useNewsTickersStore';
+
 // Decodifica entidades HTML como &#39; &amp; &quot; etc.
 function decodeHtmlEntities(text: string): string {
   if (!text) return text;
@@ -57,6 +60,10 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
   // Squawk (text-to-speech)
   const squawk = useSquawk();
 
+  // Store para tracking de tickers con noticias (artículos completos)
+  const addNewsArticle = useNewsTickersStore((state) => state.addNewsArticle);
+  const addNewsArticlesBatch = useNewsTickersStore((state) => state.addNewsArticlesBatch);
+
   // Fetch initial news
   useEffect(() => {
     const fetchNews = async () => {
@@ -73,9 +80,28 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
         if (data.results) {
           const articles = data.results.map((a: NewsArticle) => ({ ...a, isLive: false }));
           setNews(articles);
+          
+          // Agregar artículos al store para intersección scanner+news
+          const storeArticles = articles
+            .filter((a: NewsArticle) => a.tickers && a.tickers.length > 0)
+            .map((a: NewsArticle) => ({
+              id: a.benzinga_id || a.id || '',
+              title: a.title,
+              author: a.author,
+              published: a.published,
+              url: a.url,
+              tickers: a.tickers || [],
+              teaser: a.teaser,
+            }));
+          
           articles.forEach((a: NewsArticle) => {
             seenIdsRef.current.add(a.benzinga_id || a.id || '');
           });
+          
+          // Agregar batch al store
+          if (storeArticles.length > 0) {
+            addNewsArticlesBatch(storeArticles);
+          }
         }
         setLoading(false);
       } catch (err) {
@@ -86,7 +112,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
     };
 
     fetchNews();
-  }, []);
+  }, [addNewsArticlesBatch]);
 
   // Subscribe to WebSocket news
   useEffect(() => {
@@ -111,6 +137,19 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
           seenIdsRef.current.add(id);
           const liveArticle = { ...article, isLive: true };
 
+          // Agregar artículo al store para intersección scanner+news (tiempo real)
+          if (article.tickers && article.tickers.length > 0) {
+            addNewsArticle({
+              id: id,
+              title: article.title,
+              author: article.author,
+              published: article.published,
+              url: article.url,
+              tickers: article.tickers,
+              teaser: article.teaser,
+            });
+          }
+
           if (isPaused) {
             setPausedBuffer(prev => [liveArticle, ...prev]);
           } else {
@@ -122,7 +161,6 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
             const squawkText = ticker
               ? t('news.newsFor', { ticker }) + '. ' + decodedTitle
               : t('news.title') + '. ' + decodedTitle;
-            console.log('🎙️ Squawk:', { isEnabled: squawk.isEnabled, text: squawkText.substring(0, 50) });
             squawk.speak(squawkText);
           }
         }
@@ -130,7 +168,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
     });
 
     return () => subscription.unsubscribe();
-  }, [ws.messages$, isPaused, squawk]);
+  }, [ws.messages$, isPaused, squawk, addNewsArticle]);
 
   // Toggle pause
   const handleTogglePause = useCallback(() => {

@@ -98,7 +98,8 @@
     "reversalsDescription": "Direction changes",
     "withNewsDescription": "Scanner tickers with today's news",
     "noTickersWithNews": "No tickers with news",
-    "noTickersWithNewsDescription": "Tickers from scanner tables with news from today's trading session will appear here",
+    "noTickersWithNewsDescription": "Open a scanner table first (Gap Up, Momentum, etc.)",
+    "noTickersWithNewsButScanner": "There are {{count}} tickers in the scanner, but none have news today.",
     "tickersWithNews": "tickers with news",
     "tableHeaders": {
       "symbol": "Symbol",
@@ -113,7 +114,8 @@
       "news": "News",
       "lastNews": "Last",
       "tables": "Tables"
-    }
+    },
+    "tablesLegend": "Legend:"
   },
   "news": {
     "title": "News",
@@ -129,7 +131,9 @@
     "date": "Date",
     "time": "Time",
     "ticker": "Ticker",
-    "source": "Source"
+    "source": "Source",
+    "articles": "article",
+    "articles_plural": "articles"
   },
   "secFilings": {
     "title": "SEC Filings",
@@ -144,6 +148,43 @@
       "date": "Date",
       "time": "Time"
     }
+  },
+  "description": {
+    "errorLoading": "Error loading data",
+    "noData": "No data",
+    "stats": "Stats",
+    "price": "Price",
+    "sharesOut": "Shares Out",
+    "marketCap": "Market Cap",
+    "float": "Float",
+    "avgVol": "Avg Vol",
+    "analystRatings": "Analyst Ratings",
+    "strongBuy": "Strong Buy",
+    "buy": "Buy",
+    "hold": "Hold",
+    "sell": "Sell",
+    "noRatings": "No ratings available",
+    "priceTargets": "Price Targets",
+    "consensus": "Consensus",
+    "upside": "Upside",
+    "52wLow": "52W Low",
+    "52wHigh": "52W High",
+    "noTargets": "No targets available",
+    "marketInfo": "Market Info",
+    "exchange": "Exchange",
+    "currency": "Currency",
+    "employees": "Employees",
+    "ipoDate": "IPO Date",
+    "valuationRatios": "Valuation Ratios",
+    "dividendYield": "Dividend & Yield",
+    "yield": "Yield",
+    "payoutRatio": "Payout Ratio",
+    "divPerShare": "Div/Share",
+    "riskSentiment": "Risk & Sentiment",
+    "shortInterest": "Short Interest",
+    "shortRatio": "Short Ratio",
+    "recentTargets": "Recent Targets",
+    "unknown": "Unknown"
   },
   "dilution": {
     "title": "Dilution Tracker",

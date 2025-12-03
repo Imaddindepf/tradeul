@@ -431,3 +431,4 @@ async def delete_user_filter(
         logger.error("delete_user_filter_error", user_id=user_id, filter_id=filter_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+

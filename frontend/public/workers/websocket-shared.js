@@ -233,6 +233,32 @@ function handlePortMessage(port, data) {
       }
       break;
 
+    // 🔐 ACTUALIZAR TOKEN SIN DESCONECTAR (para refresh periódico)
+    case 'update_token':
+      if (data.url) {
+        connectionInfo.url = data.url; // Actualizar URL para futuras reconexiones
+        log('info', '🔐 Token URL updated for future reconnections');
+        
+        // Si estamos conectados, enviar refresh_token al servidor
+        if (ws && ws.readyState === WebSocket.OPEN && data.token) {
+          ws.send(JSON.stringify({ action: 'refresh_token', token: data.token }));
+          log('info', '🔐 Sent refresh_token to server');
+        }
+      }
+      break;
+
+    // 🔐 RECONECTAR CON NUEVO TOKEN (cuando el servidor rechaza por token expirado)
+    case 'reconnect_with_token':
+      if (data.url) {
+        log('info', '🔐 Reconnecting with fresh token');
+        connectionInfo.url = data.url;
+        if (ws) {
+          ws.close();
+        }
+        connectWebSocket(data.url);
+      }
+      break;
+
     case 'subscribe_list':
       if (data.list) {
         sub.lists.add(data.list);

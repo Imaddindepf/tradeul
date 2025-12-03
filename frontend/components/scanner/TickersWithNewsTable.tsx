@@ -26,7 +26,7 @@ import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
-import { Newspaper, ExternalLink } from 'lucide-react';
+import { Newspaper, ExternalLink, Info } from 'lucide-react';
 
 // Floating windows
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
@@ -134,6 +134,8 @@ const columnHelper = createColumnHelper<TickerWithNews>();
 // ============================================================================
 
 function MiniNewsWindow({ ticker, articles }: { ticker: string; articles: NewsArticle[] }) {
+  const { t } = useTranslation();
+  
   const formatTime = (isoString: string) => {
     try {
       const d = new Date(isoString);
@@ -146,7 +148,7 @@ function MiniNewsWindow({ ticker, articles }: { ticker: string; articles: NewsAr
   if (articles.length === 0) {
     return (
       <div className="flex items-center justify-center h-full bg-white p-4">
-        <p className="text-slate-500 text-sm">No hay noticias para {ticker}</p>
+        <p className="text-slate-500 text-sm">{t('news.noNewsForTicker', { ticker })}</p>
       </div>
     );
   }
@@ -155,7 +157,9 @@ function MiniNewsWindow({ ticker, articles }: { ticker: string; articles: NewsAr
     <div className="flex flex-col h-full bg-white">
       <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
         <span className="text-sm font-bold text-blue-600">{ticker}</span>
-        <span className="text-xs text-slate-500 ml-2">{articles.length} noticias hoy</span>
+        <span className="text-xs text-slate-500 ml-2">
+          {articles.length} {t('news.articles', { count: articles.length })}
+        </span>
       </div>
       <div className="flex-1 overflow-auto divide-y divide-slate-100">
         {articles.map((article, i) => (
@@ -480,7 +484,33 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         },
       }),
       columnHelper.accessor('scannerCategories', {
-        header: t('scanner.tableHeaders.tables') || 'Tables',
+        header: () => (
+          <div className="flex items-center gap-1 group/header relative">
+            <span>{t('scanner.tableHeaders.tables') || 'Tables'}</span>
+            <div className="relative">
+              <Info className="w-3 h-3 text-slate-400 cursor-help" />
+              {/* Tooltip */}
+              <div className="absolute left-0 top-full mt-1 z-50 hidden group-hover/header:block">
+                <div className="bg-slate-800 text-white text-[10px] rounded-md shadow-lg px-3 py-2 whitespace-nowrap">
+                  <div className="font-semibold mb-1 text-slate-300">{t('scanner.tablesLegend')}</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                    <span><b>G↑</b> Gap Up</span>
+                    <span><b>G↓</b> Gap Down</span>
+                    <span><b>M↑</b> Momentum Up</span>
+                    <span><b>M↓</b> Momentum Down</span>
+                    <span><b>W</b> Winners</span>
+                    <span><b>L</b> Losers</span>
+                    <span><b>H</b> New Highs</span>
+                    <span><b>Lo</b> New Lows</span>
+                    <span><b>A</b> Anomalies</span>
+                    <span><b>V</b> High Volume</span>
+                    <span><b>R</b> Reversals</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ),
         size: 140,
         cell: (info) => {
           // Mapear nombres de categorías a etiquetas MUY cortas
@@ -582,7 +612,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
         <div className="flex-1 flex items-center justify-center bg-slate-50">
           <div className="text-center">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
-            <p className="text-slate-600 text-sm">Cargando noticias...</p>
+            <p className="text-slate-600 text-sm">{t('news.loadingNews')}</p>
           </div>
         </div>
       </div>
@@ -602,8 +632,8 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
             </h3>
             <p className="text-sm text-slate-500 max-w-xs">
               {scannerTickersCount > 0
-                ? `Hay ${scannerTickersCount} tickers en el scanner, pero ninguno tiene noticias hoy.`
-                : 'Abre primero alguna tabla del scanner (Gap Up, Momentum, etc.)'}
+                ? t('scanner.noTickersWithNewsButScanner', { count: scannerTickersCount })
+                : t('scanner.noTickersWithNewsDescription')}
             </p>
           </div>
         </div>
