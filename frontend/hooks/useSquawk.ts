@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback } from 'react';
+import { useAuth } from '@clerk/nextjs';
 
 interface SquawkOptions {
     voiceId?: string;
@@ -29,6 +30,8 @@ export function useSquawk(options: SquawkOptions = {}): UseSquawkReturn {
         similarityBoost = 0.75,
     } = options;
 
+    const { getToken } = useAuth();
+
     const [isEnabled, setIsEnabled] = useState(false);
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [queueSize, setQueueSize] = useState(0);
@@ -49,14 +52,17 @@ export function useSquawk(options: SquawkOptions = {}): UseSquawkReturn {
             setQueueSize(queueRef.current.length);
 
             try {
+                // Obtener token JWT de Clerk
+                const token = await getToken();
+                
                 // Usar proxy del API Gateway para evitar CORS
                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
                 const response = await fetch(`${apiUrl}/api/v1/tts/speak`, {
                     method: 'POST',
-                    credentials: 'include', // Enviar cookies de autenticación
                     headers: {
                         'Accept': 'audio/mpeg',
                         'Content-Type': 'application/json',
+                        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
                     },
                     body: JSON.stringify({
                         text,
@@ -97,7 +103,7 @@ export function useSquawk(options: SquawkOptions = {}): UseSquawkReturn {
         isProcessingRef.current = false;
         setIsSpeaking(false);
         setQueueSize(0);
-    }, [voiceId, modelId, stability, similarityBoost]);
+    }, [voiceId, modelId, stability, similarityBoost, getToken]);
 
     // Agregar texto a la cola
     const speak = useCallback(async (text: string) => {

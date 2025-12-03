@@ -140,7 +140,7 @@ export function useClerkSync() {
                 lastSyncRef.current = data.updatedAt;
                 hasLoadedRef.current = true;
 
-                console.log('[ClerkSync] Preferencias cargadas del servidor');
+                // console.log('[ClerkSync] Preferencias cargadas del servidor');
             }
         } catch (error) {
             console.error('[ClerkSync] Error cargando preferencias:', error);
@@ -195,7 +195,7 @@ export function useClerkSync() {
             if (response.ok) {
                 const result = await response.json();
                 lastSyncRef.current = result.updatedAt;
-                console.log('[ClerkSync] Preferencias guardadas en servidor');
+                // console.log('[ClerkSync] Preferencias guardadas en servidor');
             }
         } catch (error) {
             console.error('[ClerkSync] Error guardando preferencias:', error);

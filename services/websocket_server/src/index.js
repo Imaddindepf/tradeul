@@ -133,6 +133,88 @@ const aggregateStats = {
   lastReset: Date.now(),
 };
 
+// =============================================
+// CATALYST ALERTS - Price Snapshots
+// =============================================
+
+// Cache de últimos precios conocidos: symbol -> { price, volume, rvol, timestamp }
+const lastKnownPrices = new Map();
+
+// Configuración de snapshots
+const SNAPSHOT_INTERVAL_MS = 30000; // Guardar snapshot cada 30 segundos
+const SNAPSHOT_TTL_SECONDS = 900; // TTL de 15 minutos en Redis
+const SNAPSHOT_MAX_ENTRIES = 20; // Máximo 20 entradas por ticker (10 minutos a 30s)
+
+/**
+ * Actualizar precio conocido de un ticker
+ */
+function updateLastKnownPrice(symbol, data) {
+  lastKnownPrices.set(symbol, {
+    price: parseFloat(data.close || data.c || 0),
+    volume: parseInt(data.volume_accumulated || data.av || data.volume || 0, 10),
+    rvol: parseFloat(data.rvol || 0),
+    timestamp: Date.now(),
+  });
+}
+
+/**
+ * Guardar snapshots de precios en Redis para Catalyst Alerts
+ * Ejecutado cada 30 segundos
+ */
+async function savePriceSnapshots() {
+  if (lastKnownPrices.size === 0) return;
+
+  const now = Date.now();
+  const pipeline = redisCommands.pipeline();
+  let count = 0;
+
+  lastKnownPrices.forEach((data, symbol) => {
+    // Solo guardar si el dato es reciente (< 5 segundos)
+    if (now - data.timestamp > 5000) return;
+
+    const key = `catalyst:snapshot:${symbol}`;
+    const entry = JSON.stringify({
+      p: data.price,
+      v: data.volume,
+      r: data.rvol,
+      t: now,
+    });
+
+    // LPUSH para añadir al inicio de la lista
+    pipeline.lpush(key, entry);
+    // LTRIM para mantener solo las últimas N entradas
+    pipeline.ltrim(key, 0, SNAPSHOT_MAX_ENTRIES - 1);
+    // Renovar TTL
+    pipeline.expire(key, SNAPSHOT_TTL_SECONDS);
+    count++;
+  });
+
+  if (count > 0) {
+    try {
+      await pipeline.exec();
+      logger.debug({ count }, "📸 Catalyst snapshots saved");
+    } catch (err) {
+      logger.error({ err }, "Error saving catalyst snapshots");
+    }
+  }
+}
+
+/**
+ * Obtener snapshots de un ticker para Catalyst Alerts
+ * @param {string} symbol - Ticker symbol
+ * @returns {Promise<Array>} - Array de snapshots [{p, v, r, t}, ...]
+ */
+async function getCatalystSnapshots(symbol) {
+  try {
+    const key = `catalyst:snapshot:${symbol}`;
+    const entries = await redisCommands.lrange(key, 0, -1);
+    return entries.map(e => JSON.parse(e));
+  } catch (err) {
+    logger.error({ symbol, err }, "Error getting catalyst snapshots");
+    return [];
+  }
+}
+
 /**
  * Agregar aggregate al buffer
  * CRÍTICO: SIEMPRE mantener el último valor, el throttle se aplica en flush
@@ -157,6 +239,9 @@ function bufferAggregate(symbol, data) {
   // SIEMPRE actualizar el buffer con el último valor
   // El flush decidirá si enviarlo basado en throttle
   aggregateBuffer.set(symbol, data);
+
+  // Actualizar precio conocido para Catalyst Alerts
+  updateLastKnownPrice(symbol, data);
 
   return true;
 }
@@ -294,6 +379,11 @@ setInterval(() => {
 setInterval(() => {
   flushAggregateBuffer();
 }, AGGREGATE_BUFFER_FLUSH_INTERVAL);
+
+// Guardar snapshots de precios para Catalyst Alerts cada 30 segundos
+setInterval(() => {
+  savePriceSnapshots();
+}, SNAPSHOT_INTERVAL_MS);
 
 // =============================================
 // UTILIDADES
@@ -1394,8 +1484,18 @@ async function processBenzingaNewsStream() {
             try {
               const articleData = JSON.parse(message.data);
               
+              // Añadir catalyst_metrics si existen
+              let catalystMetrics = null;
+              if (message.catalyst_metrics) {
+                try {
+                  catalystMetrics = JSON.parse(message.catalyst_metrics);
+                } catch (e) {
+                  // Ignorar error de parsing
+                }
+              }
+              
               // Broadcast a todos los clientes suscritos a Benzinga News
-              broadcastBenzingaNews(articleData);
+              broadcastBenzingaNews(articleData, catalystMetrics);
               
             } catch (parseErr) {
               logger.error({ err: parseErr }, "Error parsing Benzinga news data");
@@ -1521,7 +1621,7 @@ async function processQuotesStream() {
 /**
  * Broadcast de Benzinga News a clientes suscritos
  */
-function broadcastBenzingaNews(articleData) {
+function broadcastBenzingaNews(articleData, catalystMetrics = null) {
   if (benzingaNewsSubscribers.size === 0) return;
 
   const message = {
@@ -1529,6 +1629,11 @@ function broadcastBenzingaNews(articleData) {
     article: articleData,
     timestamp: new Date().toISOString()
   };
+  
+  // Añadir catalyst_metrics si existen (para alertas de movimiento explosivo)
+  if (catalystMetrics) {
+    message.catalyst_metrics = catalystMetrics;
+  }
 
   const messageStr = JSON.stringify(message);
   let sentCount = 0;

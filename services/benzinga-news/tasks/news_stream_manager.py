@@ -272,14 +272,101 @@ class BenzingaNewsStreamManager:
         except Exception as e:
             logger.error("cache_by_ticker_error", error=str(e), ticker=ticker)
     
+    async def _get_catalyst_metrics(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene métricas de catalyst para un ticker desde los snapshots guardados
+        
+        Returns:
+            Dict con métricas o None si no hay datos
+        """
+        try:
+            key = f"catalyst:snapshot:{ticker}"
+            entries = await self.redis.lrange(key, 0, -1)
+            
+            if not entries:
+                return None
+            
+            # Parsear snapshots
+            snapshots = []
+            for entry in entries:
+                try:
+                    data = json.loads(entry if isinstance(entry, str) else entry.decode())
+                    snapshots.append(data)
+                except:
+                    continue
+            
+            if not snapshots:
+                return None
+            
+            now = datetime.now().timestamp() * 1000
+            current = snapshots[0]  # Más reciente
+            
+            # Buscar snapshot de hace ~1 minuto y ~5 minutos
+            price_1m_ago = None
+            price_5m_ago = None
+            
+            for snap in snapshots:
+                age_ms = now - snap.get("t", 0)
+                age_min = age_ms / 60000
+                
+                if age_min >= 0.8 and age_min <= 1.5 and price_1m_ago is None:
+                    price_1m_ago = snap.get("p")
+                elif age_min >= 4.5 and age_min <= 6 and price_5m_ago is None:
+                    price_5m_ago = snap.get("p")
+            
+            current_price = current.get("p", 0)
+            
+            # Calcular cambios porcentuales
+            change_1m = None
+            change_5m = None
+            
+            if price_1m_ago and price_1m_ago > 0:
+                change_1m = round(((current_price - price_1m_ago) / price_1m_ago) * 100, 2)
+            
+            if price_5m_ago and price_5m_ago > 0:
+                change_5m = round(((current_price - price_5m_ago) / price_5m_ago) * 100, 2)
+            
+            return {
+                "price_at_news": current_price,
+                "price_1m_ago": price_1m_ago,
+                "price_5m_ago": price_5m_ago,
+                "change_1m_pct": change_1m,
+                "change_5m_pct": change_5m,
+                "volume": current.get("v", 0),
+                "rvol": current.get("r", 0),
+                "snapshot_time": current.get("t", 0)
+            }
+            
+        except Exception as e:
+            logger.error("get_catalyst_metrics_error", error=str(e), ticker=ticker)
+            return None
+
     async def _publish_to_stream(self, article: BenzingaArticle):
         """Publica artículo a Redis Stream para broadcast"""
         try:
+            # Obtener catalyst metrics para el primer ticker (si existe)
+            catalyst_metrics = None
+            if article.tickers and len(article.tickers) > 0:
+                # Intentar obtener métricas del primer ticker
+                catalyst_metrics = await self._get_catalyst_metrics(article.tickers[0])
+                
+                # Si no hay datos del primero, intentar con otros tickers
+                if catalyst_metrics is None:
+                    for ticker in article.tickers[1:4]:  # Máximo 3 intentos más
+                        catalyst_metrics = await self._get_catalyst_metrics(ticker)
+                        if catalyst_metrics:
+                            catalyst_metrics["ticker"] = ticker
+                            break
+            
             stream_payload = {
                 "type": "news",
                 "data": article.model_dump_json(),
                 "timestamp": datetime.now().isoformat()
             }
+            
+            # Añadir catalyst metrics si existen
+            if catalyst_metrics:
+                stream_payload["catalyst_metrics"] = json.dumps(catalyst_metrics)
             
             await self.redis.xadd(
                 self.STREAM_KEY,
@@ -289,7 +376,8 @@ class BenzingaNewsStreamManager:
             
             logger.debug(
                 "article_published_to_stream",
-                benzinga_id=article.benzinga_id
+                benzinga_id=article.benzinga_id,
+                has_catalyst_metrics=catalyst_metrics is not None
             )
             
         except Exception as e:

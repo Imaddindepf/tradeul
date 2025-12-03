@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
 import { useSquawk } from '@/hooks/useSquawk';
+import { useCatalystDetector } from '@/hooks/useCatalystDetector';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
@@ -59,6 +60,9 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
 
   // Squawk (text-to-speech)
   const squawk = useSquawk();
+
+  // Catalyst detector for news alerts
+  const { processNews: processCatalystNews } = useCatalystDetector();
 
   // Store para tracking de tickers con noticias (artículos completos)
   const addNewsArticle = useNewsTickersStore((state) => state.addNewsArticle);
@@ -137,6 +141,16 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
           seenIdsRef.current.add(id);
           const liveArticle = { ...article, isLive: true };
 
+          // Procesar para Catalyst Alerts (detectar movimientos explosivos)
+          if (message.catalyst_metrics) {
+            processCatalystNews({
+              ...article,
+              catalyst_metrics: typeof message.catalyst_metrics === 'string' 
+                ? JSON.parse(message.catalyst_metrics) 
+                : message.catalyst_metrics,
+            });
+          }
+
           // Agregar artículo al store para intersección scanner+news (tiempo real)
           if (article.tickers && article.tickers.length > 0) {
             addNewsArticle({
@@ -168,7 +182,7 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
     });
 
     return () => subscription.unsubscribe();
-  }, [ws.messages$, isPaused, squawk, addNewsArticle]);
+  }, [ws.messages$, isPaused, squawk, addNewsArticle, processCatalystNews]);
 
   // Toggle pause
   const handleTogglePause = useCallback(() => {

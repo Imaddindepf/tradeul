@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Sparkles, Newspaper, Globe } from 'lucide-react';
+import { X, Sparkles, Newspaper, Globe, Zap } from 'lucide-react';
 
-const ANNOUNCEMENT_KEY = 'announcement_scanner_with_news_v2';
+const ANNOUNCEMENT_KEY = 'announcement_catalyst_alerts_v1';
 
 export function AnnouncementBanner() {
     const { t } = useTranslation();
@@ -67,7 +67,22 @@ export function AnnouncementBanner() {
                     </div>
                 </div>
 
-                {/* Feature 2: Multi-language */}
+                {/* Feature 2: Catalyst Alerts */}
+                <div className="flex items-start gap-3">
+                    <div className="p-1.5 bg-amber-50 rounded-lg flex-shrink-0">
+                        <Zap className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-slate-900 text-sm">
+                            {t('announcement.catalystAlerts')}
+                        </h3>
+                        <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
+                            {t('announcement.catalystAlertsDesc')}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Feature 3: Multi-language */}
                 <div className="flex items-start gap-3">
                     <div className="p-1.5 bg-emerald-50 rounded-lg flex-shrink-0">
                         <Globe className="w-4 h-4 text-emerald-600" />

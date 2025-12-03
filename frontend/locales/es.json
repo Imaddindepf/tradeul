@@ -19,7 +19,25 @@
     "live": "En vivo",
     "offline": "Desconectado",
     "connected": "Conectado",
-    "disconnected": "Desconectado"
+    "disconnected": "Desconectado",
+    "enabled": "Activado",
+    "disabled": "Desactivado",
+    "viewNews": "Ver Noticia",
+    "openChart": "Gráfico"
+  },
+  "catalyst": {
+    "title": "Alertas de Catalizador",
+    "description": "Recibe alertas cuando las noticias provocan movimientos explosivos de precio según tus criterios.",
+    "priceChange": "Cambio de Precio",
+    "rvol": "Volumen Relativo (RVOL)",
+    "alertWhen": "Alertar cuando",
+    "in": "en",
+    "filters": "Filtros",
+    "onlyScanner": "Solo tickers en tablas del scanner",
+    "notifications": "Notificaciones",
+    "popupNotification": "Notificaciones popup",
+    "soundNotification": "Alertas de sonido",
+    "squawkNotification": "Squawk (leer en voz alta)"
   },
   "commands": {
     "title": "COMANDOS",
@@ -44,6 +62,10 @@
     "news": {
       "name": "News",
       "description": "Noticias del mercado"
+    },
+    "alerts": {
+      "name": "Alertas de Catalizador",
+      "description": "Alertas de noticias con movimientos explosivos"
     },
     "ipo": {
       "name": "IPOs",
@@ -230,6 +252,8 @@
     "newFeature": "Novedades",
     "scannersWithNews": "Scanner + News",
     "scannersWithNewsDesc": "Ve qué tickers del scanner tienen noticias hoy. Pulsa Ctrl+8 o busca \"SC With News\". Haz clic en el número de noticias para ver artículos.",
+    "catalystAlerts": "Alertas de Catalizador",
+    "catalystAlertsDesc": "Recibe alertas popup en tiempo real cuando las noticias provocan movimientos explosivos de precio. Haz clic en \"Alerts\" en la barra para activar. Clic derecho para configurar.",
     "multiLanguage": "Soporte Multi-idioma",
     "multiLanguageDesc": "La plataforma ahora está disponible en español e inglés. Cámbialo en Ajustes.",
     "dismiss": "Entendido"
@@ -351,6 +375,9 @@
       },
       "NEWS": {
         "description": "Noticias del mercado"
+      },
+      "ALERTS": {
+        "description": "Alertas de noticias con movimientos explosivos"
       },
       "IPO": {
         "description": "Ofertas Públicas Iniciales"

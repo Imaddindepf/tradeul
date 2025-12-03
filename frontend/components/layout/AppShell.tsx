@@ -5,6 +5,7 @@ import { Navbar } from './Navbar';
 import { AnnouncementBanner } from './AnnouncementBanner';
 import { FloatingWindowProvider } from '@/contexts/FloatingWindowContext';
 import { FloatingWindowManager } from '@/components/floating-window/FloatingWindowManager';
+import { CatalystAlertsPopup } from '@/components/catalyst-alerts';
 
 interface AppShellProps {
   children: ReactNode;
@@ -24,6 +25,8 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </main>
         <FloatingWindowManager />
+        {/* Catalyst Alerts Popup - floating notifications */}
+        <CatalystAlertsPopup />
       </div>
     </FloatingWindowProvider>
   );

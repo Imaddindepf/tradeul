@@ -209,7 +209,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     const handleVisibilityChange = () => {
       if (!document.hidden && ws.isConnected) {
         // Tab volvió a ser activa - pedir resync para datos frescos
-        console.log(`🔄 Tab activa - resyncing ${listName}`);
+        // console.log(`🔄 Tab activa - resyncing ${listName}`);
         ws.send({ action: 'resync', list: listName });
       }
     };

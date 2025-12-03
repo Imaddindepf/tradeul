@@ -8,6 +8,7 @@ import { FilterManagerContent } from '@/components/scanner/FilterManagerContent'
 import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from '@/components/floating-window';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
+import { CatalystAlertsConfig } from '@/components/catalyst-alerts';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import TickersWithNewsTable from '@/components/scanner/TickersWithNewsTable';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
@@ -220,6 +221,19 @@ export function useCommandExecutor() {
                     x: screenWidth / 2 - 450,
                     y: screenHeight / 2 - 300,
                     minWidth: 700,
+                    minHeight: 450,
+                });
+                return null;
+
+            case 'alerts':
+                openWindow({
+                    title: 'Catalyst Alerts',
+                    content: <CatalystAlertsConfig />,
+                    width: 420,
+                    height: 520,
+                    x: screenWidth - 450,
+                    y: 80,
+                    minWidth: 380,
                     minHeight: 450,
                 });
                 return null;

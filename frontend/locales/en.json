@@ -19,7 +19,25 @@
     "live": "Live",
     "offline": "Offline",
     "connected": "Connected",
-    "disconnected": "Disconnected"
+    "disconnected": "Disconnected",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "viewNews": "View News",
+    "openChart": "Chart"
+  },
+  "catalyst": {
+    "title": "News Catalyst Alerts",
+    "description": "Get alerts when news triggers explosive price movements based on your criteria.",
+    "priceChange": "Price Change",
+    "rvol": "Relative Volume (RVOL)",
+    "alertWhen": "Alert when",
+    "in": "in",
+    "filters": "Filters",
+    "onlyScanner": "Only tickers in scanner tables",
+    "notifications": "Notifications",
+    "popupNotification": "Popup notifications",
+    "soundNotification": "Sound alerts",
+    "squawkNotification": "Squawk (read aloud)"
   },
   "commands": {
     "title": "COMMANDS",
@@ -44,6 +62,10 @@
     "news": {
       "name": "News",
       "description": "Market news"
+    },
+    "alerts": {
+      "name": "Catalyst Alerts",
+      "description": "News catalyst alerts for explosive moves"
     },
     "ipo": {
       "name": "IPOs",
@@ -118,6 +140,10 @@
     "tablesLegend": "Legend:"
   },
   "news": {
+      "name": "News",
+      "description": "Market news"
+    },
+    "alerts": {
     "title": "News",
     "loadingNews": "Loading news...",
     "errorLoading": "Error loading news",
@@ -230,6 +256,8 @@
     "newFeature": "What's New",
     "scannersWithNews": "Scanner + News",
     "scannersWithNewsDesc": "See which scanner tickers have news today. Press Ctrl+8 or search \"SC With News\". Click on the news count to see articles.",
+    "catalystAlerts": "News Catalyst Alerts",
+    "catalystAlertsDesc": "Get real-time popup alerts when news triggers explosive price movements. Click the \"Alerts\" button in the navbar to enable. Right-click to configure.",
     "multiLanguage": "Multi-language Support",
     "multiLanguageDesc": "The platform is now available in English and Spanish. Change it in Settings.",
     "dismiss": "Got it"
@@ -351,6 +379,9 @@
       },
       "NEWS": {
         "description": "Market news"
+      },
+      "ALERTS": {
+        "description": "News catalyst alerts for explosive moves"
       },
       "IPO": {
         "description": "Initial Public Offerings"

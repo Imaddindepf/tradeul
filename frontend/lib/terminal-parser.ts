@@ -106,6 +106,12 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.NEWS.description',
         shortcut: 'Ctrl+N'
     },
+    ALERTS: {
+        id: 'alerts',
+        label: 'ALERTS',
+        name: 'Catalyst Alerts',
+        descriptionKey: 'terminalCommands.globalCommands.ALERTS.description'
+    },
     IPO: {
         id: 'ipo',
         label: 'IPO',

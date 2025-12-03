@@ -182,7 +182,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       }));
 
       saveWindowLayouts(layouts);
-      console.log('[Layout] Auto-guardado:', layouts.length, 'ventanas');
+      // console.log('[Layout] Auto-guardado:', layouts.length, 'ventanas');
     }, 3000);
 
     return () => {

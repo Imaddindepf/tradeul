@@ -14,6 +14,7 @@ import {
   Rocket,
   List,
   Filter,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -35,6 +36,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'dt', label: 'DT', description: 'commands.dt.description', icon: BarChart3, shortcut: 'Ctrl+D' },
   { id: 'sec', label: 'SEC', description: 'commands.sec.description', icon: FileText },
   { id: 'news', label: 'NEWS', description: 'commands.news.description', icon: Newspaper, shortcut: 'Ctrl+N' },
+  { id: 'alerts', label: 'ALERTS', description: 'commands.alerts.description', icon: Zap },
   { id: 'fa', label: 'FA', description: 'commands.fa.description', icon: DollarSign },
   { id: 'ipo', label: 'IPO', description: 'commands.ipo.description', icon: Rocket },
   { id: 'profile', label: 'PROFILE', description: 'commands.profile.description', icon: User },

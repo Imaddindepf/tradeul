@@ -364,7 +364,8 @@ self.onconnect = function(e) {
     connectionId: null,
   });
 
-  log('info', '📱 Tab connected (total: ' + ports.size + ')');
+  // Log silenciado para reducir ruido en consola
+  // log('info', '📱 Tab connected (total: ' + ports.size + ')');
 
   // Enviar estado actual
   port.postMessage({
