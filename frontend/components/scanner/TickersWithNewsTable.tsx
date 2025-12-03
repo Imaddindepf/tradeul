@@ -33,9 +33,15 @@ import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 
 // Zustand stores
 import { useTickersStore } from '@/stores/useTickersStore';
+import { useFiltersStore } from '@/stores/useFiltersStore';
+import { passesFilter } from '@/lib/scanner/filterEngine';
+
+// Para procesar snapshots/deltas de todas las categorías
+import { useRxWebSocket } from '@/hooks/useRxWebSocket';
 
 // WebSocket
 import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+import { useMultiListSubscription } from '@/hooks/useRxWebSocket';
 
 // Categorías del scanner a considerar
 const SCANNER_CATEGORIES = [
@@ -57,6 +63,8 @@ interface NewsArticle {
 interface TickerWithNews extends Ticker {
   newsCount: number;
   articles: NewsArticle[];
+  lastNewsTime: string; // Hora de la última noticia
+  scannerCategories: string[]; // Categorías del scanner donde aparece
 }
 
 interface TickersWithNewsTableProps {
@@ -187,10 +195,55 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
 
   // Tickers del scanner
   const tickerLists = useTickersStore((state) => state.lists);
+  const initializeList = useTickersStore((state) => state.initializeList);
+  const applyDeltas = useTickersStore((state) => state.applyDeltas);
+
+  // WebSocket para procesar snapshots de todas las categorías
+  const rxWs = useRxWebSocket();
+
+  // User Filters - Zustand store para reactividad en tiempo real
+  const activeFilters = useFiltersStore((state) => state.activeFilters);
+  const hasActiveFilters = useFiltersStore((state) => state.hasActiveFilters);
+  const filtersKey = JSON.stringify(activeFilters); // Para detectar cambios
 
   // WebSocket status
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
   const ws = useAuthWebSocket(wsUrl);
+
+  // ======================================================================
+  // SUSCRIBIRSE A TODAS LAS CATEGORÍAS DEL SCANNER
+  // Esto permite que la tabla funcione aunque no tengas otras tablas abiertas
+  // ======================================================================
+  
+  useMultiListSubscription(SCANNER_CATEGORIES);
+
+  // ======================================================================
+  // PROCESAR SNAPSHOTS Y DELTAS DE TODAS LAS CATEGORÍAS
+  // Sin esto, los datos no se guardan en el store
+  // ======================================================================
+
+  useEffect(() => {
+    if (!rxWs.isConnected) return;
+
+    // Procesar snapshots
+    const snapshotSub = rxWs.snapshots$.subscribe((snapshot: any) => {
+      if (!snapshot.list || !SCANNER_CATEGORIES.includes(snapshot.list)) return;
+      if (!snapshot.rows || !Array.isArray(snapshot.rows)) return;
+      initializeList(snapshot.list, snapshot);
+    });
+
+    // Procesar deltas
+    const deltaSub = rxWs.deltas$.subscribe((delta: any) => {
+      if (!delta.list || !SCANNER_CATEGORIES.includes(delta.list)) return;
+      if (!delta.deltas || !Array.isArray(delta.deltas)) return;
+      applyDeltas(delta.list, delta.deltas, delta.sequence);
+    });
+
+    return () => {
+      snapshotSub.unsubscribe();
+      deltaSub.unsubscribe();
+    };
+  }, [rxWs.isConnected, rxWs.snapshots$, rxWs.deltas$, initializeList, applyDeltas]);
 
   // ======================================================================
   // CARGAR NOTICIAS
@@ -237,13 +290,14 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   }, [tickerLists]);
 
   // ======================================================================
-  // CALCULAR INTERSECCIÓN
+  // CALCULAR INTERSECCIÓN (sin filtros)
   // ======================================================================
 
-  const tickersWithNews = useMemo((): TickerWithNews[] => {
-    // 1. Obtener todos los tickers de las tablas del scanner
+  const baseTickersWithNews = useMemo((): TickerWithNews[] => {
+    // 1. Obtener todos los tickers de las tablas del scanner Y en qué categorías están
     const scannerTickers = new Set<string>();
     const tickerDataMap = new Map<string, Ticker>();
+    const tickerCategoriesMap = new Map<string, string[]>(); // ticker -> categorías
 
     tickerLists.forEach((list, listName) => {
       if (!SCANNER_CATEGORIES.includes(listName)) return;
@@ -251,9 +305,17 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
       list.tickers.forEach((ticker, symbol) => {
         const upper = symbol.toUpperCase();
         scannerTickers.add(upper);
+        
+        // Guardar el ticker data
         if (!tickerDataMap.has(upper)) {
           tickerDataMap.set(upper, ticker);
         }
+        
+        // Añadir la categoría a la lista de categorías del ticker
+        if (!tickerCategoriesMap.has(upper)) {
+          tickerCategoriesMap.set(upper, []);
+        }
+        tickerCategoriesMap.get(upper)!.push(listName);
       });
     });
 
@@ -283,10 +345,18 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
           new Date(b.published).getTime() - new Date(a.published).getTime()
         );
 
+        // Obtener hora de la última noticia
+        const lastNewsTime = sortedArticles[0]?.published || '';
+
+        // Obtener categorías del scanner
+        const scannerCategories = tickerCategoriesMap.get(symbol) || [];
+
         result.push({
           ...tickerData,
           newsCount: articles.length,
           articles: sortedArticles,
+          lastNewsTime,
+          scannerCategories,
         });
       }
     });
@@ -296,6 +366,20 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
 
     return result;
   }, [tickerLists, allNews]);
+
+  // ======================================================================
+  // APLICAR FILTROS DEL FILTER MANAGER
+  // ======================================================================
+
+  const tickersWithNews = useMemo(() => {
+    if (!hasActiveFilters) {
+      return baseTickersWithNews; // Sin filtros = mostrar todos
+    }
+
+    // Aplicar filtros del store
+    return baseTickersWithNews.filter(ticker => passesFilter(ticker, activeFilters));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseTickersWithNews, filtersKey, hasActiveFilters]);
 
   // ======================================================================
   // ABRIR MINI VENTANA DE NOTICIAS
@@ -358,7 +442,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
             <span>News</span>
           </div>
         ),
-        size: 60,
+        size: 55,
         cell: (info) => {
           const count = info.getValue();
           const row = info.row.original;
@@ -372,6 +456,61 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
             >
               {count}
             </button>
+          );
+        },
+      }),
+      columnHelper.accessor('lastNewsTime', {
+        header: t('scanner.tableHeaders.lastNews') || 'Last News',
+        size: 70,
+        cell: (info) => {
+          const isoTime = info.getValue();
+          if (!isoTime) return <span className="text-slate-400">—</span>;
+          try {
+            const d = new Date(isoTime);
+            const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            const isRecent = Date.now() - d.getTime() < 30 * 60 * 1000; // < 30 min
+            return (
+              <div className={`font-mono text-xs ${isRecent ? 'text-emerald-600 font-semibold' : 'text-slate-600'}`}>
+                {time}
+              </div>
+            );
+          } catch {
+            return <span className="text-slate-400">—</span>;
+          }
+        },
+      }),
+      columnHelper.accessor('scannerCategories', {
+        header: t('scanner.tableHeaders.tables') || 'Tables',
+        size: 140,
+        cell: (info) => {
+          // Mapear nombres de categorías a etiquetas MUY cortas
+          const categoryLabels: Record<string, string> = {
+            'gappers_up': 'G↑',
+            'gappers_down': 'G↓',
+            'momentum_up': 'M↑',
+            'momentum_down': 'M↓',
+            'winners': 'W',
+            'losers': 'L',
+            'new_highs': 'H',
+            'new_lows': 'Lo',
+            'anomalies': 'A',
+            'high_volume': 'V',
+            'reversals': 'R',
+          };
+          
+          // Filtrar: solo categorías válidas que tengan label
+          const rawCategories = info.getValue() || [];
+          const categories = rawCategories.filter((cat): cat is string => 
+            typeof cat === 'string' && cat.length > 0 && categoryLabels[cat] !== undefined
+          );
+          
+          if (categories.length === 0) return <span className="text-slate-400">—</span>;
+          
+          // Mostrar como texto simple separado por espacios (no se corta)
+          return (
+            <span className="text-[10px] font-medium text-slate-600">
+              {categories.map(cat => categoryLabels[cat]).join(' ')}
+            </span>
           );
         },
       }),

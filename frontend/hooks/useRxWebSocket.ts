@@ -231,6 +231,27 @@ class WebSocketManager {
     }
   }
 
+  /**
+   * 🔐 Actualizar token JWT (para refresh periódico)
+   * Actualiza la URL para futuras reconexiones y envía refresh al servidor
+   */
+  updateToken(newUrl: string, token: string) {
+    this.url = newUrl; // Guardar para futuras reconexiones
+
+    if (this.workerPort) {
+      this.workerPort.postMessage({
+        action: 'update_token',
+        url: newUrl,
+        token: token
+      });
+      if (this.debug) console.log('🔐 [RxWS] Token updated in SharedWorker');
+    } else {
+      // Sin SharedWorker, enviar directamente
+      this.send({ action: 'refresh_token', token });
+      if (this.debug) console.log('🔐 [RxWS] Token refreshed directly');
+    }
+  }
+
   private startHeartbeat() {
     this.stopHeartbeat();
     this.heartbeatTimer = setInterval(() => {
@@ -405,6 +426,7 @@ export interface UseRxWebSocketReturn {
   errors$: Observable<Error>;
   send: (payload: any) => void;
   reconnect: () => void;
+  updateToken: (newUrl: string, token: string) => void;
 }
 
 export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSocketReturn {
@@ -440,6 +462,10 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     managerRef.current.connect(url, debug);
   }, [url, debug]);
 
+  const updateToken = useCallback((newUrl: string, token: string) => {
+    managerRef.current.updateToken(newUrl, token);
+  }, []);
+
   // Memoizar el objeto retornado para evitar re-renders infinitos
   // Solo cambia cuando isConnected o connectionId cambian
   return useMemo(() => ({
@@ -452,7 +478,8 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     errors$: managerRef.current.errors$,
     send,
     reconnect,
-  }), [isConnected, connectionId, send, reconnect]);
+    updateToken,
+  }), [isConnected, connectionId, send, reconnect, updateToken]);
 }
 
 // ============================================================================
@@ -481,4 +508,38 @@ export function useListSubscription(listName: string, debug: boolean = false) {
       manager.unsubscribe(listName);
     };
   }, [listName, isConnected]);
+}
+
+// ============================================================================
+// HELPER HOOK - Para suscribirse a MÚLTIPLES listas a la vez
+// ============================================================================
+
+export function useMultiListSubscription(listNames: string[], debug: boolean = false) {
+  const manager = WebSocketManager.getInstance();
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Track connection state
+  useEffect(() => {
+    const sub = manager.isConnected$.subscribe(setIsConnected);
+    return () => sub.unsubscribe();
+  }, [manager]);
+
+  // Subscribe/unsubscribe to all lists when connected
+  useEffect(() => {
+    if (!isConnected || listNames.length === 0) return;
+
+    if (debug) console.log(`🔗 [useMultiListSubscription] Subscribing to ${listNames.length} lists:`, listNames);
+
+    // Suscribirse a todas las listas
+    listNames.forEach(listName => {
+      manager.subscribe(listName);
+    });
+
+    return () => {
+      if (debug) console.log(`🔗 [useMultiListSubscription] Unsubscribing from ${listNames.length} lists`);
+      listNames.forEach(listName => {
+        manager.unsubscribe(listName);
+      });
+    };
+  }, [listNames.join(','), isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
 }

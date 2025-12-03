@@ -110,7 +110,9 @@
       "float": "Float",
       "atrPercent": "ATR%",
       "atrUsed": "ATR Used",
-      "news": "News"
+      "news": "News",
+      "lastNews": "Last",
+      "tables": "Tables"
     }
   },
   "news": {
