@@ -53,6 +53,7 @@ export function useSquawk(options: SquawkOptions = {}): UseSquawkReturn {
                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
                 const response = await fetch(`${apiUrl}/api/v1/tts/speak`, {
                     method: 'POST',
+                    credentials: 'include', // Enviar cookies de autenticación
                     headers: {
                         'Accept': 'audio/mpeg',
                         'Content-Type': 'application/json',
