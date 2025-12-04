@@ -260,13 +260,13 @@ class MaintenanceOrchestrator:
         """
         Tarea 3: Cargar volume slots del día anterior
         
-        Usa el nuevo VolumeSlotsLoader que solo carga un día específico.
+        Usa LoadVolumeSlotsTask que carga últimos días faltantes.
         """
         try:
-            from tasks.volume_slots_loader import VolumeSlotsLoader
+            from tasks.load_volume_slots import LoadVolumeSlotsTask
             
-            loader = VolumeSlotsLoader(self.redis, self.db)
-            result = await loader.load_day(target_date)
+            loader = LoadVolumeSlotsTask(self.redis, self.db)
+            result = await loader.execute(target_date)
             
             return result
             

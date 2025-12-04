@@ -227,16 +227,6 @@ export function CatalystAlertsConfig() {
           </span>
         </label>
       </div>
-
-      {/* Test Button */}
-      <div className="pt-2 border-t border-slate-200">
-        <button
-          onClick={handleTestAlert}
-          className="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          {t('catalyst.testAlert') || 'Test Alert'}
-        </button>
-      </div>
     </div>
   );
 }

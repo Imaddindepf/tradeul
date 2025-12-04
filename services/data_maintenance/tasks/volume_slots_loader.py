@@ -164,7 +164,7 @@ class VolumeSlotsLoader:
         """Contar registros existentes para una fecha"""
         query = """
             SELECT COUNT(*) as count
-            FROM volume_slots_5min
+            FROM volume_slots
             WHERE trading_date = $1
         """
         rows = await self.db.fetch(query, target_date)
@@ -172,7 +172,7 @@ class VolumeSlotsLoader:
     
     async def _delete_day(self, target_date: date):
         """Eliminar todos los registros de un día"""
-        query = "DELETE FROM volume_slots_5min WHERE trading_date = $1"
+        query = "DELETE FROM volume_slots WHERE trading_date = $1"
         await self.db.execute(query, target_date)
     
     async def _get_active_symbols(self) -> List[str]:
@@ -239,7 +239,7 @@ class VolumeSlotsLoader:
             
             # Batch insert
             query = """
-                INSERT INTO volume_slots_5min 
+                INSERT INTO volume_slots 
                 (trading_date, symbol, slot_time, open, high, low, close, volume, vwap, trades_count)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (trading_date, symbol, slot_time) DO NOTHING

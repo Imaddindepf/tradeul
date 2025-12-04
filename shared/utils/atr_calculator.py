@@ -36,18 +36,23 @@ def get_ny_trading_date() -> date:
 
 async def get_last_trading_date(redis_client, max_lookback: int = 7) -> date:
     """
-    Obtiene el último día de trading (excluyendo fines de semana y festivos)
+    Obtiene el último día de trading COMPLETADO (excluyendo fines de semana y festivos)
+    
+    Durante el día de trading actual (pre-market, market, post-market),
+    devuelve el día ANTERIOR de trading porque es el último día con datos completos.
     
     Args:
         redis_client: Cliente Redis para verificar holidays
         max_lookback: Máximo de días hacia atrás a buscar
     
     Returns:
-        Fecha del último día de trading
+        Fecha del último día de trading COMPLETADO
     """
     ny_today = get_ny_trading_date()
     
-    for days_back in range(max_lookback):
+    # Empezamos desde 1 (ayer) porque durante el día actual,
+    # el ATR válido es el del día anterior (último día cerrado)
+    for days_back in range(1, max_lookback + 1):
         check_date = ny_today - timedelta(days=days_back)
         
         # Saltar fines de semana
@@ -66,8 +71,8 @@ async def get_last_trading_date(redis_client, max_lookback: int = 7) -> date:
         
         return check_date
     
-    # Fallback: retornar hoy si no se encuentra
-    return ny_today
+    # Fallback: retornar ayer si no se encuentra
+    return ny_today - timedelta(days=1)
 
 
 class ATRCalculator:

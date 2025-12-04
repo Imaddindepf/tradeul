@@ -84,10 +84,12 @@ export function SECFilingsRealtime() {
         // Conectar al WebSocket solo si estamos en modo realtime
         if (viewMode !== 'realtime') return;
 
-        const wsUrl = 'ws://157.180.45.153:9000';
-        console.log('🔌 Connecting to WebSocket:', wsUrl);
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+        // Extraer base URL sin el path /ws/scanner
+        const wsBaseUrl = wsUrl.replace('/ws/scanner', '');
+        console.log('🔌 Connecting to WebSocket:', wsBaseUrl);
 
-        const ws = new WebSocket(wsUrl);
+        const ws = new WebSocket(wsBaseUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -299,8 +301,9 @@ export function SECFilingsRealtime() {
         );
 
         const filingUrl = viewableDoc?.documentUrl || selectedFiling.linkToHtml || selectedFiling.linkToFilingDetails;
+        const secApiUrl = process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012';
         const proxyUrl = filingUrl
-            ? `http://157.180.45.153:8012/api/v1/proxy?url=${encodeURIComponent(filingUrl)}`
+            ? `${secApiUrl}/api/v1/proxy?url=${encodeURIComponent(filingUrl)}`
             : '';
 
         return (

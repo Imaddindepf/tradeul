@@ -316,8 +316,9 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
         const filingUrl = viewableDoc?.documentUrl || selectedFiling.linkToHtml || selectedFiling.linkToFilingDetails;
 
         // Usar proxy para evitar restricciones de CORS y X-Frame-Options
+        const secApiUrl = process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012';
         const proxyUrl = filingUrl
-            ? `http://157.180.45.153:8012/api/v1/proxy?url=${encodeURIComponent(filingUrl)}`
+            ? `${secApiUrl}/api/v1/proxy?url=${encodeURIComponent(filingUrl)}`
             : '';
 
         return (

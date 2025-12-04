@@ -60,16 +60,13 @@ export function TickerSearch({
         setError(null);
 
         try {
-            // Usar API Gateway (puerto 8000) en vez de servicio directo
-            // Esto evita problemas de firewall y centraliza el acceso
+            // Usar API Gateway via variable de entorno (HTTPS en producción)
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
             const response = await fetch(
-                `http://157.180.45.153:8000/api/v1/metadata/search?q=${encodeURIComponent(query)}&limit=10`,
+                `${apiUrl}/api/v1/metadata/search?q=${encodeURIComponent(query)}&limit=10`,
                 {
                     signal: abortControllerRef.current.signal,
-                    // Add timeout
-                    ...(typeof window !== 'undefined' && {
-                        cache: 'no-store'
-                    })
+                    cache: 'no-store'
                 }
             );
 

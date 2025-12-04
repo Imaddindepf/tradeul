@@ -10,9 +10,6 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
-// Versión del SharedWorker - incrementar para forzar recarga en todos los usuarios
-const SHARED_WORKER_VERSION = 'v2';
-
 // Debug solo si está explícitamente habilitado via variable de entorno
 // En producción NUNCA se muestran logs de WebSocket
 const WS_DEBUG_ENABLED = process.env.NEXT_PUBLIC_WS_DEBUG === 'true';
@@ -86,7 +83,7 @@ class WebSocketManager {
     // Debug controlado SOLO por variable de entorno (no por parámetro)
     // Esto evita logs en producción aunque alguien pase debug: true
     const effectiveDebug = WS_DEBUG_ENABLED && debugMode;
-    
+
     // Si ya hay una conexión con la misma URL, no hacer nada
     if ((this.ws$ || this.sharedWorker) && this.url === url) {
       if (effectiveDebug) console.log('🔄 [RxWS] Already connected, reusing connection');
@@ -282,9 +279,10 @@ class WebSocketManager {
   private connectWithSharedWorker(url: string, debugMode: boolean) {
 
 
-    // Añadir versión al URL para forzar recarga cuando hay cambios
-    this.sharedWorker = new SharedWorker(`/workers/websocket-shared.js?${SHARED_WORKER_VERSION}`, {
-      name: `tradeul-websocket-${SHARED_WORKER_VERSION}`
+    // URL y nombre fijos para que todas las tabs/ventanas compartan el mismo worker
+    // SharedWorkers se identifican por URL + nombre, ambos deben coincidir exactamente
+    this.sharedWorker = new SharedWorker('/workers/websocket-shared.js', {
+      name: 'tradeul-websocket'
     });
     this.workerPort = this.sharedWorker.port;
 

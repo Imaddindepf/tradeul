@@ -110,7 +110,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         {
           wsUrl,
           workerUrl,
-          secApiBaseUrl: 'http://157.180.45.153:8012'
+          secApiBaseUrl: process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012'
         },
         {
           title: 'SEC Filings - Tradeul',

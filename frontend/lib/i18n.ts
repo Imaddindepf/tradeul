@@ -52,9 +52,9 @@ i18n
 /**
  * Cambiar idioma y persistir en localStorage
  */
-export function changeLanguage(lang: LanguageCode): Promise<void> {
+export async function changeLanguage(lang: LanguageCode): Promise<void> {
   localStorage.setItem(LANGUAGE_KEY, lang);
-  return i18n.changeLanguage(lang);
+  await i18n.changeLanguage(lang);
 }
 
 /**
