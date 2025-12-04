@@ -14,7 +14,8 @@ import {
     LineStyle,
     PriceScaleMode
 } from 'lightweight-charts';
-import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut } from 'lucide-react';
+import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut, Radio } from 'lucide-react';
+import { useLiveChartData, type ChartInterval } from '@/hooks/useLiveChartData';
 
 // ============================================================================
 // Types
@@ -35,7 +36,8 @@ interface TradingChartProps {
     onTickerChange?: (ticker: string) => void;
 }
 
-type Interval = '1min' | '5min' | '15min' | '30min' | '1hour' | '4hour' | '1day';
+// Interval type is now ChartInterval from useLiveChartData
+type Interval = ChartInterval;
 type TimeRange = '1M' | '3M' | '6M' | '1Y' | '2Y' | '5Y' | 'ALL';
 
 interface IntervalConfig {
@@ -93,101 +95,7 @@ const CHART_COLORS = {
 // API Gateway URL
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// ============================================================================
-// Custom Hook for Chart Data with Lazy Loading
-// ============================================================================
-
-function useChartData(ticker: string, interval: Interval) {
-    const [data, setData] = useState<ChartBar[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [oldestTime, setOldestTime] = useState<number | null>(null);
-    const [hasMore, setHasMore] = useState(false);
-
-    // Helper: merge and sort data (deduplicate by time)
-    const mergeAndSort = useCallback((existing: ChartBar[], newBars: ChartBar[]): ChartBar[] => {
-        const timeMap = new Map<number, ChartBar>();
-        // Add existing first, then new (new overwrites if duplicate)
-        [...existing, ...newBars].forEach(bar => timeMap.set(bar.time, bar));
-        // Sort ascending by time
-        return Array.from(timeMap.values()).sort((a, b) => a.time - b.time);
-    }, []);
-
-    // Initial data fetch
-    const fetchData = useCallback(async () => {
-        if (!ticker) return;
-
-        setLoading(true);
-        setError(null);
-
-        try {
-            const response = await fetch(
-                `${API_URL}/api/v1/chart/${ticker}?interval=${interval}`
-            );
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const result = await response.json();
-            const bars = result.data || [];
-            // Ensure sorted
-            bars.sort((a: ChartBar, b: ChartBar) => a.time - b.time);
-            setData(bars);
-            setOldestTime(result.oldest_time || null);
-            setHasMore(result.has_more || false);
-        } catch (err) {
-            console.error('Chart data fetch error:', err);
-            setError(err instanceof Error ? err.message : 'Failed to load chart');
-            setData([]);
-        } finally {
-            setLoading(false);
-        }
-    }, [ticker, interval]);
-
-    // Load more (older) data - for lazy loading
-    const loadMore = useCallback(async () => {
-        if (!ticker || !oldestTime || !hasMore || loadingMore) return false;
-
-        setLoadingMore(true);
-
-        try {
-            const response = await fetch(
-                `${API_URL}/api/v1/chart/${ticker}?interval=${interval}&before=${oldestTime}`
-            );
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const result = await response.json();
-            const newData = result.data || [];
-
-            if (newData.length > 0) {
-                // Merge, deduplicate, and sort
-                setData(prev => mergeAndSort(prev, newData));
-                setOldestTime(result.oldest_time || null);
-                setHasMore(result.has_more || false);
-                return true;
-            } else {
-                setHasMore(false);
-                return false;
-            }
-        } catch (err) {
-            console.error('Load more error:', err);
-            return false;
-        } finally {
-            setLoadingMore(false);
-        }
-    }, [ticker, interval, oldestTime, hasMore, loadingMore, mergeAndSort]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    return { data, loading, loadingMore, error, hasMore, oldestTime, refetch: fetchData, loadMore };
-}
+// Hook useChartData movido a @/hooks/useLiveChartData con soporte real-time
 
 // ============================================================================
 // Moving Average Calculators
@@ -275,7 +183,7 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
     const [showVolume, setShowVolume] = useState(true);
     const [hoveredBar, setHoveredBar] = useState<ChartBar | null>(null);
 
-    const { data, loading, loadingMore, error, hasMore, refetch, loadMore } = useChartData(currentTicker, selectedInterval);
+    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore } = useLiveChartData(currentTicker, selectedInterval);
 
     // Update when external ticker changes
     useEffect(() => {
@@ -781,6 +689,13 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
                                 {isPositive ? '▲' : '▼'}
                                 {formatPrice(Math.abs(priceChange))} ({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%)
                             </span>
+                            {/* Live indicator */}
+                            {isLive && (
+                                <span className="flex items-center gap-1 text-xs font-medium text-red-500 animate-pulse">
+                                    <Radio className="w-3 h-3" />
+                                    LIVE
+                                </span>
+                            )}
                         </div>
                     )}
                 </div>
