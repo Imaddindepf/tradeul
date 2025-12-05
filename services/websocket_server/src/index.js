@@ -58,9 +58,13 @@ const redisCommands = new Redis({
 });
 
 // Cliente Redis para Pub/Sub (escuchar eventos de nuevo día)
+// IMPORTANTE: enableReadyCheck: false evita que ioredis ejecute comandos INFO
+// en una conexión que está en modo subscriber, lo cual causaría errores
 const redisSubscriber = new Redis({
   ...redisConfig,
   retryStrategy: (times) => Math.min(times * 50, 2000),
+  enableReadyCheck: false,  // Desactivar health check para conexiones Pub/Sub
+  lazyConnect: false,
 });
 
 // Cliente Redis dedicado para quotes stream (evitar bloqueo con otros streams)
@@ -78,6 +82,23 @@ redis.on("error", (err) => {
   logger.error({ err }, "Redis error");
 });
 
+// Manejadores de error para conexiones adicionales
+redisCommands.on("error", (err) => {
+  logger.error({ err }, "Redis Commands error");
+});
+
+redisSubscriber.on("error", (err) => {
+  // Ignorar errores de "subscriber mode" ya que son esperados con enableReadyCheck: false
+  if (err.message && err.message.includes("subscriber mode")) {
+    return; // Silenciar este error específico
+  }
+  logger.error({ err }, "Redis Subscriber error");
+});
+
+redisQuotes.on("error", (err) => {
+  logger.error({ err }, "Redis Quotes error");
+});
+
 // =============================================
 // DATA STRUCTURES (OPTIMIZADAS)
 // =============================================
@@ -93,6 +114,15 @@ const secFilingsSubscribers = new Set();
 
 // Clientes suscritos a Benzinga News: Set<connectionId>
 const benzingaNewsSubscribers = new Set();
+
+// =============================================
+// CHART SUBSCRIPTIONS: Suscripciones para charts en tiempo real
+// =============================================
+// Mapeo ticker → Set<connectionId> (quién tiene un chart abierto de este ticker)
+const chartSubscribers = new Map();
+
+// Contador de referencias por ticker para charts
+const chartRefCount = new Map();
 
 // =============================================
 // QUOTES: Suscripciones por ticker para datos individuales
@@ -1031,6 +1061,160 @@ async function unsubscribeClientFromAllQuotes(connectionId) {
   }
 }
 
+// =============================================
+// CHART SUBSCRIPTION MANAGEMENT
+// =============================================
+
+/**
+ * Suscribir cliente a aggregates de un ticker para charts
+ * Los aggregates vienen cada segundo desde Polygon
+ */
+async function subscribeClientToChart(connectionId, symbol) {
+  const symbolUpper = symbol.toUpperCase();
+  
+  // Añadir a índice ticker → connections
+  if (!chartSubscribers.has(symbolUpper)) {
+    chartSubscribers.set(symbolUpper, new Set());
+  }
+  chartSubscribers.get(symbolUpper).add(connectionId);
+  
+  // Incrementar ref count
+  const currentCount = chartRefCount.get(symbolUpper) || 0;
+  chartRefCount.set(symbolUpper, currentCount + 1);
+  
+  // Si es el primer suscriptor, notificar a polygon_ws
+  // (Solo si el ticker no está ya suscrito por el Scanner)
+  if (currentCount === 0 && !symbolToLists.has(symbolUpper)) {
+    try {
+      await redisCommands.xadd(
+        "polygon_ws:subscriptions",
+        "*",
+        "action", "subscribe",
+        "symbol", symbolUpper
+      );
+      logger.info({ symbol: symbolUpper }, "📊 Chart: First subscriber - notified polygon_ws");
+    } catch (err) {
+      logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart");
+    }
+  }
+  
+  logger.info({
+    connectionId,
+    symbol: symbolUpper,
+    totalSubscribers: chartSubscribers.get(symbolUpper).size,
+    refCount: chartRefCount.get(symbolUpper)
+  }, "📈 Client subscribed to chart");
+  
+  return true;
+}
+
+/**
+ * Desuscribir cliente de aggregates para chart
+ */
+async function unsubscribeClientFromChart(connectionId, symbol) {
+  const symbolUpper = symbol.toUpperCase();
+  
+  const subscribers = chartSubscribers.get(symbolUpper);
+  if (!subscribers) return;
+  
+  // Remover de índice
+  subscribers.delete(connectionId);
+  
+  // Decrementar ref count
+  const currentCount = chartRefCount.get(symbolUpper) || 0;
+  const newCount = Math.max(0, currentCount - 1);
+  chartRefCount.set(symbolUpper, newCount);
+  
+  // Si era el último y no está suscrito por el Scanner, notificar a polygon_ws
+  if (newCount === 0) {
+    chartSubscribers.delete(symbolUpper);
+    chartRefCount.delete(symbolUpper);
+    
+    if (!symbolToLists.has(symbolUpper)) {
+      try {
+        await redisCommands.xadd(
+          "polygon_ws:subscriptions",
+          "*",
+          "action", "unsubscribe",
+          "symbol", symbolUpper
+        );
+        logger.info({ symbol: symbolUpper }, "📊 Chart: Last subscriber gone - notified polygon_ws");
+      } catch (err) {
+        logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart unsubscription");
+      }
+    }
+  }
+  
+  logger.info({
+    connectionId,
+    symbol: symbolUpper,
+    remainingSubscribers: subscribers?.size || 0,
+    refCount: newCount
+  }, "📈 Client unsubscribed from chart");
+}
+
+/**
+ * Desuscribir cliente de todos los charts
+ */
+async function unsubscribeClientFromAllCharts(connectionId) {
+  const tickersToUnsubscribe = [];
+  
+  chartSubscribers.forEach((subscribers, symbol) => {
+    if (subscribers.has(connectionId)) {
+      tickersToUnsubscribe.push(symbol);
+    }
+  });
+  
+  for (const symbol of tickersToUnsubscribe) {
+    await unsubscribeClientFromChart(connectionId, symbol);
+  }
+}
+
+/**
+ * Broadcast de aggregate a clientes suscritos a chart de ese ticker
+ */
+function broadcastChartAggregate(symbol, aggregateData) {
+  const subscribers = chartSubscribers.get(symbol);
+  if (!subscribers || subscribers.size === 0) return 0;
+  
+  const message = {
+    type: "chart_aggregate",
+    symbol: symbol,
+    data: aggregateData,
+    timestamp: new Date().toISOString()
+  };
+  
+  const messageStr = JSON.stringify(message);
+  let sentCount = 0;
+  const disconnected = [];
+  
+  subscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
+    
+    if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      disconnected.push(connectionId);
+      return;
+    }
+    
+    try {
+      conn.ws.send(messageStr);
+      sentCount++;
+    } catch (err) {
+      logger.error({ connectionId, err }, "Error sending chart aggregate");
+      disconnected.push(connectionId);
+    }
+  });
+  
+  // Limpiar conexiones desconectadas
+  disconnected.forEach((connectionId) => {
+    subscribers.delete(connectionId);
+    const currentCount = chartRefCount.get(symbol) || 0;
+    chartRefCount.set(symbol, Math.max(0, currentCount - 1));
+  });
+  
+  return sentCount;
+}
+
 /**
  * Broadcast de quote a clientes suscritos a ese ticker
  */
@@ -1296,12 +1480,27 @@ async function processAggregatesStream() {
             if (symbol) {
               const symbolUpper = symbol.toUpperCase();
 
-              // Verificar si el símbolo está en alguna lista
+              // Verificar si el símbolo está en alguna lista (Scanner)
               const lists = symbolToLists.get(symbolUpper);
 
               if (lists && lists.size > 0) {
-                // Agregar al buffer con sampling (no broadcast directo)
+                // Agregar al buffer con sampling para Scanner
                 bufferAggregate(symbolUpper, data);
+              }
+              
+              // NUEVO: Enviar a chart subscribers (sin throttle, cada segundo)
+              const chartSubs = chartSubscribers.get(symbolUpper);
+              if (chartSubs && chartSubs.size > 0) {
+                const chartData = {
+                  o: parseFloat(data.open || 0),
+                  h: parseFloat(data.high || 0),
+                  l: parseFloat(data.low || 0),
+                  c: parseFloat(data.close || 0),
+                  v: parseInt(data.volume || 0, 10),
+                  av: parseInt(data.volume_accumulated || 0, 10),
+                  t: parseInt(data.timestamp_end || data.timestamp_start || Date.now(), 10)
+                };
+                broadcastChartAggregate(symbolUpper, chartData);
               }
             }
 
@@ -1980,6 +2179,53 @@ wss.on("connection", async (ws, req) => {
         });
       }
 
+      // =============================================
+      // SUBSCRIBE TO CHART (real-time aggregates per second)
+      // =============================================
+      else if (action === "subscribe_chart") {
+        const symbol = data.symbol;
+        
+        if (!symbol) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbol' parameter for chart subscription"
+          });
+          return;
+        }
+        
+        await subscribeClientToChart(connectionId, symbol);
+        
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "CHART",
+          symbol: symbol.toUpperCase(),
+          message: `Subscribed to real-time chart data for ${symbol.toUpperCase()}`
+        });
+      }
+
+      // =============================================
+      // UNSUBSCRIBE FROM CHART
+      // =============================================
+      else if (action === "unsubscribe_chart") {
+        const symbol = data.symbol;
+        
+        if (!symbol) {
+          sendMessage(connectionId, {
+            type: "error",
+            message: "Missing 'symbol' parameter for chart unsubscription"
+          });
+          return;
+        }
+        
+        await unsubscribeClientFromChart(connectionId, symbol);
+        
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "CHART",
+          symbol: symbol.toUpperCase()
+        });
+      }
+
       // Ping/Pong heartbeat (ignorar, es normal)
       else if (action === "ping" || action === "pong") {
         // Responder con pong si es ping
@@ -2014,7 +2260,8 @@ wss.on("connection", async (ws, req) => {
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
     benzingaNewsSubscribers.delete(connectionId);
-    await unsubscribeClientFromAllQuotes(connectionId);  // ✅ Limpiar quotes
+    await unsubscribeClientFromAllQuotes(connectionId);
+    await unsubscribeClientFromAllCharts(connectionId);  // ✅ Limpiar charts
     connections.delete(connectionId);
     logger.info({ connectionId }, "❌ Client disconnected");
   });
@@ -2025,7 +2272,8 @@ wss.on("connection", async (ws, req) => {
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
     benzingaNewsSubscribers.delete(connectionId);
-    await unsubscribeClientFromAllQuotes(connectionId);  // ✅ Limpiar quotes
+    await unsubscribeClientFromAllQuotes(connectionId);
+    await unsubscribeClientFromAllCharts(connectionId);  // ✅ Limpiar charts
     connections.delete(connectionId);
   });
 });

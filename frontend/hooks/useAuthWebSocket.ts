@@ -145,6 +145,28 @@ export function useAuthWebSocket(
         };
     }, [isSignedIn, ws.isConnected, ws.updateToken, getToken, refreshInterval, debug, isAuthenticated, baseUrl]);
 
+    // Escuchar solicitudes de token refresh del SharedWorker (para reconexiones)
+    useEffect(() => {
+        if (!isSignedIn || !isAuthenticated) return;
+
+        const subscription = ws.tokenRefreshRequest$.subscribe(async () => {
+            try {
+                if (debug) console.log('🔐 [AuthWS] SharedWorker requested fresh token for reconnection');
+                const newToken = await getToken();
+                if (newToken) {
+                    tokenRef.current = newToken;
+                    const newUrl = buildAuthUrl(baseUrl, newToken);
+                    ws.updateToken(newUrl, newToken);
+                    if (debug) console.log('🔐 [AuthWS] Fresh token sent to SharedWorker');
+                }
+            } catch (error) {
+                console.error('🔐 [AuthWS] Failed to get fresh token for reconnection:', error);
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, [isSignedIn, isAuthenticated, ws.tokenRefreshRequest$, ws.updateToken, getToken, baseUrl, debug]);
+
     return useMemo(() => ({
         ...ws,
         isAuthenticated,

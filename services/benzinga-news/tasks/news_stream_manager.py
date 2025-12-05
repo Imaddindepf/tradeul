@@ -274,7 +274,8 @@ class BenzingaNewsStreamManager:
     
     async def _get_catalyst_metrics(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
-        Obtiene métricas de catalyst para un ticker desde los snapshots guardados
+        Obtiene métricas de catalyst para un ticker desde los snapshots guardados.
+        Si no hay snapshots, intenta obtener datos del snapshot:enriched:latest.
         
         Returns:
             Dict con métricas o None si no hay datos
@@ -283,10 +284,8 @@ class BenzingaNewsStreamManager:
             key = f"catalyst:snapshot:{ticker}"
             entries = await self.redis.lrange(key, 0, -1)
             
-            if not entries:
-                return None
-            
-            # Parsear snapshots
+            # Si hay snapshots de catalyst, usar esos datos
+            if entries:
             snapshots = []
             for entry in entries:
                 try:
@@ -295,9 +294,7 @@ class BenzingaNewsStreamManager:
                 except:
                     continue
             
-            if not snapshots:
-                return None
-            
+                if snapshots:
             now = datetime.now().timestamp() * 1000
             current = snapshots[0]  # Más reciente
             
@@ -327,6 +324,7 @@ class BenzingaNewsStreamManager:
                 change_5m = round(((current_price - price_5m_ago) / price_5m_ago) * 100, 2)
             
             return {
+                        "ticker": ticker,
                 "price_at_news": current_price,
                 "price_1m_ago": price_1m_ago,
                 "price_5m_ago": price_5m_ago,
@@ -334,11 +332,77 @@ class BenzingaNewsStreamManager:
                 "change_5m_pct": change_5m,
                 "volume": current.get("v", 0),
                 "rvol": current.get("r", 0),
-                "snapshot_time": current.get("t", 0)
+                        "snapshot_time": current.get("t", 0),
+                        "source": "catalyst_snapshots"
             }
+            
+            # FALLBACK: Si no hay snapshots de catalyst, buscar en snapshot:enriched:latest
+            enriched_data = await self._get_from_enriched_snapshot(ticker)
+            if enriched_data:
+                return enriched_data
+            
+            return None
             
         except Exception as e:
             logger.error("get_catalyst_metrics_error", error=str(e), ticker=ticker)
+            return None
+    
+    async def _get_from_enriched_snapshot(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Fallback: obtener datos del snapshot:enriched:latest cuando no hay catalyst snapshots.
+        Este snapshot contiene datos de todos los tickers del mercado.
+        """
+        try:
+            # Obtener el snapshot enriched más reciente
+            snapshot_data = await self.redis.get("snapshot:enriched:latest")
+            if not snapshot_data:
+                return None
+            
+            snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
+            # El snapshot usa "tickers" no "rows"
+            tickers_list = snapshot.get("tickers", [])
+            
+            # Buscar el ticker en el snapshot
+            ticker_upper = ticker.upper()
+            for item in tickers_list:
+                if item.get("ticker", "").upper() == ticker_upper:
+                    # Extraer datos con la estructura real del snapshot
+                    price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
+                    prev_day = item.get("prevDay", {})
+                    prev_close = prev_day.get("c", 0)
+                    volume = item.get("current_volume") or item.get("day", {}).get("v", 0)
+                    rvol = item.get("rvol", 0)
+                    
+                    # Calcular cambio desde prev_close como proxy de "cambio del día"
+                    change_day_pct = None
+                    if prev_close and prev_close > 0 and price:
+                        change_day_pct = round(((price - prev_close) / prev_close) * 100, 2)
+                    
+                    logger.info(
+                        "catalyst_metrics_from_enriched",
+                        ticker=ticker,
+                        price=price,
+                        change_day_pct=change_day_pct,
+                        rvol=rvol
+                    )
+                    
+                    return {
+                        "ticker": ticker,
+                        "price_at_news": price,
+                        "price_1m_ago": None,
+                        "price_5m_ago": prev_close,  # Usar prev_close como referencia
+                        "change_1m_pct": None,
+                        "change_5m_pct": change_day_pct,  # Cambio desde apertura/prev_close
+                        "volume": volume,
+                        "rvol": rvol,
+                        "snapshot_time": int(datetime.now().timestamp() * 1000),
+                        "source": "enriched_snapshot"
+                    }
+            
+            return None
+            
+        except Exception as e:
+            logger.error("get_from_enriched_snapshot_error", error=str(e), ticker=ticker)
             return None
 
     async def _publish_to_stream(self, article: BenzingaArticle):

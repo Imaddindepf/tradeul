@@ -14,8 +14,9 @@ import {
     LineStyle,
     PriceScaleMode
 } from 'lightweight-charts';
-import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut, Radio } from 'lucide-react';
-import { useLiveChartData, type ChartInterval } from '@/hooks/useLiveChartData';
+import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut, Radio, Minus, Trash2, MousePointer } from 'lucide-react';
+import { useLiveChartData, type ChartInterval, type ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
+import { useChartDrawings, type Drawing, type DrawingTool } from '@/hooks/useChartDrawings';
 
 // ============================================================================
 // Types
@@ -183,7 +184,79 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
     const [showVolume, setShowVolume] = useState(true);
     const [hoveredBar, setHoveredBar] = useState<ChartBar | null>(null);
 
-    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore } = useLiveChartData(currentTicker, selectedInterval);
+    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval);
+
+    // Drawing tools
+    const {
+        drawings,
+        activeTool,
+        isDrawing,
+        selectedDrawingId,
+        hoveredDrawingId,
+        setActiveTool,
+        cancelDrawing,
+        handleChartClick,
+        removeDrawing,
+        clearAllDrawings,
+        selectDrawing,
+        updateHorizontalLinePrice,
+        updateDrawingLineWidth,
+        updateDrawingColor,
+        startDragging,
+        stopDragging,
+        findDrawingNearPrice,
+        setHoveredDrawing,
+        colors: drawingColors,
+    } = useChartDrawings(currentTicker);
+
+    // Estado para popup de edición de línea
+    const [editPopup, setEditPopup] = useState<{
+        visible: boolean;
+        drawingId: string | null;
+        x: number;
+        y: number;
+    }>({ visible: false, drawingId: null, x: 0, y: 0 });
+
+    // Obtener la línea que se está editando
+    const editingDrawing = editPopup.drawingId
+        ? drawings.find(d => d.id === editPopup.drawingId)
+        : null;
+
+    // Abrir popup de edición
+    const openEditPopup = useCallback((drawingId: string, x: number, y: number) => {
+        setEditPopup({ visible: true, drawingId, x, y });
+        selectDrawing(drawingId);
+    }, [selectDrawing]);
+
+    // Cerrar popup
+    const closeEditPopup = useCallback(() => {
+        setEditPopup({ visible: false, drawingId: null, x: 0, y: 0 });
+    }, []);
+
+    // Cambiar color de la línea en edición
+    const handleEditColor = useCallback((color: string) => {
+        if (editPopup.drawingId) {
+            updateDrawingColor(editPopup.drawingId, color);
+        }
+    }, [editPopup.drawingId, updateDrawingColor]);
+
+    // Cambiar grosor de la línea en edición
+    const handleEditLineWidth = useCallback((width: number) => {
+        if (editPopup.drawingId) {
+            updateDrawingLineWidth(editPopup.drawingId, width);
+        }
+    }, [editPopup.drawingId, updateDrawingLineWidth]);
+
+    // Eliminar línea en edición
+    const handleEditDelete = useCallback(() => {
+        if (editPopup.drawingId) {
+            removeDrawing(editPopup.drawingId);
+            closeEditPopup();
+        }
+    }, [editPopup.drawingId, removeDrawing, closeEditPopup]);
+
+    // Refs para price lines
+    const priceLinesRef = useRef<Map<string, any>>(new Map());
 
     // Update when external ticker changes
     useEffect(() => {
@@ -548,6 +621,343 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
         setTimeout(() => applyTimeRange(selectedRange), 50);
     }, [data, selectedRange, applyTimeRange]);
 
+    // ============================================================================
+    // Register real-time update handler (uses series.update() - NO re-render)
+    // ============================================================================
+    useEffect(() => {
+        if (!candleSeriesRef.current || !volumeSeriesRef.current) {
+            registerUpdateHandler(null);
+            return;
+        }
+
+        const candleSeries = candleSeriesRef.current;
+        const volumeSeries = volumeSeriesRef.current;
+
+        // Handler que recibe updates del WebSocket sin causar re-render
+        const handleRealtimeUpdate = (bar: HookChartBar, isNewBar: boolean) => {
+            // Actualizar vela (series.update actualiza in-place sin re-render)
+            candleSeries.update({
+                time: bar.time as UTCTimestamp,
+                open: bar.open,
+                high: bar.high,
+                low: bar.low,
+                close: bar.close,
+            });
+
+            // Actualizar volumen
+            const prevBar = data.length > 0 ? data[data.length - 1] : null;
+            const volumeColor = bar.close >= bar.open
+                ? CHART_COLORS.volumeUp
+                : CHART_COLORS.volumeDown;
+
+            volumeSeries.update({
+                time: bar.time as UTCTimestamp,
+                value: bar.volume,
+                color: volumeColor,
+            });
+
+            // Si es nueva barra, scroll suave al final (solo si user está mirando el final)
+            if (isNewBar && chartRef.current) {
+                const timeScale = chartRef.current.timeScale();
+                const logicalRange = timeScale.getVisibleLogicalRange();
+
+                // Solo auto-scroll si user está cerca del final
+                if (logicalRange && logicalRange.to >= data.length - 5) {
+                    timeScale.scrollToPosition(0, true);
+                }
+            }
+        };
+
+        // Registrar handler
+        registerUpdateHandler(handleRealtimeUpdate);
+
+        return () => {
+            registerUpdateHandler(null);
+        };
+    }, [registerUpdateHandler, data.length]);
+
+    // ============================================================================
+    // Renderizar dibujos (líneas horizontales) con hover y selección
+    // ============================================================================
+    useEffect(() => {
+        if (!candleSeriesRef.current) return;
+
+        const candleSeries = candleSeriesRef.current;
+        const currentLines = priceLinesRef.current;
+
+        // Eliminar líneas que ya no existen
+        currentLines.forEach((priceLine, id) => {
+            if (!drawings.find(d => d.id === id)) {
+                candleSeries.removePriceLine(priceLine);
+                currentLines.delete(id);
+            }
+        });
+
+        // Añadir/actualizar líneas
+        drawings.forEach(drawing => {
+            if (drawing.type === 'horizontal_line') {
+                const existingLine = currentLines.get(drawing.id);
+                const isSelected = selectedDrawingId === drawing.id;
+                const isHovered = hoveredDrawingId === drawing.id;
+
+                // Grosor visual: seleccionado > hover > normal
+                const visualWidth = isSelected ? Math.max(drawing.lineWidth + 1, 3)
+                    : isHovered ? Math.max(drawing.lineWidth, 2)
+                        : drawing.lineWidth;
+
+                if (existingLine) {
+                    // Actualizar línea existente
+                    existingLine.applyOptions({
+                        price: drawing.price,
+                        color: drawing.color,
+                        lineWidth: visualWidth as 1 | 2 | 3 | 4,
+                        lineStyle: isSelected || isHovered ? LineStyle.Solid :
+                            drawing.lineStyle === 'dashed' ? LineStyle.Dashed :
+                                drawing.lineStyle === 'dotted' ? LineStyle.Dotted : LineStyle.Solid,
+                    });
+                } else {
+                    // Crear nueva línea
+                    const lineStyle = drawing.lineStyle === 'dashed'
+                        ? LineStyle.Dashed
+                        : drawing.lineStyle === 'dotted'
+                            ? LineStyle.Dotted
+                            : LineStyle.Solid;
+
+                    const priceLine = candleSeries.createPriceLine({
+                        price: drawing.price,
+                        color: drawing.color,
+                        lineWidth: drawing.lineWidth as 1 | 2 | 3 | 4,
+                        lineStyle,
+                        axisLabelVisible: true,
+                        title: drawing.label || '',
+                    });
+
+                    currentLines.set(drawing.id, priceLine);
+                }
+            }
+        });
+    }, [drawings, selectedDrawingId, hoveredDrawingId]);
+
+
+    // ============================================================================
+    // Estado local para drag overlay
+    // ============================================================================
+    const [dragState, setDragState] = useState<{
+        active: boolean;
+        drawingId: string | null;
+        drawingType: 'horizontal_line' | null;
+        originalPrice: number;
+        startMouseY: number;
+    }>({
+        active: false,
+        drawingId: null,
+        drawingType: null,
+        originalPrice: 0,
+        startMouseY: 0,
+    });
+
+    // ============================================================================
+    // Manejar clicks para dibujo/selección
+    // ============================================================================
+    useEffect(() => {
+        if (!chartRef.current || !candleSeriesRef.current) return;
+
+        const chart = chartRef.current;
+        const candleSeries = candleSeriesRef.current;
+
+        const handleClick = (param: any) => {
+            if (!param.point) return;
+
+            const price = candleSeries.coordinateToPrice(param.point.y);
+            if (price === null) return;
+
+            if (activeTool === 'horizontal_line') {
+                // Modo dibujo: crear línea horizontal
+                handleChartClick(price);
+            } else {
+                // Modo normal: seleccionar/deseleccionar líneas
+                const nearDrawing = findDrawingNearPrice(price, 0.5);
+                if (nearDrawing) {
+                    selectDrawing(nearDrawing.id);
+                } else {
+                    selectDrawing(null);
+                }
+            }
+        };
+
+        const handleDoubleClick = (param: any) => {
+            if (!param.point || activeTool !== 'none') return;
+
+            const price = candleSeries.coordinateToPrice(param.point.y);
+            if (price === null) return;
+
+            const nearDrawing = findDrawingNearPrice(price, 1.5);
+            if (nearDrawing) {
+                openEditPopup(nearDrawing.id, param.point.x + 20, param.point.y);
+            }
+        };
+
+        chart.subscribeClick(handleClick);
+        chart.subscribeDblClick(handleDoubleClick);
+
+        return () => {
+            chart.unsubscribeClick(handleClick);
+            chart.unsubscribeDblClick(handleDoubleClick);
+        };
+    }, [activeTool, handleChartClick, findDrawingNearPrice, selectDrawing, openEditPopup]);
+
+    // ============================================================================
+    // Hover detection para selección de líneas (solo cuando no estamos dibujando)
+    // ============================================================================
+    useEffect(() => {
+        if (!chartRef.current || !candleSeriesRef.current) return;
+        if (dragState.active || activeTool !== 'none') return;
+
+        const chart = chartRef.current;
+        const candleSeries = candleSeriesRef.current;
+
+        const handleCrosshairMove = (param: any) => {
+            if (!param.point) {
+                setHoveredDrawing(null);
+                return;
+            }
+
+            const price = candleSeries.coordinateToPrice(param.point.y);
+            if (price === null) {
+                setHoveredDrawing(null);
+                return;
+            }
+
+            const nearDrawing = findDrawingNearPrice(price, 1.5);
+            setHoveredDrawing(nearDrawing?.id || null);
+        };
+
+        chart.subscribeCrosshairMove(handleCrosshairMove);
+
+        return () => {
+            chart.unsubscribeCrosshairMove(handleCrosshairMove);
+        };
+    }, [findDrawingNearPrice, setHoveredDrawing, dragState.active, activeTool]);
+
+    // ============================================================================
+    // Iniciar drag de línea horizontal
+    // ============================================================================
+    const handleDragStart = useCallback((e: React.MouseEvent) => {
+        if (activeTool !== 'none' || !candleSeriesRef.current || !containerRef.current) return;
+        if (editPopup.visible) return;
+
+        const rect = containerRef.current.getBoundingClientRect();
+        const mouseY = e.clientY - rect.top;
+        const price = candleSeriesRef.current.coordinateToPrice(mouseY);
+        if (price === null) return;
+
+        const nearDrawing = findDrawingNearPrice(price, 1.0);
+        if (!nearDrawing) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        setDragState({
+            active: true,
+            drawingId: nearDrawing.id,
+            drawingType: 'horizontal_line',
+            originalPrice: nearDrawing.price,
+            startMouseY: mouseY,
+        });
+
+        selectDrawing(nearDrawing.id);
+        startDragging();
+    }, [activeTool, findDrawingNearPrice, selectDrawing, startDragging, editPopup.visible]);
+
+    // ============================================================================
+    // Mover línea durante drag
+    // ============================================================================
+    const handleDragMove = useCallback((e: React.MouseEvent) => {
+        if (!dragState.active || !dragState.drawingId || !candleSeriesRef.current || !containerRef.current) return;
+
+        const container = containerRef.current;
+        const rect = container.getBoundingClientRect();
+        const mouseY = e.clientY - rect.top;
+
+        const candleSeries = candleSeriesRef.current;
+
+        // Calcular nuevo precio basado en posición actual del mouse
+        const newPrice = candleSeries.coordinateToPrice(mouseY);
+        if (newPrice !== null && newPrice > 0) {
+            updateHorizontalLinePrice(dragState.drawingId, newPrice);
+        }
+    }, [dragState, updateHorizontalLinePrice]);
+
+    // ============================================================================
+    // Terminar drag
+    // ============================================================================
+    const handleDragEnd = useCallback(() => {
+        if (dragState.active) {
+            setDragState({
+                active: false,
+                drawingId: null,
+                drawingType: null,
+                originalPrice: 0,
+                startMouseY: 0,
+            });
+            stopDragging();
+            // Deseleccionar después de drag para evitar que el siguiente click mueva la línea
+            setTimeout(() => selectDrawing(null), 50);
+        }
+    }, [dragState.active, stopDragging, selectDrawing]);
+
+    // ============================================================================
+    // Desactivar scroll del chart durante drag
+    // ============================================================================
+    useEffect(() => {
+        if (!chartRef.current) return;
+
+        chartRef.current.applyOptions({
+            handleScroll: {
+                mouseWheel: !dragState.active,
+                pressedMouseMove: !dragState.active,
+                horzTouchDrag: !dragState.active,
+                vertTouchDrag: false,
+            },
+        });
+    }, [dragState.active]);
+
+    // ============================================================================
+    // Atajos de teclado
+    // ============================================================================
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignorar si estamos en un input
+            if ((e.target as HTMLElement).tagName === 'INPUT') return;
+
+            switch (e.key) {
+                case 'Escape':
+                    cancelDrawing();
+                    selectDrawing(null);
+                    break;
+                case 'h':
+                case 'H':
+                    setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line');
+                    break;
+                case 'Delete':
+                case 'Backspace':
+                    if (selectedDrawingId) {
+                        removeDrawing(selectedDrawingId);
+                    }
+                    break;
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [activeTool, selectedDrawingId, cancelDrawing, selectDrawing, setActiveTool, removeDrawing]);
+
+    // Cambiar cursor cuando hay herramienta activa
+    useEffect(() => {
+        if (!containerRef.current) return;
+        containerRef.current.style.cursor = isDrawing ? 'crosshair' : 'default';
+    }, [isDrawing]);
+
     // Handle range change
     const handleRangeChange = useCallback((range: TimeRange) => {
         setSelectedRange(range);
@@ -850,36 +1260,211 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
                 </div>
             </div>
 
-            {/* Chart container - min-h-0 allows flex item to shrink properly */}
-            <div className="flex-1 min-h-0 relative bg-white overflow-hidden">
-                {loading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
-                        <div className="flex items-center gap-2 text-slate-500">
-                            <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
-                            <span className="text-sm">Loading {currentTicker}...</span>
-                        </div>
-                    </div>
-                )}
+            {/* Chart container with drawing toolbar */}
+            <div className="flex-1 min-h-0 flex bg-white overflow-hidden">
+                {/* Drawing Tools Sidebar */}
+                <div className="w-10 flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col items-center py-2 gap-1">
+                    {/* Selection tool */}
+                    <button
+                        onClick={() => setActiveTool('none')}
+                        className={`p-2 rounded transition-colors ${activeTool === 'none'
+                            ? 'bg-white text-slate-700 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'
+                            }`}
+                        title="Seleccionar (Esc)"
+                    >
+                        <MousePointer className="w-4 h-4" />
+                    </button>
 
-                {error && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
-                        <div className="text-center">
-                            <p className="text-red-500 text-sm mb-2">Failed to load chart</p>
-                            <p className="text-slate-400 text-xs mb-3">{error}</p>
+                    {/* Horizontal line */}
+                    <button
+                        onClick={() => setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line')}
+                        className={`p-2 rounded transition-colors ${activeTool === 'horizontal_line'
+                            ? 'bg-blue-100 text-blue-600 shadow-sm'
+                            : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'
+                            }`}
+                        title="Línea horizontal (H)"
+                    >
+                        <Minus className="w-4 h-4" />
+                    </button>
+
+                    <div className="w-6 h-px bg-slate-200 my-1" />
+
+                    {/* Tip de ayuda */}
+                    <div className="text-[8px] text-slate-400 text-center px-1 leading-tight">
+                        Doble click<br />para editar
+                    </div>
+
+                    {/* Spacer */}
+                    <div className="flex-1" />
+
+                    {/* Clear all */}
+                    {drawings.length > 0 && (
+                        <button
+                            onClick={clearAllDrawings}
+                            className="p-2 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            title={`Borrar todos (${drawings.length})`}
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
+
+                {/* Chart area */}
+                <div
+                    className="flex-1 min-w-0 relative"
+                    style={{
+                        cursor: hoveredDrawingId && activeTool === 'none'
+                            ? 'ns-resize'  // Sobre línea = mover línea
+                            : isDrawing
+                                ? 'crosshair'
+                                : 'default'
+                    }}
+                    onMouseDown={activeTool === 'none' ? handleDragStart : undefined}
+                >
+                    {/* Drag overlay - captura todos los eventos durante drag */}
+                    {dragState.active && (
+                        <div
+                            className="absolute inset-0 z-50"
+                            style={{ cursor: 'ns-resize' }}
+                            onMouseMove={handleDragMove}
+                            onMouseUp={handleDragEnd}
+                            onMouseLeave={handleDragEnd}
+                        />
+                    )}
+
+                    {/* Drawing mode indicator */}
+                    {isDrawing && (
+                        <div className="absolute top-2 left-2 z-20 flex items-center gap-2 px-2 py-1 bg-blue-500 text-white text-xs font-medium rounded shadow-lg">
+                            <span>Click para añadir línea horizontal</span>
                             <button
-                                onClick={refetch}
-                                className="px-4 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors"
+                                onClick={cancelDrawing}
+                                className="hover:bg-blue-600 rounded px-1"
                             >
-                                Retry
+                                ✕
                             </button>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                <div
-                    ref={containerRef}
-                    className="h-full w-full"
-                />
+                    {/* Drag indicator */}
+                    {dragState.active && (
+                        <div className="absolute top-2 right-2 z-20 px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded shadow-lg">
+                            ↕ Arrastrando...
+                        </div>
+                    )}
+
+                    {/* Edit popup - aparece al doble click en línea */}
+                    {editPopup.visible && editingDrawing && (
+                        <>
+                            {/* Backdrop para cerrar */}
+                            <div
+                                className="absolute inset-0 z-40"
+                                onClick={closeEditPopup}
+                            />
+                            {/* Popup */}
+                            <div
+                                className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 min-w-[160px]"
+                                style={{
+                                    left: Math.min(editPopup.x, (containerRef.current?.clientWidth || 300) - 180),
+                                    top: Math.min(editPopup.y, (containerRef.current?.clientHeight || 200) - 150),
+                                }}
+                            >
+                                <div className="text-xs font-semibold text-slate-700 mb-2 pb-2 border-b border-slate-100">
+                                    Editar línea
+                                </div>
+
+                                {/* Colores */}
+                                <div className="mb-3">
+                                    <div className="text-[10px] text-slate-500 mb-1.5">Color</div>
+                                    <div className="flex gap-1.5">
+                                        {drawingColors.map(color => (
+                                            <button
+                                                key={color}
+                                                onClick={() => handleEditColor(color)}
+                                                className={`w-6 h-6 rounded-full transition-all ${editingDrawing.color === color
+                                                    ? 'ring-2 ring-offset-1 ring-slate-400 scale-110'
+                                                    : 'hover:scale-110'
+                                                    }`}
+                                                style={{ backgroundColor: color }}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Grosor */}
+                                <div className="mb-3">
+                                    <div className="text-[10px] text-slate-500 mb-1.5">Grosor</div>
+                                    <div className="flex gap-1">
+                                        {[1, 2, 3, 4].map(width => (
+                                            <button
+                                                key={width}
+                                                onClick={() => handleEditLineWidth(width)}
+                                                className={`flex-1 h-7 flex items-center justify-center rounded border transition-all ${editingDrawing.lineWidth === width
+                                                    ? 'bg-blue-50 border-blue-300'
+                                                    : 'border-slate-200 hover:bg-slate-50'
+                                                    }`}
+                                            >
+                                                <div
+                                                    className="rounded-full"
+                                                    style={{
+                                                        width: '20px',
+                                                        height: `${width}px`,
+                                                        backgroundColor: editingDrawing.color
+                                                    }}
+                                                />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Acciones */}
+                                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                                    <button
+                                        onClick={handleEditDelete}
+                                        className="flex-1 px-2 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors"
+                                    >
+                                        Eliminar
+                                    </button>
+                                    <button
+                                        onClick={closeEditPopup}
+                                        className="flex-1 px-2 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
+                                    >
+                                        Cerrar
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    )}
+
+                    {loading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
+                            <div className="flex items-center gap-2 text-slate-500">
+                                <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
+                                <span className="text-sm">Loading {currentTicker}...</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
+                            <div className="text-center">
+                                <p className="text-red-500 text-sm mb-2">Failed to load chart</p>
+                                <p className="text-slate-400 text-xs mb-3">{error}</p>
+                                <button
+                                    onClick={refetch}
+                                    className="px-4 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors"
+                                >
+                                    Retry
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div
+                        ref={containerRef}
+                        className="h-full w-full"
+                    />
+                </div>
             </div>
 
             {/* Footer with OHLCV data + Load More */}

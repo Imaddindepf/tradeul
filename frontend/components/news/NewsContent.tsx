@@ -37,11 +37,12 @@ interface NewsArticle {
 
 interface NewsContentProps {
   initialTicker?: string;
+  highlightArticleId?: string; // ID del artículo a resaltar (benzinga_id)
 }
 
 const ITEMS_PER_PAGE = 200;
 
-export function NewsContent({ initialTicker }: NewsContentProps = {}) {
+export function NewsContent({ initialTicker, highlightArticleId }: NewsContentProps = {}) {
   const { t } = useTranslation();
   const [news, setNews] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,25 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
   const [tickerFilter, setTickerFilter] = useState<string>(initialTicker || '');
   const [tickerInputValue, setTickerInputValue] = useState<string>(initialTicker || '');
   const [currentPage, setCurrentPage] = useState(1);
+  
+  // Estado para el artículo destacado con parpadeo
+  const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
+  const highlightRowRef = useRef<HTMLTableRowElement | null>(null);
+  
+  // Efecto para scroll automático al artículo destacado y quitar el highlight después
+  useEffect(() => {
+    if (highlightedId && highlightRowRef.current) {
+      // Scroll suave al artículo
+      highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      // Quitar el highlight después de 5 segundos
+      const timer = setTimeout(() => {
+        setHighlightedId(null);
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedId, news]); // También depende de news para re-scroll cuando se cargan los datos
 
   // WebSocket connection con Auth
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
@@ -481,11 +501,20 @@ export function NewsContent({ initialTicker }: NewsContentProps = {}) {
                 ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
                 : (article.tickers?.[0] || '—');
               const hasMultipleTickers = (article.tickers?.length || 0) > 1;
+              
+              // Verificar si este artículo está destacado
+              const articleId = String(article.benzinga_id || article.id || '');
+              const isHighlighted = highlightedId && highlightedId.includes(articleId);
 
               return (
                 <tr
                   key={article.benzinga_id || article.id || i}
-                  className={`cursor-pointer hover:bg-slate-50 transition-colors ${article.isLive ? 'bg-emerald-50/50' : ''}`}
+                  ref={isHighlighted ? highlightRowRef : null}
+                  className={`cursor-pointer hover:bg-slate-50 transition-colors ${
+                    isHighlighted 
+                      ? 'animate-highlight-pulse bg-rose-100' 
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                  }`}
                   onClick={() => setSelectedArticle(article)}
                 >
                   <td className="px-2 py-1">

@@ -1,17 +1,15 @@
 /**
  * useLiveChartData - Hook para datos de chart con actualización en tiempo real
  * 
- * Combina:
- * 1. Datos históricos cargados via API
- * 2. Actualizaciones en tiempo real via WebSocket (SharedWorker)
+ * ARQUITECTURA PROFESIONAL:
+ * 1. Datos históricos cargados via API → setData (una sola vez)
+ * 2. Actualizaciones en tiempo real via WebSocket → callback imperativo (sin re-render)
  * 
- * Sin gap de sincronización porque:
- * - Históricos traen barras cerradas hasta el minuto anterior
- * - WebSocket trae el minuto ACTUAL en progreso
+ * El componente TradingChart registra un handler que recibe las actualizaciones
+ * y usa series.update() directamente, evitando re-renders de React.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useRxWebSocket } from './useRxWebSocket';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 // ============================================================================
 // Types
@@ -28,40 +26,8 @@ export interface ChartBar {
 
 export type ChartInterval = '1min' | '5min' | '15min' | '30min' | '1hour' | '4hour' | '1day';
 
-interface MinuteData {
-  o: number;
-  h: number;
-  l: number;
-  c: number;
-  v: number;
-  av: number;
-  t: number;      // timestamp in milliseconds
-  vw?: number;
-  n?: number;
-}
-
-interface TickerSnapshot {
-  ticker: string;
-  min?: MinuteData;
-  lastTrade?: {
-    p: number;
-    t: number;
-  };
-  day?: {
-    o: number;
-    h: number;
-    l: number;
-    c: number;
-    v: number;
-  };
-}
-
-interface WebSocketSnapshotMessage {
-  type: 'snapshot';
-  count: number;
-  data: TickerSnapshot[];
-  timestamp: string;
-}
+// Handler que el chart registra para recibir updates sin re-render
+export type RealtimeUpdateHandler = (bar: ChartBar, isNewBar: boolean) => void;
 
 // ============================================================================
 // Constants
@@ -81,15 +47,21 @@ const INTERVAL_SECONDS: Record<ChartInterval, number> = {
 };
 
 // ============================================================================
+// WebSocket Manager Access
+// ============================================================================
+
+// Importar WebSocket hook principal
+import { useRxWebSocket } from './useRxWebSocket';
+
+// ============================================================================
 // Hook
 // ============================================================================
 
 export function useLiveChartData(
   ticker: string,
-  interval: ChartInterval,
-  wsUrl?: string
+  interval: ChartInterval
 ) {
-  // State
+  // State (solo para carga inicial, NO para updates en tiempo real)
   const [data, setData] = useState<ChartBar[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -98,16 +70,19 @@ export function useLiveChartData(
   const [oldestTime, setOldestTime] = useState<number | null>(null);
   const [isLive, setIsLive] = useState(false);
 
+  // WebSocket connection (uses the existing singleton from useRxWebSocket)
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+  const { isConnected, messages$, send } = useRxWebSocket(wsUrl);
+
   // Refs para acceso rápido sin re-renders
   const lastBarRef = useRef<ChartBar | null>(null);
   const tickerRef = useRef(ticker);
   const intervalRef = useRef(interval);
   const dataRef = useRef<ChartBar[]>([]);
+  const subscribedRef = useRef(false);
 
-  // WebSocket connection (usa el singleton existente)
-  const { snapshots$, isConnected } = useRxWebSocket(
-    wsUrl || process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000'
-  );
+  // Handler registrado por el chart para updates imperativos
+  const updateHandlerRef = useRef<RealtimeUpdateHandler | null>(null);
 
   // Actualizar refs cuando cambien
   useEffect(() => {
@@ -121,6 +96,14 @@ export function useLiveChartData(
       lastBarRef.current = data[data.length - 1];
     }
   }, [data]);
+
+  // ============================================================================
+  // Registrar handler para updates (llamado por TradingChart)
+  // ============================================================================
+
+  const registerUpdateHandler = useCallback((handler: RealtimeUpdateHandler | null) => {
+    updateHandlerRef.current = handler;
+  }, []);
 
   // ============================================================================
   // Cargar datos históricos
@@ -150,7 +133,7 @@ export function useLiveChartData(
       setData(bars);
       setOldestTime(result.oldest_time || null);
       setHasMore(result.has_more || false);
-      
+
       if (bars.length > 0) {
         lastBarRef.current = bars[bars.length - 1];
       }
@@ -210,82 +193,87 @@ export function useLiveChartData(
   }, [fetchHistorical]);
 
   // ============================================================================
-  // Actualizaciones en tiempo real via WebSocket
+  // Actualizaciones en tiempo real via WebSocket (SIN setData)
   // ============================================================================
 
   useEffect(() => {
-    if (!isConnected || !snapshots$) {
+    // Solo activar para intervalos cortos
+    const shouldSubscribe = ['1min', '5min', '15min'].includes(intervalRef.current);
+
+    if (!shouldSubscribe || loading || data.length === 0 || !ticker || !isConnected) {
       setIsLive(false);
       return;
     }
 
-    // Solo procesar para intervalos de minutos (1min es el más preciso)
-    // Para intervalos mayores, podríamos agregar lógica de agregación
     const intervalSecs = INTERVAL_SECONDS[intervalRef.current];
 
-    const subscription = snapshots$.subscribe({
+    // Suscribirse al chart
+    if (!subscribedRef.current) {
+      send({ action: 'subscribe_chart', symbol: tickerRef.current });
+      subscribedRef.current = true;
+      console.log(`📈 [LiveChart] Subscribed to ${tickerRef.current}`);
+    }
+
+    // Suscribirse al observable de mensajes
+    const subscription = messages$.subscribe({
       next: (message: any) => {
-        if (message.type !== 'snapshot' || !message.data) return;
+        if (message?.type !== 'chart_aggregate') return;
+        if (message.symbol !== tickerRef.current) return;
 
-        // Buscar nuestro ticker en el snapshot
-        const tickerData = message.data.find(
-          (t: TickerSnapshot) => t.ticker === tickerRef.current
-        );
+        const aggData = message.data;
 
-        if (!tickerData?.min) return;
-
-        const min = tickerData.min;
-        
         // Convertir timestamp de ms a segundos y redondear al intervalo
-        const wsTimeSecs = Math.floor(min.t / 1000);
-        const barTime = Math.floor(wsTimeSecs / intervalSecs) * intervalSecs;
-        
+        const timeSecs = Math.floor(aggData.t / 1000);
+        const barTime = Math.floor(timeSecs / intervalSecs) * intervalSecs;
+
         const lastBar = lastBarRef.current;
-        const currentData = dataRef.current;
 
-        if (!lastBar || currentData.length === 0) return;
+        if (!lastBar) return;
 
-        // Construir nueva barra desde datos del WebSocket
-        const wsBar: ChartBar = {
+        // Construir nueva barra desde aggregate
+        const newBar: ChartBar = {
           time: barTime,
-          open: min.o,
-          high: min.h,
-          low: min.l,
-          close: min.c,
-          volume: min.v,
+          open: aggData.o,
+          high: aggData.h,
+          low: aggData.l,
+          close: aggData.c,
+          volume: aggData.v,
         };
 
         if (barTime === lastBar.time) {
-          // MISMO período → actualizar última barra (merge)
-          // Para 1min: actualizamos directamente
-          // Para intervalos mayores: merge high/low/close
+          // MISMO período → actualizar última barra (merge OHLCV)
           const updatedBar: ChartBar = {
             time: barTime,
-            open: lastBar.open,  // Mantener open original
-            high: Math.max(lastBar.high, wsBar.high),
-            low: Math.min(lastBar.low, wsBar.low),
-            close: wsBar.close,  // Último precio
-            volume: intervalRef.current === '1min' 
-              ? wsBar.volume 
-              : lastBar.volume + wsBar.volume,
+            open: lastBar.open,
+            high: Math.max(lastBar.high, newBar.high),
+            low: Math.min(lastBar.low, newBar.low),
+            close: newBar.close,
+            volume: newBar.volume,
           };
 
-          setData(prev => {
-            const newData = [...prev];
-            newData[newData.length - 1] = updatedBar;
-            return newData;
-          });
+          // Actualizar ref (sin re-render)
+          lastBarRef.current = updatedBar;
+
+          // Notificar al chart via callback imperativo
+          if (updateHandlerRef.current) {
+            updateHandlerRef.current(updatedBar, false);
+          }
 
           setIsLive(true);
 
         } else if (barTime > lastBar.time) {
           // NUEVO período → crear nueva barra
-          setData(prev => [...prev, wsBar]);
+          lastBarRef.current = newBar;
+
+          // Notificar al chart via callback imperativo
+          if (updateHandlerRef.current) {
+            updateHandlerRef.current(newBar, true);
+          }
+
           setIsLive(true);
         }
-        // Si barTime < lastBar.time, ignorar (dato viejo)
       },
-      error: (err) => {
+      error: (err: any) => {
         console.error('[LiveChart] WebSocket error:', err);
         setIsLive(false);
       }
@@ -293,11 +281,17 @@ export function useLiveChartData(
 
     setIsLive(true);
 
+    // Cleanup
     return () => {
+      if (subscribedRef.current) {
+        send({ action: 'unsubscribe_chart', symbol: tickerRef.current });
+        subscribedRef.current = false;
+        console.log(`📉 [LiveChart] Unsubscribed from ${tickerRef.current}`);
+      }
       subscription.unsubscribe();
       setIsLive(false);
     };
-  }, [isConnected, snapshots$]);
+  }, [loading, data.length, ticker, isConnected, messages$, send]);
 
   // ============================================================================
   // Return
@@ -313,8 +307,9 @@ export function useLiveChartData(
     isConnected,
     refetch: fetchHistorical,
     loadMore,
+    // Método para que el chart registre su handler de updates
+    registerUpdateHandler,
   };
 }
 
 export default useLiveChartData;
-

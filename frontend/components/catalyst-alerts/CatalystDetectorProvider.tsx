@@ -1,0 +1,217 @@
+'use client';
+
+/**
+ * CatalystDetectorProvider
+ * 
+ * Componente global que se monta siempre en el layout.
+ * Se suscribe a noticias en segundo plano cuando las alertas están habilitadas.
+ * Detecta catalyst/noticias explosivas y dispara alertas.
+ * 
+ * IMPORTANTE: Este componente debe estar montado en el layout principal
+ * para que las alertas funcionen aunque la ventana de News no esté abierta.
+ */
+
+import { useEffect, useRef, useCallback } from 'react';
+import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert } from '@/stores/useCatalystAlertsStore';
+import { useTickersStore } from '@/stores/useTickersStore';
+import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+
+interface NewsWithMetrics {
+  benzinga_id?: string | number;
+  id?: string;
+  title: string;
+  url: string;
+  published: string;
+  tickers?: string[];
+  catalyst_metrics?: CatalystMetrics;
+}
+
+// Generar sonido de alerta usando Web Audio API
+function playAlertSound() {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // Sonido de alerta distintivo
+    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.1);
+    oscillator.frequency.exponentialRampToValueAtTime(800, audioContext.currentTime + 0.2);
+    
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.3);
+  } catch (e) {
+    // Ignorar errores de audio
+  }
+}
+
+export function CatalystDetectorProvider({ children }: { children: React.ReactNode }) {
+  // Store de alertas
+  const enabled = useCatalystAlertsStore((state) => state.enabled);
+  const criteria = useCatalystAlertsStore((state) => state.criteria);
+  const addAlert = useCatalystAlertsStore((state) => state.addAlert);
+  
+  // Tickers en scanner (para filtro)
+  const tickerLists = useTickersStore((state) => state.lists);
+  
+  // WebSocket
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+  const ws = useAuthWebSocket(wsUrl);
+  
+  // Ref para tracking de noticias procesadas (evitar duplicados)
+  const processedNewsRef = useRef<Set<string>>(new Set());
+  
+  // Verificar si un ticker está en el scanner
+  const isInScanner = useCallback((ticker: string): boolean => {
+    const upperTicker = ticker.toUpperCase();
+    let found = false;
+    tickerLists.forEach((list) => {
+      if (list.tickers.has(upperTicker)) {
+        found = true;
+      }
+    });
+    return found;
+  }, [tickerLists]);
+  
+  // Verificar si cumple criterios
+  const checkCriteria = useCallback((
+    ticker: string,
+    metrics: CatalystMetrics
+  ): { passes: boolean; reason: string } => {
+    const reasons: string[] = [];
+    let passes = false;
+    
+    // Filtro: solo scanner
+    if (criteria.filters.onlyScanner && !isInScanner(ticker)) {
+      return { passes: false, reason: 'Not in scanner' };
+    }
+    
+    // Criterio: Cambio de precio
+    if (criteria.priceChange.enabled) {
+      const change = criteria.priceChange.timeWindow === 1 
+        ? metrics.change_1m_pct 
+        : metrics.change_5m_pct;
+      
+      if (change !== null && Math.abs(change) >= criteria.priceChange.minPercent) {
+        passes = true;
+        const sign = change > 0 ? '+' : '';
+        reasons.push(`${sign}${change.toFixed(1)}% in ${criteria.priceChange.timeWindow}min`);
+      }
+    }
+    
+    // Criterio: RVOL
+    if (criteria.rvol.enabled && metrics.rvol && metrics.rvol >= criteria.rvol.minValue) {
+      passes = true;
+      reasons.push(`RVOL ${metrics.rvol.toFixed(1)}`);
+    }
+    
+    if (!passes) {
+      return { passes: false, reason: 'No criteria met' };
+    }
+    
+    return { passes: true, reason: reasons.join(' | ') };
+  }, [criteria, isInScanner]);
+  
+  // Procesar noticia
+  const processNews = useCallback((news: NewsWithMetrics) => {
+    if (!news.catalyst_metrics) return;
+    if (!news.tickers || news.tickers.length === 0) return;
+    
+    const newsId = `${news.benzinga_id || news.id || Date.now()}`;
+    
+    // Evitar duplicados
+    if (processedNewsRef.current.has(newsId)) return;
+    processedNewsRef.current.add(newsId);
+    
+    // Limpiar set si crece mucho
+    if (processedNewsRef.current.size > 1000) {
+      const entries = Array.from(processedNewsRef.current);
+      processedNewsRef.current = new Set(entries.slice(-500));
+    }
+    
+    const ticker = news.catalyst_metrics.ticker || news.tickers[0];
+    const metrics = news.catalyst_metrics;
+    
+    // Verificar criterios
+    const { passes, reason } = checkCriteria(ticker, metrics);
+    
+    if (!passes) return;
+    
+    // Crear alerta
+    const alert: CatalystAlert = {
+      id: `${newsId}-${ticker}`,
+      ticker,
+      title: news.title,
+      url: news.url,
+      published: news.published,
+      metrics,
+      triggeredAt: Date.now(),
+      dismissed: false,
+      reason,
+    };
+    
+    // Añadir alerta
+    addAlert(alert);
+    
+    // Reproducir sonido
+    if (criteria.notifications.sound) {
+      playAlertSound();
+    }
+    
+    console.log('[CatalystProvider] 🔔 Alert triggered:', ticker, reason);
+  }, [checkCriteria, addAlert, criteria.notifications.sound]);
+  
+  // Suscribirse a noticias cuando las alertas están habilitadas
+  useEffect(() => {
+    if (!enabled || !ws.isConnected) {
+      return;
+    }
+    
+    console.log('[CatalystProvider] 📰 Subscribing to news for catalyst detection...');
+    
+    // Suscribirse a noticias
+    ws.send({ action: 'subscribe_benzinga_news' });
+    
+    return () => {
+      console.log('[CatalystProvider] 📰 Unsubscribing from news...');
+      ws.send({ action: 'unsubscribe_benzinga_news' });
+    };
+  }, [enabled, ws.isConnected, ws]);
+  
+  // Procesar mensajes entrantes
+  useEffect(() => {
+    if (!enabled) return;
+    
+    const subscription = ws.messages$.subscribe((message: any) => {
+      if ((message.type === 'news' || message.type === 'benzinga_news') && message.article) {
+        const article = message.article;
+        
+        // Procesar para Catalyst Alerts
+        if (message.catalyst_metrics) {
+          processNews({
+            ...article,
+            catalyst_metrics: typeof message.catalyst_metrics === 'string' 
+              ? JSON.parse(message.catalyst_metrics) 
+              : message.catalyst_metrics,
+          });
+        }
+      }
+    });
+    
+    return () => subscription.unsubscribe();
+  }, [enabled, ws.messages$, processNews]);
+  
+  // Este componente es invisible, solo renderiza children
+  return <>{children}</>;
+}
+
+export default CatalystDetectorProvider;
+

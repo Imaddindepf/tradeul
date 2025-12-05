@@ -108,9 +108,21 @@ function connectWebSocket(url) {
         }
 
         connectionInfo.reconnectTimer = setTimeout(function() {
-          // Log silenciado - descomentar para debug
-          // log('info', '🔄 Reconnecting (attempt ' + connectionInfo.reconnectAttempts + ')');
+          // Pedir token nuevo al frontend antes de reconectar
+          // Esto evita reconectar con tokens expirados
+          ports.forEach(function(port) {
+            port.postMessage({
+              type: 'request_fresh_token',
+              message: 'SharedWorker needs fresh token for reconnection'
+            });
+          });
+          
+          // Dar tiempo al frontend para enviar el token nuevo (500ms)
+          // Si no llega, reconectar con la URL actual (mejor que no reconectar)
+          setTimeout(function() {
+            // log('info', '🔄 Reconnecting (attempt ' + connectionInfo.reconnectAttempts + ')');
           connectWebSocket(connectionInfo.url);
+          }, 500);
         }, backoff);
       }
     };

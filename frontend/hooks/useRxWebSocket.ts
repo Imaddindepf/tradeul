@@ -63,6 +63,7 @@ class WebSocketManager {
   private aggregatesSubject = new Subject<WebSocketMessage>();
   private errorsSubject = new Subject<Error>();
   private allMessagesSubject = new BehaviorSubject<WebSocketMessage | null>(null);
+  private tokenRefreshRequestSubject = new Subject<boolean>(); // Para solicitar token nuevo al reconectar
 
   // Heartbeat timer
   private heartbeatTimer: NodeJS.Timeout | null = null;
@@ -75,6 +76,10 @@ class WebSocketManager {
   static getInstance(): WebSocketManager {
     if (!WebSocketManager.instance) {
       WebSocketManager.instance = new WebSocketManager();
+      // Exponer en window para que otros hooks puedan acceder sin crear nueva conexión
+      if (typeof window !== 'undefined') {
+        (window as any).__WS_MANAGER__ = WebSocketManager.instance;
+      }
     }
     return WebSocketManager.instance;
   }
@@ -330,6 +335,13 @@ class WebSocketManager {
             console.log(`${emoji} [SharedWorker]`, msg.message, msg.data || '');
           }
           break;
+
+        case 'request_fresh_token':
+          // SharedWorker necesita un token nuevo para reconectar
+          // Emitir evento para que useAuthWebSocket lo maneje
+          if (this.debug) console.log('🔐 [RxWS-SharedWorker] Token refresh requested for reconnection');
+          this.tokenRefreshRequestSubject.next(true);
+          break;
       }
     };
 
@@ -420,6 +432,11 @@ class WebSocketManager {
       share()
     );
   }
+
+  // Observable para solicitudes de refresh de token (SharedWorker necesita token nuevo)
+  get tokenRefreshRequest$(): Observable<boolean> {
+    return this.tokenRefreshRequestSubject.asObservable();
+  }
 }
 
 // ============================================================================
@@ -434,6 +451,7 @@ export interface UseRxWebSocketReturn {
   deltas$: Observable<WebSocketMessage>;
   aggregates$: Observable<WebSocketMessage>;
   errors$: Observable<Error>;
+  tokenRefreshRequest$: Observable<boolean>; // SharedWorker solicita token nuevo para reconexión
   send: (payload: any) => void;
   reconnect: () => void;
   updateToken: (newUrl: string, token: string) => void;
@@ -486,6 +504,7 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     deltas$: managerRef.current.deltas$,
     aggregates$: managerRef.current.aggregates$,
     errors$: managerRef.current.errors$,
+    tokenRefreshRequest$: managerRef.current.tokenRefreshRequest$,
     send,
     reconnect,
     updateToken,

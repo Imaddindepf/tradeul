@@ -17,7 +17,7 @@ export function CatalystAlertsPopup() {
   const alerts = useCatalystAlertsStore((state) => state.alerts);
   const dismissAlert = useCatalystAlertsStore((state) => state.dismissAlert);
   const enabled = useCatalystAlertsStore((state) => state.enabled);
-  const { executeTickerCommand } = useCommandExecutor();
+  const { executeTickerCommand, openNewsWithArticle } = useCommandExecutor();
   
   // Usar useMemo en lugar de useState + useEffect para evitar bucles
   const visibleAlerts = useMemo(() => {
@@ -107,15 +107,13 @@ export function CatalystAlertsPopup() {
             
             {/* Actions */}
             <div className="flex border-t border-slate-100">
-              <a
-                href={alert.url}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                onClick={() => openNewsWithArticle(alert.id, alert.ticker)}
                 className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 transition-colors"
               >
                 <ExternalLink className="w-3 h-3" />
                 {t('common.viewNews') || 'View News'}
-              </a>
+              </button>
               <button
                 onClick={() => executeTickerCommand(alert.ticker, 'chart')}
                 className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors border-l border-slate-100"

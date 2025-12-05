@@ -35,6 +35,7 @@ from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client
 from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
 from routes.proxy import router as proxy_router
+from routes.realtime import router as realtime_router, set_redis_client as set_realtime_redis
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
@@ -82,6 +83,10 @@ async def lifespan(app: FastAPI):
     set_financials_redis(redis_client)
     set_fmp_api_key(settings.FMP_API_KEY)
     logger.info("financials_router_configured_fmp")
+    
+    # Configurar router de realtime con Redis
+    set_realtime_redis(redis_client)
+    logger.info("realtime_router_configured")
     
     # Inicializar HTTP Clients con connection pooling
     # Esto evita crear conexiones por request - CRÍTICO para latencia
@@ -175,6 +180,7 @@ app.include_router(user_filters_router)
 app.include_router(financials_router)
 app.include_router(watchlist_router)
 app.include_router(proxy_router)  # Incluye endpoints de dilution, SEC filings, etc.
+app.include_router(realtime_router)  # Real-time ticker data for charts
 
 
 # ============================================================================

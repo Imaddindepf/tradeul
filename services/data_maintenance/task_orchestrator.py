@@ -351,7 +351,7 @@ class TaskOrchestrator:
                 logger.info("atr_validation_passed", new=symbols_success, cached=symbols_skipped, total=valid_total)
                 return True
             logger.warning("atr_validation_failed", expected=MIN_ATR, actual=valid_total)
-            return False
+                return False
         
         return True
     

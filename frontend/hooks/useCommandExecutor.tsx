@@ -323,6 +323,7 @@ export function useCommandExecutor() {
 
         switch (commandId) {
             case 'graph':
+            case 'chart': // Alias para graph
                 openWindow({
                     title: `Chart: ${normalizedTicker}`,
                     content: <ChartContent ticker={normalizedTicker} exchange={exchange} />,
@@ -427,9 +428,31 @@ export function useCommandExecutor() {
         }
     }, [openWindow]);
 
+    /**
+     * Abrir la ventana de News con un artículo específico destacado
+     * @param articleId - ID del artículo (benzinga_id o combinación con ticker)
+     * @param ticker - Opcional: filtrar por ticker
+     */
+    const openNewsWithArticle = useCallback((articleId: string, ticker?: string) => {
+        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+        const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+
+        openWindow({
+            title: ticker ? `News: ${ticker.toUpperCase()}` : 'News',
+            content: <NewsContent initialTicker={ticker} highlightArticleId={articleId} />,
+            width: 900,
+            height: 600,
+            x: Math.max(50, screenWidth / 2 - 450),
+            y: Math.max(80, screenHeight / 2 - 300),
+            minWidth: 700,
+            minHeight: 450,
+        });
+    }, [openWindow]);
+
     return {
         executeCommand,
         executeTickerCommand,
+        openNewsWithArticle,
         openScannerTable,
         closeScannerTable,
         isScannerTableOpen,

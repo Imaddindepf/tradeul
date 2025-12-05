@@ -375,3 +375,17 @@ th {
 [cmdk-separator] {
   @apply h-px bg-slate-200 my-1;
 }
+
+/* Animación de parpadeo rojo para resaltar artículos */
+@keyframes highlight-pulse {
+  0%, 100% {
+    background-color: rgb(254 226 226); /* rose-100 */
+  }
+  50% {
+    background-color: rgb(254 202 202); /* rose-200 */
+  }
+}
+
+.animate-highlight-pulse {
+  animation: highlight-pulse 0.8s ease-in-out infinite;
+}
