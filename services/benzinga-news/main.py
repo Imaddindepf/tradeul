@@ -5,6 +5,7 @@ Real-time news streaming and historical news API
 """
 
 import asyncio
+import logging
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime, date
@@ -19,21 +20,25 @@ from config import settings
 from tasks.news_stream_manager import BenzingaNewsStreamManager
 from models.news import BenzingaArticle, NewsFilterParams
 
-# Logger
+# Configurar logging para que structlog escriba a stdout
+logging.basicConfig(
+    format="%(message)s",
+    stream=sys.stdout,
+    level=logging.INFO,
+    force=True  # Forzar reconfiguración
+)
+
+# Logger estructurado - configuración simplificada que siempre escribe a stdout
 structlog.configure(
     processors=[
-        structlog.stdlib.filter_by_level,
         structlog.stdlib.add_log_level,
-        structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,
         structlog.processors.JSONRenderer()
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
     context_class=dict,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
+    logger_factory=structlog.PrintLoggerFactory(),  # Usar PrintLogger que escribe directo a stdout
+    cache_logger_on_first_use=False,  # No cachear para que tome la nueva config
 )
 
 logger = structlog.get_logger(__name__)

@@ -6,6 +6,7 @@ Acceso a datos de dilución SEC en PostgreSQL
 import sys
 sys.path.append('/app')
 
+import json
 from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 
@@ -81,12 +82,22 @@ class SECDilutionRepository:
             equity_lines = await self._get_equity_lines(ticker)
             
             # 7. Construir metadata
+            # Parsear source_filings si viene como string JSON
+            source_filings_raw = profile_row['source_filings']
+            if isinstance(source_filings_raw, str):
+                try:
+                    source_filings = json.loads(source_filings_raw) if source_filings_raw else []
+                except json.JSONDecodeError:
+                    source_filings = []
+            else:
+                source_filings = source_filings_raw or []
+            
             metadata = DilutionProfileMetadata(
                 ticker=profile_row['ticker'],
                 cik=profile_row['cik'],
                 company_name=profile_row['company_name'],
                 last_scraped_at=profile_row['last_scraped_at'],
-                source_filings=profile_row['source_filings'] or [],
+                source_filings=source_filings,
                 scrape_success=profile_row['scrape_success'],
                 scrape_error=profile_row['scrape_error']
             )

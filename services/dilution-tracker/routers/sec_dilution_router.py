@@ -505,3 +505,155 @@ async def get_dilution_analysis(ticker: str):
         logger.error("get_dilution_analysis_failed", ticker=ticker, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ========================================================================
+# NEW: ENHANCED ENDPOINTS (SEC-API /float, FMP Cash, Risk Flags)
+# ========================================================================
+
+@router.get("/{ticker}/shares-history")
+async def get_shares_history(ticker: str):
+    """
+    Obtener historial de shares outstanding desde SEC-API /float.
+    
+    Fuente oficial de la SEC - más precisa que otras APIs.
+    
+    Incluye:
+    - Historial de shares outstanding por trimestre
+    - Dilución calculada: 3 meses, 6 meses, 1 año, histórica
+    - Public float USD
+    - Source filings de la SEC
+    
+    **Caché:** 6 horas
+    
+    **Ejemplo:**
+    ```
+    GET /api/sec-dilution/SOUN/shares-history
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            service = SECDilutionService(db, redis)
+            result = await service.get_shares_history(ticker)
+            
+            if "error" in result:
+                raise HTTPException(status_code=404, detail=result["error"])
+            
+            return result
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_shares_history_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{ticker}/cash-position")
+async def get_cash_position(ticker: str):
+    """
+    Obtener cash position y cash runway desde FMP API.
+    
+    Incluye:
+    - Historial de cash position (últimos 12 trimestres)
+    - Historial de operating cash flow
+    - Burn rate diario calculado
+    - Estimated current cash (prorrateado desde último reporte)
+    - Cash runway en días
+    - Risk level (critical, high, medium, low)
+    
+    **Caché:** 4 horas
+    
+    **Ejemplo:**
+    ```
+    GET /api/sec-dilution/SOUN/cash-position
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            service = SECDilutionService(db, redis)
+            result = await service.get_cash_data(ticker)
+            
+            if result.get("error"):
+                raise HTTPException(status_code=404, detail=result["error"])
+            
+            return result
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_cash_position_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{ticker}/enhanced-profile")
+async def get_enhanced_profile(
+    ticker: str,
+    force_refresh: bool = Query(default=False, description="Force re-scraping ignoring cache")
+):
+    """
+    Obtener perfil de dilución COMPLETO y MEJORADO.
+    
+    Este endpoint combina TODO en una sola llamada:
+    - Perfil SEC estándar (warrants, ATM, shelf, etc.)
+    - Historial de shares outstanding (SEC-API /float)
+    - Cash position y runway (FMP)
+    - Risk flags automáticos
+    - Stats de optimización
+    
+    **Ideal para:** Dashboard de dilución completo
+    
+    **Caché:** Varía por componente (profile: 24h, shares: 6h, cash: 4h)
+    
+    **Ejemplo:**
+    ```
+    GET /api/sec-dilution/SOUN/enhanced-profile
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            service = SECDilutionService(db, redis)
+            result = await service.get_enhanced_dilution_profile(ticker, force_refresh=force_refresh)
+            
+            if "error" in result and result.get("profile") is None:
+                raise HTTPException(status_code=404, detail=result.get("error", "Profile not found"))
+            
+            return result
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_enhanced_profile_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+

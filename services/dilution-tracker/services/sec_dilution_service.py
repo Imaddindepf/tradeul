@@ -12,7 +12,8 @@ import re
 import asyncio
 import os
 import tempfile
-from typing import Optional, Dict, List, Any
+import time
+from typing import Optional, Dict, List, Any, Tuple
 from datetime import datetime, timedelta
 from decimal import Decimal
 from bs4 import BeautifulSoup
@@ -35,6 +36,17 @@ from models.sec_dilution_models import (
 )
 from repositories.sec_dilution_repository import SECDilutionRepository
 from http_clients import http_clients
+from services.enhanced_data_fetcher import (
+    EnhancedDataFetcher,
+    get_filing_tier,
+    quick_dilution_scan,
+    should_process_with_grok,
+    deduplicate_instruments,
+    calculate_confidence_score,
+    identify_risk_flags,
+)
+from services.grok_pool import GrokPool, get_grok_pool
+from services.chunk_processor import ChunkProcessor, ChunkResult, ChunkStatus
 
 logger = get_logger(__name__)
 
@@ -61,13 +73,878 @@ class SECDilutionService:
         self.db = db
         self.redis = redis
         self.repository = SECDilutionRepository(db)
-        self.grok_api_key = settings.GROK_API_KEY
+        self.grok_api_key = settings.GROK_API_KEY  # Mantener para compatibilidad
+        
+        # Enhanced data fetcher for SEC-API /float and FMP cash data
+        self.enhanced_fetcher = EnhancedDataFetcher()
         
         # Semáforo global para limitar requests concurrentes a SEC
         self._sec_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_SCRAPES)
         
-        if not self.grok_api_key:
+        # GrokPool para múltiples API keys (procesamiento paralelo)
+        try:
+            self._grok_pool = get_grok_pool()
+            logger.info("grok_pool_ready", 
+                       num_keys=self._grok_pool.num_keys,
+                       max_parallel=self._grok_pool.num_keys * 2)
+        except Exception as e:
+            self._grok_pool = None
+            logger.warning("grok_pool_init_failed", error=str(e))
+        
+        # Stats for pre-screening optimization
+        self._stats = {
+            "grok_calls": 0,
+            "grok_calls_parallel": 0,
+            "skipped_prescreening": 0,
+            "cache_hits": 0,
+            "retries": 0,
+            "timeouts": 0
+        }
+        
+        if not self.grok_api_key and not self._grok_pool:
             logger.warning("grok_api_key_not_configured")
+    
+    # ========================================================================
+    # HELPER: Normalizadores para datos de Grok (robusto, sin asunciones)
+    # ========================================================================
+    
+    def _to_hashable(self, value: Any) -> Any:
+        """
+        Convierte cualquier valor a un tipo hashable para usar en sets/dicts.
+        
+        CRÍTICO: Grok a veces devuelve estructuras inesperadas como:
+        - {"value": 1.50, "currency": "$"} en lugar de 1.50
+        - ["2025-12-31"] en lugar de "2025-12-31"
+        - {"date": "2025-12-31", "type": "fixed"} en lugar de "2025-12-31"
+        
+        Esta función convierte todo a tipos hashables sin perder información.
+        
+        Returns:
+            Valor hashable (str, int, float, bool, None, o tuple para listas)
+        """
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            # Convertir dict a string JSON ordenado (determinístico)
+            try:
+                return json.dumps(value, sort_keys=True, default=str)
+            except (TypeError, ValueError):
+                return str(value)
+        if isinstance(value, (list, tuple)):
+            # Convertir lista a tupla recursivamente
+            return tuple(self._to_hashable(item) for item in value)
+        # Fallback: convertir a string
+        return str(value)
+    
+    def _normalize_grok_value(self, value: Any, expected_type: str = "string") -> Any:
+        """
+        Normaliza un valor de Grok extrayendo el valor real de estructuras anidadas.
+        
+        Grok a veces devuelve:
+        - {"value": X} → extraemos X
+        - {"amount": X} → extraemos X
+        - {"date": X} → extraemos X
+        - [X] → extraemos X (si es lista de un elemento)
+        - {"price": X, "currency": Y} → extraemos X
+        
+        Args:
+            value: Valor crudo de Grok
+            expected_type: "string", "number", "date", "any"
+            
+        Returns:
+            Valor normalizado o None si no se puede extraer
+        """
+        if value is None:
+            return None
+            
+        # Si ya es del tipo esperado, devolverlo
+        if expected_type == "number" and isinstance(value, (int, float)):
+            return value
+        if expected_type == "string" and isinstance(value, str):
+            return value
+        if expected_type == "date" and isinstance(value, str):
+            return value
+        if expected_type == "any" and isinstance(value, (str, int, float, bool)):
+            return value
+            
+        # Si es dict, intentar extraer el valor
+        if isinstance(value, dict):
+            # Campos comunes que contienen el valor real
+            value_fields = ['value', 'amount', 'price', 'date', 'count', 'number', 
+                           'shares', 'quantity', 'total', 'remaining', 'outstanding']
+            
+            for field in value_fields:
+                if field in value:
+                    extracted = value[field]
+                    # Recursivamente normalizar el valor extraído
+                    return self._normalize_grok_value(extracted, expected_type)
+            
+            # Si el dict tiene solo un valor, extraerlo
+            if len(value) == 1:
+                only_value = list(value.values())[0]
+                return self._normalize_grok_value(only_value, expected_type)
+            
+            # No se puede extraer un valor simple, convertir a string
+            logger.warning("grok_complex_value_normalized", 
+                          original_type="dict",
+                          keys=list(value.keys())[:5],
+                          action="converting_to_string")
+            return str(value)
+            
+        # Si es lista de un solo elemento, extraerlo
+        if isinstance(value, list):
+            if len(value) == 1:
+                return self._normalize_grok_value(value[0], expected_type)
+            elif len(value) == 0:
+                return None
+            else:
+                # Lista con múltiples elementos - devolver el primero con warning
+                logger.warning("grok_list_value_normalized",
+                              list_length=len(value),
+                              action="using_first_element")
+                return self._normalize_grok_value(value[0], expected_type)
+        
+        # Fallback: intentar conversión directa
+        if expected_type == "number":
+            try:
+                if isinstance(value, str):
+                    # Limpiar símbolos comunes
+                    cleaned = value.replace('$', '').replace(',', '').replace('%', '').strip()
+                    if cleaned:
+                        return float(cleaned)
+                return None
+            except (ValueError, TypeError):
+                return None
+        
+        # Default: convertir a string
+        return str(value) if value is not None else None
+    
+    def _safe_get_for_key(self, item: Dict, field: str, expected_type: str = "any") -> Any:
+        """
+        Obtiene un valor de un dict de forma segura para usar en keys de deduplicación.
+        
+        Combina _normalize_grok_value y _to_hashable para garantizar:
+        1. El valor se extrae correctamente de estructuras anidadas
+        2. El resultado es siempre hashable
+        
+        Args:
+            item: Diccionario con los datos
+            field: Nombre del campo a extraer
+            expected_type: Tipo esperado ("string", "number", "date", "any")
+            
+        Returns:
+            Valor hashable o None
+        """
+        raw_value = item.get(field)
+        normalized = self._normalize_grok_value(raw_value, expected_type)
+        return self._to_hashable(normalized)
+    
+    # ========================================================================
+    # NORMALIZACIÓN DE CAMPOS DE RESPUESTA GROK
+    # ========================================================================
+    
+    def _normalize_grok_extraction_fields(self, extracted: Dict) -> Dict:
+        """
+        Normaliza los campos de la respuesta de Grok a nuestro schema estándar.
+        
+        PROBLEMA: Grok usa nombres de campos inconsistentes:
+        - "number", "number_issued", "shares" → debería ser "outstanding"
+        - "issuance_date", "offering_date" → debería ser "issue_date"
+        - "type", "description", "series" → debería ser "notes"
+        
+        Esta función mapea TODOS los campos alternativos a nuestro schema.
+        
+        Args:
+            extracted: Respuesta raw de Grok (dict con warrants, atm_offerings, etc.)
+            
+        Returns:
+            Dict normalizado con campos estandarizados
+        """
+        if not extracted:
+            return extracted
+        
+        # Normalizar warrants
+        if 'warrants' in extracted and isinstance(extracted['warrants'], list):
+            extracted['warrants'] = [
+                self._normalize_warrant_fields(w) for w in extracted['warrants']
+            ]
+        
+        # Normalizar ATM offerings
+        if 'atm_offerings' in extracted and isinstance(extracted['atm_offerings'], list):
+            extracted['atm_offerings'] = [
+                self._normalize_atm_fields(a) for a in extracted['atm_offerings']
+            ]
+        
+        # Normalizar shelf registrations
+        if 'shelf_registrations' in extracted and isinstance(extracted['shelf_registrations'], list):
+            extracted['shelf_registrations'] = [
+                self._normalize_shelf_fields(s) for s in extracted['shelf_registrations']
+            ]
+        
+        # Normalizar completed offerings
+        if 'completed_offerings' in extracted and isinstance(extracted['completed_offerings'], list):
+            extracted['completed_offerings'] = [
+                self._normalize_completed_fields(c) for c in extracted['completed_offerings']
+            ]
+        
+        # Normalizar S-1 offerings
+        if 's1_offerings' in extracted and isinstance(extracted['s1_offerings'], list):
+            extracted['s1_offerings'] = [
+                self._normalize_s1_fields(s) for s in extracted['s1_offerings']
+            ]
+        
+        # Normalizar convertible notes
+        if 'convertible_notes' in extracted and isinstance(extracted['convertible_notes'], list):
+            extracted['convertible_notes'] = [
+                self._normalize_convertible_note_fields(n) for n in extracted['convertible_notes']
+            ]
+        
+        # Normalizar convertible preferred
+        if 'convertible_preferred' in extracted and isinstance(extracted['convertible_preferred'], list):
+            extracted['convertible_preferred'] = [
+                self._normalize_convertible_preferred_fields(p) for p in extracted['convertible_preferred']
+            ]
+        
+        # Normalizar equity lines
+        if 'equity_lines' in extracted and isinstance(extracted['equity_lines'], list):
+            extracted['equity_lines'] = [
+                self._normalize_equity_line_fields(e) for e in extracted['equity_lines']
+            ]
+        
+        return extracted
+    
+    def _normalize_warrant_fields(self, w: Dict) -> Dict:
+        """
+        Normaliza campos de un warrant al schema estándar.
+        
+        MAPEOS:
+        - number, number_issued, shares, total_shares, warrants_outstanding, 
+          quantity, amount → outstanding
+        - issuance_date, offering_date, filing_date, grant_date, date → issue_date
+        - type, description, series, name, warrant_type, title → notes
+        - strike_price, price → exercise_price
+        - expiry, expiry_date, maturity, expiration → expiration_date
+        - potential_shares, dilution_shares, max_shares → potential_new_shares
+        """
+        if not isinstance(w, dict):
+            return w
+        
+        normalized = dict(w)  # Copiar para no mutar original
+        
+        # === OUTSTANDING ===
+        outstanding_aliases = [
+            'number', 'number_issued', 'shares', 'total_shares', 
+            'warrants_outstanding', 'quantity', 'amount', 'total_issued',
+            'shares_issuable', 'warrant_shares', 'common_stock_issuable'
+        ]
+        if normalized.get('outstanding') is None:
+            for alias in outstanding_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['outstanding'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === ISSUE_DATE ===
+        issue_date_aliases = [
+            'issuance_date', 'offering_date', 'filing_date', 'grant_date', 
+            'date', 'issued_date', 'effective_date', 'agreement_date'
+        ]
+        if normalized.get('issue_date') is None:
+            for alias in issue_date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['issue_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === NOTES ===
+        notes_aliases = [
+            'type', 'description', 'series', 'name', 'warrant_type', 
+            'title', 'terms', 'details', 'summary', 'warrant_name'
+        ]
+        if normalized.get('notes') is None:
+            notes_parts = []
+            for alias in notes_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    val = self._normalize_grok_value(normalized[alias], 'string')
+                    if val and val not in notes_parts:
+                        notes_parts.append(str(val))
+            if notes_parts:
+                normalized['notes'] = ' - '.join(notes_parts)
+        
+        # === EXERCISE_PRICE ===
+        price_aliases = ['strike_price', 'price', 'strike', 'warrant_price', 'per_share_price']
+        if normalized.get('exercise_price') is None:
+            for alias in price_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['exercise_price'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === EXPIRATION_DATE ===
+        expiration_aliases = ['expiry', 'expiry_date', 'maturity', 'expiration', 'expires', 'maturity_date']
+        if normalized.get('expiration_date') is None:
+            for alias in expiration_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['expiration_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === POTENTIAL_NEW_SHARES ===
+        potential_aliases = ['potential_shares', 'dilution_shares', 'max_shares', 'shares_underlying']
+        if normalized.get('potential_new_shares') is None:
+            # Si no hay potential_new_shares, usar outstanding como fallback
+            for alias in potential_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['potential_new_shares'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+            # Fallback: outstanding = potential_new_shares para warrants
+            if normalized.get('potential_new_shares') is None and normalized.get('outstanding') is not None:
+                normalized['potential_new_shares'] = normalized['outstanding']
+        
+        return normalized
+    
+    def _normalize_atm_fields(self, a: Dict) -> Dict:
+        """
+        Normaliza campos de un ATM offering al schema estándar.
+        
+        MAPEOS:
+        - capacity, amount, aggregate_offering, max_offering, program_size → total_capacity
+        - remaining, available, unused → remaining_capacity
+        - agent, underwriter, sales_agent, placement_agent_name → placement_agent
+        - date, effective_date, agreement_date → filing_date
+        """
+        if not isinstance(a, dict):
+            return a
+        
+        normalized = dict(a)
+        
+        # === TOTAL_CAPACITY ===
+        capacity_aliases = [
+            'capacity', 'amount', 'aggregate_offering', 'max_offering', 
+            'program_size', 'total_amount', 'aggregate_amount', 'offering_amount'
+        ]
+        if normalized.get('total_capacity') is None:
+            for alias in capacity_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['total_capacity'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === REMAINING_CAPACITY ===
+        remaining_aliases = ['remaining', 'available', 'unused', 'remaining_amount', 'available_capacity']
+        if normalized.get('remaining_capacity') is None:
+            for alias in remaining_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['remaining_capacity'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === PLACEMENT_AGENT ===
+        agent_aliases = [
+            'agent', 'underwriter', 'sales_agent', 'placement_agent_name',
+            'dealer', 'manager', 'distributor'
+        ]
+        if normalized.get('placement_agent') is None:
+            for alias in agent_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['placement_agent'] = self._normalize_grok_value(normalized[alias], 'string')
+                    break
+        
+        # === FILING_DATE ===
+        date_aliases = ['date', 'effective_date', 'agreement_date', 'execution_date']
+        if normalized.get('filing_date') is None:
+            for alias in date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['filing_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        return normalized
+    
+    def _normalize_shelf_fields(self, s: Dict) -> Dict:
+        """
+        Normaliza campos de un shelf registration al schema estándar.
+        """
+        if not isinstance(s, dict):
+            return s
+        
+        normalized = dict(s)
+        
+        # === TOTAL_CAPACITY ===
+        capacity_aliases = [
+            'capacity', 'amount', 'aggregate_offering', 'max_offering',
+            'registered_amount', 'total_amount', 'offering_amount'
+        ]
+        if normalized.get('total_capacity') is None:
+            for alias in capacity_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['total_capacity'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === REMAINING_CAPACITY ===
+        remaining_aliases = ['remaining', 'available', 'unused', 'remaining_amount']
+        if normalized.get('remaining_capacity') is None:
+            for alias in remaining_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['remaining_capacity'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === REGISTRATION_STATEMENT ===
+        reg_aliases = ['form_type', 'type', 'form', 'statement_type', 'registration_type']
+        if normalized.get('registration_statement') is None:
+            for alias in reg_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    val = self._normalize_grok_value(normalized[alias], 'string')
+                    # Normalizar a formato estándar (S-3, S-1, etc.)
+                    if val:
+                        val_upper = str(val).upper().replace(' ', '')
+                        if 'S-3' in val_upper or 'S3' in val_upper:
+                            normalized['registration_statement'] = 'S-3'
+                        elif 'S-1' in val_upper or 'S1' in val_upper:
+                            normalized['registration_statement'] = 'S-1'
+                        elif 'S-11' in val_upper or 'S11' in val_upper:
+                            normalized['registration_statement'] = 'S-11'
+                        else:
+                            normalized['registration_statement'] = val
+                    break
+        
+        # === FILING_DATE ===
+        date_aliases = ['date', 'effective_date', 'filed_date', 'registration_date']
+        if normalized.get('filing_date') is None:
+            for alias in date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['filing_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === EXPIRATION_DATE ===
+        exp_aliases = ['expiration', 'expiry', 'expires', 'valid_until']
+        if normalized.get('expiration_date') is None:
+            for alias in exp_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['expiration_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        return normalized
+    
+    def _normalize_completed_fields(self, c: Dict) -> Dict:
+        """
+        Normaliza campos de un completed offering al schema estándar.
+        """
+        if not isinstance(c, dict):
+            return c
+        
+        normalized = dict(c)
+        
+        # === SHARES_ISSUED ===
+        shares_aliases = ['shares', 'number_of_shares', 'total_shares', 'shares_offered', 'shares_sold']
+        if normalized.get('shares_issued') is None:
+            for alias in shares_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['shares_issued'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === PRICE_PER_SHARE ===
+        price_aliases = ['price', 'offering_price', 'share_price', 'per_share']
+        if normalized.get('price_per_share') is None:
+            for alias in price_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['price_per_share'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === AMOUNT_RAISED ===
+        amount_aliases = ['amount', 'gross_proceeds', 'proceeds', 'total_raised', 'offering_amount']
+        if normalized.get('amount_raised') is None:
+            for alias in amount_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['amount_raised'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === OFFERING_DATE ===
+        date_aliases = ['date', 'closing_date', 'effective_date', 'completion_date']
+        if normalized.get('offering_date') is None:
+            for alias in date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['offering_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === OFFERING_TYPE ===
+        type_aliases = ['type', 'offering_name', 'description', 'title']
+        if normalized.get('offering_type') is None:
+            for alias in type_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['offering_type'] = self._normalize_grok_value(normalized[alias], 'string')
+                    break
+        
+        return normalized
+    
+    def _normalize_s1_fields(self, s: Dict) -> Dict:
+        """
+        Normaliza campos de un S-1 offering al schema estándar.
+        """
+        if not isinstance(s, dict):
+            return s
+        
+        normalized = dict(s)
+        
+        # === S1_FILING_DATE ===
+        date_aliases = ['filing_date', 'date', 'effective_date', 'registration_date']
+        if normalized.get('s1_filing_date') is None:
+            for alias in date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['s1_filing_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === DEAL_SIZE ===
+        size_aliases = ['deal_size', 'amount', 'offering_amount', 'gross_proceeds', 'total_raised']
+        if normalized.get('deal_size') is None:
+            for alias in size_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['deal_size'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === SHARES_OFFERED ===
+        shares_aliases = ['shares_offered', 'shares', 'number_of_shares', 'total_shares']
+        if normalized.get('shares_offered') is None:
+            for alias in shares_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['shares_offered'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === PRICE_RANGE ===
+        price_aliases = ['price_range', 'price', 'estimated_price', 'offering_price']
+        if normalized.get('price_range') is None:
+            for alias in price_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    val = normalized[alias]
+                    if isinstance(val, (int, float)):
+                        normalized['price_range'] = f"${val}"
+                    else:
+                        normalized['price_range'] = self._normalize_grok_value(val, 'string')
+                    break
+        
+        return normalized
+    
+    def _normalize_convertible_note_fields(self, n: Dict) -> Dict:
+        """
+        Normaliza campos de un convertible note al schema estándar.
+        """
+        if not isinstance(n, dict):
+            return n
+        
+        normalized = dict(n)
+        
+        # === PRINCIPAL_AMOUNT ===
+        principal_aliases = ['principal_amount', 'principal', 'amount', 'face_value', 'note_amount']
+        if normalized.get('principal_amount') is None:
+            for alias in principal_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['principal_amount'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === CONVERSION_PRICE ===
+        conv_price_aliases = ['conversion_price', 'strike_price', 'price', 'conversion_rate']
+        if normalized.get('conversion_price') is None:
+            for alias in conv_price_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['conversion_price'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === ISSUE_DATE ===
+        date_aliases = ['issue_date', 'issuance_date', 'date', 'effective_date']
+        if normalized.get('issue_date') is None:
+            for alias in date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['issue_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === MATURITY_DATE ===
+        maturity_aliases = ['maturity_date', 'maturity', 'expiration', 'due_date']
+        if normalized.get('maturity_date') is None:
+            for alias in maturity_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['maturity_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === HOLDER ===
+        holder_aliases = ['holder', 'investor', 'lender', 'noteholder', 'purchaser']
+        if normalized.get('holder') is None:
+            for alias in holder_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['holder'] = self._normalize_grok_value(normalized[alias], 'string')
+                    break
+        
+        return normalized
+    
+    def _normalize_convertible_preferred_fields(self, p: Dict) -> Dict:
+        """
+        Normaliza campos de un convertible preferred al schema estándar.
+        """
+        if not isinstance(p, dict):
+            return p
+        
+        normalized = dict(p)
+        
+        # === SERIES ===
+        series_aliases = ['series', 'name', 'title', 'designation', 'series_name']
+        if normalized.get('series') is None:
+            for alias in series_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['series'] = self._normalize_grok_value(normalized[alias], 'string')
+                    break
+        
+        # === TOTAL_DOLLAR_AMOUNT_ISSUED ===
+        amount_aliases = [
+            'total_dollar_amount_issued', 'amount', 'total_amount', 
+            'proceeds', 'gross_proceeds', 'offering_amount'
+        ]
+        if normalized.get('total_dollar_amount_issued') is None:
+            for alias in amount_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['total_dollar_amount_issued'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === CONVERSION_PRICE ===
+        conv_aliases = ['conversion_price', 'strike_price', 'price', 'conversion_rate']
+        if normalized.get('conversion_price') is None:
+            for alias in conv_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['conversion_price'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === ISSUE_DATE ===
+        date_aliases = ['issue_date', 'issuance_date', 'date', 'effective_date']
+        if normalized.get('issue_date') is None:
+            for alias in date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['issue_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        return normalized
+    
+    def _normalize_equity_line_fields(self, e: Dict) -> Dict:
+        """
+        Normaliza campos de un equity line al schema estándar.
+        """
+        if not isinstance(e, dict):
+            return e
+        
+        normalized = dict(e)
+        
+        # === TOTAL_CAPACITY ===
+        capacity_aliases = [
+            'total_capacity', 'capacity', 'amount', 'commitment_amount',
+            'max_amount', 'facility_size', 'line_amount'
+        ]
+        if normalized.get('total_capacity') is None:
+            for alias in capacity_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['total_capacity'] = self._normalize_grok_value(normalized[alias], 'number')
+                    break
+        
+        # === COUNTERPARTY ===
+        counterparty_aliases = ['counterparty', 'investor', 'purchaser', 'buyer', 'provider']
+        if normalized.get('counterparty') is None:
+            for alias in counterparty_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['counterparty'] = self._normalize_grok_value(normalized[alias], 'string')
+                    break
+        
+        # === AGREEMENT_START_DATE ===
+        date_aliases = ['agreement_start_date', 'start_date', 'date', 'effective_date', 'execution_date']
+        if normalized.get('agreement_start_date') is None:
+            for alias in date_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['agreement_start_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        # === AGREEMENT_END_DATE ===
+        end_aliases = ['agreement_end_date', 'end_date', 'expiration', 'termination_date']
+        if normalized.get('agreement_end_date') is None:
+            for alias in end_aliases:
+                if alias in normalized and normalized[alias] is not None:
+                    normalized['agreement_end_date'] = self._normalize_grok_value(normalized[alias], 'date')
+                    break
+        
+        return normalized
+    
+    # ========================================================================
+    # HELPER: Chunk size dinámico para optimización
+    # ========================================================================
+    
+    def _calculate_optimal_chunk_size(self, filings: List[Dict], form_type_hint: str = "") -> int:
+        """
+        Calcula el chunk size óptimo basado en el tamaño promedio de los filings.
+        
+        OPTIMIZACIÓN: Grok puede manejar ~130K tokens (~500KB de texto).
+        Maximizar filings por chunk reduce el número de llamadas API.
+        
+        REGLAS:
+        - <10KB promedio → chunk de 10 filings (424B3 pequeños)
+        - 10-30KB promedio → chunk de 7 filings
+        - 30-50KB promedio → chunk de 5 filings  
+        - 50-100KB promedio → chunk de 3 filings
+        - >100KB promedio → chunk de 2 filings (DEF 14A grandes)
+        
+        Args:
+            filings: Lista de filings con contenido
+            form_type_hint: Tipo de form para ajustar heurística
+            
+        Returns:
+            Tamaño óptimo de chunk (2-10)
+        """
+        if not filings:
+            return 5  # Default
+        
+        # Calcular tamaño promedio
+        total_size = sum(len(f.get('content', '')) for f in filings)
+        avg_size = total_size / len(filings)
+        avg_size_kb = avg_size / 1024
+        
+        # Determinar chunk size basado en tamaño promedio
+        if avg_size_kb < 10:
+            chunk_size = 10  # 424B3 pequeños, ~7KB cada uno
+        elif avg_size_kb < 30:
+            chunk_size = 7
+        elif avg_size_kb < 50:
+            chunk_size = 5
+        elif avg_size_kb < 100:
+            chunk_size = 3
+        else:
+            chunk_size = 2  # DEF 14A pueden ser 500KB+
+        
+        # Ajustar para tipos específicos que sabemos que son pesados
+        if 'DEF' in form_type_hint or '14A' in form_type_hint:
+            chunk_size = min(chunk_size, 3)
+        elif 'S-3' in form_type_hint or 'S-1' in form_type_hint:
+            chunk_size = min(chunk_size, 4)
+        
+        logger.debug("optimal_chunk_size_calculated",
+                    filings_count=len(filings),
+                    avg_size_kb=f"{avg_size_kb:.1f}",
+                    chunk_size=chunk_size,
+                    form_type_hint=form_type_hint)
+        
+        return chunk_size
+    
+    # ========================================================================
+    # NEW: ENHANCED DATA ENDPOINTS (SEC-API /float, FMP Cash)
+    # ========================================================================
+    
+    async def get_shares_history(self, ticker: str) -> Dict[str, Any]:
+        """
+        Get historical shares outstanding from SEC-API /float endpoint.
+        This provides official SEC data for dilution history.
+        
+        Returns:
+            Dict with shares history, dilution metrics, and all records.
+        """
+        try:
+            ticker = ticker.upper()
+            
+            # Check Redis cache first
+            cache_key = f"sec_dilution:shares_history:{ticker}"
+            cached = await self.redis.get(cache_key, deserialize=True)
+            if cached:
+                logger.info("shares_history_from_cache", ticker=ticker)
+                return cached
+            
+            # Fetch from SEC-API
+            result = await self.enhanced_fetcher.fetch_shares_history(ticker)
+            
+            # Cache for 6 hours (shares don't change that often)
+            if "error" not in result:
+                await self.redis.set(cache_key, result, ttl=21600, serialize=True)
+            
+            return result
+            
+        except Exception as e:
+            logger.error("get_shares_history_failed", ticker=ticker, error=str(e))
+            return {"error": str(e)}
+    
+    async def get_cash_data(self, ticker: str) -> Dict[str, Any]:
+        """
+        Get cash position and runway data from FMP API.
+        
+        Returns:
+            Dict with cash history, burn rate, runway, and risk level.
+        """
+        try:
+            ticker = ticker.upper()
+            
+            # Check Redis cache first
+            cache_key = f"sec_dilution:cash_data:{ticker}"
+            cached = await self.redis.get(cache_key, deserialize=True)
+            if cached:
+                logger.info("cash_data_from_cache", ticker=ticker)
+                return cached
+            
+            # Fetch from FMP
+            result = await self.enhanced_fetcher.fetch_cash_data(ticker)
+            
+            # Cache for 4 hours
+            if result.get("error") is None:
+                await self.redis.set(cache_key, result, ttl=14400, serialize=True)
+            
+            return result
+            
+        except Exception as e:
+            logger.error("get_cash_data_failed", ticker=ticker, error=str(e))
+            return {"error": str(e)}
+    
+    async def get_enhanced_dilution_profile(self, ticker: str, force_refresh: bool = False) -> Dict[str, Any]:
+        """
+        Get complete enhanced dilution profile with:
+        - Standard SEC dilution data (warrants, ATM, shelf, etc.)
+        - Shares outstanding history from SEC-API /float
+        - Cash position and runway from FMP
+        - Risk flags
+        
+        Returns:
+            Complete enhanced profile dict.
+        """
+        try:
+            ticker = ticker.upper()
+            
+            # Get base profile
+            profile = await self.get_dilution_profile(ticker, force_refresh)
+            
+            # Fetch enhanced data in parallel
+            shares_history, cash_data, current_price = await asyncio.gather(
+                self.get_shares_history(ticker),
+                self.get_cash_data(ticker),
+                self.enhanced_fetcher.fetch_current_price(ticker),
+                return_exceptions=True
+            )
+            
+            # Handle exceptions
+            if isinstance(shares_history, Exception):
+                shares_history = {"error": str(shares_history)}
+            if isinstance(cash_data, Exception):
+                cash_data = {"error": str(cash_data)}
+            if isinstance(current_price, Exception):
+                current_price = None
+            
+            # Generate risk flags
+            risk_flags = []
+            if profile:
+                risk_flags = identify_risk_flags(
+                    warrants=[w.dict() if hasattr(w, 'dict') else w for w in profile.warrants],
+                    convertibles=[c.dict() if hasattr(c, 'dict') else c for c in profile.convertible_notes],
+                    atm_offerings=[a.dict() if hasattr(a, 'dict') else a for a in profile.atm_offerings],
+                    shares_history=shares_history if "error" not in shares_history else None,
+                    cash_data=cash_data if cash_data.get("error") is None else None
+                )
+            
+            return {
+                "ticker": ticker,
+                "profile": profile.dict() if profile else None,
+                "dilution_analysis": profile.calculate_potential_dilution() if profile else None,
+                "shares_history": shares_history,
+                "cash_data": cash_data,
+                "current_price": current_price,
+                "risk_flags": risk_flags,
+                "cached": False,
+                "optimization_stats": self._stats.copy()
+            }
+            
+        except Exception as e:
+            logger.error("get_enhanced_dilution_profile_failed", ticker=ticker, error=str(e))
+            return {"error": str(e), "ticker": ticker}
     
     async def _acquire_ticker_lock(self, ticker: str, timeout: int = 300) -> bool:
         """
@@ -297,6 +1174,23 @@ class SECDilutionService:
         except Exception as e:
             logger.error("redis_save_failed", ticker=ticker, error=str(e))
             return False
+    
+    def _parse_price(self, value: Any) -> Optional[float]:
+        """Parsear precio limpiando símbolos como $ y comas"""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            # Limpiar símbolos: $, €, comas, espacios
+            cleaned = value.replace('$', '').replace('€', '').replace(',', '').strip()
+            if not cleaned:
+                return None
+            try:
+                return float(cleaned)
+            except ValueError:
+                return None
+        return None
     
     def _serialize_for_redis(self, data: Any) -> Any:
         """Convertir Decimals, dates y datetimes a JSON-serializable"""
@@ -1171,6 +2065,87 @@ class SECDilutionService:
                 'shelf_sections': []
             }
     
+    async def _process_chunks_parallel(
+        self,
+        ticker: str,
+        company_name: str,
+        chunks: List[List[Dict]],
+        focus: str,
+        parsed_tables: Optional[Dict] = None,
+        max_concurrent: Optional[int] = None
+    ) -> List[Optional[Dict]]:
+        """
+        Procesar múltiples chunks en PARALELO con ChunkProcessor profesional.
+        
+        Características:
+        - Timeout dinámico basado en tamaño de archivos
+        - Retry inteligente con rotación de keys
+        - Workers independientes (un chunk lento no bloquea otros)
+        - Recovery pass para chunks fallidos
+        - NUNCA se pierde un filing
+        
+        Args:
+            ticker: Ticker symbol
+            company_name: Company name  
+            chunks: Lista de chunks (cada chunk es una lista de filings)
+            focus: Descripción de qué buscar
+            parsed_tables: Tablas pre-parseadas (opcional)
+            max_concurrent: Límite de concurrencia (default: num_keys * 2)
+            
+        Returns:
+            Lista de resultados (uno por chunk, puede contener None si falló)
+        """
+        if not chunks:
+            return []
+        
+        # Determinar número de workers
+        if max_concurrent is None:
+            if self._grok_pool:
+                max_concurrent = self._grok_pool.num_keys * 2
+            else:
+                max_concurrent = 2
+        
+        # Crear procesador con configuración optimizada
+        processor = ChunkProcessor(
+            extract_fn=self._extract_pass_focused,
+            max_workers=max_concurrent,
+            base_timeout=30,      # 30s base
+            timeout_per_10kb=1.0  # +1s por cada 10KB
+        )
+        
+        # Procesar todos los chunks
+        chunk_results = await processor.process_all(
+            chunks=chunks,
+            ticker=ticker,
+            company_name=company_name,
+            focus=focus,
+            parsed_tables=parsed_tables
+        )
+        
+        # Actualizar estadísticas
+        stats = processor.get_stats()
+        self._stats["grok_calls_parallel"] += stats.total_chunks
+        self._stats["retries"] += stats.retries
+        self._stats["timeouts"] += stats.timeouts
+        
+        # Convertir ChunkResult a Dict (manteniendo compatibilidad)
+        results: List[Optional[Dict]] = []
+        for cr in chunk_results:
+            if cr.status in (ChunkStatus.COMPLETED, ChunkStatus.RECOVERED):
+                results.append(cr.data)
+            else:
+                results.append(None)
+        
+        # Log de chunks fallidos para análisis
+        failed = processor.get_failed_chunks()
+        if failed:
+            logger.warning("chunks_failed_after_recovery",
+                          ticker=ticker,
+                          failed_count=len(failed),
+                          failed_indices=[w["idx"] for w in failed])
+        
+        return results
+    
     async def _extract_with_multipass_grok(
         self,
         ticker: str,
@@ -1181,11 +2156,20 @@ class SECDilutionService:
         """
         MULTI-PASS EXTRACTION: Analizar en múltiples pasadas enfocadas
         
-        Pass 1: 10-K (equity structure, warrants table)
-        Pass 2: S-3/S-1 (shelf registrations)
-        Pass 3: 424B5/424B7 (offering details con warrants)
-        Pass 4: 10-Q recientes (cambios equity recientes)
-        Pass 5: ATM mentions en cualquier filing
+        ARQUITECTURA OPTIMIZADA:
+        - Pass 1: ❌ ELIMINADO (10-K) → datos vienen de SEC-API /float
+        - Pass 2: S-3/S-1/F-3/F-1 (Tier 1: shelf registrations) → Grok directo
+        - Pass 3: 424B (Tier 1: prospectus supplements) → Grok PARALELO
+        - Pass 4: ❌ 10-Q ELIMINADO → datos vienen de FMP API
+                  6-K (Tier 2: foreign reports) → pre-screen + Grok
+        - Pass 5: S-8 (Tier 2: employee stock plans) → pre-screen + Grok
+        - Pass 6: 8-K (Tier 2: current reports) → pre-screen + Grok
+        - Pass 7: DEF 14A (Tier 2: proxy statements) → pre-screen + Grok
+        
+        TIER SYSTEM:
+        - Tier 1 (424B, S-1, S-3, etc.): Siempre procesar
+        - Tier 2 (8-K, 6-K, DEF 14A, S-8): Pre-screen con keywords
+        - Tier 3 (10-K, 10-Q): SKIP - usar APIs estructuradas
         
         Returns:
             Dict combinado de todas las pasadas
@@ -1200,39 +2184,12 @@ class SECDilutionService:
             all_convertible_preferred = []
             all_equity_lines = []
             
-            # Pass 1: 10-K y 20-F (MÁS IMPORTANTE - tiene tabla completa de warrants, convertibles, equity)
-            # 20-F es el equivalente para empresas extranjeras
-            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
-            filings_10k = [f for f in filing_contents if f['form_type'] in ['10-K', '10-K/A', '20-F', '20-F/A']]
-            if filings_10k:
-                logger.info("multipass_pass1_10k", ticker=ticker, count=len(filings_10k))
-                # Chunking automático - REDUCIDO de 20→5 para evitar saturar Grok
-                # Un 10-K puede tener 300-400k chars, 5×400k = 2M chars (manejable)
-                chunk_size = 5  # Analizar 5 filings por vez
-                for i in range(0, len(filings_10k), chunk_size):
-                    chunk = filings_10k[i:i+chunk_size]
-                    logger.info("multipass_pass1_10k_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_10k)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
-                    result_10k = await self._extract_pass_focused(
-                        ticker, company_name, chunk, 
-                        focus="10-K equity tables - extract ALL warrant series, convertible notes, convertible preferred, ATM programs, shelf info, and equity lines",
-                        parsed_tables=parsed_tables
-                    )
-                    if result_10k:
-                        logger.info("pass1_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1, 
-                                   warrants=len(result_10k.get('warrants', [])), 
-                                   atm=len(result_10k.get('atm_offerings', [])),
-                                   shelfs=len(result_10k.get('shelf_registrations', [])))
-                    else:
-                        logger.warning("pass1_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
-                    if result_10k:
-                        all_warrants.extend(result_10k.get('warrants', []))
-                        all_atm.extend(result_10k.get('atm_offerings', []))
-                        all_shelfs.extend(result_10k.get('shelf_registrations', []))
-                        all_completed.extend(result_10k.get('completed_offerings', []))
-                        all_s1.extend(result_10k.get('s1_offerings', []))
-                        all_convertible_notes.extend(result_10k.get('convertible_notes', []))
-                        all_convertible_preferred.extend(result_10k.get('convertible_preferred', []))
-                        all_equity_lines.extend(result_10k.get('equity_lines', []))
+            # ELIMINADO Pass 1: 10-K/20-F
+            # Los datos de 10-K/20-F ahora vienen de APIs estructuradas:
+            # - SEC-API /float → shares outstanding history
+            # - FMP API → balance sheet, cash flow
+            # Esto ahorra ~40% del tiempo de procesamiento y reduce costos de Grok
+            logger.info("pass1_skipped_using_structured_apis", ticker=ticker)
             
             # Pass 2: S-3/S-1/S-11 y F-3/F-1 (Shelf Registrations, S-1 Offerings, Preferred Stock)
             # F-3 y F-1 son equivalentes para empresas extranjeras
@@ -1245,6 +2202,7 @@ class SECDilutionService:
                 chunk_size = 5  # Analizar 5 filings por vez
                 for i in range(0, len(filings_s3), chunk_size):
                     chunk = filings_s3[i:i+chunk_size]
+                    self._stats["grok_calls"] += 1
                     logger.info("multipass_pass2_s3_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_s3)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
                     result_s3 = await self._extract_pass_focused(
                         ticker, company_name, chunk,
@@ -1262,110 +2220,240 @@ class SECDilutionService:
                         all_convertible_preferred.extend(result_s3.get('convertible_preferred', []))
             
             # Pass 3: 424B5/424B7 (Prospectus Supplements - detalles de cada offering, S-1 pricing)
-            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
+            # SIN LÍMITE - analizar TODOS
+            # 🚀 OPTIMIZADO: Chunk size dinámico + procesamiento paralelo
             filings_424b = [f for f in filing_contents if f['form_type'] in ['424B5', '424B3', '424B7', '424B4']]
             if filings_424b:
-                logger.info("multipass_pass3_424b", ticker=ticker, count=len(filings_424b))
-                # Chunking automático si hay muchos filings
-                # REDUCIDO 20→3 para evitar timeouts (424B son documentos muy grandes)
-                chunk_size = 3  # Analizar 3 filings por vez
-                for i in range(0, len(filings_424b), chunk_size):
-                    chunk = filings_424b[i:i+chunk_size]
-                    logger.info("multipass_pass3_424b_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_424b)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
-                    result_424b = await self._extract_pass_focused(
-                        ticker, company_name, chunk,
+                # 🚀 OPTIMIZACIÓN: Chunk size dinámico basado en tamaño promedio
+                chunk_size = self._calculate_optimal_chunk_size(filings_424b, "424B")
+                
+                logger.info("multipass_pass3_424b", ticker=ticker, count=len(filings_424b), 
+                           optimal_chunk_size=chunk_size)
+                
+                chunks_424b = [
+                    filings_424b[i:i+chunk_size] 
+                    for i in range(0, len(filings_424b), chunk_size)
+                ]
+                
+                # Decidir si usar paralelo o secuencial
+                use_parallel = self._grok_pool is not None and self._grok_pool.num_keys > 1 and len(chunks_424b) > 2
+                
+                if use_parallel:
+                    # 🚀 PARALELO: Procesar todos los chunks simultáneamente
+                    logger.info("pass3_parallel_start", 
+                               ticker=ticker, 
+                               total_chunks=len(chunks_424b),
+                               num_keys=self._grok_pool.num_keys)
+                    
+                    results_424b = await self._process_chunks_parallel(
+                        ticker, company_name, chunks_424b,
                         focus="Prospectus supplements and S-1 pricing - extract S-1 offerings with final pricing and warrant coverage, warrants issued with offerings, offering details, convertible notes details"
                     )
-                    if result_424b:
-                        logger.info("pass3_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
-                                   warrants=len(result_424b.get('warrants', [])),
-                                   atm=len(result_424b.get('atm_offerings', [])),
-                                   s1=len(result_424b.get('s1_offerings', [])))
-                    else:
-                        logger.warning("pass3_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
-                    if result_424b:
-                        all_warrants.extend(result_424b.get('warrants', []))
-                        all_atm.extend(result_424b.get('atm_offerings', []))
-                        all_shelfs.extend(result_424b.get('shelf_registrations', []))
-                        all_completed.extend(result_424b.get('completed_offerings', []))
-                        all_s1.extend(result_424b.get('s1_offerings', []))
-                        all_convertible_notes.extend(result_424b.get('convertible_notes', []))
-                        all_convertible_preferred.extend(result_424b.get('convertible_preferred', []))
-                        all_equity_lines.extend(result_424b.get('equity_lines', []))
+                    
+                    # Agregar resultados de todos los chunks
+                    for result_424b in results_424b:
+                        if result_424b:
+                            all_warrants.extend(result_424b.get('warrants', []))
+                            all_atm.extend(result_424b.get('atm_offerings', []))
+                            all_shelfs.extend(result_424b.get('shelf_registrations', []))
+                            all_completed.extend(result_424b.get('completed_offerings', []))
+                            all_s1.extend(result_424b.get('s1_offerings', []))
+                            all_convertible_notes.extend(result_424b.get('convertible_notes', []))
+                            all_convertible_preferred.extend(result_424b.get('convertible_preferred', []))
+                            all_equity_lines.extend(result_424b.get('equity_lines', []))
+                else:
+                    # Secuencial (fallback si solo hay 1 key o pocos chunks)
+                    for i, chunk in enumerate(chunks_424b):
+                        self._stats["grok_calls"] += 1
+                        logger.info("multipass_pass3_424b_chunk", ticker=ticker, chunk_num=i+1, total_chunks=len(chunks_424b), chunk_size=len(chunk))
+                        result_424b = await self._extract_pass_focused(
+                            ticker, company_name, chunk,
+                            focus="Prospectus supplements and S-1 pricing - extract S-1 offerings with final pricing and warrant coverage, warrants issued with offerings, offering details, convertible notes details"
+                        )
+                        if result_424b:
+                            logger.info("pass3_chunk_extracted", ticker=ticker, chunk_num=i+1,
+                                       warrants=len(result_424b.get('warrants', [])),
+                                       atm=len(result_424b.get('atm_offerings', [])),
+                                       s1=len(result_424b.get('s1_offerings', [])))
+                            all_warrants.extend(result_424b.get('warrants', []))
+                            all_atm.extend(result_424b.get('atm_offerings', []))
+                            all_shelfs.extend(result_424b.get('shelf_registrations', []))
+                            all_completed.extend(result_424b.get('completed_offerings', []))
+                            all_s1.extend(result_424b.get('s1_offerings', []))
+                            all_convertible_notes.extend(result_424b.get('convertible_notes', []))
+                            all_convertible_preferred.extend(result_424b.get('convertible_preferred', []))
+                            all_equity_lines.extend(result_424b.get('equity_lines', []))
+                        else:
+                            logger.warning("pass3_chunk_empty", ticker=ticker, chunk_num=i+1)
             
-            # Pass 4: 10-Q y 6-K (CRÍTICO: tiene números REALES de emisión, no capacidad máxima)
-            # 6-K es el equivalente para empresas extranjeras
-            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
-            filings_10q = [f for f in filing_contents if f['form_type'] in ['10-Q', '10-Q/A', '6-K', '6-K/A']]
-            if filings_10q:
-                logger.info("multipass_pass4_10q", ticker=ticker, count=len(filings_10q))
-                # Chunking automático si hay muchos filings (6-K puede tener cientos)
-                # REDUCIDO 30→3 para evitar exceder límite de tokens (10-Q y 6-K son grandes)
-                chunk_size = 3  # Analizar 3 filings por vez
-                for i in range(0, len(filings_10q), chunk_size):
-                    chunk = filings_10q[i:i+chunk_size]
-                    logger.info("multipass_pass4_10q_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_10q)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
-                    result_10q = await self._extract_pass_focused(
-                        ticker, company_name, chunk,
-                        focus="Recent quarterly reports - extract ACTUAL shares issued/sold (not registration capacity), warrant changes, convertible note conversions, preferred stock conversions, ATM updates, equity line usage. Look for 'we issued X shares', 'we sold X shares', 'proceeds received', actual quarterly numbers"
+            # ❌ ELIMINADO Pass 4: 10-Q
+            # Los datos de 10-Q ahora vienen de APIs estructuradas:
+            # - SEC-API /float → shares outstanding
+            # - FMP API → cash flow, balance sheet
+            # Esto ahorra ~30% del tiempo (10-Q son documentos muy grandes)
+            logger.info("pass4_10q_skipped_using_structured_apis", ticker=ticker)
+            
+            # Pass 4: 6-K SOLAMENTE (Tier 2 para empresas extranjeras)
+            # 6-K sigue siendo necesario porque puede contener anuncios de dilución
+            filings_6k_raw = [f for f in filing_contents if f['form_type'] in ['6-K', '6-K/A']]
+            
+            if filings_6k_raw:
+                # Pre-screen 6-K (pueden ser cientos)
+                filings_6k_filtered = []
+                skipped_6k = 0
+                for f in filings_6k_raw:
+                    content = f.get('content', '')
+                    has_dilution, _ = quick_dilution_scan(content, f['form_type'])
+                    if has_dilution:
+                        filings_6k_filtered.append(f)
+                    else:
+                        skipped_6k += 1
+                
+                self._stats["skipped_prescreening"] += skipped_6k
+                logger.info("pass4_6k_prescreened", ticker=ticker, 
+                           original=len(filings_6k_raw), filtered=len(filings_6k_filtered), skipped=skipped_6k)
+                
+                if filings_6k_filtered:
+                    # Chunking automático
+                    chunk_size = 5  # 6-K son más pequeños que 10-Q
+                    for i in range(0, len(filings_6k_filtered), chunk_size):
+                        chunk = filings_6k_filtered[i:i+chunk_size]
+                        self._stats["grok_calls"] += 1
+                        logger.info("multipass_pass4_6k_chunk", ticker=ticker, chunk_num=i//chunk_size+1, 
+                                   total_chunks=(len(filings_6k_filtered)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
+                        result_6k = await self._extract_pass_focused(
+                            ticker, company_name, chunk,
+                            focus="Foreign company reports (6-K) - extract actual shares issued/sold, warrant issuances, offering announcements, ATM updates"
+                        )
+                        if result_6k:
+                            logger.info("pass4_6k_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
+                                       warrants=len(result_6k.get('warrants', [])),
+                                       atm=len(result_6k.get('atm_offerings', [])))
+                            all_warrants.extend(result_6k.get('warrants', []))
+                            all_atm.extend(result_6k.get('atm_offerings', []))
+                            all_completed.extend(result_6k.get('completed_offerings', []))
+                            all_convertible_notes.extend(result_6k.get('convertible_notes', []))
+                            all_convertible_preferred.extend(result_6k.get('convertible_preferred', []))
+                            all_equity_lines.extend(result_6k.get('equity_lines', []))
+                        else:
+                            logger.warning("pass4_6k_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
+            
+            # Pass 5: S-8 (Employee stock plans - Tier 2: pre-screen)
+            # S-8 rara vez contiene dilución relevante para traders, solo si tiene keywords
+            filings_s8_raw = [f for f in filing_contents if f['form_type'] == 'S-8']
+            if filings_s8_raw:
+                # Pre-screen S-8 (usualmente no tiene dilución relevante)
+                filings_s8_filtered = []
+                skipped_s8 = 0
+                for f in filings_s8_raw:
+                    content = f.get('content', '')
+                    has_dilution, _ = quick_dilution_scan(content)
+                    if has_dilution:
+                        filings_s8_filtered.append(f)
+                    else:
+                        skipped_s8 += 1
+                
+                self._stats["skipped_prescreening"] += skipped_s8
+                logger.info("pass5_s8_prescreened", ticker=ticker, 
+                           original=len(filings_s8_raw), filtered=len(filings_s8_filtered), skipped=skipped_s8)
+                
+                if filings_s8_filtered:
+                    self._stats["grok_calls"] += 1
+                    result_s8 = await self._extract_pass_focused(
+                        ticker, company_name, filings_s8_filtered,
+                        focus="Employee stock plans - extract any warrants or equity instruments"
                     )
-                    if result_10q:
-                        logger.info("pass4_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
-                                   atm=len(result_10q.get('atm_offerings', [])),
-                                   completed=len(result_10q.get('completed_offerings', [])),
-                                   equity_lines=len(result_10q.get('equity_lines', [])))
-                    else:
-                        logger.warning("pass4_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
-                    if result_10q:
-                        all_warrants.extend(result_10q.get('warrants', []))
-                        all_atm.extend(result_10q.get('atm_offerings', []))
-                        all_completed.extend(result_10q.get('completed_offerings', []))
-                        all_convertible_notes.extend(result_10q.get('convertible_notes', []))
-                        all_convertible_preferred.extend(result_10q.get('convertible_preferred', []))
-                        all_equity_lines.extend(result_10q.get('equity_lines', []))
-            
-            # Pass 5: S-8 (Employee stock plans con posibles warrants)
-            # SIN LÍMITE - analizar TODOS
-            filings_s8 = [f for f in filing_contents if f['form_type'] == 'S-8']
-            if filings_s8:
-                logger.info("multipass_pass5_s8", ticker=ticker, count=len(filings_s8))
-                result_s8 = await self._extract_pass_focused(
-                    ticker, company_name, filings_s8,
-                    focus="Employee stock plans - extract any warrants or equity instruments"
-                )
-                if result_s8:
-                    all_warrants.extend(result_s8.get('warrants', []))
+                    if result_s8:
+                        all_warrants.extend(result_s8.get('warrants', []))
             
             # Pass 6: 8-K y 6-K (Current reports - convertibles, equity lines, ATM updates)
             # 6-K es el equivalente para empresas extranjeras
-            # SIN LÍMITE - analizar TODOS (con chunking automático si hay muchos)
+            # PRE-SCREENING: Solo procesar 8-K/6-K que tienen keywords de dilución
             filings_8k = [f for f in filing_contents if f['form_type'] in ['8-K', '8-K/A', '6-K', '6-K/A']]
             if filings_8k:
-                logger.info("multipass_pass6_8k", ticker=ticker, count=len(filings_8k))
-                # Chunking automático si hay muchos filings (6-K puede tener cientos)
-                # REDUCIDO 30→5 para evitar exceder límite de tokens (8-K pueden ser muy grandes con exhibits)
-                chunk_size = 5  # Analizar 5 filings por vez
-                for i in range(0, len(filings_8k), chunk_size):
-                    chunk = filings_8k[i:i+chunk_size]
-                    logger.info("multipass_pass6_8k_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_8k)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
-                    result_8k = await self._extract_pass_focused(
-                        ticker, company_name, chunk,
+                # PRE-SCREENING: Filtrar solo los que tienen keywords de dilución
+                filings_8k_filtered = []
+                skipped_count = 0
+                for f in filings_8k:
+                    content = f.get('content', '')
+                    has_dilution, matched_kw = quick_dilution_scan(content)
+                    if has_dilution:
+                        filings_8k_filtered.append(f)
+                    else:
+                        skipped_count += 1
+                
+                self._stats["skipped_prescreening"] += skipped_count
+                logger.info("multipass_pass6_8k_prescreened", 
+                           ticker=ticker, 
+                           original=len(filings_8k), 
+                           filtered=len(filings_8k_filtered),
+                           skipped=skipped_count,
+                           grok_calls_saved=skipped_count)
+                
+                if filings_8k_filtered:
+                    # ⚡ PARALELO: Usar ChunkProcessor para 8-K con chunk dinámico
+                    chunk_size = self._calculate_optimal_chunk_size(filings_8k_filtered, "8-K")
+                    chunks_8k = [filings_8k_filtered[i:i+chunk_size] for i in range(0, len(filings_8k_filtered), chunk_size)]
+                    logger.info("pass6_parallel_start", ticker=ticker, total_chunks=len(chunks_8k), 
+                               optimal_chunk_size=chunk_size)
+                    
+                    results_8k = await self._process_chunks_parallel(
+                        chunks=chunks_8k,
+                        ticker=ticker,
+                        company_name=company_name,
                         focus="Current reports - extract convertible notes, convertible preferred, equity lines, ATM agreements, S-1 offerings, warrant issuances"
                     )
-                    if result_8k:
-                        logger.info("pass6_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
-                                   atm=len(result_8k.get('atm_offerings', [])),
-                                   equity_lines=len(result_8k.get('equity_lines', [])),
-                                   s1=len(result_8k.get('s1_offerings', [])))
+                    
+                    for result_8k in results_8k:
+                        if result_8k:
+                            all_warrants.extend(result_8k.get('warrants', []))
+                            all_atm.extend(result_8k.get('atm_offerings', []))
+                            all_s1.extend(result_8k.get('s1_offerings', []))
+                            all_convertible_notes.extend(result_8k.get('convertible_notes', []))
+                            all_convertible_preferred.extend(result_8k.get('convertible_preferred', []))
+                            all_equity_lines.extend(result_8k.get('equity_lines', []))
+            
+            # Pass 7: DEF 14A (Proxy Statements) - Tier 2 con pre-screening
+            # Pueden contener: autorización de shares adicionales, stock splits, equity incentive plans
+            filings_def14a = [f for f in filing_contents if f['form_type'] in ['DEF 14A', 'DEFA14A', 'DEF 14C']]
+            if filings_def14a:
+                # Pre-screen DEF 14A con keywords específicos
+                filings_def14a_filtered = []
+                skipped_def14a = 0
+                for f in filings_def14a:
+                    content = f.get('content', '')
+                    has_dilution, matched_kw = quick_dilution_scan(content, f['form_type'])
+                    if has_dilution:
+                        filings_def14a_filtered.append(f)
+                        logger.debug("def14a_has_dilution", ticker=ticker, keywords=matched_kw[:3])
                     else:
-                        logger.warning("pass6_chunk_empty", ticker=ticker, chunk_num=i//chunk_size+1)
-                    if result_8k:
-                        all_warrants.extend(result_8k.get('warrants', []))
-                        all_atm.extend(result_8k.get('atm_offerings', []))
-                        all_s1.extend(result_8k.get('s1_offerings', []))
-                        all_convertible_notes.extend(result_8k.get('convertible_notes', []))
-                        all_convertible_preferred.extend(result_8k.get('convertible_preferred', []))
-                        all_equity_lines.extend(result_8k.get('equity_lines', []))
+                        skipped_def14a += 1
+                
+                self._stats["skipped_prescreening"] += skipped_def14a
+                logger.info("pass7_def14a_prescreened", 
+                           ticker=ticker, 
+                           original=len(filings_def14a), 
+                           filtered=len(filings_def14a_filtered),
+                           skipped=skipped_def14a)
+                
+                if filings_def14a_filtered:
+                    # ⚡ PARALELO: Usar ChunkProcessor para DEF 14A con chunk dinámico
+                    chunk_size = self._calculate_optimal_chunk_size(filings_def14a_filtered, "DEF 14A")
+                    chunks_def14a = [filings_def14a_filtered[i:i+chunk_size] for i in range(0, len(filings_def14a_filtered), chunk_size)]
+                    logger.info("pass7_parallel_start", ticker=ticker, total_chunks=len(chunks_def14a),
+                               optimal_chunk_size=chunk_size)
+                    
+                    results_def14a = await self._process_chunks_parallel(
+                        chunks=chunks_def14a,
+                        ticker=ticker,
+                        company_name=company_name,
+                        focus="Proxy statements - extract proposals to authorize additional shares, increase authorized capital, stock splits, reverse splits, equity incentive plans, stock option plans"
+                    )
+                    
+                    for result_def14a in results_def14a:
+                        if result_def14a:
+                            all_shelfs.extend(result_def14a.get('shelf_registrations', []))
+                            all_equity_lines.extend(result_def14a.get('equity_lines', []))
             
             # 🔍 LOG PRE-DEDUP: Ver qué está devolviendo Grok ANTES de deduplicar
             logger.info(
@@ -1423,6 +2511,13 @@ class SECDilutionService:
                 'equity_lines': self._deduplicate_equity_lines(all_equity_lines)
             }
             
+            # 📊 LOG OPTIMIZATION STATS
+            logger.info("grok_optimization_stats", 
+                       ticker=ticker,
+                       grok_calls=self._stats["grok_calls"],
+                       skipped_prescreening=self._stats["skipped_prescreening"],
+                       estimated_savings=f"~{self._stats['skipped_prescreening'] * 15}s saved")
+            
             logger.info("multipass_completed", ticker=ticker,
                        total_warrants=len(combined_data['warrants']),
                        total_atm=len(combined_data['atm_offerings']),
@@ -1444,7 +2539,8 @@ class SECDilutionService:
         ticker: str,
         form_type: str,
         filing_date: str,
-        filing_content: str
+        filing_content: str,
+        grok_client: Optional[Client] = None
     ) -> Optional[str]:
         """
         Subir un filing como archivo a Grok Files API
@@ -1454,14 +2550,18 @@ class SECDilutionService:
             form_type: Tipo de filing (10-K, 424B5, etc.)
             filing_date: Fecha del filing
             filing_content: Contenido completo del filing
+            grok_client: Cliente Grok pre-configurado (del pool)
             
         Returns:
             file_id de Grok o None si falla
         """
         try:
-            if not self.grok_api_key:
-                logger.error("grok_api_key_missing_for_file_upload")
-                return None
+            # Usar cliente proporcionado o crear uno nuevo
+            if grok_client is None:
+                if not self.grok_api_key:
+                    logger.error("grok_api_key_missing_for_file_upload")
+                    return None
+                grok_client = Client(api_key=self.grok_api_key, timeout=120)
             
             # Crear archivo temporal
             temp_file = tempfile.NamedTemporaryFile(
@@ -1478,8 +2578,7 @@ class SECDilutionService:
                 temp_file.close()
                 
                 # Subir a Grok
-                client = Client(api_key=self.grok_api_key)
-                uploaded_file = client.files.upload(temp_file.name)
+                uploaded_file = grok_client.files.upload(temp_file.name)
                 
                 logger.info("filing_uploaded_to_grok", 
                            ticker=ticker, 
@@ -1504,22 +2603,27 @@ class SECDilutionService:
                         error=str(e))
             return None
     
-    async def _cleanup_grok_files(self, file_ids: List[str]):
+    async def _cleanup_grok_files(self, file_ids: List[str], grok_client: Optional[Client] = None):
         """
         Limpiar archivos de Grok después de usarlos
         
         Args:
             file_ids: Lista de file_ids a borrar
+            grok_client: Cliente Grok pre-configurado (del pool)
         """
-        if not file_ids or not self.grok_api_key:
+        if not file_ids:
             return
         
         try:
-            client = Client(api_key=self.grok_api_key)
+            # Usar cliente proporcionado o crear uno nuevo
+            if grok_client is None:
+                if not self.grok_api_key:
+                    return
+                grok_client = Client(api_key=self.grok_api_key, timeout=120)
             
             for file_id in file_ids:
                 try:
-                    client.files.delete(file_id)
+                    grok_client.files.delete(file_id)
                     logger.info("grok_file_deleted", file_id=file_id)
                 except Exception as e:
                     logger.warning("grok_file_delete_failed", file_id=file_id, error=str(e))
@@ -1533,19 +2637,20 @@ class SECDilutionService:
         company_name: str,
         filings: List[Dict],
         focus: str,
-        parsed_tables: Optional[Dict] = None
+        parsed_tables: Optional[Dict] = None,
+        max_retries: int = 3
     ) -> Optional[Dict]:
         """
-        Extracción usando Grok Files API - MEJOR PERFORMANCE, SIN LÍMITE DE TOKENS
+        Extracción usando Grok Files API - CON POOL + RETRY + UPLOAD PARALELO
         
-        En lugar de incluir el contenido completo en el prompt (límite 131K tokens),
-        subimos los filings como archivos y los referenciamos.
+        OPTIMIZACIONES IMPLEMENTADAS:
+        1. Upload paralelo: asyncio.gather en lugar de loop secuencial
+        2. Direct prompt para docs <300KB: evita overhead de Files API
+        3. Pool de keys con semáforos para máximo paralelismo
         
-        VENTAJAS:
-        - NO cuenta contra límite de tokens del prompt
-        - Grok usa herramienta document_search especializada
-        - Podemos procesar MUCHOS MÁS filings simultáneamente
-        - Menos timeouts
+        MÉTRICAS DE MEJORA:
+        - Upload paralelo: 3 filings × 2s = 6s → 2s (3x más rápido)
+        - Direct prompt: ~8s vs ~17s con Files API (2x más rápido para docs pequeños)
         
         Args:
             ticker: Ticker symbol
@@ -1553,49 +2658,98 @@ class SECDilutionService:
             filings: Lista de filings para analizar
             focus: Descripción de qué buscar
             parsed_tables: Tablas pre-parseadas (opcional)
+            max_retries: Número máximo de reintentos
             
         Returns:
             Dict con datos extraídos
         """
-        uploaded_file_ids = []
+        # 🚀 OPTIMIZACIÓN: Si el contenido total es pequeño, usar direct prompt
+        total_content_size = sum(len(f.get('content', '')) for f in filings)
+        if total_content_size < 300_000:  # <300KB → direct prompt más rápido
+            logger.info("using_direct_prompt_optimization", 
+                       ticker=ticker, 
+                       total_size_kb=total_content_size // 1024,
+                       filings_count=len(filings))
+            return await self._extract_pass_direct_prompt(
+                ticker, company_name, filings, focus, parsed_tables, max_retries
+            )
         
-        try:
-            if not self.grok_api_key:
-                return None
-            
-            logger.info("extract_with_files_api_started", ticker=ticker, filings_count=len(filings))
-            
-            # 1. SUBIR FILINGS COMO ARCHIVOS
-            file_references = []
-            for f in filings:
-                file_id = await self._upload_filing_to_grok(
-                    ticker=ticker,
-                    form_type=f['form_type'],
-                    filing_date=f['filing_date'],
-                    filing_content=f['content']
-                )
+        uploaded_file_ids = []
+        grok_client = None
+        key_name = None
+        pool_idx = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Obtener cliente del pool (si disponible) o usar el default
+                if self._grok_pool and self._grok_pool.num_keys > 0:
+                    grok_client, key_name, pool_idx = await self._grok_pool.get_client()
+                    logger.debug("grok_pool_client_acquired", 
+                                key_name=key_name, 
+                                ticker=ticker,
+                                attempt=attempt + 1)
+                elif self.grok_api_key:
+                    grok_client = Client(api_key=self.grok_api_key, timeout=120)
+                    key_name = "default"
+                else:
+                    logger.error("no_grok_api_key_available")
+                    return None
                 
-                if file_id:
-                    uploaded_file_ids.append(file_id)
-                    file_references.append({
-                        'file_id': file_id,
-                        'form_type': f['form_type'],
-                        'filing_date': f['filing_date']
-                    })
-            
-            if not file_references:
-                logger.warning("no_files_uploaded", ticker=ticker)
-                return None
-            
-            logger.info("files_uploaded", ticker=ticker, count=len(file_references))
-            
-            # 2. CONSTRUIR PROMPT CON REFERENCIAS A ARCHIVOS
-            files_list = "\n".join([
-                f"- {ref['form_type']} filed on {ref['filing_date']} (file_id: {ref['file_id']})"
-                for ref in file_references
-            ])
-            
-            prompt = f"""
+                logger.info("extract_with_files_api_started", 
+                           ticker=ticker, 
+                           filings_count=len(filings),
+                           grok_key=key_name,
+                           attempt=attempt + 1 if attempt > 0 else None)
+                
+                # 🚀 OPTIMIZACIÓN: SUBIR FILINGS EN PARALELO (antes era secuencial)
+                # Antes: 3 filings × 2-3s = 6-9s
+                # Ahora: max(2-3s) = 2-3s (3x más rápido)
+                upload_tasks = [
+                    self._upload_filing_to_grok(
+                        ticker=ticker,
+                        form_type=f['form_type'],
+                        filing_date=f['filing_date'],
+                        filing_content=f['content'],
+                        grok_client=grok_client
+                    )
+                    for f in filings
+                ]
+                
+                upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+                
+                # Procesar resultados de uploads
+                file_references = []
+                for i, result in enumerate(upload_results):
+                    if isinstance(result, Exception):
+                        logger.warning("parallel_upload_failed", 
+                                      ticker=ticker, 
+                                      filing_idx=i, 
+                                      error=str(result))
+                        continue
+                    if result:  # result es file_id
+                        uploaded_file_ids.append(result)
+                        file_references.append({
+                            'file_id': result,
+                            'form_type': filings[i]['form_type'],
+                            'filing_date': filings[i]['filing_date']
+                        })
+                
+                if not file_references:
+                    logger.warning("no_files_uploaded", ticker=ticker)
+                    # Liberar cliente del pool
+                    if self._grok_pool and pool_idx is not None:
+                        self._grok_pool.release(pool_idx, success=False, error="no_files_uploaded")
+                    return None
+                
+                logger.info("files_uploaded", ticker=ticker, count=len(file_references))
+                
+                # 2. CONSTRUIR PROMPT CON REFERENCIAS A ARCHIVOS
+                files_list = "\n".join([
+                    f"- {ref['form_type']} filed on {ref['filing_date']} (file_id: {ref['file_id']})"
+                    for ref in file_references
+                ])
+                
+                prompt = f"""
 You are an EXPERT financial data extraction specialist analyzing SEC EDGAR filings for {company_name} (Ticker: {ticker}).
 
 YOUR MISSION: Extract COMPREHENSIVE dilution data with MAXIMUM detail and accuracy.
@@ -1628,57 +2782,247 @@ RETURN FORMAT (JSON only, no markdown):
 Each array should contain objects with relevant fields. Return empty arrays [] if nothing found for a category.
 DO NOT return arrays with null-filled objects.
 """
+                
+                # 3. LLAMAR A GROK CON ARCHIVOS ADJUNTOS
+                try:
+                    chat = grok_client.chat.create(model="grok-4-fast", temperature=0.1)
+                except:
+                    # Fallback a grok-4 si grok-4-fast no está disponible
+                    chat = grok_client.chat.create(model="grok-4", temperature=0.1)
+                
+                chat.append(system("You are a financial data extraction expert. Return ONLY valid JSON."))
+                
+                # Crear mensaje con archivos adjuntos
+                file_attachments = [file(fid) for fid in uploaded_file_ids]
+                chat.append(user(prompt, *file_attachments))
+                
+                response = chat.sample()
+                
+                # 🔍 LOG: Ver respuesta RAW de Grok Files API
+                logger.info(
+                    "files_api_raw_response",
+                    ticker=ticker,
+                    focus=focus[:80],
+                    raw_content=str(response.content)[:2000],
+                    content_type=type(response.content).__name__
+                )
+                
+                # Parse JSON
+                extracted_raw = json.loads(response.content)
+                
+                # 🔧 NORMALIZACIÓN: Mapear campos alternativos de Grok a nuestro schema
+                extracted = self._normalize_grok_extraction_fields(extracted_raw)
+                
+                logger.info("files_api_extraction_success", 
+                           ticker=ticker,
+                           focus=focus[:50],
+                           warrants=len(extracted.get('warrants', [])),
+                           atm=len(extracted.get('atm_offerings', [])),
+                           shelfs=len(extracted.get('shelf_registrations', [])),
+                           grok_key=key_name)
+                
+                # Liberar cliente del pool (éxito)
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=True)
+                
+                return extracted
+                
+            except Exception as e:
+                error_str = str(e)
+                is_timeout = "deadline" in error_str.lower() or "timeout" in error_str.lower()
+                
+                # Registrar estadísticas
+                if is_timeout:
+                    self._stats["timeouts"] += 1
+                
+                logger.warning("extract_with_files_api_attempt_failed", 
+                              ticker=ticker, 
+                              focus=focus[:50], 
+                              error=error_str,
+                              attempt=attempt + 1,
+                              max_retries=max_retries,
+                              is_timeout=is_timeout,
+                              grok_key=key_name)
+                
+                # Liberar cliente del pool (error)
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=False, error=error_str, is_timeout=is_timeout)
+                    pool_idx = None  # Reset para siguiente intento
+                
+                # Limpiar archivos de este intento
+                if uploaded_file_ids:
+                    await self._cleanup_grok_files(uploaded_file_ids, grok_client)
+                    uploaded_file_ids = []
+                
+                # Retry con backoff exponencial
+                if attempt < max_retries - 1:
+                    backoff_time = (2 ** attempt) * 10  # 10s, 20s, 40s
+                    self._stats["retries"] += 1
+                    logger.info("extract_retry_scheduled", 
+                               ticker=ticker,
+                               backoff_seconds=backoff_time,
+                               next_attempt=attempt + 2)
+                    await asyncio.sleep(backoff_time)
+                else:
+                    logger.error("extract_with_files_api_failed_all_retries", 
+                                ticker=ticker, 
+                                focus=focus[:50], 
+                                error=error_str,
+                                total_attempts=max_retries)
+                    return None
+                    
+        return None  # Nunca debería llegar aquí
+    
+    async def _extract_pass_direct_prompt(
+        self,
+        ticker: str,
+        company_name: str,
+        filings: List[Dict],
+        focus: str,
+        parsed_tables: Optional[Dict] = None,
+        max_retries: int = 3
+    ) -> Optional[Dict]:
+        """
+        Extracción usando DIRECT PROMPT - Para documentos pequeños (<300KB)
+        
+        🚀 OPTIMIZACIÓN: Evita el overhead de Files API (~2-3s por archivo)
+        Para documentos pequeños, es más rápido incluir el contenido directamente.
+        
+        CUÁNDO USAR:
+        - Total contenido < 300KB
+        - Filings pequeños (424B3 típicamente 5-10KB)
+        
+        MÉTRICAS:
+        - Direct prompt: ~8-12s para 3 filings pequeños
+        - Files API: ~17-25s para los mismos filings (upload overhead)
+        
+        Args:
+            ticker: Ticker symbol
+            company_name: Company name
+            filings: Lista de filings para analizar
+            focus: Descripción de qué buscar
+            parsed_tables: Tablas pre-parseadas (opcional)
+            max_retries: Número máximo de reintentos
             
-            # 3. LLAMAR A GROK CON ARCHIVOS ADJUNTOS
-            # IMPORTANTE: Files API solo funciona con grok-4 family
-            client = Client(api_key=self.grok_api_key)
-            
+        Returns:
+            Dict con datos extraídos
+        """
+        grok_client = None
+        key_name = None
+        pool_idx = None
+        
+        for attempt in range(max_retries):
             try:
-                chat = client.chat.create(model="grok-4-fast", temperature=0.1)
-            except:
-                # Fallback a grok-4 si grok-4-fast no está disponible
-                chat = client.chat.create(model="grok-4", temperature=0.1)
-            
-            chat.append(system("You are a financial data extraction expert. Return ONLY valid JSON."))
-            
-            # Crear mensaje con archivos adjuntos
-            file_attachments = [file(fid) for fid in uploaded_file_ids]
-            chat.append(user(prompt, *file_attachments))
-            
-            response = chat.sample()
-            
-            # 🔍 LOG: Ver respuesta RAW de Grok Files API
-            logger.info(
-                "files_api_raw_response",
-                ticker=ticker,
-                focus=focus[:80],
-                raw_content=str(response.content)[:2000],
-                content_type=type(response.content).__name__
-            )
-            
-            # Parse JSON
-            extracted = json.loads(response.content)
-            
-            logger.info("files_api_extraction_success", 
-                       ticker=ticker,
-                       focus=focus[:50],
-                       warrants=len(extracted.get('warrants', [])),
-                       atm=len(extracted.get('atm_offerings', [])),
-                       shelfs=len(extracted.get('shelf_registrations', [])))
-            
-            return extracted
-            
-        except Exception as e:
-            logger.error("extract_with_files_api_failed", 
-                        ticker=ticker, 
-                        focus=focus[:50], 
-                        error=str(e))
-            return None
-            
-        finally:
-            # 4. LIMPIAR ARCHIVOS SIEMPRE (éxito o error)
-            if uploaded_file_ids:
-                await self._cleanup_grok_files(uploaded_file_ids)
+                # Obtener cliente del pool
+                if self._grok_pool and self._grok_pool.num_keys > 0:
+                    grok_client, key_name, pool_idx = await self._grok_pool.get_client()
+                    logger.debug("grok_pool_client_acquired_direct", 
+                                key_name=key_name, 
+                                ticker=ticker,
+                                attempt=attempt + 1)
+                elif self.grok_api_key:
+                    grok_client = Client(api_key=self.grok_api_key, timeout=120)
+                    key_name = "default"
+                else:
+                    logger.error("no_grok_api_key_available")
+                    return None
+                
+                # Construir contenido inline
+                filings_content = []
+                for f in filings:
+                    content = f.get('content', '')
+                    # Limpiar HTML básico para reducir tokens
+                    content_clean = re.sub(r'<[^>]+>', ' ', content)
+                    content_clean = re.sub(r'\s+', ' ', content_clean)[:50000]  # Límite por filing
+                    
+                    filings_content.append(f"""
+--- {f['form_type']} filed on {f['filing_date']} ---
+{content_clean}
+--- END {f['form_type']} ---
+""")
+                
+                all_content = "\n".join(filings_content)
+                
+                prompt = f"""You are an EXPERT financial data extraction specialist analyzing SEC EDGAR filings for {company_name} (Ticker: {ticker}).
+
+YOUR MISSION: Extract COMPREHENSIVE dilution data with MAXIMUM detail and accuracy.
+
+THIS IS A FOCUSED ANALYSIS PASS. Your specific task:
+**{focus}**
+
+FILINGS PROVIDED ({len(filings)} documents):
+{all_content}
+
+RETURN FORMAT (JSON only, no markdown, no explanations):
+{{
+  "warrants": [...],
+  "atm_offerings": [...],
+  "shelf_registrations": [...],
+  "completed_offerings": [...],
+  "s1_offerings": [...],
+  "convertible_notes": [...],
+  "convertible_preferred": [...],
+  "equity_lines": [...]
+}}
+
+Return empty arrays [] if nothing found. Do NOT include null values or placeholder objects.
+"""
+                
+                # Llamar a Grok
+                try:
+                    chat = grok_client.chat.create(model="grok-4-fast", temperature=0.1)
+                except:
+                    chat = grok_client.chat.create(model="grok-4", temperature=0.1)
+                
+                chat.append(system("You are a financial data extraction expert. Return ONLY valid JSON."))
+                chat.append(user(prompt))
+                
+                response = chat.sample()
+                
+                # Parse JSON
+                extracted_raw = json.loads(response.content)
+                
+                # 🔧 NORMALIZACIÓN: Mapear campos alternativos de Grok a nuestro schema
+                extracted = self._normalize_grok_extraction_fields(extracted_raw)
+                
+                logger.info("direct_prompt_extraction_success", 
+                           ticker=ticker,
+                           focus=focus[:50],
+                           warrants=len(extracted.get('warrants', [])),
+                           atm=len(extracted.get('atm_offerings', [])),
+                           shelfs=len(extracted.get('shelf_registrations', [])),
+                           grok_key=key_name)
+                
+                # Liberar cliente del pool (éxito)
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=True)
+                
+                return extracted
+                
+            except Exception as e:
+                error_str = str(e)
+                is_timeout = "deadline" in error_str.lower() or "timeout" in error_str.lower()
+                
+                logger.warning("direct_prompt_attempt_failed", 
+                              ticker=ticker, 
+                              error=error_str,
+                              attempt=attempt + 1,
+                              is_timeout=is_timeout,
+                              grok_key=key_name)
+                
+                # Liberar cliente del pool (error)
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=False, error=error_str, is_timeout=is_timeout)
+                    pool_idx = None
+                
+                # Retry con backoff
+                if attempt < max_retries - 1:
+                    backoff_time = (2 ** attempt) * 5  # 5s, 10s, 20s
+                    await asyncio.sleep(backoff_time)
+                else:
+                    return None
+        
+        return None
     
     async def _extract_pass_focused(
         self,
@@ -1689,17 +3033,11 @@ DO NOT return arrays with null-filled objects.
         parsed_tables: Optional[Dict] = None
     ) -> Optional[Dict]:
         """
-        Una pasada enfocada de Grok usando Files API - SIN LÍMITE de tokens
+        Una pasada enfocada de Grok - ELIGE automáticamente el mejor método
         
-        Analiza TODOS los filings del tipo especificado sin límite de cantidad.
-        Usa Files API de Grok para máxima precisión y capacidad.
-        
-        VENTAJAS Files API:
-        - NO cuenta contra límite de tokens del prompt
-        - Grok usa herramienta document_search especializada
-        - Podemos procesar MUCHOS MÁS filings simultáneamente
-        - Menos timeouts, mejor calidad de extracción
-        - +30-40% precisión en tickers complejos
+        OPTIMIZACIÓN AUTOMÁTICA:
+        - <300KB total → Direct prompt (más rápido, sin overhead de upload)
+        - ≥300KB total → Files API (mejor para documentos grandes)
         
         Args:
             ticker: Ticker symbol
@@ -1711,7 +3049,7 @@ DO NOT return arrays with null-filled objects.
         Returns:
             Dict con datos extraídos de esta pasada
         """
-        # 🚀 100% FILES API - Elimina modo legacy para máxima precisión
+        # La decisión de usar direct prompt o files API ahora está en _extract_pass_with_files_api
         return await self._extract_pass_with_files_api(
             ticker, company_name, filings, focus, parsed_tables
         )
@@ -1722,27 +3060,41 @@ DO NOT return arrays with null-filled objects.
         
         CRÍTICO: NO descartar warrants sin 'outstanding'.
         Si falta 'outstanding' pero hay 'potential_new_shares', usar ese como fallback.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
         """
         seen = set()
         unique = []
         
         for w in warrants:
-            # 🔧 FIX: Si falta outstanding pero hay potential_new_shares, usarlo como fallback
-            if w.get('outstanding') is None and w.get('potential_new_shares') is not None:
-                w['outstanding'] = w['potential_new_shares']
-            
-            # Key de deduplicación: exercise_price + expiration + outstanding + trozo de notes
-            key = (
-                w.get('exercise_price'),
-                w.get('expiration_date'),
-                w.get('outstanding'),
-                # Añadir trozo de notes para diferenciar series (ej: "Series A" vs "Series B")
-                (w.get('notes') or '')[:40]
-            )
-            
-            # NO descartar por falta de outstanding - solo deduplica por key
-            if key not in seen:
-                seen.add(key)
+            try:
+                # 🔧 FIX: Normalizar outstanding y potential_new_shares
+                outstanding = self._normalize_grok_value(w.get('outstanding'), 'number')
+                potential = self._normalize_grok_value(w.get('potential_new_shares'), 'number')
+                
+                # Si falta outstanding pero hay potential_new_shares, usarlo como fallback
+                if outstanding is None and potential is not None:
+                    w['outstanding'] = potential
+                elif outstanding is not None:
+                    w['outstanding'] = outstanding  # Guardar valor normalizado
+                
+                # Key de deduplicación usando valores normalizados y hashables
+                key = (
+                    self._safe_get_for_key(w, 'exercise_price', 'number'),
+                    self._safe_get_for_key(w, 'expiration_date', 'date'),
+                    self._to_hashable(w.get('outstanding')),
+                    # Añadir trozo de notes para diferenciar series (ej: "Series A" vs "Series B")
+                    self._to_hashable((self._normalize_grok_value(w.get('notes'), 'string') or '')[:40])
+                )
+                
+                # NO descartar por falta de outstanding - solo deduplica por key
+                if key not in seen:
+                    seen.add(key)
+                    unique.append(w)
+            except Exception as e:
+                # Si hay cualquier error, incluir el warrant sin deduplicar (no perder datos)
+                logger.warning("warrant_dedup_error", error=str(e), warrant_keys=list(w.keys())[:5])
                 unique.append(w)
         
         return unique
@@ -1754,10 +3106,14 @@ DO NOT return arrays with null-filled objects.
         Los 10-Q/10-K suelen tener tablas resumen tipo "warrants outstanding as of X date"
         que agregan todos los warrants. Estos NO deben sumarse al cálculo de dilución
         porque ya tenemos los warrants detallados por serie de los 424B/8-K.
+        
+        ROBUSTO: Normaliza notes antes de usarlo por si Grok devuelve un dict.
         """
         filtered = []
         for w in warrants:
-            notes_lower = (w.get('notes') or '').lower()
+            # Normalizar notes para evitar errores si es dict
+            notes_raw = self._normalize_grok_value(w.get('notes'), 'string')
+            notes_lower = (notes_raw or '').lower()
             
             # Detectar si es un resumen de 10-Q/10-K
             is_summary = (
@@ -1784,36 +3140,52 @@ DO NOT return arrays with null-filled objects.
         """
         Imputar exercise_price faltantes cuando se puede inferir de otros warrants
         de la misma serie (mismo issue_date, expiration_date, y tipo).
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
         """
         # Agrupar por (issue_date, expiration_date, snippet de notes)
         by_key = {}
         for w in warrants:
-            key = (
-                w.get('issue_date'),
-                w.get('expiration_date'),
-                (w.get('notes') or '')[:60]  # Usar snippet más largo para mejor matching
-            )
-            by_key.setdefault(key, []).append(w)
+            try:
+                key = (
+                    self._safe_get_for_key(w, 'issue_date', 'date'),
+                    self._safe_get_for_key(w, 'expiration_date', 'date'),
+                    self._to_hashable((self._normalize_grok_value(w.get('notes'), 'string') or '')[:60])
+                )
+                by_key.setdefault(key, []).append(w)
+            except Exception as e:
+                logger.warning("impute_grouping_error", error=str(e))
+                # Crear key único para no perder el warrant
+                by_key.setdefault(('error', id(w), str(e)[:20]), []).append(w)
         
         imputed_count = 0
         for group in by_key.values():
-            # Si al menos uno tiene exercise_price, propágalo a los que no lo tienen
-            prices = {w.get('exercise_price') for w in group if w.get('exercise_price') is not None}
-            
-            if len(prices) == 1:
-                price = list(prices)[0]
+            try:
+                # Si al menos uno tiene exercise_price, propágalo a los que no lo tienen
+                # Normalizar cada precio y filtrar Nones
+                prices = set()
                 for w in group:
-                    if w.get('exercise_price') is None:
-                        w['exercise_price'] = price
-                        if 'imputed_fields' not in w:
-                            w['imputed_fields'] = []
-                        w['imputed_fields'].append('exercise_price')
-                        imputed_count += 1
-                        logger.info("exercise_price_imputed",
-                                   ticker=w.get('ticker'),
-                                   outstanding=w.get('outstanding'),
-                                   imputed_price=price,
-                                   issue_date=w.get('issue_date'))
+                    normalized_price = self._normalize_grok_value(w.get('exercise_price'), 'number')
+                    if normalized_price is not None:
+                        prices.add(self._to_hashable(normalized_price))
+                
+                if len(prices) == 1:
+                    price = list(prices)[0]
+                    for w in group:
+                        if self._normalize_grok_value(w.get('exercise_price'), 'number') is None:
+                            w['exercise_price'] = price
+                            if 'imputed_fields' not in w:
+                                w['imputed_fields'] = []
+                            w['imputed_fields'].append('exercise_price')
+                            imputed_count += 1
+                            logger.info("exercise_price_imputed",
+                                       ticker=w.get('ticker'),
+                                       outstanding=w.get('outstanding'),
+                                       imputed_price=price,
+                                       issue_date=w.get('issue_date'))
+            except Exception as e:
+                logger.warning("impute_price_error", error=str(e))
         
         if imputed_count > 0:
             logger.info("total_exercise_prices_imputed", count=imputed_count)
@@ -1827,20 +3199,38 @@ DO NOT return arrays with null-filled objects.
         Esto permite al frontend mostrar solo los warrants activos y evitar confusión
         al usuario cuando suma todos los warrants.
         """
+        try:
+            return self._classify_warrant_status_impl(warrants, ticker)
+        except Exception as e:
+            logger.error("warrant_classification_failed", ticker=ticker, error=str(e), 
+                        action="returning_unclassified_warrants")
+            # Si falla la clasificación, devolver warrants con status Active por defecto
+            for w in warrants:
+                if 'status' not in w:
+                    w['status'] = 'Active'
+            return warrants
+    
+    def _classify_warrant_status_impl(self, warrants: List[Dict], ticker: str) -> List[Dict]:
+        """Implementación de clasificación de warrants (puede lanzar excepciones)"""
         # Primero, identificar inducement/replacement deals
         inducement_dates = set()
         replacement_notes_keywords = ['inducement', 'replacement', 'in exchange for', 'existing warrants']
         
         for w in warrants:
-            notes_lower = (w.get('notes') or '').lower()
+            # Normalizar notes para evitar errores si es dict
+            notes_raw = self._normalize_grok_value(w.get('notes'), 'string')
+            notes_lower = (notes_raw or '').lower()
             if any(keyword in notes_lower for keyword in replacement_notes_keywords):
-                # Este es un warrant de reemplazo, guardar su fecha
-                if w.get('issue_date'):
-                    inducement_dates.add(w['issue_date'])
+                # Este es un warrant de reemplazo, guardar su fecha (normalizada)
+                issue_date = self._safe_get_for_key(w, 'issue_date', 'date')
+                if issue_date:
+                    inducement_dates.add(issue_date)
         
         # Clasificar cada warrant
         for w in warrants:
-            notes_lower = (w.get('notes') or '').lower()
+            # Normalizar notes para evitar errores si es dict
+            notes_raw = self._normalize_grok_value(w.get('notes'), 'string')
+            notes_lower = (notes_raw or '').lower()
             
             # 1. Historical Summary (ya detectado)
             if w.get('is_summary_row') or w.get('exclude_from_dilution'):
@@ -1864,10 +3254,14 @@ DO NOT return arrays with null-filled objects.
                     continue
             
             # 3. Reemplazados (warrants que fueron sustituidos por inducement)
-            if w.get('issue_date'):
-                issue_date = w['issue_date']
+            issue_date = self._safe_get_for_key(w, 'issue_date', 'date')
+            if issue_date:
                 # Si hay un inducement DESPUÉS de este warrant, este fue reemplazado
-                later_inducements = [d for d in inducement_dates if d > issue_date]
+                # Comparar strings de fechas de forma segura
+                try:
+                    later_inducements = [d for d in inducement_dates if str(d) > str(issue_date)]
+                except TypeError:
+                    later_inducements = []
                 
                 if later_inducements and not any(keyword in notes_lower for keyword in replacement_notes_keywords):
                     # Este warrant es ANTERIOR a un inducement y no ES el inducement
@@ -1875,14 +3269,19 @@ DO NOT return arrays with null-filled objects.
                     if 'november 2024' in notes_lower or 'series a' in notes_lower:
                         # Este podría ser uno de los "Existing Warrants" que fueron reemplazados
                         w['status'] = 'Replaced'
-                        w['notes'] = (w.get('notes') or '') + ' [REPLACED by Inducement Warrants]'
+                        w['notes'] = (notes_raw or '') + ' [REPLACED by Inducement Warrants]'
                         continue
             
             # 4. Pre-funded con ejercicio mínimo (técnicamente activos pero casi ejercidos)
-            if w.get('exercise_price') and float(w['exercise_price']) <= 0.01:
-                if 'pre-funded' in notes_lower or 'prefunded' in notes_lower:
-                    w['status'] = 'Active'  # Pero son casi como shares comunes
-                    continue
+            exercise_price = self._normalize_grok_value(w.get('exercise_price'), 'number')
+            if exercise_price is not None:
+                try:
+                    if float(exercise_price) <= 0.01:
+                        if 'pre-funded' in notes_lower or 'prefunded' in notes_lower:
+                            w['status'] = 'Active'  # Pero son casi como shares comunes
+                            continue
+                except (ValueError, TypeError):
+                    pass
             
             # 5. Por defecto: Active
             w['status'] = 'Active'
@@ -2000,60 +3399,121 @@ DO NOT return arrays with null-filled objects.
         return atms
     
     def _deduplicate_atm(self, atms: List[Dict], ticker: str = "") -> List[Dict]:
-        """Deduplicar ATM por placement_agent + filing_date"""
+        """
+        Deduplicar ATM por placement_agent + filing_date.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
+        """
         seen = set()
         unique = []
         for a in atms:
-            key = (a.get('placement_agent'), a.get('filing_date'))
-            # Incluir si tiene remaining_capacity O total_capacity (no descartar si falta remaining)
-            # Si no tiene ninguno pero tiene otros datos, incluirlo también (puede ser un ATM activo sin capacidad específica)
-            has_capacity = a.get('remaining_capacity') or a.get('total_capacity')
-            if key not in seen:
-                if has_capacity:
-                    seen.add(key)
-                    unique.append(a)
-                elif a.get('placement_agent') or a.get('filing_date'):  # Si tiene al menos placement_agent o filing_date, incluirlo
-                    # Usar un key más flexible para evitar duplicados exactos
-                    flexible_key = (a.get('placement_agent', ''), a.get('filing_date', ''))
-                    if flexible_key not in seen:
-                        seen.add(flexible_key)
+            try:
+                # Normalizar valores
+                placement_agent = self._safe_get_for_key(a, 'placement_agent', 'string')
+                filing_date = self._safe_get_for_key(a, 'filing_date', 'date')
+                remaining = self._normalize_grok_value(a.get('remaining_capacity'), 'number')
+                total = self._normalize_grok_value(a.get('total_capacity'), 'number')
+                
+                key = (placement_agent, filing_date)
+                has_capacity = remaining or total
+                
+                if key not in seen:
+                    if has_capacity:
+                        seen.add(key)
                         unique.append(a)
-                        logger.warning("atm_included_without_capacity", ticker=ticker, 
-                                     placement_agent=a.get('placement_agent'),
-                                     filing_date=a.get('filing_date'))
+                    elif placement_agent or filing_date:
+                        flexible_key = (placement_agent or '', filing_date or '')
+                        if flexible_key not in seen:
+                            seen.add(flexible_key)
+                            unique.append(a)
+                            logger.warning("atm_included_without_capacity", ticker=ticker, 
+                                         placement_agent=placement_agent,
+                                         filing_date=filing_date)
+            except Exception as e:
+                logger.warning("atm_dedup_error", error=str(e), ticker=ticker)
+                unique.append(a)
+                
         logger.info("atm_deduplication", ticker=ticker, total_input=len(atms), total_output=len(unique))
         return unique
     
     def _deduplicate_shelfs(self, shelfs: List[Dict]) -> List[Dict]:
-        """Deduplicar shelfs por filing_date + capacity"""
+        """
+        Deduplicar shelfs por filing_date + capacity. NO descartar sin filing_date.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
+        """
         seen = set()
         unique = []
         for s in shelfs:
-            key = (s.get('filing_date'), s.get('total_capacity'))
-            if key not in seen and s.get('filing_date'):
-                seen.add(key)
+            try:
+                filing_date = self._safe_get_for_key(s, 'filing_date', 'date')
+                total_capacity = self._safe_get_for_key(s, 'total_capacity', 'number')
+                
+                key = (filing_date, total_capacity)
+                # Si no tiene filing_date, incluir igual (no descartar datos)
+                if not filing_date:
+                    unique.append(s)
+                elif key not in seen:
+                    seen.add(key)
+                    unique.append(s)
+            except Exception as e:
+                logger.warning("shelf_dedup_error", error=str(e))
                 unique.append(s)
         return unique
     
     def _deduplicate_completed(self, completed: List[Dict]) -> List[Dict]:
-        """Deduplicar completed offerings por fecha + shares"""
+        """
+        Deduplicar completed offerings por fecha + shares. NO descartar sin fecha.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
+        """
         seen = set()
         unique = []
         for c in completed:
-            key = (c.get('offering_date'), c.get('shares_issued'))
-            if key not in seen and c.get('offering_date'):
-                seen.add(key)
+            try:
+                offering_date = self._safe_get_for_key(c, 'offering_date', 'date')
+                shares_issued = self._safe_get_for_key(c, 'shares_issued', 'number')
+                
+                key = (offering_date, shares_issued)
+                # Si no tiene offering_date, incluir igual (no descartar datos)
+                if not offering_date:
+                    unique.append(c)
+                elif key not in seen:
+                    seen.add(key)
+                    unique.append(c)
+            except Exception as e:
+                logger.warning("completed_dedup_error", error=str(e))
                 unique.append(c)
         return unique
     
     def _deduplicate_s1(self, s1_offerings: List[Dict]) -> List[Dict]:
-        """Deduplicar S-1 offerings por filing_date + deal_size"""
+        """
+        Deduplicar S-1 offerings por filing_date + deal_size. NO descartar sin fecha.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
+        """
         seen = set()
         unique = []
         for s1 in s1_offerings:
-            key = (s1.get('s1_filing_date'), s1.get('final_deal_size') or s1.get('anticipated_deal_size'))
-            if key not in seen and s1.get('s1_filing_date'):
-                seen.add(key)
+            try:
+                filing_date = self._safe_get_for_key(s1, 's1_filing_date', 'date')
+                final_size = self._safe_get_for_key(s1, 'final_deal_size', 'number')
+                anticipated_size = self._safe_get_for_key(s1, 'anticipated_deal_size', 'number')
+                deal_size = final_size or anticipated_size
+                
+                key = (filing_date, deal_size)
+                # Si no tiene s1_filing_date, incluir igual (no descartar datos)
+                if not filing_date:
+                    unique.append(s1)
+                elif key not in seen:
+                    seen.add(key)
+                    unique.append(s1)
+            except Exception as e:
+                logger.warning("s1_dedup_error", error=str(e))
                 unique.append(s1)
         return unique
     
@@ -2063,71 +3523,118 @@ DO NOT return arrays with null-filled objects.
         
         Si hay múltiples entries con el mismo issue_date pero campos distintos
         (ej: uno tiene principal, otro tiene maturity_date), los mergea en uno solo.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
         """
         merged_by_date = {}
+        no_date_notes = []  # Guardar notes sin issue_date
         
         for n in notes:
-            issue_date = n.get('issue_date')
-            if not issue_date:
-                continue
-            
-            if issue_date not in merged_by_date:
-                merged_by_date[issue_date] = n.copy()
-            else:
-                # Merge inteligente: rellenar campos faltantes en base con los del nuevo
-                base = merged_by_date[issue_date]
+            try:
+                # Normalizar issue_date para usarlo como key
+                issue_date = self._safe_get_for_key(n, 'issue_date', 'date')
                 
-                for field in [
-                    'total_principal_amount',
-                    'remaining_principal_amount',
-                    'conversion_price',
-                    'total_shares_when_converted',
-                    'remaining_shares_when_converted',
-                    'maturity_date',
-                    'convertible_date',
-                    'underwriter_agent',
-                    'filing_url'
-                ]:
-                    if base.get(field) is None and n.get(field) is not None:
-                        base[field] = n[field]
+                if not issue_date:
+                    # NO descartar, guardar para incluir al final
+                    no_date_notes.append(n)
+                    continue
                 
-                # Combinar notes de ambas entradas
-                base_notes = base.get('notes') or ''
-                new_notes = n.get('notes') or ''
-                if base_notes and new_notes and base_notes != new_notes:
-                    # Evitar duplicar texto idéntico
-                    combined = ' / '.join([base_notes, new_notes])
-                    base['notes'] = combined
-                elif new_notes and not base_notes:
-                    base['notes'] = new_notes
+                # Convertir issue_date a string para usar como key de dict
+                issue_date_key = str(issue_date) if issue_date else None
                 
-                logger.info("convertible_notes_merged",
-                           issue_date=issue_date,
-                           base_principal=base.get('total_principal_amount'),
-                           merged_fields=[k for k in ['maturity_date', 'conversion_price'] 
-                                         if base.get(k) is not None])
+                if issue_date_key not in merged_by_date:
+                    merged_by_date[issue_date_key] = n.copy()
+                else:
+                    # Merge inteligente: rellenar campos faltantes en base con los del nuevo
+                    base = merged_by_date[issue_date_key]
+                    
+                    for field in [
+                        'total_principal_amount',
+                        'remaining_principal_amount',
+                        'conversion_price',
+                        'total_shares_when_converted',
+                        'remaining_shares_when_converted',
+                        'maturity_date',
+                        'convertible_date',
+                        'underwriter_agent',
+                        'filing_url'
+                    ]:
+                        if base.get(field) is None and n.get(field) is not None:
+                            base[field] = n[field]
+                    
+                    # Combinar notes de ambas entradas
+                    base_notes = self._normalize_grok_value(base.get('notes'), 'string') or ''
+                    new_notes = self._normalize_grok_value(n.get('notes'), 'string') or ''
+                    if base_notes and new_notes and base_notes != new_notes:
+                        # Evitar duplicar texto idéntico
+                        combined = ' / '.join([base_notes, new_notes])
+                        base['notes'] = combined
+                    elif new_notes and not base_notes:
+                        base['notes'] = new_notes
+                    
+                    logger.info("convertible_notes_merged",
+                               issue_date=issue_date_key,
+                               base_principal=base.get('total_principal_amount'),
+                               merged_fields=[k for k in ['maturity_date', 'conversion_price'] 
+                                             if base.get(k) is not None])
+            except Exception as e:
+                logger.warning("convertible_notes_dedup_error", error=str(e))
+                no_date_notes.append(n)
         
-        return list(merged_by_date.values())
+        # Incluir tanto los mergeados como los que no tenían issue_date
+        return list(merged_by_date.values()) + no_date_notes
     
     def _deduplicate_convertible_preferred(self, preferred: List[Dict]) -> List[Dict]:
-        """Deduplicar convertible preferred por series + issue_date"""
+        """
+        Deduplicar convertible preferred por series + issue_date. NO descartar sin campos.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
+        """
         seen = set()
         unique = []
         for p in preferred:
-            key = (p.get('series'), p.get('issue_date'), p.get('total_dollar_amount_issued'))
-            if key not in seen and p.get('series') and p.get('issue_date'):
-                seen.add(key)
+            try:
+                series = self._safe_get_for_key(p, 'series', 'string')
+                issue_date = self._safe_get_for_key(p, 'issue_date', 'date')
+                amount = self._safe_get_for_key(p, 'total_dollar_amount_issued', 'number')
+                
+                key = (series, issue_date, amount)
+                # Si no tiene series o issue_date, incluir igual (no descartar datos)
+                if not series or not issue_date:
+                    unique.append(p)
+                elif key not in seen:
+                    seen.add(key)
+                    unique.append(p)
+            except Exception as e:
+                logger.warning("convertible_preferred_dedup_error", error=str(e))
                 unique.append(p)
         return unique
     
     def _deduplicate_equity_lines(self, equity_lines: List[Dict]) -> List[Dict]:
-        """Deduplicar equity lines por agreement_start_date + capacity"""
+        """
+        Deduplicar equity lines por agreement_start_date + capacity. NO descartar sin fecha.
+        
+        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
+        dicts anidados en lugar de valores simples.
+        """
         seen = set()
         unique = []
         for el in equity_lines:
-            key = (el.get('agreement_start_date'), el.get('total_capacity'))
-            if key not in seen and el.get('agreement_start_date'):
-                seen.add(key)
+            try:
+                start_date = self._safe_get_for_key(el, 'agreement_start_date', 'date')
+                capacity = self._safe_get_for_key(el, 'total_capacity', 'number')
+                
+                key = (start_date, capacity)
+                # Si no tiene agreement_start_date, incluir igual (no descartar datos)
+                if not start_date:
+                    unique.append(el)
+                elif key not in seen:
+                    seen.add(key)
+                    unique.append(el)
+            except Exception as e:
+                logger.warning("equity_lines_dedup_error", error=str(e))
                 unique.append(el)
         return unique
     
@@ -2218,7 +3725,7 @@ DO NOT return arrays with null-filled objects.
             prompt = self._build_grok_prompt(ticker, company_name, filings_text, has_warrant_tables=has_warrant_tables)
             
             # Usar xAI SDK con modelo más potente
-            client = Client(api_key=self.grok_api_key)
+            client = Client(api_key=self.grok_api_key, timeout=120)
             
             # Intentar con grok-3 primero (más potente), fallback a grok-2
             try:
@@ -2247,7 +3754,10 @@ DO NOT return arrays with null-filled objects.
             logger.info("grok_full_response", ticker=ticker, response=response.content)
             
             # Parse JSON del contenido
-            extracted_data = json.loads(response.content)
+            extracted_data_raw = json.loads(response.content)
+            
+            # 🔧 NORMALIZACIÓN: Mapear campos alternativos de Grok a nuestro schema
+            extracted_data = self._normalize_grok_extraction_fields(extracted_data_raw)
             
             # Log estadísticas detalladas
             logger.info("grok_extraction_success", 
@@ -2551,6 +4061,40 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
             logger.error("get_price_from_polygon_failed", ticker=ticker, error=str(e))
             return None
     
+    def _sanitize_field_lengths(self, item: Dict, field_limits: Dict[str, int]) -> Dict:
+        """
+        Sanitiza campos string que excedan max_length de Pydantic.
+        Si un campo es demasiado largo, lo trunca y mueve el contenido a notes.
+        
+        Args:
+            item: Diccionario con datos del item
+            field_limits: Dict con nombre_campo -> max_length
+            
+        Returns:
+            Item sanitizado
+        """
+        sanitized = item.copy()
+        overflow_notes = []
+        
+        for field, max_len in field_limits.items():
+            if field in sanitized and isinstance(sanitized[field], str):
+                value = sanitized[field]
+                if len(value) > max_len:
+                    # Truncar el campo
+                    truncated = value[:max_len - 3] + "..."
+                    sanitized[field] = truncated
+                    # Guardar contenido original en notes
+                    overflow_notes.append(f"[{field}]: {value}")
+        
+        # Si hubo truncaciones, añadir a notes
+        if overflow_notes:
+            existing_notes = sanitized.get('notes') or ""
+            if existing_notes:
+                existing_notes += " | "
+            sanitized['notes'] = existing_notes + " | ".join(overflow_notes)
+        
+        return sanitized
+    
     def _build_profile(
         self,
         ticker: str,
@@ -2596,6 +4140,8 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
         logger.info("warrants_parsed", ticker=ticker, count=len(warrants))
         
         # Parse ATM offerings (con nuevos campos)
+        # Límites de campos string según Pydantic models
+        atm_limits = {'placement_agent': 255, 'status': 50}
         atm_offerings = [
             ATMOfferingModel(
                 ticker=ticker,
@@ -2609,10 +4155,11 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 potential_shares_at_current_price=int(a.get('remaining_capacity', 0) / current_price) if current_price and a.get('remaining_capacity') else None,
                 notes=a.get('notes')
             )
-            for a in extracted_data.get('atm_offerings', [])
+            for a in [self._sanitize_field_lengths(x, atm_limits) for x in extracted_data.get('atm_offerings', [])]
         ]
         
         # Parse shelf registrations (con nuevos campos)
+        shelf_limits = {'security_type': 50, 'registration_statement': 50, 'last_banker': 255, 'status': 50}
         shelf_registrations = [
             ShelfRegistrationModel(
                 ticker=ticker,
@@ -2633,10 +4180,12 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 status=s.get('status'),  # Active, Expired, etc.
                 notes=s.get('notes')
             )
-            for s in extracted_data.get('shelf_registrations', [])
+            for s in [self._sanitize_field_lengths(x, shelf_limits) for x in extracted_data.get('shelf_registrations', [])]
         ]
         
         # Parse completed offerings
+        # CRÍTICO: offering_type tiene max_length=50, Grok a veces devuelve descripciones largas
+        completed_limits = {'offering_type': 50}
         completed_offerings = [
             CompletedOfferingModel(
                 ticker=ticker,
@@ -2648,11 +4197,12 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 filing_url=o.get('filing_url'),
                 notes=o.get('notes')
             )
-            for o in extracted_data.get('completed_offerings', [])
+            for o in [self._sanitize_field_lengths(x, completed_limits) for x in extracted_data.get('completed_offerings', [])]
         ]
         
         # Parse S-1 offerings (NUEVO)
         from models.sec_dilution_models import S1OfferingModel
+        s1_limits = {'underwriter_agent': 255, 'status': 50}
         s1_offerings = [
             S1OfferingModel(
                 ticker=ticker,
@@ -2669,11 +4219,12 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 filing_url=s1.get('filing_url'),
                 last_update_date=s1.get('last_update_date')
             )
-            for s1 in extracted_data.get('s1_offerings', [])
+            for s1 in [self._sanitize_field_lengths(x, s1_limits) for x in extracted_data.get('s1_offerings', [])]
         ]
         
         # Parse convertible notes (NUEVO)
         from models.sec_dilution_models import ConvertibleNoteModel
+        cn_limits = {'underwriter_agent': 255}
         convertible_notes = [
             ConvertibleNoteModel(
                 ticker=ticker,
@@ -2689,11 +4240,12 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 filing_url=cn.get('filing_url'),
                 notes=cn.get('notes')
             )
-            for cn in extracted_data.get('convertible_notes', [])
+            for cn in [self._sanitize_field_lengths(x, cn_limits) for x in extracted_data.get('convertible_notes', [])]
         ]
         
         # Parse convertible preferred (NUEVO)
         from models.sec_dilution_models import ConvertiblePreferredModel
+        cp_limits = {'series': 50, 'underwriter_agent': 255}
         convertible_preferred = [
             ConvertiblePreferredModel(
                 ticker=ticker,
@@ -2710,7 +4262,7 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 filing_url=cp.get('filing_url'),
                 notes=cp.get('notes')
             )
-            for cp in extracted_data.get('convertible_preferred', [])
+            for cp in [self._sanitize_field_lengths(x, cp_limits) for x in extracted_data.get('convertible_preferred', [])]
         ]
         
         # Parse equity lines (NUEVO)

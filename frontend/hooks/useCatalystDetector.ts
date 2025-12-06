@@ -90,7 +90,7 @@ export function useCatalystDetector() {
         ? metrics.change_1m_pct 
         : metrics.change_5m_pct;
       
-      if (change !== null && Math.abs(change) >= criteria.priceChange.minPercent) {
+      if (change !== null && change !== undefined && Math.abs(change) >= criteria.priceChange.minPercent) {
         passes = true;
         const sign = change > 0 ? '+' : '';
         reasons.push(`${sign}${change.toFixed(1)}% in ${criteria.priceChange.timeWindow}min`);

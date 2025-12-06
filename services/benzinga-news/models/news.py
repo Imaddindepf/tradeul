@@ -2,6 +2,7 @@
 Benzinga News Data Models
 """
 
+import html
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -35,16 +36,26 @@ class BenzingaArticle(BaseModel):
     @classmethod
     def from_polygon_response(cls, data: dict) -> "BenzingaArticle":
         """
-        Crea un artículo desde la respuesta de Polygon API
+        Crea un artículo desde la respuesta de Polygon API.
+        Decodifica entidades HTML (&#39; → ', &amp; → &, etc.)
         """
+        # Decodificar entidades HTML en título y teaser
+        title = data.get("title", "")
+        if title:
+            title = html.unescape(title)
+        
+        teaser = data.get("teaser")
+        if teaser:
+            teaser = html.unescape(teaser)
+        
         return cls(
             benzinga_id=data.get("benzinga_id", 0),
-            title=data.get("title", ""),
+            title=title,
             author=data.get("author", "Unknown"),
             published=data.get("published", ""),
             last_updated=data.get("last_updated", data.get("published", "")),
             url=data.get("url", ""),
-            teaser=data.get("teaser"),
+            teaser=teaser,
             body=data.get("body"),
             tickers=data.get("tickers") or [],
             channels=data.get("channels") or [],

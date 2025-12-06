@@ -43,6 +43,21 @@ class WindowLayout(BaseModel):
     zIndex: int = 0
 
 
+class NewsAlertsPreferences(BaseModel):
+    """Preferencias de alertas de noticias (catalyst alerts)"""
+    enabled: bool = False
+    criteria: Dict[str, Any] = Field(default_factory=lambda: {
+        "priceChange": {"enabled": True, "minPercent": 3, "timeWindow": 5},
+        "rvol": {"enabled": False, "minValue": 2.5},
+        "filters": {"onlyScanner": False, "onlyWatchlist": False}
+    })
+    notifications: Dict[str, bool] = Field(default_factory=lambda: {
+        "popup": True,
+        "sound": True,
+        "squawk": False
+    })
+
+
 class UserPreferencesRequest(BaseModel):
     colors: Optional[ColorPreferences] = None
     theme: Optional[ThemePreferences] = None
@@ -50,6 +65,7 @@ class UserPreferencesRequest(BaseModel):
     savedFilters: Optional[Dict[str, Any]] = None
     columnVisibility: Optional[Dict[str, Dict[str, bool]]] = None
     columnOrder: Optional[Dict[str, List[str]]] = None
+    newsAlerts: Optional[NewsAlertsPreferences] = None  # NEW
 
 
 class UserPreferencesResponse(BaseModel):
@@ -60,6 +76,7 @@ class UserPreferencesResponse(BaseModel):
     savedFilters: Dict[str, Any]
     columnVisibility: Dict[str, Dict[str, bool]]
     columnOrder: Dict[str, List[str]]
+    newsAlerts: Optional[NewsAlertsPreferences] = None  # NEW
     updatedAt: str
 
 
@@ -111,6 +128,7 @@ async def get_preferences(
                 saved_filters,
                 column_visibility,
                 column_order,
+                news_alerts,
                 updated_at
             FROM user_preferences
             WHERE user_id = $1
@@ -129,6 +147,10 @@ async def get_preferences(
             theme_data = parse_jsonb(result['theme'])
             layouts_data = parse_jsonb(result['window_layouts'])
             
+            # Parse news_alerts
+            news_alerts_data = parse_jsonb(result['news_alerts']) if result['news_alerts'] else None
+            news_alerts = NewsAlertsPreferences(**news_alerts_data) if news_alerts_data else None
+            
             return UserPreferencesResponse(
                 userId=result['user_id'],
                 colors=ColorPreferences(**colors_data),
@@ -137,6 +159,7 @@ async def get_preferences(
                 savedFilters=parse_jsonb(result['saved_filters']),
                 columnVisibility=parse_jsonb(result['column_visibility']),
                 columnOrder=parse_jsonb(result['column_order']),
+                newsAlerts=news_alerts,
                 updatedAt=result['updated_at'].isoformat()
             )
         
@@ -150,6 +173,7 @@ async def get_preferences(
             savedFilters={},
             columnVisibility={},
             columnOrder={},
+            newsAlerts=NewsAlertsPreferences(),
             updatedAt=datetime.now().isoformat()
         )
     
@@ -182,7 +206,8 @@ async def save_preferences(
             'window_layouts': prefs.windowLayouts,
             'saved_filters': prefs.savedFilters,
             'column_visibility': prefs.columnVisibility,
-            'column_order': prefs.columnOrder
+            'column_order': prefs.columnOrder,
+            'news_alerts': prefs.newsAlerts
         }
         
         for field, value in field_mapping.items():
@@ -222,7 +247,7 @@ async def save_preferences(
         
         # Preparar todos los valores para el INSERT
         insert_values = [user_id]
-        for field in ['colors', 'theme', 'window_layouts', 'saved_filters', 'column_visibility', 'column_order']:
+        for field in ['colors', 'theme', 'window_layouts', 'saved_filters', 'column_visibility', 'column_order', 'news_alerts']:
             value = field_mapping.get(field.replace('_', ''))
             if field == 'window_layouts':
                 value = prefs.windowLayouts
@@ -232,6 +257,8 @@ async def save_preferences(
                 value = prefs.columnVisibility
             elif field == 'column_order':
                 value = prefs.columnOrder
+            elif field == 'news_alerts':
+                value = prefs.newsAlerts
             else:
                 value = getattr(prefs, field, None)
             
@@ -248,16 +275,17 @@ async def save_preferences(
             else:
                 insert_values.append(None)
         
-        # Ejecutar upsert simplificado
+        # Ejecutar upsert simplificado (con news_alerts)
         simple_query = """
-            INSERT INTO user_preferences (user_id, colors, theme, window_layouts, saved_filters, column_visibility, column_order)
+            INSERT INTO user_preferences (user_id, colors, theme, window_layouts, saved_filters, column_visibility, column_order, news_alerts)
             VALUES ($1, 
                 COALESCE($2::jsonb, '{"tickUp":"#10b981","tickDown":"#ef4444","background":"#ffffff","primary":"#3b82f6"}'::jsonb),
                 COALESCE($3::jsonb, '{"font":"jetbrains-mono","colorScheme":"light"}'::jsonb),
                 COALESCE($4::jsonb, '[]'::jsonb),
                 COALESCE($5::jsonb, '{}'::jsonb),
                 COALESCE($6::jsonb, '{}'::jsonb),
-                COALESCE($7::jsonb, '{}'::jsonb)
+                COALESCE($7::jsonb, '{}'::jsonb),
+                COALESCE($8::jsonb, '{"enabled":false,"criteria":{},"notifications":{"popup":true,"sound":true,"squawk":false}}'::jsonb)
             )
             ON CONFLICT (user_id) DO UPDATE SET
                 colors = COALESCE($2::jsonb, user_preferences.colors),
@@ -266,6 +294,7 @@ async def save_preferences(
                 saved_filters = COALESCE($5::jsonb, user_preferences.saved_filters),
                 column_visibility = COALESCE($6::jsonb, user_preferences.column_visibility),
                 column_order = COALESCE($7::jsonb, user_preferences.column_order),
+                news_alerts = COALESCE($8::jsonb, user_preferences.news_alerts),
                 updated_at = NOW()
             RETURNING updated_at
         """

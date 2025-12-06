@@ -22,19 +22,24 @@ function createTestAlert() {
     url: '#',
     published: new Date().toISOString(),
     metrics: {
-      price_at_news: 150 + Math.random() * 50,
-      price_1m_ago: 145 + Math.random() * 50,
-      price_5m_ago: 140 + Math.random() * 50,
-      change_1m_pct: parseFloat(change),
-      change_5m_pct: parseFloat(change) * 1.5,
+      // Nuevos campos del sistema simplificado
+      price: 150 + Math.random() * 50,
+      change_recent_pct: parseFloat(change),
+      change_day_pct: parseFloat(change) * 1.2,
       volume: Math.floor(Math.random() * 5000000),
       rvol: 2 + Math.random() * 3,
       ticker,
+      lookback_minutes: 3,
+      source: 'test',
+      // Campos legacy (compatibilidad)
+      price_at_news: 150 + Math.random() * 50,
+      change_1m_pct: parseFloat(change),
+      change_5m_pct: parseFloat(change) * 1.5,
       snapshot_time: Date.now(),
     },
     triggeredAt: Date.now(),
     dismissed: false,
-    reason: `+${change}% in 5min`,
+    reason: `+${change}% in 3min`,
   };
 }
 

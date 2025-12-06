@@ -99,14 +99,36 @@ export const useTickersStore = create<TickersState & TickersActions>()(
 
       // ============================================================
       // INITIALIZE LIST (from snapshot)
+      // IMPORTANTE: Preservar precios en tiempo real de aggregates
       // ============================================================
       initializeList: (listName, snapshot) => {
         const tickers = new Map<string, Ticker>();
         const order: string[] = [];
 
+        // Obtener lista existente para preservar precios en tiempo real
+        const existingList = get().lists.get(listName);
+        const existingTickers = existingList?.tickers;
+
         if (snapshot.rows && Array.isArray(snapshot.rows)) {
           snapshot.rows.forEach((ticker: Ticker, index: number) => {
             ticker.rank = ticker.rank ?? index;
+            
+            // Preservar precio en tiempo real si el ticker ya existe
+            // Los aggregates tienen datos más frescos que los snapshots
+            if (existingTickers) {
+              const existingTicker = existingTickers.get(ticker.symbol);
+              if (existingTicker && existingTicker.price) {
+                // Preservar precio, volume_today, high, low del ticker existente
+                ticker.price = existingTicker.price;
+                ticker.volume_today = existingTicker.volume_today || ticker.volume_today;
+                ticker.high = Math.max(existingTicker.high || 0, ticker.high || 0);
+                ticker.low = existingTicker.low && ticker.low 
+                  ? Math.min(existingTicker.low, ticker.low)
+                  : existingTicker.low || ticker.low;
+                ticker.change_percent = existingTicker.change_percent ?? ticker.change_percent;
+              }
+            }
+            
             tickers.set(ticker.symbol, ticker);
             order.push(ticker.symbol);
           });

@@ -245,6 +245,36 @@ class WebSocketManager {
   }
 
   /**
+   * 📰 Suscribir a News
+   */
+  subscribeNews() {
+    if (this.debug) console.log('📰 [RxWS] Subscribing to news...');
+
+    if (this.workerPort) {
+      this.workerPort.postMessage({
+        action: 'subscribe_news'
+      });
+    } else {
+      this.send({ action: 'subscribe_benzinga_news' });
+    }
+  }
+
+  /**
+   * 📰 Desuscribir de News
+   */
+  unsubscribeNews() {
+    if (this.debug) console.log('📰 [RxWS] Unsubscribing from news...');
+
+    if (this.workerPort) {
+      this.workerPort.postMessage({
+        action: 'unsubscribe_news'
+      });
+    } else {
+      this.send({ action: 'unsubscribe_benzinga_news' });
+    }
+  }
+
+  /**
    * 🔐 Actualizar token JWT (para refresh periódico)
    * Actualiza la URL para futuras reconexiones y envía refresh al servidor
    */
@@ -453,6 +483,8 @@ export interface UseRxWebSocketReturn {
   errors$: Observable<Error>;
   tokenRefreshRequest$: Observable<boolean>; // SharedWorker solicita token nuevo para reconexión
   send: (payload: any) => void;
+  subscribeNews: () => void;
+  unsubscribeNews: () => void;
   reconnect: () => void;
   updateToken: (newUrl: string, token: string) => void;
 }
@@ -494,6 +526,14 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     managerRef.current.updateToken(newUrl, token);
   }, []);
 
+  const subscribeNews = useCallback(() => {
+    managerRef.current.subscribeNews();
+  }, []);
+
+  const unsubscribeNews = useCallback(() => {
+    managerRef.current.unsubscribeNews();
+  }, []);
+
   // Memoizar el objeto retornado para evitar re-renders infinitos
   // Solo cambia cuando isConnected o connectionId cambian
   return useMemo(() => ({
@@ -506,9 +546,11 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
     errors$: managerRef.current.errors$,
     tokenRefreshRequest$: managerRef.current.tokenRefreshRequest$,
     send,
+    subscribeNews,
+    unsubscribeNews,
     reconnect,
     updateToken,
-  }), [isConnected, connectionId, send, reconnect, updateToken]);
+  }), [isConnected, connectionId, send, subscribeNews, unsubscribeNews, reconnect, updateToken]);
 }
 
 // ============================================================================

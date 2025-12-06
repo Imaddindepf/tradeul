@@ -40,7 +40,13 @@ export function CatalystAlertsPopup() {
   return (
     <div className="fixed top-20 right-4 z-[9999] flex flex-col gap-3">
       {visibleAlerts.map((alert, index) => {
-        const isPositive = (alert.metrics.change_5m_pct || alert.metrics.change_1m_pct || 0) > 0;
+        // Determinar el cambio: prioridad recent > day > legacy
+        const change = alert.metrics.change_recent_pct 
+          ?? alert.metrics.change_day_pct 
+          ?? alert.metrics.change_1m_pct 
+          ?? alert.metrics.change_5m_pct 
+          ?? 0;
+        const isPositive = change > 0;
         
         return (
           <div
@@ -93,15 +99,17 @@ export function CatalystAlertsPopup() {
                   <Clock className="w-3 h-3" />
                   {formatTime(alert.triggeredAt)} ago
                 </span>
-                {alert.metrics.rvol > 0 && (
+                {alert.metrics.rvol && alert.metrics.rvol > 0 && (
                   <span className="flex items-center gap-1">
                     <Volume2 className="w-3 h-3" />
-                    RVOL {alert.metrics.rvol.toFixed(1)}
+                    RVOL {alert.metrics.rvol.toFixed(1)}x
                   </span>
                 )}
-                <span className="font-mono">
-                  ${alert.metrics.price_at_news.toFixed(2)}
-                </span>
+                {(alert.metrics.price || alert.metrics.price_at_news) && (
+                  <span className="font-mono">
+                    ${(alert.metrics.price ?? alert.metrics.price_at_news ?? 0).toFixed(2)}
+                  </span>
+                )}
               </div>
             </div>
             

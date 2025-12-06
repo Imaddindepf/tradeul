@@ -6,6 +6,7 @@ import { AnnouncementBanner } from './AnnouncementBanner';
 import { FloatingWindowProvider } from '@/contexts/FloatingWindowContext';
 import { FloatingWindowManager } from '@/components/floating-window/FloatingWindowManager';
 import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/catalyst-alerts';
+import { NewsProvider } from '@/components/news/NewsProvider';
 
 interface AppShellProps {
   children: ReactNode;
@@ -14,9 +15,11 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   return (
     <FloatingWindowProvider>
-      {/* CatalystDetectorProvider: siempre escucha noticias en background cuando las alertas están habilitadas */}
-      <CatalystDetectorProvider>
-        <div className="min-h-screen bg-slate-50">
+      {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
+      <NewsProvider>
+        {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
+        <CatalystDetectorProvider>
+          <div className="min-h-screen bg-slate-50">
           {/* Announcement Banner - floating toast */}
           <AnnouncementBanner />
           <Navbar />
@@ -30,7 +33,8 @@ export function AppShell({ children }: AppShellProps) {
           {/* Catalyst Alerts Popup - floating notifications */}
           <CatalystAlertsPopup />
         </div>
-      </CatalystDetectorProvider>
+        </CatalystDetectorProvider>
+      </NewsProvider>
     </FloatingWindowProvider>
   );
 }

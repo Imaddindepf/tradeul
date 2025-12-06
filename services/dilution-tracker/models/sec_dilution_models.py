@@ -7,6 +7,75 @@ from datetime import date, datetime
 from typing import Optional, List
 from decimal import Decimal, InvalidOperation
 from pydantic import BaseModel, Field, validator
+from dateutil import parser as date_parser
+
+
+def parse_flexible_date(value):
+    """Parse dates in various formats: ISO, 'December 16, 2026', etc."""
+    if value is None:
+        return None
+    if isinstance(value, date):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        if not value.strip():
+            return None
+        try:
+            # Try ISO format first
+            return datetime.strptime(value, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+        try:
+            # Try flexible parsing (handles "December 16, 2026", "Dec 16, 2026", etc.)
+            return date_parser.parse(value).date()
+        except Exception:
+            return None
+    return None
+
+
+def parse_flexible_decimal(value):
+    """Parse decimals, handling 'N/A', 'TBD', '$1,000', etc."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float, Decimal)):
+        return Decimal(str(value))
+    if isinstance(value, str):
+        cleaned = value.strip().upper()
+        # Skip non-numeric values
+        if cleaned in ('N/A', 'TBD', 'UNKNOWN', 'PENDING', '-', '', 'NULL', 'NONE', 'NOT DISCLOSED', 'UNDISCLOSED'):
+            return None
+        # Clean currency symbols and commas
+        cleaned = value.replace('$', '').replace('€', '').replace(',', '').replace(' ', '').strip()
+        if not cleaned:
+            return None
+        try:
+            return Decimal(cleaned)
+        except InvalidOperation:
+            return None
+    return None
+
+
+def parse_flexible_int(value):
+    """Parse integers, handling 'N/A', '1,000,000', etc."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        cleaned = value.strip().upper()
+        if cleaned in ('N/A', 'TBD', 'UNKNOWN', 'PENDING', '-', '', 'NULL', 'NONE', 'NOT DISCLOSED'):
+            return None
+        cleaned = value.replace(',', '').replace(' ', '').strip()
+        if not cleaned:
+            return None
+        try:
+            return int(float(cleaned))
+        except (ValueError, TypeError):
+            return None
+    return None
 
 
 class WarrantModel(BaseModel):
@@ -27,6 +96,18 @@ class WarrantModel(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    @validator('issue_date', 'expiration_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('exercise_price', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('outstanding', 'potential_new_shares', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
     
     class Config:
         json_schema_extra = {
@@ -59,6 +140,18 @@ class ATMOfferingModel(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    @validator('agreement_start_date', 'filing_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('total_capacity', 'remaining_capacity', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('potential_shares_at_current_price', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
     
     class Config:
         json_schema_extra = {
@@ -98,16 +191,14 @@ class ShelfRegistrationModel(BaseModel):
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
     
+    @validator('filing_date', 'effect_date', 'expiration_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
     @validator('total_capacity', 'remaining_capacity', 'current_raisable_amount', 
                'total_amount_raised', 'total_amount_raised_last_12mo', pre=True)
-    def validate_decimal_fields(cls, v):
-        """Validate and convert decimal fields, handling invalid values gracefully"""
-        if v is None or v == '' or v == 'null':
-            return None
-        try:
-            return Decimal(str(v))
-        except (ValueError, TypeError, InvalidOperation):
-            return None
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
     
     @validator('is_baby_shelf', pre=True)
     def validate_baby_shelf(cls, v):
@@ -145,6 +236,18 @@ class CompletedOfferingModel(BaseModel):
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
     
+    @validator('offering_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('price_per_share', 'amount_raised', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('shares_issued', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
+    
     class Config:
         json_schema_extra = {
             "example": {
@@ -179,6 +282,19 @@ class S1OfferingModel(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    @validator('s1_filing_date', 'last_update_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('anticipated_deal_size', 'final_deal_size', 'final_pricing', 
+               'warrant_coverage', 'final_warrant_coverage', 'exercise_price', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('final_shares_offered', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
 
 
 class ConvertibleNoteModel(BaseModel):
@@ -200,6 +316,18 @@ class ConvertibleNoteModel(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    @validator('issue_date', 'convertible_date', 'maturity_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('total_principal_amount', 'remaining_principal_amount', 'conversion_price', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('total_shares_when_converted', 'remaining_shares_when_converted', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
 
 
 class ConvertiblePreferredModel(BaseModel):
@@ -222,6 +350,18 @@ class ConvertiblePreferredModel(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    @validator('issue_date', 'convertible_date', 'maturity_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('total_dollar_amount_issued', 'remaining_dollar_amount', 'conversion_price', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('total_shares_when_converted', 'remaining_shares_when_converted', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
 
 
 class EquityLineModel(BaseModel):
@@ -238,6 +378,14 @@ class EquityLineModel(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    @validator('agreement_start_date', 'agreement_end_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('total_capacity', 'remaining_capacity', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
 
 
 class DilutionProfileMetadata(BaseModel):

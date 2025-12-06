@@ -15,6 +15,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert } from '@/stores/useCatalystAlertsStore';
 import { useTickersStore } from '@/stores/useTickersStore';
 import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+import { useCatalystAlertsSync } from '@/hooks/useCatalystAlertsSync';
 
 interface NewsWithMetrics {
   benzinga_id?: string | number;
@@ -54,6 +55,9 @@ function playAlertSound() {
 }
 
 export function CatalystDetectorProvider({ children }: { children: React.ReactNode }) {
+  // Sincronizar preferencias con el servidor
+  useCatalystAlertsSync();
+  
   // Store de alertas
   const enabled = useCatalystAlertsStore((state) => state.enabled);
   const criteria = useCatalystAlertsStore((state) => state.criteria);
@@ -81,7 +85,7 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     return found;
   }, [tickerLists]);
   
-  // Verificar si cumple criterios
+  // Verificar si cumple criterios del usuario
   const checkCriteria = useCallback((
     ticker: string,
     metrics: CatalystMetrics
@@ -96,21 +100,39 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     
     // Criterio: Cambio de precio
     if (criteria.priceChange.enabled) {
-      const change = criteria.priceChange.timeWindow === 1 
-        ? metrics.change_1m_pct 
-        : metrics.change_5m_pct;
+      // Nuevo sistema: usar change_recent_pct (últimos 3 min) o change_day_pct
+      // El usuario elige "1min" o "5min" pero usamos el mejor dato disponible
+      let change: number | null = null;
+      let timeLabel = 'recent';
+      
+      // Prioridad: change_recent_pct (más preciso) > change_day_pct (incluye ahora)
+      if (metrics.change_recent_pct !== null && metrics.change_recent_pct !== undefined) {
+        change = metrics.change_recent_pct;
+        timeLabel = `${metrics.lookback_minutes || 3}min`;
+      } else if (metrics.change_day_pct !== null && metrics.change_day_pct !== undefined) {
+        change = metrics.change_day_pct;
+        timeLabel = 'day';
+      }
+      // Compatibilidad con sistema legacy
+      else if (metrics.change_1m_pct !== null && metrics.change_1m_pct !== undefined) {
+        change = metrics.change_1m_pct;
+        timeLabel = '1min';
+      } else if (metrics.change_5m_pct !== null && metrics.change_5m_pct !== undefined) {
+        change = metrics.change_5m_pct;
+        timeLabel = '5min';
+      }
       
       if (change !== null && Math.abs(change) >= criteria.priceChange.minPercent) {
         passes = true;
         const sign = change > 0 ? '+' : '';
-        reasons.push(`${sign}${change.toFixed(1)}% in ${criteria.priceChange.timeWindow}min`);
+        reasons.push(`${sign}${change.toFixed(1)}% ${timeLabel}`);
       }
     }
     
     // Criterio: RVOL
     if (criteria.rvol.enabled && metrics.rvol && metrics.rvol >= criteria.rvol.minValue) {
       passes = true;
-      reasons.push(`RVOL ${metrics.rvol.toFixed(1)}`);
+      reasons.push(`RVOL ${(metrics.rvol ?? 0).toFixed(1)}x`);
     }
     
     if (!passes) {
@@ -120,7 +142,7 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     return { passes: true, reason: reasons.join(' | ') };
   }, [criteria, isInScanner]);
   
-  // Procesar noticia
+  // Procesar noticia con métricas de catalyst
   const processNews = useCallback((news: NewsWithMetrics) => {
     if (!news.catalyst_metrics) return;
     if (!news.tickers || news.tickers.length === 0) return;
@@ -140,10 +162,13 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     const ticker = news.catalyst_metrics.ticker || news.tickers[0];
     const metrics = news.catalyst_metrics;
     
-    // Verificar criterios
+    // Verificar criterios del usuario (él decide qué alertas ver)
     const { passes, reason } = checkCriteria(ticker, metrics);
     
-    if (!passes) return;
+    if (!passes) {
+      console.log('[CatalystProvider] ⏭️ Skipped:', ticker, 'does not meet criteria');
+      return;
+    }
     
     // Crear alerta
     const alert: CatalystAlert = {
@@ -166,7 +191,7 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       playAlertSound();
     }
     
-    console.log('[CatalystProvider] 🔔 Alert triggered:', ticker, reason);
+    console.log('[CatalystProvider] 🔔 ALERT:', ticker, reason);
   }, [checkCriteria, addAlert, criteria.notifications.sound]);
   
   // Suscribirse a noticias cuando las alertas están habilitadas
@@ -191,16 +216,19 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     if (!enabled) return;
     
     const subscription = ws.messages$.subscribe((message: any) => {
+      // Noticias con métricas de catalyst
       if ((message.type === 'news' || message.type === 'benzinga_news') && message.article) {
         const article = message.article;
         
-        // Procesar para Catalyst Alerts
+        // Procesar métricas de catalyst si existen
         if (message.catalyst_metrics) {
+          const metrics = typeof message.catalyst_metrics === 'string' 
+            ? JSON.parse(message.catalyst_metrics) 
+            : message.catalyst_metrics;
+          
           processNews({
             ...article,
-            catalyst_metrics: typeof message.catalyst_metrics === 'string' 
-              ? JSON.parse(message.catalyst_metrics) 
-              : message.catalyst_metrics,
+            catalyst_metrics: metrics,
           });
         }
       }

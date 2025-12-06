@@ -67,8 +67,34 @@ const redisSubscriber = new Redis({
   lazyConnect: false,
 });
 
-// Cliente Redis dedicado para quotes stream (evitar bloqueo con otros streams)
+// Clientes Redis DEDICADOS para cada stream bloqueante
+// Cada XREAD/XREADGROUP bloqueante necesita su propio cliente para evitar conflictos
+
 const redisQuotes = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
+});
+
+const redisBenzingaNews = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
+});
+
+const redisRankings = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
+});
+
+const redisAggregates = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
+});
+
+const redisSECFilings = new Redis({
   ...redisConfig,
   retryStrategy: (times) => Math.min(times * 50, 2000),
   maxRetriesPerRequest: null,
@@ -85,6 +111,26 @@ redis.on("error", (err) => {
 // Manejadores de error para conexiones adicionales
 redisCommands.on("error", (err) => {
   logger.error({ err }, "Redis Commands error");
+});
+
+redisBenzingaNews.on("error", (err) => {
+  logger.error({ err }, "Redis Benzinga News error");
+});
+
+redisRankings.on("error", (err) => {
+  logger.error({ err }, "Redis Rankings error");
+});
+
+redisAggregates.on("error", (err) => {
+  logger.error({ err }, "Redis Aggregates error");
+});
+
+redisSECFilings.on("error", (err) => {
+  logger.error({ err }, "Redis SEC Filings error");
+});
+
+redisBenzingaNews.on("connect", () => {
+  logger.info("📰 Redis Benzinga News client connected");
 });
 
 redisSubscriber.on("error", (err) => {
@@ -674,22 +720,24 @@ async function sendInitialSnapshot(connectionId, listName) {
 
 /**
  * Actualizar índice symbol → lists cuando llegan deltas
+ * IMPORTANTE: También maneja "update" y "rerank" para robustez
+ * (en caso de que se haya perdido el "add" original)
  */
 function updateSymbolToListsIndex(listName, deltas) {
   deltas.forEach((delta) => {
     const symbol = delta.symbol;
 
-    if (delta.action === "add") {
-      // Agregar symbol a lista
+    if (delta.action === "add" || delta.action === "update" || delta.action === "rerank") {
+      // Agregar/asegurar symbol en lista
+      // Esto cubre el caso donde se perdió el "add" original
       if (!symbolToLists.has(symbol)) {
         symbolToLists.set(symbol, new Set());
+        logger.info(
+          { symbol, listName, action: delta.action },
+          "📊 Added missing symbol to index"
+        );
       }
       symbolToLists.get(symbol).add(listName);
-
-      logger.debug(
-        { symbol, listName, action: "add" },
-        "Updated symbol→lists index"
-      );
     } else if (delta.action === "remove") {
       // Remover symbol de lista
       const lists = symbolToLists.get(symbol);
@@ -1367,8 +1415,8 @@ async function processRankingDeltasStream() {
 
   while (true) {
     try {
-      // BLOCK 100ms para baja latencia
-      const results = await redis.xreadgroup(
+      // BLOCK 100ms para baja latencia - Cliente dedicado para rankings
+      const results = await redisRankings.xreadgroup(
         "GROUP",
         consumerGroup,
         consumerName,
@@ -1455,8 +1503,8 @@ async function processAggregatesStream() {
 
   while (true) {
     try {
-      // BLOCK 100ms para latencia casi en tiempo real
-      const results = await redis.xreadgroup(
+      // BLOCK 100ms para latencia casi en tiempo real - Cliente dedicado para aggregates
+      const results = await redisAggregates.xreadgroup(
         "GROUP",
         consumerGroup,
         consumerName,
@@ -1557,7 +1605,8 @@ async function processSECFilingsStream() {
 
   while (true) {
     try {
-      const result = await redis.xread(
+      // Cliente dedicado para SEC Filings
+      const result = await redisSECFilings.xread(
         "BLOCK",
         5000,
         "COUNT",
@@ -1654,11 +1703,12 @@ async function processBenzingaNewsStream() {
   const STREAM_NAME = "stream:benzinga:news";
   let lastId = "$"; // Leer solo mensajes nuevos
 
-  logger.info("📰 Starting Benzinga News stream processor");
+  logger.info("📰 Starting Benzinga News stream processor (dedicated Redis client)");
 
   while (true) {
     try {
-      const result = await redis.xread(
+      // Usar cliente Redis DEDICADO para evitar bloqueo con otras operaciones
+      const result = await redisBenzingaNews.xread(
         "BLOCK",
         5000,
         "COUNT",
@@ -1669,9 +1719,10 @@ async function processBenzingaNewsStream() {
       );
 
       if (!result) {
-        logger.debug("📰 No new messages (timeout)");
         continue;
       }
+      
+      logger.info({ messagesCount: result[0]?.[1]?.length || 0 }, "📰 Received news messages from stream");
 
       for (const [_stream, messages] of result) {
         for (const [id, fields] of messages) {
@@ -1821,7 +1872,10 @@ async function processQuotesStream() {
  * Broadcast de Benzinga News a clientes suscritos
  */
 function broadcastBenzingaNews(articleData, catalystMetrics = null) {
-  if (benzingaNewsSubscribers.size === 0) return;
+  if (benzingaNewsSubscribers.size === 0) {
+    logger.debug({ title: articleData.title?.substring(0, 30), tickers: articleData.tickers?.slice(0, 3) }, "📰 News received but no subscribers");
+    return;
+  }
 
   const message = {
     type: "benzinga_news",
@@ -1861,12 +1915,13 @@ function broadcastBenzingaNews(articleData, catalystMetrics = null) {
   });
 
   if (sentCount > 0) {
-    logger.debug(
+    logger.info(
       {
         benzingaId: articleData.benzinga_id,
         title: articleData.title?.substring(0, 50),
         tickers: articleData.tickers,
-        sentTo: sentCount
+        sentTo: sentCount,
+        hasCatalystMetrics: !!catalystMetrics
       },
       "📰 Broadcasted Benzinga news"
     );

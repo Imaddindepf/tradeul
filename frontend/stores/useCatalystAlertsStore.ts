@@ -5,25 +5,34 @@
  * - Criterios configurables por el usuario
  * - Lista de alertas activas
  * - Estado de activación
+ * - Sincronización con BD (squawk, etc.)
  */
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+
+// API URL para sincronización
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface CatalystMetrics {
-  price_at_news: number;
-  price_1m_ago: number | null;
-  price_5m_ago: number | null;
-  change_1m_pct: number | null;
-  change_5m_pct: number | null;
-  volume: number;
+  // Nuevo sistema simplificado
+  price: number;
+  change_recent_pct: number | null;  // Cambio últimos 3 minutos (más preciso)
+  change_day_pct: number | null;     // Cambio del día (incluye momento actual)
   rvol: number;
+  volume: number;
   ticker?: string;
-  snapshot_time: number;
+  lookback_minutes?: number;
+  
+  // Campos legacy (compatibilidad)
+  price_at_news?: number;
+  change_1m_pct?: number | null;
+  change_5m_pct?: number | null;
+  snapshot_time?: number;
 }
 
 export interface CatalystAlert {
@@ -83,6 +92,10 @@ interface CatalystAlertsState {
   // Alertas activas
   alerts: CatalystAlert[];
   
+  // Sincronización
+  _syncing: boolean;
+  _lastSyncError: string | null;
+  
   // Acciones
   setEnabled: (enabled: boolean) => void;
   setCriteria: (criteria: Partial<AlertCriteria>) => void;
@@ -90,6 +103,10 @@ interface CatalystAlertsState {
   dismissAlert: (id: string) => void;
   clearAlerts: () => void;
   clearDismissed: () => void;
+  
+  // Sincronización con BD
+  syncToServer: (token: string) => Promise<void>;
+  loadFromServer: (token: string) => Promise<void>;
 }
 
 // ============================================================================
@@ -132,6 +149,8 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
       enabled: false,
       criteria: defaultCriteria,
       alerts: [],
+      _syncing: false,
+      _lastSyncError: null,
       
       setEnabled: (enabled) => set({ enabled }),
       
@@ -185,13 +204,84 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
       clearDismissed: () => set((state) => ({
         alerts: state.alerts.filter((a) => !a.dismissed),
       })),
+      
+      // Sincronizar preferencias con el servidor
+      syncToServer: async (token: string) => {
+        const state = get();
+        if (state._syncing) return;
+        
+        set({ _syncing: true, _lastSyncError: null });
+        
+        try {
+          const payload = {
+            newsAlerts: {
+              enabled: state.enabled,
+              criteria: state.criteria,
+              notifications: state.criteria.notifications,
+            }
+          };
+          
+          const response = await fetch(`${API_BASE_URL}/api/v1/user/preferences`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(payload),
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Failed to sync: ${response.status}`);
+          }
+          
+          console.log('[CatalystAlerts] ✅ Synced to server');
+        } catch (error) {
+          console.error('[CatalystAlerts] ❌ Sync error:', error);
+          set({ _lastSyncError: String(error) });
+        } finally {
+          set({ _syncing: false });
+        }
+      },
+      
+      // Cargar preferencias desde el servidor
+      loadFromServer: async (token: string) => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/v1/user/preferences`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          if (!response.ok) return;
+          
+          const data = await response.json();
+          
+          if (data.newsAlerts) {
+            const newsAlerts = data.newsAlerts;
+            set({
+              enabled: newsAlerts.enabled ?? false,
+              criteria: {
+                ...defaultCriteria,
+                ...newsAlerts.criteria,
+                notifications: {
+                  ...defaultCriteria.notifications,
+                  ...newsAlerts.notifications,
+                },
+              },
+            });
+            console.log('[CatalystAlerts] ✅ Loaded from server');
+          }
+        } catch (error) {
+          console.error('[CatalystAlerts] ❌ Load error:', error);
+        }
+      },
     }),
     {
       name: 'catalyst-alerts-storage',
       partialize: (state) => ({
         enabled: state.enabled,
         criteria: state.criteria,
-        // No persistimos alertas (son transitorias)
+        // No persistimos alertas ni estado de sync
       }),
     }
   )
