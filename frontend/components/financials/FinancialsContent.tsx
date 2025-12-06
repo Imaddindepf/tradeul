@@ -1,1087 +1,587 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
-import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Building2, Landmark, HeartPulse, Cpu, ShoppingCart, Factory, Pickaxe, BarChart3 } from 'lucide-react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { RefreshCw, AlertTriangle, Copy, Check } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
-import { FinancialMetricChart, FINANCIAL_METRIC_CHART_CONFIG, type MetricDataPoint } from './FinancialMetricChart';
+
+// Local imports - modular structure
+import type { FinancialData, TabType, PeriodFilter, FinancialPeriod } from './types';
+import { INDUSTRY_PROFILES } from './constants/profiles';
+import { mapFMPIndustryToCategory } from './constants/industryCategories';
+import { IncomeStatementTable, BalanceSheetTable, CashFlowTable } from './tables';
+import { KPISection } from './components/KPISection';
+import { FinancialMetricChart, type MetricDataPoint } from './FinancialMetricChart';
+import { openFinancialChartWindow, type FinancialChartData } from '@/lib/window-injector';
 
 // ============================================================================
-// Types (matching FMP API response)
+// Period Range Slider Component
 // ============================================================================
 
-interface FinancialPeriod {
-    date: string;
-    symbol: string;
-    fiscal_year: string;
-    period: string;  // Q1, Q2, Q3, Q4, FY
-    filing_date?: string;
-    currency: string;
+interface PeriodRangeSliderProps {
+    periods: string[];
+    startIndex: number;
+    endIndex: number;
+    onChange: (start: number, end: number) => void;
 }
 
-interface IncomeStatement {
-    period: FinancialPeriod;
-    revenue?: number;
-    cost_of_revenue?: number;
-    gross_profit?: number;
-    research_development?: number;
-    selling_general_admin?: number;
-    operating_expenses?: number;
-    operating_income?: number;
-    interest_expense?: number;
-    interest_income?: number;
-    net_interest_income?: number;  // Banks
-    other_income_expense?: number;
-    income_before_tax?: number;
-    income_tax?: number;
-    net_income?: number;
-    eps?: number;
-    eps_diluted?: number;
-    shares_outstanding?: number;
-    shares_diluted?: number;
-    ebitda?: number;
-    ebit?: number;
-    depreciation?: number;
-}
+function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRangeSliderProps) {
+    const trackRef = useRef<HTMLDivElement>(null);
+    const [dragging, setDragging] = useState<'start' | 'end' | 'range' | null>(null);
+    const [dragStartX, setDragStartX] = useState(0);
+    const [dragStartIndices, setDragStartIndices] = useState({ start: 0, end: 0 });
 
-interface BalanceSheet {
-    period: FinancialPeriod;
-    total_assets?: number;
-    current_assets?: number;
-    cash_and_equivalents?: number;
-    short_term_investments?: number;
-    cash_and_short_term?: number;
-    receivables?: number;
-    inventory?: number;
-    other_current_assets?: number;
-    property_plant_equipment?: number;
-    goodwill?: number;
-    intangible_assets?: number;
-    long_term_investments?: number;
-    other_noncurrent_assets?: number;
-    noncurrent_assets?: number;
-    total_liabilities?: number;
-    current_liabilities?: number;
-    accounts_payable?: number;
-    short_term_debt?: number;
-    deferred_revenue?: number;
-    other_current_liabilities?: number;
-    long_term_debt?: number;
-    other_noncurrent_liabilities?: number;
-    noncurrent_liabilities?: number;
-    total_equity?: number;
-    common_stock?: number;
-    retained_earnings?: number;
-    treasury_stock?: number;
-    accumulated_other_income?: number;
-    total_debt?: number;
-    net_debt?: number;
-    total_investments?: number;
-}
+    const getIndexFromPosition = useCallback((clientX: number): number => {
+        if (!trackRef.current) return 0;
+        const rect = trackRef.current.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const percent = Math.max(0, Math.min(1, x / rect.width));
+        return Math.round(percent * (periods.length - 1));
+    }, [periods.length]);
 
-interface CashFlow {
-    period: FinancialPeriod;
-    net_income?: number;
-    depreciation?: number;
-    stock_compensation?: number;
-    change_working_capital?: number;
-    change_receivables?: number;
-    change_inventory?: number;
-    change_payables?: number;
-    other_operating?: number;
-    operating_cash_flow?: number;
-    capex?: number;
-    acquisitions?: number;
-    purchases_investments?: number;
-    sales_investments?: number;
-    other_investing?: number;
-    investing_cash_flow?: number;
-    debt_issued?: number;
-    debt_repaid?: number;
-    stock_issued?: number;
-    stock_repurchased?: number;
-    dividends_paid?: number;
-    other_financing?: number;
-    financing_cash_flow?: number;
-    net_change_cash?: number;
-    cash_beginning?: number;
-    cash_ending?: number;
-    free_cash_flow?: number;
-}
+    const handleMouseDown = useCallback((e: React.MouseEvent, type: 'start' | 'end' | 'range') => {
+        e.preventDefault();
+        setDragging(type);
+        setDragStartX(e.clientX);
+        setDragStartIndices({ start: startIndex, end: endIndex });
+    }, [startIndex, endIndex]);
 
-interface FinancialData {
-    symbol: string;
-    currency: string;
-    income_statements: IncomeStatement[];
-    balance_sheets: BalanceSheet[];
-    cash_flows: CashFlow[];
-    last_updated: string;
-    cached: boolean;
-    cache_age_seconds?: number;
-}
+    useEffect(() => {
+        if (!dragging) return;
 
-type TabType = 'income' | 'balance' | 'cashflow';
-type PeriodFilter = 'annual' | 'quarter' | 'all';
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!trackRef.current) return;
 
-// ============================================================================
-// Industry Detection
-// ============================================================================
+            const rect = trackRef.current.getBoundingClientRect();
+            const deltaX = e.clientX - dragStartX;
+            const deltaPercent = deltaX / rect.width;
+            const deltaIndex = Math.round(deltaPercent * (periods.length - 1));
 
-type IndustryType = 'tech' | 'bank' | 'insurance' | 'healthcare' | 'retail' | 'industrial' | 'mining' | 'general';
+            if (dragging === 'start') {
+                const newStart = Math.max(0, Math.min(endIndex - 1, dragStartIndices.start + deltaIndex));
+                onChange(newStart, endIndex);
+            } else if (dragging === 'end') {
+                const newEnd = Math.max(startIndex + 1, Math.min(periods.length - 1, dragStartIndices.end + deltaIndex));
+                onChange(startIndex, newEnd);
+            } else if (dragging === 'range') {
+                const rangeSize = dragStartIndices.end - dragStartIndices.start;
+                let newStart = dragStartIndices.start + deltaIndex;
+                let newEnd = dragStartIndices.end + deltaIndex;
 
-interface IndustryProfile {
-    type: IndustryType;
-    label: string;
-    icon: typeof Building2;
-    color: string;
-    // Campos relevantes por industria
-    incomeFields: string[];
-    balanceFields: string[];
-    cashFlowFields: string[];
-    // Campos a ocultar
-    hideFields: string[];
-    // Ratios especiales
-    specialRatios: { label: string; calculate: (data: FinancialData) => number | undefined }[];
-}
-
-// Detectar industria basado en características financieras
-function detectIndustry(data: FinancialData): IndustryType {
-    if (!data.income_statements.length || !data.balance_sheets.length) return 'general';
-
-    const income = data.income_statements[0];
-    const balance = data.balance_sheets[0];
-
-    // Bancos: Net Interest Income alto, sin inventory
-    if (income.net_interest_income && income.net_interest_income > 0 && !balance.inventory) {
-        return 'bank';
-    }
-
-    // Tech/Biotech: R&D alto (>10% revenue) o sin revenue significativo
-    if (income.research_development && income.revenue) {
-        const rdRatio = income.research_development / income.revenue;
-        if (rdRatio > 0.15) return 'tech';
-    }
-
-    // Biotech sin revenue significativo pero con R&D
-    if (income.research_development && (!income.revenue || income.revenue < income.research_development * 2)) {
-        return 'healthcare';
-    }
-
-    // Retail: Inventory alto (>5% assets) y bajo margen bruto
-    if (balance.inventory && balance.total_assets) {
-        const invRatio = balance.inventory / balance.total_assets;
-        if (invRatio > 0.08 && income.gross_profit && income.revenue) {
-            const grossMargin = income.gross_profit / income.revenue;
-            if (grossMargin < 0.35) return 'retail';
-        }
-    }
-
-    // Mining/Energy: CapEx muy alto relativo a operating cash flow
-    const cashFlow = data.cash_flows[0];
-    if (cashFlow?.capex && cashFlow?.operating_cash_flow) {
-        const capexRatio = Math.abs(cashFlow.capex) / Math.abs(cashFlow.operating_cash_flow);
-        if (capexRatio > 0.8) return 'mining';
-    }
-
-    // Industrial: PP&E alto (>30% assets)
-    if (balance.property_plant_equipment && balance.total_assets) {
-        const ppeRatio = balance.property_plant_equipment / balance.total_assets;
-        if (ppeRatio > 0.30) return 'industrial';
-    }
-
-    return 'general';
-}
-
-const INDUSTRY_PROFILES: Record<IndustryType, IndustryProfile> = {
-    tech: {
-        type: 'tech',
-        label: 'Technology',
-        icon: Cpu,
-        color: 'text-blue-600',
-        incomeFields: ['revenue', 'gross_profit', 'research_development', 'operating_income', 'net_income', 'eps'],
-        balanceFields: ['cash_and_equivalents', 'total_investments', 'goodwill', 'intangible_assets', 'total_debt', 'total_equity'],
-        cashFlowFields: ['operating_cash_flow', 'capex', 'stock_repurchased', 'free_cash_flow'],
-        hideFields: ['inventory'],
-        specialRatios: [
-            {
-                label: 'R&D/Revenue', calculate: (d) => {
-                    const i = d.income_statements[0];
-                    return i?.research_development && i?.revenue ? (i.research_development / i.revenue) * 100 : undefined;
+                if (newStart < 0) {
+                    newStart = 0;
+                    newEnd = rangeSize;
                 }
-            },
-        ],
-    },
-    bank: {
-        type: 'bank',
-        label: 'Banking',
-        icon: Landmark,
-        color: 'text-emerald-600',
-        incomeFields: ['net_interest_income', 'interest_income', 'interest_expense', 'operating_income', 'net_income', 'eps'],
-        balanceFields: ['total_assets', 'cash_and_equivalents', 'long_term_investments', 'total_liabilities', 'total_debt', 'total_equity'],
-        cashFlowFields: ['operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow', 'dividends_paid'],
-        hideFields: ['inventory', 'gross_profit', 'cost_of_revenue', 'research_development', 'capex'],
-        specialRatios: [
-            {
-                label: 'Net Interest Margin', calculate: (d) => {
-                    const i = d.income_statements[0];
-                    const b = d.balance_sheets[0];
-                    return i?.net_interest_income && b?.total_assets ? (i.net_interest_income / b.total_assets) * 100 : undefined;
+                if (newEnd > periods.length - 1) {
+                    newEnd = periods.length - 1;
+                    newStart = newEnd - rangeSize;
                 }
-            },
-        ],
-    },
-    insurance: {
-        type: 'insurance',
-        label: 'Insurance',
-        icon: HeartPulse,
-        color: 'text-purple-600',
-        incomeFields: ['revenue', 'operating_expenses', 'operating_income', 'net_income', 'eps'],
-        balanceFields: ['total_assets', 'total_investments', 'total_liabilities', 'total_equity'],
-        cashFlowFields: ['operating_cash_flow', 'investing_cash_flow', 'dividends_paid'],
-        hideFields: ['inventory', 'gross_profit', 'research_development', 'capex'],
-        specialRatios: [],
-    },
-    healthcare: {
-        type: 'healthcare',
-        label: 'Healthcare/Biotech',
-        icon: HeartPulse,
-        color: 'text-rose-600',
-        incomeFields: ['revenue', 'cost_of_revenue', 'gross_profit', 'research_development', 'operating_income', 'net_income'],
-        balanceFields: ['cash_and_equivalents', 'receivables', 'total_assets', 'total_debt', 'total_equity'],
-        cashFlowFields: ['operating_cash_flow', 'capex', 'stock_issued', 'free_cash_flow'],
-        hideFields: ['inventory'],
-        specialRatios: [
-            {
-                label: 'Cash Runway (years)', calculate: (d) => {
-                    const b = d.balance_sheets[0];
-                    const c = d.cash_flows[0];
-                    if (b?.cash_and_equivalents && c?.operating_cash_flow && c.operating_cash_flow < 0) {
-                        return b.cash_and_equivalents / Math.abs(c.operating_cash_flow);
+                onChange(newStart, newEnd);
+            }
+        };
+
+        const handleMouseUp = () => {
+            setDragging(null);
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [dragging, dragStartX, dragStartIndices, startIndex, endIndex, periods.length, onChange]);
+
+    // Extract unique years for display
+    const yearMarkers = useMemo(() => {
+        const years: { year: string; index: number }[] = [];
+        let lastYear = '';
+
+        periods.forEach((period, idx) => {
+            const yearMatch = period.match(/\d{4}/);
+            const year = yearMatch ? yearMatch[0] : '';
+            if (year && year !== lastYear) {
+                years.push({ year: `'${year.slice(-2)}`, index: idx });
+                lastYear = year;
+            }
+        });
+        return years;
+    }, [periods]);
+
+    const startPercent = periods.length > 1 ? (startIndex / (periods.length - 1)) * 100 : 0;
+    const endPercent = periods.length > 1 ? (endIndex / (periods.length - 1)) * 100 : 100;
+
+    if (periods.length <= 2) return null;
+
+    return (
+        <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
+            {/* Year labels */}
+            <div className="relative h-3 mb-1">
+                {yearMarkers.map(({ year, index }) => (
+                    <span
+                        key={`${year}-${index}`}
+                        className="absolute text-[9px] text-slate-500 font-medium transform -translate-x-1/2"
+                        style={{ left: `${(index / (periods.length - 1)) * 100}%` }}
+                    >
+                        {year}
+                    </span>
+                ))}
+            </div>
+
+            {/* Slider Track */}
+            <div
+                ref={trackRef}
+                className="relative h-1.5 bg-slate-200 rounded-full cursor-pointer"
+                onClick={(e) => {
+                    const index = getIndexFromPosition(e.clientX);
+                    const distToStart = Math.abs(index - startIndex);
+                    const distToEnd = Math.abs(index - endIndex);
+                    if (distToStart < distToEnd) {
+                        onChange(Math.min(index, endIndex - 1), endIndex);
+                    } else {
+                        onChange(startIndex, Math.max(index, startIndex + 1));
                     }
-                    return undefined;
-                }
-            },
-        ],
-    },
-    retail: {
-        type: 'retail',
-        label: 'Retail',
-        icon: ShoppingCart,
-        color: 'text-orange-600',
-        incomeFields: ['revenue', 'cost_of_revenue', 'gross_profit', 'selling_general_admin', 'operating_income', 'net_income'],
-        balanceFields: ['inventory', 'receivables', 'accounts_payable', 'property_plant_equipment', 'total_debt', 'total_equity'],
-        cashFlowFields: ['operating_cash_flow', 'capex', 'change_inventory', 'dividends_paid', 'free_cash_flow'],
-        hideFields: ['research_development', 'goodwill'],
-        specialRatios: [
-            {
-                label: 'Inventory Turnover', calculate: (d) => {
-                    const i = d.income_statements[0];
-                    const b = d.balance_sheets[0];
-                    return i?.cost_of_revenue && b?.inventory ? i.cost_of_revenue / b.inventory : undefined;
-                }
-            },
-            {
-                label: 'Days Inventory', calculate: (d) => {
-                    const i = d.income_statements[0];
-                    const b = d.balance_sheets[0];
-                    return i?.cost_of_revenue && b?.inventory ? (b.inventory / i.cost_of_revenue) * 365 : undefined;
-                }
-            },
-        ],
-    },
-    industrial: {
-        type: 'industrial',
-        label: 'Industrial',
-        icon: Factory,
-        color: 'text-slate-600',
-        incomeFields: ['revenue', 'cost_of_revenue', 'gross_profit', 'operating_expenses', 'operating_income', 'ebitda', 'net_income'],
-        balanceFields: ['property_plant_equipment', 'inventory', 'receivables', 'total_debt', 'total_equity'],
-        cashFlowFields: ['operating_cash_flow', 'capex', 'depreciation', 'dividends_paid', 'free_cash_flow'],
-        hideFields: ['research_development', 'goodwill'],
-        specialRatios: [
-            {
-                label: 'Asset Turnover', calculate: (d) => {
-                    const i = d.income_statements[0];
-                    const b = d.balance_sheets[0];
-                    return i?.revenue && b?.total_assets ? i.revenue / b.total_assets : undefined;
-                }
-            },
-        ],
-    },
-    mining: {
-        type: 'mining',
-        label: 'Mining/Energy',
-        icon: Pickaxe,
-        color: 'text-amber-600',
-        incomeFields: ['revenue', 'cost_of_revenue', 'gross_profit', 'depreciation', 'operating_income', 'ebitda', 'net_income'],
-        balanceFields: ['property_plant_equipment', 'total_assets', 'total_debt', 'net_debt', 'total_equity'],
-        cashFlowFields: ['operating_cash_flow', 'capex', 'depreciation', 'debt_issued', 'debt_repaid', 'free_cash_flow'],
-        hideFields: ['research_development', 'inventory'],
-        specialRatios: [
-            {
-                label: 'CapEx/OCF', calculate: (d) => {
-                    const c = d.cash_flows[0];
-                    return c?.capex && c?.operating_cash_flow ? Math.abs(c.capex) / Math.abs(c.operating_cash_flow) * 100 : undefined;
-                }
-            },
-        ],
-    },
-    general: {
-        type: 'general',
-        label: 'General',
-        icon: Building2,
-        color: 'text-slate-500',
-        incomeFields: ['revenue', 'gross_profit', 'operating_income', 'net_income', 'eps'],
-        balanceFields: ['total_assets', 'total_liabilities', 'total_equity', 'total_debt'],
-        cashFlowFields: ['operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow', 'free_cash_flow'],
-        hideFields: [],
-        specialRatios: [],
-    },
-};
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-function formatValue(value: number | undefined | null, type: 'currency' | 'percent' | 'ratio' | 'eps' | 'days' = 'currency'): string {
-    if (value === undefined || value === null) return '--';
-
-    if (type === 'percent') {
-        const sign = value >= 0 ? '' : '';
-        return `${sign}${value.toFixed(1)}%`;
-    }
-
-    if (type === 'ratio' || type === 'days') {
-        return value.toFixed(1);
-    }
-
-    if (type === 'eps') {
-        const sign = value < 0 ? '-' : '';
-        return `${sign}$${Math.abs(value).toFixed(2)}`;
-    }
-
-    // Currency formatting
-    const absValue = Math.abs(value);
-    const sign = value < 0 ? '-' : '';
-
-    if (absValue >= 1_000_000_000_000) {
-        return `${sign}$${(absValue / 1_000_000_000_000).toFixed(1)}T`;
-    } else if (absValue >= 1_000_000_000) {
-        return `${sign}$${(absValue / 1_000_000_000).toFixed(1)}B`;
-    } else if (absValue >= 1_000_000) {
-        return `${sign}$${(absValue / 1_000_000).toFixed(1)}M`;
-    } else if (absValue >= 1_000) {
-        return `${sign}$${(absValue / 1_000).toFixed(1)}K`;
-    }
-    return `${sign}$${absValue.toFixed(0)}`;
-}
-
-function ValueCell({ value, type = 'currency', showTrend = false, prevValue, isNegativeBad = true }: {
-    value: number | undefined | null;
-    type?: 'currency' | 'percent' | 'ratio' | 'eps' | 'days';
-    showTrend?: boolean;
-    prevValue?: number;
-    isNegativeBad?: boolean;  // Some negatives are good (e.g., debt repaid)
-}) {
-    const formatted = formatValue(value, type);
-    const isNegative = value !== undefined && value !== null && value < 0;
-    const showRed = isNegative && isNegativeBad;
-
-    let trendIcon = null;
-    if (showTrend && value !== undefined && value !== null && prevValue !== undefined && prevValue !== 0) {
-        const growth = ((value - prevValue) / Math.abs(prevValue)) * 100;
-        if (growth > 5) {
-            trendIcon = <TrendingUp className="w-2.5 h-2.5 text-emerald-600 inline ml-0.5" />;
-        } else if (growth < -5) {
-            trendIcon = <TrendingDown className="w-2.5 h-2.5 text-red-500 inline ml-0.5" />;
-        }
-    }
-
-    return (
-        <span
-            className="font-mono text-[10px]"
-            style={{
-                color: showRed ? '#dc2626' : '#334155',
-                fontWeight: showRed ? 600 : 400
-            }}
-        >
-            {formatted}{trendIcon}
-        </span>
-    );
-}
-
-// ============================================================================
-// Table Components
-// ============================================================================
-
-interface TableRowProps {
-    label: string;
-    values?: (number | undefined)[];
-    type?: 'currency' | 'percent' | 'ratio' | 'eps' | 'days';
-    isHeader?: boolean;
-    indent?: boolean;
-    bold?: boolean;
-    showTrend?: boolean;
-    isNegativeBad?: boolean;
-    hidden?: boolean;
-    metricKey?: string;
-    onClick?: (metricKey: string, label: string, type: string, isNegativeBad: boolean) => void;
-}
-
-function TableRow({ label, values = [], type = 'currency', isHeader, indent, bold, showTrend, isNegativeBad = true, hidden, metricKey, onClick }: TableRowProps) {
-    // Ocultar filas si todos los valores son null/undefined/0
-    if (hidden) return null;
-
-    if (isHeader) {
-        return (
-            <tr className="bg-slate-100 border-t border-slate-300">
-                <td colSpan={100} className="px-2 py-1 text-[9px] font-semibold text-slate-600 uppercase tracking-wide">
-                    {label}
-                </td>
-            </tr>
-        );
-    }
-
-    if (!values || values.length === 0) {
-        return null;
-    }
-
-    // Auto-hide si todos los valores son vacíos
-    const hasData = values.some(v => v !== undefined && v !== null && v !== 0);
-    if (!hasData) return null;
-
-    const isClickable = metricKey && onClick;
-
-    return (
-        <tr 
-            className={`border-b border-slate-100 hover:bg-blue-50 ${isClickable ? 'cursor-pointer group' : 'hover:bg-slate-50'}`}
-            onClick={isClickable ? () => onClick(metricKey, label, type, isNegativeBad) : undefined}
-        >
-            <td className={`px-2 py-0.5 text-[10px] text-slate-600 whitespace-nowrap ${indent ? 'pl-4' : ''} ${bold ? 'font-semibold text-slate-800' : ''}`}>
-                <span className="flex items-center gap-1">
-                {label}
-                    {isClickable && (
-                        <BarChart3 className="w-3 h-3 text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    )}
-                </span>
-            </td>
-            {values.map((val, idx) => (
-                <td key={idx} className="px-2 py-0.5 text-right">
-                    <ValueCell
-                        value={val}
-                        type={type}
-                        showTrend={showTrend && idx < values.length - 1}
-                        prevValue={showTrend ? values[idx + 1] : undefined}
-                        isNegativeBad={isNegativeBad}
+                }}
+            >
+                {/* Period dots on track */}
+                {periods.map((_, idx) => (
+                    <div
+                        key={idx}
+                        className={`absolute top-1/2 w-1.5 h-1.5 rounded-full transform -translate-x-1/2 -translate-y-1/2 transition-colors
+                            ${idx >= startIndex && idx <= endIndex ? 'bg-blue-500' : 'bg-slate-300'}`}
+                        style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
                     />
-                </td>
-            ))}
-        </tr>
-    );
-}
+                ))}
 
-interface TableProps {
-    data: any[];
-    periodFilter: PeriodFilter;
-    industry: IndustryProfile;
-    onRowClick?: (metricKey: string, label: string, type: string, isNegativeBad: boolean) => void;
-}
+                {/* Selected Range */}
+                <div
+                    className="absolute h-full bg-blue-500 rounded-full cursor-grab active:cursor-grabbing"
+                    style={{
+                        left: `${startPercent}%`,
+                        width: `${endPercent - startPercent}%`,
+                    }}
+                    onMouseDown={(e) => handleMouseDown(e, 'range')}
+                />
 
-function IncomeTable({ data, periodFilter, industry, onRowClick }: TableProps & { data: IncomeStatement[] }) {
-    // Filtrar por período: FY = annual, Q1-Q4 = quarter
-    const filtered = data.filter(d => {
-        if (periodFilter === 'all') return true;
-        if (periodFilter === 'annual') return d.period.period === 'FY';
-        if (periodFilter === 'quarter') return d.period.period.startsWith('Q');
-        return true;
-    }).slice(0, 5);
+                {/* Start Handle */}
+                <div
+                    className={`absolute top-1/2 w-3 h-3 bg-blue-600 border-2 border-white rounded-full shadow-md 
+                        transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10 hover:scale-110 transition-transform
+                        ${dragging === 'start' ? 'scale-110 ring-2 ring-blue-300' : ''}`}
+                    style={{ left: `${startPercent}%` }}
+                    onMouseDown={(e) => handleMouseDown(e, 'start')}
+                />
 
-    if (filtered.length === 0) return <div className="text-center py-4 text-slate-400 text-xs">No data</div>;
+                {/* End Handle */}
+                <div
+                    className={`absolute top-1/2 w-3 h-3 bg-blue-600 border-2 border-white rounded-full shadow-md 
+                        transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10 hover:scale-110 transition-transform
+                        ${dragging === 'end' ? 'scale-110 ring-2 ring-blue-300' : ''}`}
+                    style={{ left: `${endPercent}%` }}
+                    onMouseDown={(e) => handleMouseDown(e, 'end')}
+                />
+            </div>
 
-    // Formato: "FY 2024" o "Q1 2024"
-    const periods = filtered.map(d => `${d.period.period} ${d.period.fiscal_year}`);
-    const getValue = (key: keyof IncomeStatement) => filtered.map(d => d[key] as number | undefined);
-    const isHidden = (field: string) => industry.hideFields.includes(field);
-
-    // Calcular márgenes
-    const grossMargins = filtered.map(d =>
-        d.revenue && d.gross_profit ? (d.gross_profit / d.revenue) * 100 : undefined
-    );
-    const opMargins = filtered.map(d =>
-        d.revenue && d.operating_income ? (d.operating_income / d.revenue) * 100 : undefined
-    );
-    const netMargins = filtered.map(d =>
-        d.revenue && d.net_income ? (d.net_income / d.revenue) * 100 : undefined
-    );
-
-    // Para bancos: Net Interest Margin
-    const isBank = industry.type === 'bank';
-
-    return (
-        <div className="overflow-x-auto">
-            <table className="w-full text-left">
-                <thead>
-                    <tr className="border-b-2 border-slate-200">
-                        <th className="px-2 py-1 text-[9px] font-semibold text-slate-500 uppercase w-36">Item</th>
-                        {periods.map((p, i) => (
-                            <th key={i} className="px-2 py-1 text-[9px] font-semibold text-slate-500 text-right whitespace-nowrap">{p}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {isBank ? (
-                        <>
-                            <TableRow label="Interest Income" isHeader />
-                            <TableRow label="Interest Income" values={getValue('interest_income')} bold showTrend metricKey="interest_income" onClick={onRowClick} />
-                            <TableRow label="Interest Expense" values={getValue('interest_expense')} indent isNegativeBad={false} metricKey="interest_expense" onClick={onRowClick} />
-                            <TableRow label="Net Interest Income" values={getValue('net_interest_income')} bold metricKey="net_interest_income" onClick={onRowClick} />
-                        </>
-                    ) : (
-                        <>
-                            <TableRow label="Revenue" isHeader />
-                            <TableRow label="Total Revenue" values={getValue('revenue')} bold showTrend metricKey="revenue" onClick={onRowClick} />
-                            <TableRow label="Cost of Revenue" values={getValue('cost_of_revenue')} indent hidden={isHidden('cost_of_revenue')} metricKey="cost_of_revenue" onClick={onRowClick} />
-                            <TableRow label="Gross Profit" values={getValue('gross_profit')} bold hidden={isHidden('gross_profit')} metricKey="gross_profit" onClick={onRowClick} />
-                        </>
-                    )}
-
-                    <TableRow label="Operating Expenses" isHeader />
-                    <TableRow label="R&D" values={getValue('research_development')} indent hidden={isHidden('research_development')} metricKey="research_development" onClick={onRowClick} />
-                    <TableRow label="SG&A" values={getValue('selling_general_admin')} indent metricKey="selling_general_admin" onClick={onRowClick} />
-                    <TableRow label="Total OpEx" values={getValue('operating_expenses')} metricKey="operating_expenses" onClick={onRowClick} />
-                    <TableRow label="Operating Income" values={getValue('operating_income')} bold showTrend metricKey="operating_income" onClick={onRowClick} />
-
-                    <TableRow label="Net Income" isHeader />
-                    <TableRow label="EBITDA" values={getValue('ebitda')} hidden={isBank} metricKey="ebitda" onClick={onRowClick} />
-                    <TableRow label="Interest Expense" values={getValue('interest_expense')} indent hidden={isBank} metricKey="interest_expense" onClick={onRowClick} />
-                    <TableRow label="Pre-tax Income" values={getValue('income_before_tax')} metricKey="income_before_tax" onClick={onRowClick} />
-                    <TableRow label="Income Tax" values={getValue('income_tax')} indent metricKey="income_tax" onClick={onRowClick} />
-                    <TableRow label="Net Income" values={getValue('net_income')} bold showTrend metricKey="net_income" onClick={onRowClick} />
-
-                    <TableRow label="Per Share" isHeader />
-                    <TableRow label="EPS Basic" values={getValue('eps')} type="eps" metricKey="eps" onClick={onRowClick} />
-                    <TableRow label="EPS Diluted" values={getValue('eps_diluted')} type="eps" metricKey="eps_diluted" onClick={onRowClick} />
-
-                    <TableRow label="Margins" isHeader />
-                    <TableRow label="Gross Margin" values={grossMargins} type="percent" hidden={isBank || isHidden('gross_profit')} metricKey="gross_margin" onClick={onRowClick} />
-                    <TableRow label="Operating Margin" values={opMargins} type="percent" metricKey="operating_margin" onClick={onRowClick} />
-                    <TableRow label="Net Margin" values={netMargins} type="percent" metricKey="net_margin" onClick={onRowClick} />
-                </tbody>
-            </table>
-        </div>
-    );
-}
-
-function BalanceTable({ data, periodFilter, industry, onRowClick }: TableProps & { data: BalanceSheet[] }) {
-    const filtered = data.filter(d => {
-        if (periodFilter === 'all') return true;
-        if (periodFilter === 'annual') return d.period.period === 'FY';
-        if (periodFilter === 'quarter') return d.period.period.startsWith('Q');
-        return true;
-    }).slice(0, 5);
-
-    if (filtered.length === 0) return <div className="text-center py-4 text-slate-400 text-xs">No data</div>;
-
-    const periods = filtered.map(d => `${d.period.period} ${d.period.fiscal_year}`);
-    const getValue = (key: keyof BalanceSheet) => filtered.map(d => d[key] as number | undefined);
-    const isHidden = (field: string) => industry.hideFields.includes(field);
-
-    // Calcular ratios
-    const currentRatios = filtered.map(d =>
-        d.current_assets && d.current_liabilities ? d.current_assets / d.current_liabilities : undefined
-    );
-    const debtToEquity = filtered.map(d =>
-        d.total_debt && d.total_equity && d.total_equity !== 0 ? d.total_debt / d.total_equity : undefined
-    );
-    const workingCapital = filtered.map(d =>
-        d.current_assets && d.current_liabilities ? d.current_assets - d.current_liabilities : undefined
-    );
-
-    const isBank = industry.type === 'bank';
-
-    return (
-        <div className="overflow-x-auto">
-            <table className="w-full text-left">
-                <thead>
-                    <tr className="border-b-2 border-slate-200">
-                        <th className="px-2 py-1 text-[9px] font-semibold text-slate-500 uppercase w-36">Item</th>
-                        {periods.map((p, i) => (
-                            <th key={i} className="px-2 py-1 text-[9px] font-semibold text-slate-500 text-right whitespace-nowrap">{p}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    <TableRow label="Assets" isHeader />
-                    <TableRow label="Total Assets" values={getValue('total_assets')} bold showTrend metricKey="total_assets" onClick={onRowClick} />
-                    <TableRow label="Current Assets" values={getValue('current_assets')} hidden={isBank} metricKey="current_assets" onClick={onRowClick} />
-                    <TableRow label="Cash & Equivalents" values={getValue('cash_and_equivalents')} indent metricKey="cash_and_equivalents" onClick={onRowClick} />
-                    <TableRow label="Short-term Investments" values={getValue('short_term_investments')} indent metricKey="short_term_investments" onClick={onRowClick} />
-                    <TableRow label="Receivables" values={getValue('receivables')} indent hidden={isBank} metricKey="receivables" onClick={onRowClick} />
-                    <TableRow label="Inventory" values={getValue('inventory')} indent hidden={isHidden('inventory')} metricKey="inventory" onClick={onRowClick} />
-                    <TableRow label="PP&E" values={getValue('property_plant_equipment')} hidden={isBank} metricKey="property_plant_equipment" onClick={onRowClick} />
-                    <TableRow label="Long-term Investments" values={getValue('long_term_investments')} indent metricKey="long_term_investments" onClick={onRowClick} />
-                    <TableRow label="Total Investments" values={getValue('total_investments')} hidden={!isBank} metricKey="total_investments" onClick={onRowClick} />
-                    <TableRow label="Goodwill" values={getValue('goodwill')} indent hidden={isHidden('goodwill')} metricKey="goodwill" onClick={onRowClick} />
-                    <TableRow label="Intangibles" values={getValue('intangible_assets')} indent metricKey="intangible_assets" onClick={onRowClick} />
-
-                    <TableRow label="Liabilities" isHeader />
-                    <TableRow label="Total Liabilities" values={getValue('total_liabilities')} bold metricKey="total_liabilities" onClick={onRowClick} />
-                    <TableRow label="Current Liabilities" values={getValue('current_liabilities')} hidden={isBank} metricKey="current_liabilities" onClick={onRowClick} />
-                    <TableRow label="Accounts Payable" values={getValue('accounts_payable')} indent hidden={isBank} metricKey="accounts_payable" onClick={onRowClick} />
-                    <TableRow label="Short-term Debt" values={getValue('short_term_debt')} indent metricKey="short_term_debt" onClick={onRowClick} />
-                    <TableRow label="Long-term Debt" values={getValue('long_term_debt')} metricKey="long_term_debt" onClick={onRowClick} />
-                    <TableRow label="Deferred Revenue" values={getValue('deferred_revenue')} indent metricKey="deferred_revenue" onClick={onRowClick} />
-
-                    <TableRow label="Equity" isHeader />
-                    <TableRow label="Total Equity" values={getValue('total_equity')} bold showTrend metricKey="total_equity" onClick={onRowClick} />
-                    <TableRow label="Common Stock" values={getValue('common_stock')} indent metricKey="common_stock" onClick={onRowClick} />
-                    <TableRow label="Retained Earnings" values={getValue('retained_earnings')} indent metricKey="retained_earnings" onClick={onRowClick} />
-                    <TableRow label="Treasury Stock" values={getValue('treasury_stock')} indent isNegativeBad={false} metricKey="treasury_stock" onClick={onRowClick} />
-
-                    <TableRow label="Metrics" isHeader />
-                    <TableRow label="Total Debt" values={getValue('total_debt')} metricKey="total_debt" onClick={onRowClick} />
-                    <TableRow label="Net Debt" values={getValue('net_debt')} metricKey="net_debt" onClick={onRowClick} />
-                    <TableRow label="Working Capital" values={workingCapital} hidden={isBank} metricKey="working_capital" onClick={onRowClick} />
-                    <TableRow label="Current Ratio" values={currentRatios} type="ratio" hidden={isBank} metricKey="current_ratio" onClick={onRowClick} />
-                    <TableRow label="Debt/Equity" values={debtToEquity} type="ratio" metricKey="debt_to_equity" onClick={onRowClick} />
-                </tbody>
-            </table>
-        </div>
-    );
-}
-
-function CashFlowTable({ data, periodFilter, industry, onRowClick }: TableProps & { data: CashFlow[] }) {
-    const filtered = data.filter(d => {
-        if (periodFilter === 'all') return true;
-        if (periodFilter === 'annual') return d.period.period === 'FY';
-        if (periodFilter === 'quarter') return d.period.period.startsWith('Q');
-        return true;
-    }).slice(0, 5);
-
-    if (filtered.length === 0) return <div className="text-center py-4 text-slate-400 text-xs">No data</div>;
-
-    const periods = filtered.map(d => `${d.period.period} ${d.period.fiscal_year}`);
-    const getValue = (key: keyof CashFlow) => filtered.map(d => d[key] as number | undefined);
-    const isHidden = (field: string) => industry.hideFields.includes(field);
-
-    const isBank = industry.type === 'bank';
-    const isMining = industry.type === 'mining';
-
-    // CapEx/OCF ratio for mining/capital intensive
-    const capexRatios = filtered.map(d =>
-        d.capex && d.operating_cash_flow ? Math.abs(d.capex) / Math.abs(d.operating_cash_flow) * 100 : undefined
-    );
-
-    return (
-        <div className="overflow-x-auto">
-            <table className="w-full text-left">
-                <thead>
-                    <tr className="border-b-2 border-slate-200">
-                        <th className="px-2 py-1 text-[9px] font-semibold text-slate-500 uppercase w-36">Item</th>
-                        {periods.map((p, i) => (
-                            <th key={i} className="px-2 py-1 text-[9px] font-semibold text-slate-500 text-right whitespace-nowrap">{p}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    <TableRow label="Operating Activities" isHeader />
-                    <TableRow label="Net Income" values={getValue('net_income')} indent metricKey="cf_net_income" onClick={onRowClick} />
-                    <TableRow label="Operating Cash Flow" values={getValue('operating_cash_flow')} bold showTrend metricKey="operating_cash_flow" onClick={onRowClick} />
-                    <TableRow label="Depreciation" values={getValue('depreciation')} indent isNegativeBad={false} metricKey="depreciation" onClick={onRowClick} />
-                    <TableRow label="Stock Compensation" values={getValue('stock_compensation')} indent isNegativeBad={false} metricKey="stock_compensation" onClick={onRowClick} />
-                    <TableRow label="Working Capital Δ" values={getValue('change_working_capital')} indent metricKey="change_working_capital" onClick={onRowClick} />
-
-                    <TableRow label="Investing Activities" isHeader />
-                    <TableRow label="Investing Cash Flow" values={getValue('investing_cash_flow')} bold metricKey="investing_cash_flow" onClick={onRowClick} />
-                    <TableRow label="CapEx" values={getValue('capex')} indent isNegativeBad={false} hidden={isHidden('capex')} metricKey="capex" onClick={onRowClick} />
-                    <TableRow label="Acquisitions" values={getValue('acquisitions')} indent isNegativeBad={false} metricKey="acquisitions" onClick={onRowClick} />
-                    <TableRow label="Purchases (Investments)" values={getValue('purchases_investments')} indent isNegativeBad={false} metricKey="purchases_investments" onClick={onRowClick} />
-                    <TableRow label="Sales (Investments)" values={getValue('sales_investments')} indent isNegativeBad={false} metricKey="sales_investments" onClick={onRowClick} />
-
-                    <TableRow label="Financing Activities" isHeader />
-                    <TableRow label="Financing Cash Flow" values={getValue('financing_cash_flow')} bold metricKey="financing_cash_flow" onClick={onRowClick} />
-                    <TableRow label="Debt Issued" values={getValue('debt_issued')} indent isNegativeBad={false} metricKey="debt_issued" onClick={onRowClick} />
-                    <TableRow label="Debt Repaid" values={getValue('debt_repaid')} indent isNegativeBad={false} metricKey="debt_repaid" onClick={onRowClick} />
-                    <TableRow label="Stock Issued" values={getValue('stock_issued')} indent isNegativeBad={false} metricKey="stock_issued" onClick={onRowClick} />
-                    <TableRow label="Stock Repurchased" values={getValue('stock_repurchased')} indent isNegativeBad={false} metricKey="stock_repurchased" onClick={onRowClick} />
-                    <TableRow label="Dividends Paid" values={getValue('dividends_paid')} indent isNegativeBad={false} metricKey="dividends_paid" onClick={onRowClick} />
-
-                    <TableRow label="Summary" isHeader />
-                    <TableRow label="Net Change in Cash" values={getValue('net_change_cash')} bold metricKey="net_change_cash" onClick={onRowClick} />
-                    <TableRow label="Cash (Beginning)" values={getValue('cash_beginning')} indent metricKey="cash_beginning" onClick={onRowClick} />
-                    <TableRow label="Cash (Ending)" values={getValue('cash_ending')} indent metricKey="cash_ending" onClick={onRowClick} />
-                    <TableRow label="Free Cash Flow" values={getValue('free_cash_flow')} bold showTrend hidden={isBank} metricKey="free_cash_flow" onClick={onRowClick} />
-
-                    {/* Ratio especial para mining/capital intensive */}
-                    {isMining && (
-                        <TableRow label="CapEx/OCF %" values={capexRatios} type="percent" metricKey="capex_ocf_ratio" onClick={onRowClick} />
-                    )}
-                </tbody>
-            </table>
+            {/* Range Info */}
+            <div className="flex items-center justify-between mt-1 text-[9px] text-slate-500">
+                <span className="font-medium text-blue-600">{periods[startIndex]}</span>
+                <span className="text-slate-400">
+                    {endIndex - startIndex + 1} of {periods.length} periods
+                </span>
+                <span className="font-medium text-blue-600">{periods[endIndex]}</span>
+            </div>
         </div>
     );
 }
 
 // ============================================================================
-// Industry Badge Component
+// API URL
 // ============================================================================
 
-function IndustryBadge({ industry }: { industry: IndustryProfile }) {
-    const Icon = industry.icon;
-    return (
-        <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium ${industry.color} bg-slate-100`}>
-            <Icon className="w-3 h-3" />
-            <span>{industry.label}</span>
-        </div>
-    );
-}
+const API_URL = process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
 
 // ============================================================================
-// Special Ratios Component
-// ============================================================================
-
-function SpecialRatios({ data, industry }: { data: FinancialData; industry: IndustryProfile }) {
-    if (industry.specialRatios.length === 0) return null;
-
-    return (
-        <div className="flex flex-wrap gap-2 px-2 py-1 bg-slate-50 border-b border-slate-200">
-            {industry.specialRatios.map((ratio, idx) => {
-                const value = ratio.calculate(data);
-                if (value === undefined) return null;
-                return (
-                    <div key={idx} className="flex items-center gap-1 text-[9px]">
-                        <span className="text-slate-500">{ratio.label}:</span>
-                        <span className={`font-mono font-medium ${value < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                            {value.toFixed(1)}{ratio.label.includes('%') || ratio.label.includes('Margin') || ratio.label.includes('Runway') ? '' : '%'}
-                        </span>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-// ============================================================================
-// Main Component
+// MAIN COMPONENT
 // ============================================================================
 
 interface FinancialsContentProps {
     initialTicker?: string;
 }
 
-export function FinancialsContent({ initialTicker }: FinancialsContentProps = {}) {
-    const [inputValue, setInputValue] = useState(initialTicker || '');
-    const [selectedTicker, setSelectedTicker] = useState<string | null>(initialTicker || null);
+export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
+    const [data, setData] = useState<FinancialData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [data, setData] = useState<FinancialData | null>(null);
-
+    const [selectedTicker, setSelectedTicker] = useState<string>(initialTicker || '');
+    const [inputValue, setInputValue] = useState(initialTicker || '');
     const [activeTab, setActiveTab] = useState<TabType>('income');
-    const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('annual');
+    const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('quarter');
+    const [copied, setCopied] = useState(false);
+    const [rangeStart, setRangeStart] = useState(0);
+    const [rangeEnd, setRangeEnd] = useState(0);
 
     const { openWindow } = useFloatingWindow();
 
-    // Handler para abrir gráfico de métrica en ventana flotante
-    const handleMetricClick = useCallback((metricKey: string, label: string, valueType: string, isNegativeBad: boolean) => {
-        if (!data || !selectedTicker) return;
+    // Fetch data from API Gateway
+    const fetchData = useCallback(async (ticker: string, period?: PeriodFilter) => {
+        if (!ticker) return;
 
-        // Extraer datos históricos de la métrica
-        const extractMetricData = (): MetricDataPoint[] => {
-            // Combinar datos de income, balance y cashflow según la métrica
-            let sourceData: any[] = [];
-            let key = metricKey;
-
-            // Determinar la fuente de datos
-            if (['revenue', 'cost_of_revenue', 'gross_profit', 'research_development', 'selling_general_admin', 
-                 'operating_expenses', 'operating_income', 'ebitda', 'ebit', 'interest_expense', 'interest_income',
-                 'net_interest_income', 'income_before_tax', 'income_tax', 'net_income', 'eps', 'eps_diluted',
-                 'gross_margin', 'operating_margin', 'net_margin'].includes(metricKey)) {
-                sourceData = data.income_statements;
-                
-                // Calcular márgenes si es necesario
-                if (metricKey === 'gross_margin') {
-                    return sourceData.map(d => ({
-                        period: `${d.period.period} ${d.period.fiscal_year}`,
-                        fiscalYear: d.period.fiscal_year,
-                        value: d.revenue && d.gross_profit ? (d.gross_profit / d.revenue) * 100 : null,
-                        isAnnual: d.period.period === 'FY'
-                    })).reverse();
-                }
-                if (metricKey === 'operating_margin') {
-                    return sourceData.map(d => ({
-                        period: `${d.period.period} ${d.period.fiscal_year}`,
-                        fiscalYear: d.period.fiscal_year,
-                        value: d.revenue && d.operating_income ? (d.operating_income / d.revenue) * 100 : null,
-                        isAnnual: d.period.period === 'FY'
-                    })).reverse();
-                }
-                if (metricKey === 'net_margin') {
-                    return sourceData.map(d => ({
-                        period: `${d.period.period} ${d.period.fiscal_year}`,
-                        fiscalYear: d.period.fiscal_year,
-                        value: d.revenue && d.net_income ? (d.net_income / d.revenue) * 100 : null,
-                        isAnnual: d.period.period === 'FY'
-                    })).reverse();
-                }
-            } else if (['total_assets', 'current_assets', 'cash_and_equivalents', 'short_term_investments',
-                        'receivables', 'inventory', 'property_plant_equipment', 'long_term_investments',
-                        'total_investments', 'goodwill', 'intangible_assets', 'total_liabilities',
-                        'current_liabilities', 'accounts_payable', 'short_term_debt', 'long_term_debt',
-                        'deferred_revenue', 'total_equity', 'common_stock', 'retained_earnings',
-                        'treasury_stock', 'total_debt', 'net_debt', 'working_capital', 'current_ratio',
-                        'debt_to_equity'].includes(metricKey)) {
-                sourceData = data.balance_sheets;
-                
-                // Calcular métricas derivadas
-                if (metricKey === 'working_capital') {
-                    return sourceData.map(d => ({
-                        period: `${d.period.period} ${d.period.fiscal_year}`,
-                        fiscalYear: d.period.fiscal_year,
-                        value: d.current_assets && d.current_liabilities ? d.current_assets - d.current_liabilities : null,
-                        isAnnual: d.period.period === 'FY'
-                    })).reverse();
-                }
-                if (metricKey === 'current_ratio') {
-                    return sourceData.map(d => ({
-                        period: `${d.period.period} ${d.period.fiscal_year}`,
-                        fiscalYear: d.period.fiscal_year,
-                        value: d.current_assets && d.current_liabilities ? d.current_assets / d.current_liabilities : null,
-                        isAnnual: d.period.period === 'FY'
-                    })).reverse();
-                }
-                if (metricKey === 'debt_to_equity') {
-                    return sourceData.map(d => ({
-                        period: `${d.period.period} ${d.period.fiscal_year}`,
-                        fiscalYear: d.period.fiscal_year,
-                        value: d.total_debt && d.total_equity && d.total_equity !== 0 ? d.total_debt / d.total_equity : null,
-                        isAnnual: d.period.period === 'FY'
-                    })).reverse();
-                }
-            } else {
-                sourceData = data.cash_flows;
-                // Para cf_net_income usar net_income del cash flow
-                if (metricKey === 'cf_net_income') key = 'net_income';
-            }
-
-            return sourceData.map(d => ({
-                period: `${d.period.period} ${d.period.fiscal_year}`,
-                fiscalYear: d.period.fiscal_year,
-                value: (d as any)[key] ?? null,
-                isAnnual: d.period.period === 'FY'
-            })).reverse(); // Oldest first for proper chart display
-        };
-
-        const metricData = extractMetricData();
-        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-        const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-
-        openWindow({
-            title: `${selectedTicker} — ${label}`,
-            content: (
-                <FinancialMetricChart
-                    ticker={selectedTicker}
-                    metricKey={metricKey}
-                    metricLabel={label}
-                    data={metricData}
-                    currency={data.currency}
-                    valueType={valueType as any}
-                    isNegativeBad={isNegativeBad}
-                />
-            ),
-            width: FINANCIAL_METRIC_CHART_CONFIG.width,
-            height: FINANCIAL_METRIC_CHART_CONFIG.height,
-            x: Math.max(50, screenWidth / 2 - FINANCIAL_METRIC_CHART_CONFIG.width / 2),
-            y: Math.max(80, screenHeight / 2 - FINANCIAL_METRIC_CHART_CONFIG.height / 2),
-            minWidth: FINANCIAL_METRIC_CHART_CONFIG.minWidth,
-            minHeight: FINANCIAL_METRIC_CHART_CONFIG.minHeight,
-            maxWidth: FINANCIAL_METRIC_CHART_CONFIG.maxWidth,
-            maxHeight: FINANCIAL_METRIC_CHART_CONFIG.maxHeight,
-        });
-    }, [data, selectedTicker, openWindow]);
-
-    // Detectar industria basado en datos
-    const industry = useMemo(() => {
-        if (!data) return INDUSTRY_PROFILES.general;
-        const type = detectIndustry(data);
-        return INDUSTRY_PROFILES[type];
-    }, [data]);
-
-    const fetchData = useCallback(async (ticker: string, period: string = 'annual') => {
         setLoading(true);
         setError(null);
 
         try {
-            const response = await fetch(`${API_URL}/api/v1/financials/${ticker}?period=${period}&limit=10`);
+            const effectivePeriod = period ?? periodFilter;
+            const response = await fetch(`${API_URL}/api/v1/financials/${ticker}?period=${effectivePeriod}&limit=10`);
 
             if (!response.ok) {
-                if (response.status === 404) {
-                    throw new Error('Ticker not found');
-                }
-                throw new Error('Failed to fetch data');
+                throw new Error(`Failed to fetch financial data: ${response.statusText}`);
             }
 
             const result = await response.json();
             setData(result);
             setSelectedTicker(ticker);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Error loading data');
+            setError(err instanceof Error ? err.message : 'Unknown error');
             setData(null);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [periodFilter]);
 
-    // Cargar datos automáticamente cuando hay initialTicker
+    // Load initial ticker data
     useEffect(() => {
-        if (initialTicker && !data) {
+        if (initialTicker) {
             fetchData(initialTicker);
         }
-    }, [initialTicker, fetchData, data]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialTicker]);
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (inputValue.trim()) {
-            fetchData(inputValue.trim().toUpperCase());
-        }
-    };
-
-    const handleRefresh = () => {
+    // Handle period filter change
+    const handlePeriodChange = useCallback((newPeriod: PeriodFilter) => {
+        setPeriodFilter(newPeriod);
         if (selectedTicker) {
-            fetchData(selectedTicker, periodFilter);
+            fetchData(selectedTicker, newPeriod);
         }
-    };
+    }, [selectedTicker, fetchData]);
 
-    const tabs: { id: TabType; label: string }[] = [
-        { id: 'income', label: 'Income' },
-        { id: 'balance', label: 'Balance' },
-        { id: 'cashflow', label: 'Cash Flow' },
-    ];
+    // Copy JSON functionality
+    const handleCopyJson = useCallback(() => {
+        if (!data) return;
+        navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }, [data]);
 
-    return (
-        <div className="h-full flex flex-col bg-white">
-            {/* Search Bar */}
-            <div className="px-2 py-1.5 border-b border-slate-300 bg-slate-50">
-                <form onSubmit={handleSearch} className="flex items-center gap-1.5">
+    // Get industry profile
+    const industryProfile = useMemo(() => {
+        if (!data) return INDUSTRY_PROFILES.general;
+        const category = mapFMPIndustryToCategory(data.industry);
+        return INDUSTRY_PROFILES[category];
+    }, [data]);
+
+    // Get all available periods (for slider)
+    const availablePeriods = useMemo(() => {
+        if (!data) return [];
+
+        const filterByType = <T extends { period: FinancialPeriod }>(statements: T[]): T[] => {
+            if (periodFilter === 'all') return statements;
+            if (periodFilter === 'annual') return statements.filter(s => s.period.period === 'FY');
+            return statements.filter(s => s.period.period !== 'FY');
+        };
+
+        const statements = filterByType(data.income_statements);
+        return statements.map(s => {
+            const p = s.period;
+            return p.period === 'FY' ? `FY ${p.fiscal_year}` : `${p.period} ${p.fiscal_year}`;
+        });
+    }, [data, periodFilter]);
+
+    // Reset range when periods change
+    useEffect(() => {
+        if (availablePeriods.length > 0) {
+            setRangeStart(0);
+            setRangeEnd(availablePeriods.length - 1);
+        }
+    }, [availablePeriods.length]);
+
+    // Handle range change
+    const handleRangeChange = useCallback((start: number, end: number) => {
+        setRangeStart(start);
+        setRangeEnd(end);
+    }, []);
+
+    // Filter statements by period type and then by range
+    const filteredStatements = useMemo(() => {
+        if (!data) return { income: [], balance: [], cashflow: [] };
+
+        const filterByPeriod = <T extends { period: FinancialPeriod }>(statements: T[]): T[] => {
+            if (periodFilter === 'all') return statements;
+            if (periodFilter === 'annual') return statements.filter(s => s.period.period === 'FY');
+            return statements.filter(s => s.period.period !== 'FY');
+        };
+
+        // First filter by period type
+        const incomeFiltered = filterByPeriod(data.income_statements);
+        const balanceFiltered = filterByPeriod(data.balance_sheets);
+        const cashflowFiltered = filterByPeriod(data.cash_flows);
+
+        // Then slice by range
+        return {
+            income: incomeFiltered.slice(rangeStart, rangeEnd + 1),
+            balance: balanceFiltered.slice(rangeStart, rangeEnd + 1),
+            cashflow: cashflowFiltered.slice(rangeStart, rangeEnd + 1),
+        };
+    }, [data, periodFilter, rangeStart, rangeEnd]);
+
+    // Handle metric click - opens floating window with chart
+    const handleMetricClick = useCallback((metricKey: string, values: (number | undefined)[], periods: string[]) => {
+        if (!data) return;
+
+        const chartDataPoints: MetricDataPoint[] = periods.map((period, idx) => {
+            const isAnnual = period.startsWith('FY');
+            const fiscalYear = period.match(/\d{4}/)?.[0] || '';
+            return {
+                period,
+                fiscalYear,
+                value: values[idx] ?? null,
+                isAnnual,
+            };
+        }).reverse();
+
+        const metricLabel = metricKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        // Format: "TICKER — MetricLabel" for compatibility with FloatingWindow pop-out
+        const windowTitle = `${data.symbol} — ${metricLabel}`;
+
+        // Prepare chart data for external window
+        const chartConfig: FinancialChartData = {
+            ticker: data.symbol,
+            metricKey,
+            metricLabel,
+            currency: data.currency,
+            valueType: 'currency',
+            isNegativeBad: true,
+            data: chartDataPoints,
+        };
+
+        // Open floating window with chart
+        openWindow({
+            title: windowTitle,
+            content: (
+                <div className="h-full flex flex-col">
+                    <FinancialMetricChart
+                        data={chartDataPoints}
+                        metricKey={metricKey}
+                        metricLabel={metricLabel}
+                        ticker={data.symbol}
+                        currency={data.currency}
+                    />
+                </div>
+            ),
+            width: 900,
+            height: 550,
+            minWidth: 700,
+            minHeight: 400,
+            maxWidth: 1400,
+            maxHeight: 900,
+            x: Math.max(100, (window.innerWidth - 900) / 2),
+            y: Math.max(50, (window.innerHeight - 550) / 2),
+            hideHeader: false,
+        });
+
+        // Store chart data for pop-out window support
+        if (typeof window !== 'undefined') {
+            (window as any).__pendingChartData = chartConfig;
+        }
+    }, [data, openWindow]);
+
+    const IconComponent = industryProfile.icon;
+
+    // Render loading state (only when no data yet)
+    if (loading && !data) {
+        return (
+            <div className="flex flex-col h-full">
+                <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
                     <TickerSearch
                         value={inputValue}
                         onChange={setInputValue}
                         onSelect={(ticker) => {
                             setInputValue(ticker.symbol);
-                            fetchData(ticker.symbol);
+                            fetchData(ticker.symbol, periodFilter);
                         }}
-                        placeholder="Ticker"
-                        className="w-24"
-                        autoFocus={false}
+                        placeholder="Search ticker..."
+                        className="flex-1 text-xs"
                     />
+                </div>
+                <div className="flex items-center justify-center h-64">
+                    <RefreshCw className="h-6 w-6 animate-spin text-slate-400" />
+                </div>
+            </div>
+        );
+    }
+
+    // Render error state
+    if (error && !data) {
+        return (
+            <div className="flex flex-col h-full">
+                <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
+                    <TickerSearch
+                        value={inputValue}
+                        onChange={setInputValue}
+                        onSelect={(ticker) => {
+                            setInputValue(ticker.symbol);
+                            fetchData(ticker.symbol, periodFilter);
+                        }}
+                        placeholder="Search ticker..."
+                        className="flex-1 text-xs"
+                    />
+                </div>
+                <div className="flex items-center justify-center h-64 text-red-500">
+                    <AlertTriangle className="h-5 w-5 mr-2" />
+                    <span className="text-xs">{error}</span>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full">
+            {/* Header with Search */}
+            <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
+                <TickerSearch
+                    value={inputValue}
+                    onChange={setInputValue}
+                    onSelect={(ticker) => {
+                        setInputValue(ticker.symbol);
+                        fetchData(ticker.symbol, periodFilter);
+                    }}
+                    placeholder="Search ticker..."
+                    className="flex-1 text-xs"
+                />
+                {selectedTicker && (
                     <button
-                        type="submit"
+                        onClick={() => fetchData(selectedTicker)}
                         disabled={loading}
-                        className="px-2 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 text-[10px] font-medium flex items-center gap-1"
+                        className="p-1.5 text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                        title="Refresh"
                     >
-                        {loading ? <RefreshCw className="w-3 h-3 animate-spin" /> : 'Go'}
+                        <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                     </button>
-                    {selectedTicker && (
-                        <>
-                            <button
-                                type="button"
-                                onClick={handleRefresh}
-                                disabled={loading}
-                                className="p-1 text-slate-400 hover:text-slate-600"
-                                title="Refresh"
-                            >
-                                <RefreshCw className="w-3 h-3" />
-                            </button>
-                            <IndustryBadge industry={industry} />
-                        </>
-                    )}
-                </form>
+                )}
             </div>
 
-            {/* Error */}
-            {error && (
-                <div className="mx-2 mt-1 px-2 py-1 bg-red-50 border border-red-200 rounded flex items-center gap-1.5 text-red-700">
-                    <AlertTriangle className="w-3 h-3" />
-                    <span className="text-[10px]">{error}</span>
+            {!data ? (
+                <div className="flex items-center justify-center h-64 text-slate-400 text-xs">
+                    Search for a ticker to view financials
                 </div>
-            )}
-
-            {/* Content */}
-            {selectedTicker && data ? (
-                <div className="flex-1 flex flex-col min-h-0">
-                    {/* Special Ratios for industry */}
-                    <SpecialRatios data={data} industry={industry} />
-
-                    {/* Tabs + Period Filter */}
-                    <div className="flex items-center justify-between px-2 py-1 border-b border-slate-200 bg-slate-50">
-                        <div className="flex gap-0.5">
-                            {tabs.map(tab => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${activeTab === tab.id
-                                        ? 'bg-blue-600 text-white'
-                                        : 'text-slate-600 hover:bg-slate-200'
-                                        }`}
-                                >
-                                    {tab.label}
-                                </button>
-                            ))}
+            ) : (
+                <div className="flex-1 overflow-auto">
+                    {/* Industry Badge & Controls */}
+                    <div className="flex items-center justify-between p-2 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-800">{data.symbol}</span>
+                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-700">
+                                <IconComponent className="w-3 h-3" />
+                                <span>{data.industry || industryProfile.label}</span>
+                            </div>
+                            {data.sector && (
+                                <div className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-700">
+                                    {data.sector}
+                                </div>
+                            )}
                         </div>
-                        <div className="flex gap-0.5">
-                            {(['annual', 'quarter'] as PeriodFilter[]).map(p => (
+                        <div className="flex items-center gap-1">
+                            {/* Period Filter */}
+                            {(['annual', 'quarter'] as const).map((p) => (
                                 <button
                                     key={p}
-                                    onClick={() => {
-                                        setPeriodFilter(p);
-                                        if (selectedTicker) {
-                                            fetchData(selectedTicker, p);
-                                        }
-                                    }}
-                                    className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${periodFilter === p
-                                        ? 'bg-slate-700 text-white'
-                                        : 'text-slate-500 hover:bg-slate-200'
-                                        }`}
+                                    onClick={() => handlePeriodChange(p)}
+                                    className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors
+                                        ${periodFilter === p
+                                            ? 'bg-slate-700 text-white'
+                                            : 'text-slate-500 hover:bg-slate-100'}`}
                                 >
                                     {p === 'annual' ? 'Annual' : 'Quarterly'}
                                 </button>
                             ))}
+                            {/* Copy JSON */}
+                            <button
+                                onClick={handleCopyJson}
+                                className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors flex items-center gap-0.5
+                                    ${copied ? 'bg-green-500 text-white' : 'text-slate-400 hover:bg-slate-100'}`}
+                                title="Copy as JSON"
+                            >
+                                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                            </button>
                         </div>
                     </div>
 
-                    {/* Table Content */}
-                    <div className="flex-1 overflow-auto p-2">
+                    {/* KPIs Section */}
+                    <KPISection industryProfile={industryProfile} data={data} />
+
+                    {/* Tabs */}
+                    <div className="flex border-b border-slate-100">
+                        {[
+                            { id: 'income' as const, label: 'Income Statement' },
+                            { id: 'balance' as const, label: 'Balance Sheet' },
+                            { id: 'cashflow' as const, label: 'Cash Flow' },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex-1 py-1.5 text-[10px] font-medium transition-colors
+                                    ${activeTab === tab.id
+                                        ? 'text-slate-800 border-b-2 border-slate-800'
+                                        : 'text-slate-400 hover:text-slate-600'}`}
+                            >
+                                {tab.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Period Range Slider */}
+                    <PeriodRangeSlider
+                        periods={availablePeriods}
+                        startIndex={rangeStart}
+                        endIndex={rangeEnd}
+                        onChange={handleRangeChange}
+                    />
+
+                    {/* Financial Tables */}
+                    <div className="overflow-x-auto relative">
+                        {/* Loading overlay when refreshing data */}
+                        {loading && (
+                            <div className="absolute inset-0 bg-white/70 flex items-center justify-center z-10">
+                                <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
+                            </div>
+                        )}
                         {activeTab === 'income' && (
-                            <IncomeTable data={data.income_statements} periodFilter={periodFilter} industry={industry} onRowClick={handleMetricClick} />
+                            <IncomeStatementTable
+                                statements={filteredStatements.income}
+                                currency={data.currency}
+                                onMetricClick={handleMetricClick}
+                            />
                         )}
                         {activeTab === 'balance' && (
-                            <BalanceTable data={data.balance_sheets} periodFilter={periodFilter} industry={industry} onRowClick={handleMetricClick} />
+                            <BalanceSheetTable
+                                statements={filteredStatements.balance}
+                                currency={data.currency}
+                                onMetricClick={handleMetricClick}
+                            />
                         )}
                         {activeTab === 'cashflow' && (
-                            <CashFlowTable data={data.cash_flows} periodFilter={periodFilter} industry={industry} onRowClick={handleMetricClick} />
+                            <CashFlowTable
+                                statements={filteredStatements.cashflow}
+                                currency={data.currency}
+                                onMetricClick={handleMetricClick}
+                            />
                         )}
                     </div>
 
-                    {/* Footer - Cache info */}
-                    <div className="px-2 py-0.5 border-t border-slate-200 bg-slate-50 text-[8px] text-slate-400 flex justify-between">
-                        <span>{data.currency}</span>
-                        {data.cached ? (
-                            <span>Cached {data.cache_age_seconds ? `${Math.round(data.cache_age_seconds / 60)}m ago` : ''}</span>
-                        ) : (
-                            <span>Fresh data</span>
-                        )}
-                    </div>
-                </div>
-            ) : (
-                <div className="flex-1 flex items-center justify-center text-slate-400">
-                    <div className="text-center">
-                        <div className="text-2xl mb-2">FA</div>
-                        <p className="text-[10px]">Enter ticker to view financials</p>
-                    </div>
                 </div>
             )}
         </div>
     );
 }
 
+export default FinancialsContent;

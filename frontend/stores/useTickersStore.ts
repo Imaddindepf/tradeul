@@ -26,11 +26,11 @@ export interface TickersList {
 interface TickersState {
   // Estado por lista (ej: "gappers_up", "momentum_up")
   lists: Map<string, TickersList>;
-  
+
   // WebSocket connection state
   isConnected: boolean;
   connectionId: string | null;
-  
+
   // Stats
   stats: {
     totalLists: number;
@@ -43,31 +43,31 @@ interface TickersState {
 interface TickersActions {
   // List management
   initializeList: (listName: string, snapshot: any) => void;
-  
+
   // Ticker operations
   addTicker: (listName: string, symbol: string, ticker: Ticker) => void;
   updateTicker: (listName: string, symbol: string, updates: Partial<Ticker>) => void;
   removeTicker: (listName: string, symbol: string) => void;
   rerankTicker: (listName: string, symbol: string, oldRank: number, newRank: number) => void;
-  
+
   // Batch operations (optimizado para deltas)
   applyDeltas: (listName: string, deltas: any[], sequence: number) => void;
-  
+
   // Batch aggregate updates (optimizado para precio/volumen)
   updateAggregates: (updates: Map<string, any>) => void;
-  
+
   // List operations
   clearList: (listName: string) => void;
   updateSequence: (listName: string, sequence: number) => void;
-  
+
   // Connection state
   setConnected: (connected: boolean, connectionId?: string) => void;
-  
+
   // Getters (selectors optimizados)
   getList: (listName: string) => TickersList | undefined;
   getTicker: (listName: string, symbol: string) => Ticker | undefined;
   getOrderedTickers: (listName: string) => Ticker[];
-  
+
   // Reset
   reset: () => void;
 }
@@ -112,7 +112,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
         if (snapshot.rows && Array.isArray(snapshot.rows)) {
           snapshot.rows.forEach((ticker: Ticker, index: number) => {
             ticker.rank = ticker.rank ?? index;
-            
+
             // Preservar precio en tiempo real si el ticker ya existe
             // Los aggregates tienen datos más frescos que los snapshots
             if (existingTickers) {
@@ -122,13 +122,13 @@ export const useTickersStore = create<TickersState & TickersActions>()(
                 ticker.price = existingTicker.price;
                 ticker.volume_today = existingTicker.volume_today || ticker.volume_today;
                 ticker.high = Math.max(existingTicker.high || 0, ticker.high || 0);
-                ticker.low = existingTicker.low && ticker.low 
+                ticker.low = existingTicker.low && ticker.low
                   ? Math.min(existingTicker.low, ticker.low)
                   : existingTicker.low || ticker.low;
                 ticker.change_percent = existingTicker.change_percent ?? ticker.change_percent;
               }
             }
-            
+
             tickers.set(ticker.symbol, ticker);
             order.push(ticker.symbol);
           });
@@ -395,7 +395,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
               let priceFlash: 'up' | 'down' | null = null;
               const priceDiff = Math.abs(newPrice - oldPrice);
               const threshold = oldPrice * 0.00001; // 0.001%
-              
+
               if (oldPrice > 0 && priceDiff > threshold) {
                 if (newPrice > oldPrice) {
                   priceFlash = 'up';

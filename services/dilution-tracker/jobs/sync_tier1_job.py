@@ -15,8 +15,8 @@ from shared.utils.logger import get_logger
 from shared.config.settings import settings
 
 from strategies.tier_manager import TierManager
-from services.fmp_financials import FMPFinancialsService
-from services.fmp_holders import FMPHoldersService
+from services.api_gateway_client import APIGatewayClient  # Financieros unificados
+from services.sec_13f_holders import SEC13FHoldersService
 from services.fmp_filings import FMPFilingsService
 from models.sync_models import SyncTier
 
@@ -86,12 +86,12 @@ class SyncTier1Job:
         logger.debug("syncing_ticker", ticker=ticker)
         
         # Initialize services
-        financials_service = FMPFinancialsService(self.fmp_api_key)
-        holders_service = FMPHoldersService(self.fmp_api_key)
+        financials_client = APIGatewayClient()  # Financieros desde API Gateway
+        holders_service = SEC13FHoldersService()  # SEC-API.io 13F
         filings_service = FMPFilingsService(self.fmp_api_key)
         
-        # 1. Fetch financials
-        financials = await financials_service.get_financial_statements(
+        # 1. Fetch financials desde API Gateway
+        financials = await financials_client.get_financials(
             ticker,
             period="quarter",
             limit=20

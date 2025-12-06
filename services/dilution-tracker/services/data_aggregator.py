@@ -15,9 +15,8 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 from shared.config.settings import settings
 
-from services.polygon_financials import PolygonFinancialsService
-from services.fmp_financials import FMPFinancialsService
-from services.fmp_holders import FMPHoldersService
+from services.api_gateway_client import APIGatewayClient  # Financieros unificados
+from services.sec_13f_holders import SEC13FHoldersService  # SEC-API.io 13F
 from services.fmp_filings import FMPFilingsService
 from services.sec_dilution_service import SECDilutionService
 
@@ -45,10 +44,9 @@ class DataAggregator:
         self.db = db
         self.redis = redis
         
-        # Inicializar servicios - Polygon como primary, FMP como fallback
-        self.polygon_financials = PolygonFinancialsService(settings.POLYGON_API_KEY)
-        self.fmp_financials = FMPFinancialsService(settings.FMP_API_KEY)
-        self.fmp_holders = FMPHoldersService(settings.FMP_API_KEY)
+        # Inicializar servicios
+        self.financials_client = APIGatewayClient()  # Financieros desde API Gateway (unificado)
+        self.sec_holders = SEC13FHoldersService()    # SEC-API.io 13F holders
         self.fmp_filings = FMPFilingsService(settings.FMP_API_KEY)
         self.sec_dilution = SECDilutionService(db, redis)
         
@@ -263,10 +261,8 @@ class DataAggregator:
     
     async def _get_or_fetch_financials(self, ticker: str) -> List[Dict]:
         """
-        Obtener financials con estrategia dual:
-        1. Try BD (si reciente)
-        2. Try Polygon (primary source - más completo)
-        3. Try FMP (fallback)
+        Obtener financials desde API Gateway (fuente unificada).
+        Evita duplicar llamadas a FMP - usa la misma fuente que el comando FA.
         """
         try:
             # Intentar desde BD
@@ -281,57 +277,24 @@ class DataAggregator:
                     logger.debug("using_db_financials", ticker=ticker, source=latest.get('source'))
                     return db_financials
             
-            # Try Polygon FIRST
-            logger.info("fetching_financials_from_polygon", ticker=ticker)
-            polygon_financials = await self.polygon_financials.get_financial_statements(
-                ticker,
-                timeframe="quarterly",
-                limit=20
-            )
-            
-            if polygon_financials:
-                # VERIFICAR si Polygon tiene datos completos (income + cash flow)
-                # Empresas extranjeras (ADRs) a menudo no tienen estos datos en Polygon
-                first_statement = polygon_financials[0] if polygon_financials else None
-                has_income = first_statement and first_statement.revenue is not None
-                has_cashflow = first_statement and first_statement.operating_cash_flow is not None
-                
-                if has_income and has_cashflow:
-                    logger.info(
-                        "polygon_financials_complete",
-                        ticker=ticker,
-                        count=len(polygon_financials)
-                    )
-                    await self.financial_repo.save_batch(polygon_financials)
-                    return await self.financial_repo.get_by_ticker(ticker, limit=20)
-                else:
-                    # Polygon tiene datos incompletos (solo balance sheet)
-                    # Intentar FMP que suele tener datos más completos para ADRs
-                    logger.warning(
-                        "polygon_incomplete_trying_fmp",
-                        ticker=ticker,
-                        has_income=has_income,
-                        has_cashflow=has_cashflow
-                    )
-            
-            # Fallback a FMP si Polygon falla o está incompleto
-            logger.info("fetching_financials_from_fmp", ticker=ticker)
-            fmp_financials = await self.fmp_financials.get_financial_statements(
+            # Fetch desde API Gateway (fuente unificada)
+            logger.info("fetching_financials_from_api_gateway", ticker=ticker)
+            financials = await self.financials_client.get_financials(
                 ticker,
                 period="quarter",
                 limit=20
             )
             
-            if fmp_financials:
+            if financials:
                 logger.info(
-                    "fmp_financials_success",
+                    "api_gateway_financials_success",
                     ticker=ticker,
-                    count=len(fmp_financials)
+                    count=len(financials)
                 )
-                await self.financial_repo.save_batch(fmp_financials)
+                await self.financial_repo.save_batch(financials)
                 return await self.financial_repo.get_by_ticker(ticker, limit=20)
             
-            # Si ambos fallan, retornar lo que hay en BD (aunque viejo)
+            # Si API Gateway falla, retornar lo que hay en BD (aunque viejo)
             if db_financials:
                 logger.warning("using_stale_db_financials", ticker=ticker)
                 return db_financials
@@ -343,7 +306,7 @@ class DataAggregator:
             return []
     
     async def _get_or_fetch_holders(self, ticker: str) -> List[Dict]:
-        """Obtener holders (BD o fetch desde FMP)"""
+        """Obtener holders desde SEC-API.io 13F filings (fuente oficial)"""
         try:
             # Intentar desde BD
             db_holders = await self.holder_repo.get_by_ticker(ticker)
@@ -351,36 +314,39 @@ class DataAggregator:
             # Si tiene datos recientes (< 30 días), usar BD
             if db_holders:
                 latest_date = db_holders[0]['report_date']
-                days_old = (datetime.now().date() - latest_date).days
-                
-                if days_old < 30:
-                    logger.debug("using_db_holders", ticker=ticker)
-                    # Filtrar holders con shares_held = 0
-                    filtered = [h for h in db_holders if h.get('shares_held', 0) > 0]
-                    return filtered
+                if latest_date:
+                    days_old = (datetime.now().date() - latest_date).days
+                    
+                    if days_old < 30:
+                        logger.debug("using_db_holders", ticker=ticker, source="SEC-13F")
+                        # Filtrar holders con shares_held = 0
+                        filtered = [h for h in db_holders if h.get('shares_held', 0) > 0]
+                        return filtered
             
-            # Fetch desde FMP
-            logger.info("fetching_holders_from_fmp", ticker=ticker)
-            fmp_holders = await self.fmp_holders.get_institutional_holders(ticker)
+            # Fetch desde SEC-API.io 13F filings
+            logger.info("fetching_holders_from_sec_13f", ticker=ticker)
+            sec_holders = await self.sec_holders.get_institutional_holders(ticker, limit=50)
             
-            if fmp_holders:
+            if sec_holders:
                 # Filtrar holders con shares = 0 ANTES de guardar
-                fmp_holders = [h for h in fmp_holders if h.shares_held and h.shares_held > 0]
+                sec_holders = [h for h in sec_holders if h.shares_held and h.shares_held > 0]
                 
-                if not fmp_holders:
-                    logger.warning("no_valid_holders", ticker=ticker)
+                if not sec_holders:
+                    logger.warning("no_valid_holders_in_13f", ticker=ticker)
                     return []
                 
                 # Enriquecer con ownership %
                 shares_outstanding = await self._get_shares_outstanding(ticker)
                 if shares_outstanding:
-                    fmp_holders = await self.fmp_holders.enrich_holders_with_ownership_pct(
-                        fmp_holders,
+                    sec_holders = await self.sec_holders.enrich_holders_with_ownership_pct(
+                        sec_holders,
                         shares_outstanding
                     )
                 
                 # Guardar en BD
-                await self.holder_repo.save_batch(fmp_holders)
+                await self.holder_repo.save_batch(sec_holders)
+                
+                logger.info("sec_13f_holders_saved", ticker=ticker, count=len(sec_holders))
                 
                 result = await self.holder_repo.get_by_ticker(ticker)
                 # Filtrar de nuevo por si acaso
@@ -388,6 +354,7 @@ class DataAggregator:
             
             # Si BD tenía datos pero viejos, retornarlos filtrados
             if db_holders:
+                logger.warning("using_stale_holders", ticker=ticker)
                 return [h for h in db_holders if h.get('shares_held', 0) > 0]
             
             return []
@@ -402,17 +369,25 @@ class DataAggregator:
             # Intentar desde BD
             db_filings = await self.filing_repo.get_by_ticker(ticker, limit=100)
             
+            # Filtrar filings con filing_date NULL
+            db_filings = [f for f in db_filings if f.get('filing_date') is not None]
+            
             # Si tiene datos recientes (< 7 días), usar BD
             if db_filings and len(db_filings) > 10:
                 latest_date = db_filings[0]['filing_date']
                 # Convertir a date si es datetime
                 if hasattr(latest_date, 'date'):
                     latest_date = latest_date.date()
-                days_old = (datetime.now().date() - latest_date).days
                 
-                if days_old < 7:
-                    logger.debug("using_db_filings", ticker=ticker)
-                    return db_filings
+                # Protección adicional contra None
+                if latest_date is None:
+                    logger.warning("filing_date_is_none", ticker=ticker)
+                else:
+                    days_old = (datetime.now().date() - latest_date).days
+                    
+                    if days_old < 7:
+                        logger.debug("using_db_filings", ticker=ticker, count=len(db_filings))
+                        return db_filings
             
             # Fetch desde FMP
             logger.info("fetching_filings_from_fmp", ticker=ticker)

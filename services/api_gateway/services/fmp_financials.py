@@ -18,7 +18,8 @@ from shared.models.financials import (
     IncomeStatement,
     BalanceSheet,
     CashFlow,
-    FinancialData
+    FinancialData,
+    FinancialRatios
 )
 
 logger = get_logger(__name__)
@@ -66,11 +67,19 @@ class FMPFinancialsService:
             logger.error("fmp_exception", endpoint=endpoint, error=str(e))
             return None
     
+    async def get_profile(self, symbol: str) -> Optional[Dict]:
+        """Obtener company profile con industry y sector"""
+        params = {"symbol": symbol.upper()}
+        data = await self._get("profile", params)
+        if data and len(data) > 0:
+            return data[0]
+        return None
+    
     async def get_financials(
         self,
         symbol: str,
         period: str = "annual",  # "annual" o "quarter"
-        limit: int = 5
+        limit: int = 20  # INCREASED: 20 períodos (5 años quarterly)
     ) -> Optional[FinancialData]:
         """
         Obtener datos financieros completos de un ticker
@@ -78,22 +87,23 @@ class FMPFinancialsService:
         Args:
             symbol: Ticker symbol (ej: AAPL)
             period: "annual" o "quarter"
-            limit: Número de períodos
+            limit: Número de períodos (default 20)
         
         Returns:
-            FinancialData con income, balance y cash flow statements
+            FinancialData con income, balance, cash flow, ratios, industry y sector
         """
         symbol = symbol.upper()
         
-        # Obtener los 3 statements en paralelo
+        # Obtener statements + profile en paralelo
         import asyncio
         
         income_task = self.get_income_statements(symbol, period, limit)
         balance_task = self.get_balance_sheets(symbol, period, limit)
         cashflow_task = self.get_cash_flows(symbol, period, limit)
+        profile_task = self.get_profile(symbol)
         
-        income_data, balance_data, cashflow_data = await asyncio.gather(
-            income_task, balance_task, cashflow_task
+        income_data, balance_data, cashflow_data, profile_data = await asyncio.gather(
+            income_task, balance_task, cashflow_task, profile_task
         )
         
         # Parsear datos
@@ -105,12 +115,22 @@ class FMPFinancialsService:
             logger.warning("no_financial_data", symbol=symbol)
             return None
         
+        # Calcular ratios
+        ratios = self._calculate_ratios(income_statements, balance_sheets, cash_flows)
+        
+        # Extraer industry y sector del profile
+        industry = profile_data.get("industry") if profile_data else None
+        sector = profile_data.get("sector") if profile_data else None
+        
         return FinancialData(
             symbol=symbol,
             currency="USD",
+            industry=industry,
+            sector=sector,
             income_statements=income_statements,
             balance_sheets=balance_sheets,
             cash_flows=cash_flows,
+            ratios=ratios,
             last_updated=datetime.utcnow().isoformat() + "Z",
             cached=False
         )
@@ -346,4 +366,86 @@ class FMPFinancialsService:
             return float(value)
         except (ValueError, TypeError):
             return None
+    
+    def _calculate_ratios(
+        self,
+        income_statements: List[IncomeStatement],
+        balance_sheets: List[BalanceSheet],
+        cash_flows: List[CashFlow]
+    ) -> List[FinancialRatios]:
+        """
+        Calcular ratios financieros por período.
+        Combina datos de income, balance y cash flow para cada fecha.
+        """
+        ratios = []
+        
+        # Crear mapas por fecha
+        income_map = {i.period.date: i for i in income_statements}
+        balance_map = {b.period.date: b for b in balance_sheets}
+        cashflow_map = {c.period.date: c for c in cash_flows}
+        
+        # Obtener todas las fechas únicas
+        all_dates = set(income_map.keys()) | set(balance_map.keys()) | set(cashflow_map.keys())
+        
+        for period_date in sorted(all_dates, reverse=True):
+            income = income_map.get(period_date)
+            balance = balance_map.get(period_date)
+            cashflow = cashflow_map.get(period_date)
+            
+            ratio = FinancialRatios(period_date=period_date)
+            
+            # Liquidity Ratios (from balance sheet)
+            if balance:
+                if balance.current_liabilities and balance.current_liabilities != 0:
+                    if balance.current_assets:
+                        ratio.current_ratio = round(balance.current_assets / balance.current_liabilities, 2)
+                    
+                    # Quick ratio: (current_assets - inventory) / current_liabilities
+                    if balance.current_assets:
+                        inventory = balance.inventory or 0
+                        ratio.quick_ratio = round((balance.current_assets - inventory) / balance.current_liabilities, 2)
+                
+                # Working Capital
+                if balance.current_assets and balance.current_liabilities:
+                    ratio.working_capital = balance.current_assets - balance.current_liabilities
+                
+                # Solvency Ratios
+                if balance.total_equity and balance.total_equity != 0:
+                    if balance.total_debt:
+                        ratio.debt_to_equity = round(balance.total_debt / balance.total_equity, 2)
+                
+                if balance.total_assets and balance.total_assets != 0:
+                    if balance.total_debt:
+                        ratio.debt_to_assets = round(balance.total_debt / balance.total_assets, 2)
+            
+            # Profitability Ratios (from income statement)
+            if income and income.revenue and income.revenue != 0:
+                if income.gross_profit:
+                    ratio.gross_margin = round((income.gross_profit / income.revenue) * 100, 2)
+                
+                if income.operating_income:
+                    ratio.operating_margin = round((income.operating_income / income.revenue) * 100, 2)
+                
+                if income.net_income:
+                    ratio.net_margin = round((income.net_income / income.revenue) * 100, 2)
+            
+            # ROE (Net Income / Total Equity)
+            if income and balance:
+                if income.net_income and balance.total_equity and balance.total_equity != 0:
+                    ratio.roe = round((income.net_income / balance.total_equity) * 100, 2)
+                
+                if income.net_income and balance.total_assets and balance.total_assets != 0:
+                    ratio.roa = round((income.net_income / balance.total_assets) * 100, 2)
+                
+                if income.revenue and balance.total_assets and balance.total_assets != 0:
+                    ratio.asset_turnover = round(income.revenue / balance.total_assets, 2)
+            
+            # FCF Margin
+            if cashflow and income:
+                if cashflow.free_cash_flow and income.revenue and income.revenue != 0:
+                    ratio.fcf_margin = round((cashflow.free_cash_flow / income.revenue) * 100, 2)
+            
+            ratios.append(ratio)
+        
+        return ratios
 

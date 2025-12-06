@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import {
   AreaChart,
   Area,
@@ -18,6 +18,186 @@ import {
   Legend,
 } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, BarChart3, LineChart } from 'lucide-react';
+
+// ============================================================================
+// Time Range Slider Component
+// ============================================================================
+
+interface TimeRangeSliderProps {
+  periods: string[];
+  startIndex: number;
+  endIndex: number;
+  onChange: (start: number, end: number) => void;
+}
+
+function TimeRangeSlider({ periods, startIndex, endIndex, onChange }: TimeRangeSliderProps) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState<'start' | 'end' | 'range' | null>(null);
+  const [dragStartX, setDragStartX] = useState(0);
+  const [dragStartIndices, setDragStartIndices] = useState({ start: 0, end: 0 });
+
+  const getIndexFromPosition = useCallback((clientX: number): number => {
+    if (!trackRef.current) return 0;
+    const rect = trackRef.current.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const percent = Math.max(0, Math.min(1, x / rect.width));
+    return Math.round(percent * (periods.length - 1));
+  }, [periods.length]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent, type: 'start' | 'end' | 'range') => {
+    e.preventDefault();
+    setDragging(type);
+    setDragStartX(e.clientX);
+    setDragStartIndices({ start: startIndex, end: endIndex });
+  }, [startIndex, endIndex]);
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!trackRef.current) return;
+      
+      const rect = trackRef.current.getBoundingClientRect();
+      const deltaX = e.clientX - dragStartX;
+      const deltaPercent = deltaX / rect.width;
+      const deltaIndex = Math.round(deltaPercent * (periods.length - 1));
+
+      if (dragging === 'start') {
+        const newStart = Math.max(0, Math.min(endIndex - 1, dragStartIndices.start + deltaIndex));
+        onChange(newStart, endIndex);
+      } else if (dragging === 'end') {
+        const newEnd = Math.max(startIndex + 1, Math.min(periods.length - 1, dragStartIndices.end + deltaIndex));
+        onChange(startIndex, newEnd);
+      } else if (dragging === 'range') {
+        const rangeSize = dragStartIndices.end - dragStartIndices.start;
+        let newStart = dragStartIndices.start + deltaIndex;
+        let newEnd = dragStartIndices.end + deltaIndex;
+        
+        if (newStart < 0) {
+          newStart = 0;
+          newEnd = rangeSize;
+        }
+        if (newEnd > periods.length - 1) {
+          newEnd = periods.length - 1;
+          newStart = newEnd - rangeSize;
+        }
+        onChange(newStart, newEnd);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setDragging(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [dragging, dragStartX, dragStartIndices, startIndex, endIndex, periods.length, onChange]);
+
+  // Extract unique years for display
+  const yearMarkers = useMemo(() => {
+    const years: { year: string; index: number }[] = [];
+    let lastYear = '';
+    
+    periods.forEach((period, idx) => {
+      const yearMatch = period.match(/\d{4}/);
+      const year = yearMatch ? yearMatch[0] : '';
+      if (year && year !== lastYear) {
+        years.push({ year: `'${year.slice(-2)}`, index: idx });
+        lastYear = year;
+      }
+    });
+    return years;
+  }, [periods]);
+
+  const startPercent = (startIndex / (periods.length - 1)) * 100;
+  const endPercent = (endIndex / (periods.length - 1)) * 100;
+
+  return (
+    <div className="px-4 py-3 border-t border-slate-200 bg-white">
+      {/* Year labels */}
+      <div className="relative h-4 mb-1">
+        {yearMarkers.map(({ year, index }) => (
+          <span
+            key={`${year}-${index}`}
+            className="absolute text-[10px] text-slate-500 font-medium transform -translate-x-1/2"
+            style={{ left: `${(index / (periods.length - 1)) * 100}%` }}
+          >
+            {year}
+          </span>
+        ))}
+      </div>
+
+      {/* Slider Track */}
+      <div
+        ref={trackRef}
+        className="relative h-2 bg-slate-200 rounded-full cursor-pointer"
+        onClick={(e) => {
+          const index = getIndexFromPosition(e.clientX);
+          // Click to set the nearest handle
+          const distToStart = Math.abs(index - startIndex);
+          const distToEnd = Math.abs(index - endIndex);
+          if (distToStart < distToEnd) {
+            onChange(Math.min(index, endIndex - 1), endIndex);
+          } else {
+            onChange(startIndex, Math.max(index, startIndex + 1));
+          }
+        }}
+      >
+        {/* Period dots on track */}
+        {periods.map((_, idx) => (
+          <div
+            key={idx}
+            className={`absolute top-1/2 w-1.5 h-1.5 rounded-full transform -translate-x-1/2 -translate-y-1/2 transition-colors
+              ${idx >= startIndex && idx <= endIndex ? 'bg-blue-500' : 'bg-slate-300'}`}
+            style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
+          />
+        ))}
+
+        {/* Selected Range */}
+        <div
+          className="absolute h-full bg-blue-500 rounded-full cursor-grab active:cursor-grabbing"
+          style={{
+            left: `${startPercent}%`,
+            width: `${endPercent - startPercent}%`,
+          }}
+          onMouseDown={(e) => handleMouseDown(e, 'range')}
+        />
+
+        {/* Start Handle */}
+        <div
+          className={`absolute top-1/2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md 
+            transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10 hover:scale-110 transition-transform
+            ${dragging === 'start' ? 'scale-110 ring-2 ring-blue-300' : ''}`}
+          style={{ left: `${startPercent}%` }}
+          onMouseDown={(e) => handleMouseDown(e, 'start')}
+        />
+
+        {/* End Handle */}
+        <div
+          className={`absolute top-1/2 w-4 h-4 bg-blue-600 border-2 border-white rounded-full shadow-md 
+            transform -translate-x-1/2 -translate-y-1/2 cursor-ew-resize z-10 hover:scale-110 transition-transform
+            ${dragging === 'end' ? 'scale-110 ring-2 ring-blue-300' : ''}`}
+          style={{ left: `${endPercent}%` }}
+          onMouseDown={(e) => handleMouseDown(e, 'end')}
+        />
+      </div>
+
+      {/* Range Info */}
+      <div className="flex items-center justify-between mt-2 text-[10px] text-slate-500">
+        <span className="font-medium text-blue-600">{periods[startIndex]}</span>
+        <span className="text-slate-400">
+          {endIndex - startIndex + 1} of {periods.length} periods selected
+        </span>
+        <span className="font-medium text-blue-600">{periods[endIndex]}</span>
+      </div>
+    </div>
+  );
+}
 
 // ============================================================================
 // Types
@@ -116,16 +296,40 @@ export function FinancialMetricChart({
   valueType = 'currency',
   isNegativeBad = true,
 }: FinancialMetricChartProps) {
-  // Prepare chart data (most recent last for proper visualization)
+  // All available periods (for the slider)
+  const allPeriods = useMemo(() => {
+    return data
+      .filter(d => d.value !== null && d.value !== undefined)
+      .map(d => d.period);
+  }, [data]);
+
+  // Range state: default to full range
+  const [rangeStart, setRangeStart] = useState(0);
+  const [rangeEnd, setRangeEnd] = useState(allPeriods.length - 1);
+
+  // Update range when data changes
+  useEffect(() => {
+    setRangeStart(0);
+    setRangeEnd(allPeriods.length - 1);
+  }, [allPeriods.length]);
+
+  // Handle range change from slider
+  const handleRangeChange = useCallback((start: number, end: number) => {
+    setRangeStart(start);
+    setRangeEnd(end);
+  }, []);
+
+  // Prepare chart data filtered by range
   const chartData = useMemo(() => {
     return data
       .filter(d => d.value !== null && d.value !== undefined)
+      .slice(rangeStart, rangeEnd + 1)
       .map((d, index, arr) => ({
         ...d,
         displayValue: d.value as number,
         isLatest: index === arr.length - 1,
       }));
-  }, [data]);
+  }, [data, rangeStart, rangeEnd]);
 
   // Calculate statistics
   const stats = useMemo(() => {
@@ -356,6 +560,16 @@ export function FinancialMetricChart({
         </ResponsiveContainer>
       </div>
 
+      {/* Time Range Slider */}
+      {allPeriods.length > 2 && (
+        <TimeRangeSlider
+          periods={allPeriods}
+          startIndex={rangeStart}
+          endIndex={rangeEnd}
+          onChange={handleRangeChange}
+        />
+      )}
+
       {/* Footer Legend */}
       <div className="px-4 py-2 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
         <div className="flex items-center gap-4 text-xs text-slate-500">
@@ -373,7 +587,7 @@ export function FinancialMetricChart({
           </div>
         </div>
         <p className="text-xs text-slate-400">
-          Data from {chartData[0]?.period} to {chartData[chartData.length - 1]?.period}
+          Showing {chartData.length} periods
         </p>
       </div>
     </div>

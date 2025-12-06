@@ -2496,7 +2496,7 @@ class SECDilutionService:
             atm_classified = self._classify_atm_status(atm_deduped, ticker)
             
             # 🔧 PROCESO DE LIMPIEZA DE SHELFS:
-            shelfs_deduped = self._deduplicate_shelfs(all_shelfs)
+            shelfs_deduped = self._deduplicate_shelfs(all_shelfs, ticker=ticker)
             shelfs_classified = self._classify_shelf_status(shelfs_deduped, ticker)
             
             # Deduplicar y combinar
@@ -2504,7 +2504,7 @@ class SECDilutionService:
                 'warrants': warrants_final,
                 'atm_offerings': atm_classified,
                 'shelf_registrations': shelfs_classified,
-                'completed_offerings': self._deduplicate_completed(all_completed),
+                'completed_offerings': self._deduplicate_completed(all_completed, ticker=ticker),
                 's1_offerings': self._deduplicate_s1(all_s1),
                 'convertible_notes': self._deduplicate_convertible_notes(all_convertible_notes),
                 'convertible_preferred': self._deduplicate_convertible_preferred(all_convertible_preferred),
@@ -3054,48 +3054,117 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
             ticker, company_name, filings, focus, parsed_tables
         )
     
+    def _extract_warrant_type(self, notes: str) -> str:
+        """
+        Extraer el tipo de warrant de las notes para agrupar duplicados.
+        
+        Tipos reconocidos: Public, Private, SPA, Pre-Funded, Common, Unknown
+        """
+        if not notes:
+            return "Unknown"
+        
+        notes_lower = notes.lower()
+        
+        # Orden importa - más específico primero
+        if 'pre-funded' in notes_lower or 'prefunded' in notes_lower:
+            return "Pre-Funded"
+        if 'spa warrant' in notes_lower or 'securities purchase agreement' in notes_lower:
+            return "SPA"
+        if 'private' in notes_lower:
+            return "Private"
+        if 'public' in notes_lower:
+            return "Public"
+        if 'common warrant' in notes_lower or 'common stock warrant' in notes_lower:
+            return "Common"
+        
+        return "Unknown"
+    
     def _deduplicate_warrants(self, warrants: List[Dict]) -> List[Dict]:
         """
-        Deduplicar warrants por exercise_price + expiration + potential_new_shares
+        Deduplicar warrants inteligentemente por TIPO + exercise_price.
         
-        CRÍTICO: NO descartar warrants sin 'outstanding'.
-        Si falta 'outstanding' pero hay 'potential_new_shares', usar ese como fallback.
+        ESTRATEGIA:
+        1. Extraer tipo de warrant (Public, Private, SPA, Pre-Funded, Common)
+        2. Agrupar por (tipo, exercise_price)
+        3. Para cada grupo, tomar el registro más COMPLETO (más campos con datos)
+        4. Si hay empate, tomar el más reciente por issue_date
         
-        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
-        dicts anidados en lugar de valores simples.
+        Esto evita duplicados como:
+        - Public Warrants $11.50 (Sep 2024) + Public Warrants $11.50 (Aug 2024)
         """
-        seen = set()
-        unique = []
+        # Paso 1: Normalizar todos los warrants
+        for w in warrants:
+            outstanding = self._normalize_grok_value(w.get('outstanding'), 'number')
+            potential = self._normalize_grok_value(w.get('potential_new_shares'), 'number')
+            
+            if outstanding is None and potential is not None:
+                w['outstanding'] = potential
+            elif outstanding is not None:
+                w['outstanding'] = outstanding
         
+        # Paso 2: Agrupar por (tipo, exercise_price)
+        groups = {}
         for w in warrants:
             try:
-                # 🔧 FIX: Normalizar outstanding y potential_new_shares
-                outstanding = self._normalize_grok_value(w.get('outstanding'), 'number')
-                potential = self._normalize_grok_value(w.get('potential_new_shares'), 'number')
+                notes = self._normalize_grok_value(w.get('notes'), 'string') or ''
+                warrant_type = self._extract_warrant_type(notes)
+                exercise_price = self._safe_get_for_key(w, 'exercise_price', 'number')
                 
-                # Si falta outstanding pero hay potential_new_shares, usarlo como fallback
-                if outstanding is None and potential is not None:
-                    w['outstanding'] = potential
-                elif outstanding is not None:
-                    w['outstanding'] = outstanding  # Guardar valor normalizado
+                # Key: (tipo, exercise_price)
+                key = (warrant_type, exercise_price)
                 
-                # Key de deduplicación usando valores normalizados y hashables
-                key = (
-                    self._safe_get_for_key(w, 'exercise_price', 'number'),
-                    self._safe_get_for_key(w, 'expiration_date', 'date'),
-                    self._to_hashable(w.get('outstanding')),
-                    # Añadir trozo de notes para diferenciar series (ej: "Series A" vs "Series B")
-                    self._to_hashable((self._normalize_grok_value(w.get('notes'), 'string') or '')[:40])
-                )
-                
-                # NO descartar por falta de outstanding - solo deduplica por key
-                if key not in seen:
-                    seen.add(key)
-                    unique.append(w)
+                if key not in groups:
+                    groups[key] = []
+                groups[key].append(w)
             except Exception as e:
-                # Si hay cualquier error, incluir el warrant sin deduplicar (no perder datos)
-                logger.warning("warrant_dedup_error", error=str(e), warrant_keys=list(w.keys())[:5])
-                unique.append(w)
+                logger.warning("warrant_grouping_error", error=str(e))
+        
+        # Paso 3: Para cada grupo, seleccionar el mejor registro
+        unique = []
+        for (warrant_type, exercise_price), group in groups.items():
+            if len(group) == 1:
+                best = group[0]
+            else:
+                # Calcular "completeness score" para cada warrant
+                def completeness_score(w):
+                    score = 0
+                    if w.get('outstanding'):
+                        score += 3
+                    if w.get('exercise_price'):
+                        score += 2
+                    if w.get('expiration_date'):
+                        score += 2
+                    if w.get('issue_date'):
+                        score += 1
+                    if w.get('potential_new_shares'):
+                        score += 1
+                    return score
+                
+                # Ordenar por completeness (desc) y luego por issue_date (desc, más reciente)
+                def sort_key(w):
+                    score = completeness_score(w)
+                    issue_date = self._safe_get_for_key(w, 'issue_date', 'date') or ''
+                    return (score, str(issue_date))
+                
+                sorted_group = sorted(group, key=sort_key, reverse=True)
+                best = sorted_group[0]
+                
+                # Log para debug
+                if len(group) > 2:
+                    logger.info("warrant_dedup_merged",
+                               warrant_type=warrant_type,
+                               exercise_price=str(exercise_price),
+                               merged_count=len(group),
+                               selected_outstanding=best.get('outstanding'))
+            
+            unique.append(best)
+        
+        logger.info("warrant_dedup_result",
+                   input_count=len(warrants),
+                   output_count=len(unique),
+                   types_found=list(set(self._extract_warrant_type(
+                       self._normalize_grok_value(w.get('notes'), 'string') or ''
+                   ) for w in unique)))
         
         return unique
     
@@ -3107,32 +3176,48 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
         que agregan todos los warrants. Estos NO deben sumarse al cálculo de dilución
         porque ya tenemos los warrants detallados por serie de los 424B/8-K.
         
-        ROBUSTO: Normaliza notes antes de usarlo por si Grok devuelve un dict.
+        También detectar warrants históricos que fueron ejercidos o reemplazados.
         """
         filtered = []
+        excluded_count = 0
+        
         for w in warrants:
-            # Normalizar notes para evitar errores si es dict
             notes_raw = self._normalize_grok_value(w.get('notes'), 'string')
             notes_lower = (notes_raw or '').lower()
             
-            # Detectar si es un resumen de 10-Q/10-K
+            # Detectar si es un resumen agregado
             is_summary = (
-                'as of' in notes_lower and 
-                ('outstanding warrants' in notes_lower or 
-                 'weighted average' in notes_lower or
-                 'no specific series' in notes_lower)
+                ('as of' in notes_lower and 
+                 ('outstanding warrants' in notes_lower or 
+                  'weighted average' in notes_lower or
+                  'total outstanding' in notes_lower or
+                  'aggregate' in notes_lower)) or
+                'no specific series' in notes_lower
             )
             
-            if is_summary:
+            # Detectar eventos históricos (no warrants activos)
+            is_historical = (
+                'cashless exercise' in notes_lower or
+                'exercised' in notes_lower.split()[-10:] or  # "was exercised" al final
+                'adjustment' in notes_lower or
+                'restructuring' in notes_lower or
+                'waiver' in notes_lower or
+                'amended' in notes_lower and 'exercise price' not in notes_lower
+            )
+            
+            if is_summary or is_historical:
                 w['is_summary_row'] = True
                 w['exclude_from_dilution'] = True
-                logger.info("warrant_marked_as_summary", 
-                           ticker=w.get('ticker'),
+                excluded_count += 1
+                logger.debug("warrant_excluded", 
+                           reason="summary" if is_summary else "historical",
                            outstanding=w.get('outstanding'),
-                           exercise_price=w.get('exercise_price'),
-                           notes_snippet=notes_lower[:80])
+                           notes_snippet=notes_lower[:60])
             
             filtered.append(w)
+        
+        if excluded_count > 0:
+            logger.info("warrants_excluded_from_dilution", count=excluded_count)
         
         return filtered
     
@@ -3400,50 +3485,132 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
     
     def _deduplicate_atm(self, atms: List[Dict], ticker: str = "") -> List[Dict]:
         """
-        Deduplicar ATM por placement_agent + filing_date.
+        Deduplicar ATM inteligentemente.
         
-        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
-        dicts anidados en lugar de valores simples.
+        ESTRATEGIA:
+        1. DESCARTAR ATMs sin total_capacity ni remaining_capacity (son inútiles para dilución)
+        2. Agrupar por placement_agent
+        3. Para cada grupo, tomar el registro más COMPLETO y RECIENTE
         """
-        seen = set()
-        unique = []
+        # Paso 1: Filtrar ATMs sin datos de capacidad
+        atms_with_data = []
+        atms_without_data = 0
+        
         for a in atms:
-            try:
-                # Normalizar valores
-                placement_agent = self._safe_get_for_key(a, 'placement_agent', 'string')
-                filing_date = self._safe_get_for_key(a, 'filing_date', 'date')
-                remaining = self._normalize_grok_value(a.get('remaining_capacity'), 'number')
-                total = self._normalize_grok_value(a.get('total_capacity'), 'number')
+            remaining = self._normalize_grok_value(a.get('remaining_capacity'), 'number')
+            total = self._normalize_grok_value(a.get('total_capacity'), 'number')
+            
+            if remaining or total:
+                atms_with_data.append(a)
+            else:
+                atms_without_data += 1
+        
+        if atms_without_data > 0:
+            logger.info("atm_filtered_no_capacity", ticker=ticker, filtered_count=atms_without_data)
+        
+        # Paso 2: Agrupar por placement_agent
+        groups = {}
+        for a in atms_with_data:
+            agent = self._safe_get_for_key(a, 'placement_agent', 'string') or 'Unknown'
+            if agent not in groups:
+                groups[agent] = []
+            groups[agent].append(a)
+        
+        # Paso 3: Para cada grupo, seleccionar el mejor
+        unique = []
+        for agent, group in groups.items():
+            if len(group) == 1:
+                unique.append(group[0])
+            else:
+                # Ordenar por completeness y recency
+                def score(a):
+                    s = 0
+                    if a.get('remaining_capacity'):
+                        s += 3
+                    if a.get('total_capacity'):
+                        s += 2
+                    if a.get('filing_date'):
+                        s += 1
+                    return s
                 
-                key = (placement_agent, filing_date)
-                has_capacity = remaining or total
+                sorted_group = sorted(group, key=lambda x: (score(x), str(self._safe_get_for_key(x, 'filing_date', 'date') or '')), reverse=True)
+                unique.append(sorted_group[0])
                 
-                if key not in seen:
-                    if has_capacity:
-                        seen.add(key)
-                        unique.append(a)
-                    elif placement_agent or filing_date:
-                        flexible_key = (placement_agent or '', filing_date or '')
-                        if flexible_key not in seen:
-                            seen.add(flexible_key)
-                            unique.append(a)
-                            logger.warning("atm_included_without_capacity", ticker=ticker, 
-                                         placement_agent=placement_agent,
-                                         filing_date=filing_date)
-            except Exception as e:
-                logger.warning("atm_dedup_error", error=str(e), ticker=ticker)
-                unique.append(a)
+                logger.info("atm_dedup_merged",
+                           ticker=ticker,
+                           agent=agent,
+                           merged_count=len(group))
                 
-        logger.info("atm_deduplication", ticker=ticker, total_input=len(atms), total_output=len(unique))
+        logger.info("atm_deduplication", ticker=ticker, total_input=len(atms), 
+                   filtered_no_data=atms_without_data, total_output=len(unique))
         return unique
     
-    def _deduplicate_shelfs(self, shelfs: List[Dict]) -> List[Dict]:
+    def _deduplicate_shelfs(self, shelfs: List[Dict], ticker: str = "") -> List[Dict]:
         """
-        Deduplicar shelfs por filing_date + capacity. NO descartar sin filing_date.
+        Deduplicar shelfs inteligentemente.
         
-        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
-        dicts anidados en lugar de valores simples.
+        ESTRATEGIA:
+        1. DESCARTAR shelfs sin total_capacity ni remaining_capacity (inútiles para dilución)
+        2. Agrupar por registration_statement (S-3, S-1, etc.)
+        3. Para cada grupo, tomar el registro más COMPLETO y RECIENTE
         """
+        # Paso 1: Filtrar shelfs sin datos de capacidad
+        shelfs_with_data = []
+        shelfs_without_data = 0
+        
+        for s in shelfs:
+            remaining = self._normalize_grok_value(s.get('remaining_capacity'), 'number')
+            total = self._normalize_grok_value(s.get('total_capacity'), 'number')
+            
+            if remaining or total:
+                shelfs_with_data.append(s)
+            else:
+                shelfs_without_data += 1
+        
+        if shelfs_without_data > 0:
+            logger.info("shelf_filtered_no_capacity", ticker=ticker, filtered_count=shelfs_without_data)
+        
+        # Paso 2: Agrupar por registration_statement
+        groups = {}
+        for s in shelfs_with_data:
+            reg_stmt = self._safe_get_for_key(s, 'registration_statement', 'string') or 'Unknown'
+            if reg_stmt not in groups:
+                groups[reg_stmt] = []
+            groups[reg_stmt].append(s)
+        
+        # Paso 3: Para cada grupo, seleccionar el mejor
+        unique = []
+        for reg_stmt, group in groups.items():
+            if len(group) == 1:
+                unique.append(group[0])
+            else:
+                # Ordenar por completeness y recency
+                def score(s):
+                    sc = 0
+                    if s.get('remaining_capacity'):
+                        sc += 3
+                    if s.get('total_capacity'):
+                        sc += 2
+                    if s.get('filing_date'):
+                        sc += 1
+                    if s.get('expiration_date'):
+                        sc += 1
+                    return sc
+                
+                sorted_group = sorted(group, key=lambda x: (score(x), str(self._safe_get_for_key(x, 'filing_date', 'date') or '')), reverse=True)
+                unique.append(sorted_group[0])
+                
+                logger.info("shelf_dedup_merged",
+                           ticker=ticker,
+                           registration=reg_stmt,
+                           merged_count=len(group))
+                
+        logger.info("shelf_deduplication", ticker=ticker, total_input=len(shelfs), 
+                   filtered_no_data=shelfs_without_data, total_output=len(unique))
+        return unique
+    
+    def _deduplicate_shelfs_old(self, shelfs: List[Dict]) -> List[Dict]:
+        """DEPRECATED - Old deduplication logic"""
         seen = set()
         unique = []
         for s in shelfs:
@@ -3463,30 +3630,54 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                 unique.append(s)
         return unique
     
-    def _deduplicate_completed(self, completed: List[Dict]) -> List[Dict]:
+    def _deduplicate_completed(self, completed: List[Dict], ticker: str = "") -> List[Dict]:
         """
-        Deduplicar completed offerings por fecha + shares. NO descartar sin fecha.
+        Deduplicar completed offerings inteligentemente.
         
-        ROBUSTO: Usa _safe_get_for_key para manejar valores de Grok que pueden ser
-        dicts anidados en lugar de valores simples.
+        ESTRATEGIA:
+        1. Filtrar offerings sin datos útiles (sin shares_issued ni amount_raised)
+        2. Agrupar por (offering_type, offering_date, amount_raised)
+        3. Para cada grupo, tomar el más completo
         """
+        # Paso 1: Filtrar offerings sin datos útiles
+        with_data = []
+        without_data = 0
+        
+        for c in completed:
+            shares = self._normalize_grok_value(c.get('shares_issued'), 'number')
+            amount = self._normalize_grok_value(c.get('amount_raised'), 'number')
+            
+            if shares or amount:
+                with_data.append(c)
+            else:
+                without_data += 1
+        
+        if without_data > 0:
+            logger.info("completed_filtered_no_data", ticker=ticker, filtered_count=without_data)
+        
+        # Paso 2: Deduplicar por key más inteligente
         seen = set()
         unique = []
-        for c in completed:
+        
+        for c in with_data:
             try:
+                offering_type = self._safe_get_for_key(c, 'offering_type', 'string') or ''
                 offering_date = self._safe_get_for_key(c, 'offering_date', 'date')
-                shares_issued = self._safe_get_for_key(c, 'shares_issued', 'number')
+                amount = self._safe_get_for_key(c, 'amount_raised', 'number')
+                shares = self._safe_get_for_key(c, 'shares_issued', 'number')
                 
-                key = (offering_date, shares_issued)
-                # Si no tiene offering_date, incluir igual (no descartar datos)
-                if not offering_date:
-                    unique.append(c)
-                elif key not in seen:
+                # Key más robusta
+                key = (offering_type[:30], offering_date, amount or shares)
+                
+                if key not in seen:
                     seen.add(key)
                     unique.append(c)
             except Exception as e:
                 logger.warning("completed_dedup_error", error=str(e))
                 unique.append(c)
+        
+        logger.info("completed_deduplication", ticker=ticker, 
+                   input_count=len(completed), output_count=len(unique))
         return unique
     
     def _deduplicate_s1(self, s1_offerings: List[Dict]) -> List[Dict]:

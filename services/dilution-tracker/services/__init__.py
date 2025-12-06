@@ -3,18 +3,15 @@ Services for dilution tracker
 """
 
 from .base_fmp_service import BaseFMPService
-from .polygon_financials import PolygonFinancialsService
-from .fmp_financials import FMPFinancialsService
-from .fmp_holders import FMPHoldersService
+from .api_gateway_client import APIGatewayClient  # Financieros unificados
+from .sec_13f_holders import SEC13FHoldersService  # SEC-API.io 13F holders
 from .fmp_filings import FMPFilingsService
 from .data_aggregator import DataAggregator
 
 __all__ = [
     "BaseFMPService",
-    "PolygonFinancialsService",
-    "FMPFinancialsService",
-    "FMPHoldersService",
+    "APIGatewayClient",
+    "SEC13FHoldersService",
     "FMPFilingsService",
     "DataAggregator",
 ]
-

@@ -134,7 +134,8 @@ export async function getTickerAnalysis(symbol: string): Promise<TickerAnalysis>
 export async function getSECDilutionProfile(symbol: string): Promise<SECDilutionProfileResponse> {
   try {
     // Endpoint REAL: /api/sec-dilution/{ticker}/profile
-    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/profile`);
+    // include_filings=true para obtener la lista de filings analizados
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/profile?include_filings=true`);
 
     if (!response.ok) {
       throw new Error(`Failed to fetch SEC dilution profile for ${symbol}`);
@@ -150,8 +151,8 @@ export async function getSECDilutionProfile(symbol: string): Promise<SECDilution
 
 export async function refreshSECDilutionProfile(symbol: string): Promise<SECDilutionProfileResponse> {
   try {
-    // Endpoint REAL: /api/sec-dilution/{ticker}/profile con parámetro refresh=true
-    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/profile?refresh=true`);
+    // Endpoint REAL: /api/sec-dilution/{ticker}/profile con parámetros refresh e include_filings
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/profile?force_refresh=true&include_filings=true`);
 
     if (!response.ok) {
       throw new Error(`Failed to refresh SEC dilution profile for ${symbol}`);

@@ -127,13 +127,38 @@ class CashFlow(BaseModel):
     free_cash_flow: Optional[float] = None
 
 
+class FinancialRatios(BaseModel):
+    """Ratios financieros calculados"""
+    period_date: str
+    # Liquidity
+    current_ratio: Optional[float] = None
+    quick_ratio: Optional[float] = None
+    # Solvency
+    debt_to_equity: Optional[float] = None
+    debt_to_assets: Optional[float] = None
+    # Profitability
+    gross_margin: Optional[float] = None
+    operating_margin: Optional[float] = None
+    net_margin: Optional[float] = None
+    roe: Optional[float] = None  # Return on Equity
+    roa: Optional[float] = None  # Return on Assets
+    # Efficiency
+    asset_turnover: Optional[float] = None
+    # Cash
+    working_capital: Optional[float] = None
+    fcf_margin: Optional[float] = None  # Free Cash Flow Margin
+
+
 class FinancialData(BaseModel):
     """Datos financieros completos de un ticker"""
     symbol: str
     currency: str = "USD"
+    industry: Optional[str] = None  # From FMP profile (e.g., "Consumer Electronics")
+    sector: Optional[str] = None    # From FMP profile (e.g., "Technology")
     income_statements: List[IncomeStatement] = []
     balance_sheets: List[BalanceSheet] = []
     cash_flows: List[CashFlow] = []
+    ratios: List[FinancialRatios] = []
     last_updated: str
     cached: bool = False
     cache_age_seconds: Optional[int] = None

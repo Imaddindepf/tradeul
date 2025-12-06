@@ -71,18 +71,24 @@ class HolderRepository:
             return 0
     
     async def get_by_ticker(self, ticker: str, limit: int = 50) -> List[dict]:
-        """Obtener holders de un ticker (último reporte)"""
+        """
+        Obtener holders de un ticker.
+        Devuelve el reporte más reciente de CADA holder (no la fecha global más reciente)
+        ya que cada institución reporta en diferentes fechas trimestrales.
+        """
         try:
+            # Obtener el reporte más reciente de cada holder usando ROW_NUMBER
             query = """
-            SELECT *
-            FROM institutional_holders
-            WHERE ticker = $1
-            AND report_date = (
-                SELECT MAX(report_date)
+            WITH latest_reports AS (
+                SELECT *,
+                       ROW_NUMBER() OVER (PARTITION BY holder_name ORDER BY report_date DESC) as rn
                 FROM institutional_holders
                 WHERE ticker = $1
+                AND shares_held > 0
             )
-            AND shares_held > 0
+            SELECT *
+            FROM latest_reports
+            WHERE rn = 1
             ORDER BY shares_held DESC
             LIMIT $2
             """
