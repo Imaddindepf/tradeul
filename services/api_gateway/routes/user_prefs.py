@@ -31,6 +31,7 @@ class ColorPreferences(BaseModel):
 class ThemePreferences(BaseModel):
     font: str = Field(default="jetbrains-mono", description="Fuente monospace seleccionada")
     colorScheme: str = Field(default="light", description="Esquema de color: light/dark/system")
+    newsSquawkEnabled: bool = Field(default=False, description="Squawk activo para noticias")
 
 
 class WindowLayout(BaseModel):
@@ -64,7 +65,7 @@ class UserPreferencesRequest(BaseModel):
     savedFilters: Optional[Dict[str, Any]] = None
     columnVisibility: Optional[Dict[str, Dict[str, bool]]] = None
     columnOrder: Optional[Dict[str, List[str]]] = None
-    newsAlerts: Optional[NewsAlertsPreferences] = None  # NEW
+    newsAlerts: Optional[NewsAlertsPreferences] = None
 
 
 class UserPreferencesResponse(BaseModel):
@@ -75,7 +76,7 @@ class UserPreferencesResponse(BaseModel):
     savedFilters: Dict[str, Any]
     columnVisibility: Dict[str, Dict[str, bool]]
     columnOrder: Dict[str, List[str]]
-    newsAlerts: Optional[NewsAlertsPreferences] = None  # NEW
+    newsAlerts: Optional[NewsAlertsPreferences] = None
     updatedAt: str
 
 

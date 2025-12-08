@@ -3,12 +3,13 @@
 /**
  * SquawkContext - Contexto global para el servicio de Squawk (TTS)
  * 
- * Resuelve el problema de multiples instancias del hook useSquawkService.
+ * Sincroniza con useUserPreferencesStore para persistir el estado.
  * El estado del squawk es compartido entre todos los componentes.
  */
 
-import { createContext, useContext, useRef, useState, useCallback, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useRef, useState, useCallback, useMemo, useEffect, ReactNode } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 
 interface SquawkService {
   isEnabled: boolean;
@@ -31,11 +32,20 @@ interface SquawkProviderProps {
 
 export function SquawkProvider({ children, voiceId = DEFAULT_VOICE_ID }: SquawkProviderProps) {
   const { getToken } = useAuth();
+  
+  // Sincronizar con store de preferencias
+  const newsSquawkEnabled = useUserPreferencesStore((s) => s.theme?.newsSquawkEnabled ?? false);
+  const setNewsSquawkEnabled = useUserPreferencesStore((s) => s.setNewsSquawkEnabled);
 
-  // Estado compartido
-  const [isEnabled, setIsEnabled] = useState(false);
+  // Estado local (sincronizado con store)
+  const [isEnabled, setIsEnabled] = useState(newsSquawkEnabled);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [queueSize, setQueueSize] = useState(0);
+
+  // Sincronizar estado local con store al montar
+  useEffect(() => {
+    setIsEnabled(newsSquawkEnabled);
+  }, [newsSquawkEnabled]);
 
   // Refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -119,15 +129,16 @@ export function SquawkProvider({ children, voiceId = DEFAULT_VOICE_ID }: SquawkP
     isProcessingRef.current = false;
   }, []);
 
-  // Toggle habilitado
+  // Toggle habilitado (sincroniza con store para persistir)
   const toggleEnabled = useCallback(() => {
-    setIsEnabled(prev => {
-      if (prev) {
-        stop();
-      }
-      return !prev;
-    });
-  }, [stop]);
+    const newValue = !isEnabled;
+    setIsEnabled(newValue);
+    setNewsSquawkEnabled(newValue); // Persiste en store -> BD
+    
+    if (!newValue) {
+      stop();
+    }
+  }, [isEnabled, setNewsSquawkEnabled, stop]);
 
   // Speak - ref para isEnabled
   const isEnabledRef = useRef(isEnabled);
@@ -173,4 +184,3 @@ export function useSquawk(): SquawkService {
 }
 
 export default SquawkContext;
-

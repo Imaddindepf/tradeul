@@ -34,6 +34,7 @@ export interface ColorPreferences {
 export interface ThemePreferences {
   font: FontFamily;
   colorScheme: 'light' | 'dark' | 'system';
+  newsSquawkEnabled: boolean;
 }
 
 export interface UserPreferences {
@@ -67,6 +68,7 @@ interface UserPreferencesState extends UserPreferences {
   // Actions - Theme
   setFont: (font: FontFamily) => void;
   setColorScheme: (scheme: 'light' | 'dark' | 'system') => void;
+  setNewsSquawkEnabled: (enabled: boolean) => void;
   
   // Actions - Layout
   saveWindowLayouts: (layouts: WindowLayout[]) => void;
@@ -100,6 +102,7 @@ const DEFAULT_COLORS: ColorPreferences = {
 const DEFAULT_THEME: ThemePreferences = {
   font: 'jetbrains-mono',
   colorScheme: 'light',
+  newsSquawkEnabled: false,
 };
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -157,6 +160,11 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       setColorScheme: (colorScheme) =>
         set((state) => ({
           theme: { ...state.theme, colorScheme },
+        })),
+
+      setNewsSquawkEnabled: (enabled) =>
+        set((state) => ({
+          theme: { ...state.theme, newsSquawkEnabled: enabled },
         })),
 
       // ========================================

@@ -44,7 +44,7 @@ interface WindowLayoutAPI {
 interface UserPreferencesAPI {
     userId: string;
     colors: ColorPreferences;
-    theme: { font: FontFamily; colorScheme: 'light' | 'dark' | 'system' };
+    theme: { font: FontFamily; colorScheme: 'light' | 'dark' | 'system'; newsSquawkEnabled?: boolean };
     windowLayouts: WindowLayoutAPI[];
     savedFilters: Record<string, any>;
     columnVisibility: Record<string, Record<string, boolean>>;
@@ -120,6 +120,9 @@ export function useClerkSync() {
                 if (data.theme) {
                     setFont(data.theme.font);
                     setColorScheme(data.theme.colorScheme);
+                    if (data.theme.newsSquawkEnabled !== undefined) {
+                        useUserPreferencesStore.getState().setNewsSquawkEnabled(data.theme.newsSquawkEnabled);
+                    }
                 }
 
                 if (data.windowLayouts && data.windowLayouts.length > 0) {
@@ -167,6 +170,7 @@ export function useClerkSync() {
                 theme: {
                     font: theme.font,
                     colorScheme: theme.colorScheme,
+                    newsSquawkEnabled: theme.newsSquawkEnabled ?? false,
                 },
                 windowLayouts: windowLayouts.map((w) => ({
                     id: w.id,
