@@ -562,7 +562,7 @@ class SECXBRLFinancialsService:
             # Prioridad 1: Valores consolidados (sin segmento) - US GAAP style
             consolidated = [
                 item for item in values 
-                if "segment" not in item and item.get("value") is not None
+                if isinstance(item, dict) and "segment" not in item and item.get("value") is not None
             ]
             
             # Prioridad 2: Si no hay consolidados, usar valores segmentados - IFRS style
@@ -572,7 +572,7 @@ class SECXBRLFinancialsService:
                 period_max = {}   # {end_date: max value as fallback}
                 
                 for item in values:
-                    if item.get("value") is None:
+                    if not isinstance(item, dict) or item.get("value") is None:
                         continue
                     period = item.get("period", {})
                     end_date = period.get("endDate") or period.get("instant", "")
