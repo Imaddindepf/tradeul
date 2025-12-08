@@ -1,13 +1,14 @@
 """
-SEC-API XBRL Financials Service - PROFESSIONAL SYMBIOTIC APPROACH
-Extrae TODOS los campos XBRL y los consolida semánticamente sin hardcodeos.
+SEC-API XBRL Financials Service - PROFESSIONAL HYBRID APPROACH
 
-Algoritmo:
-1. Extraer todos los campos disponibles del XBRL
-2. Normalizar nombres a formato estándar
-3. Agrupar campos semánticamente por concepto financiero
-4. Consolidar valores de campos relacionados por período
-5. Ordenar por importancia financiera detectada
+Arquitectura de 3 capas:
+1. CORE FIELDS (~80 campos): Regex preciso para campos principales
+   → Revenue, Net Income, EPS, Assets, etc. con importancia asignada
+2. FASB LABELS (10,732 campos): Labels oficiales de US-GAAP 2025
+   → Si no hay match en CORE, usa el label oficial de FASB
+3. FILTROS: Eliminar campos irrelevantes (OCI, reclassifications, etc.)
+
+Source FASB: https://xbrl.fasb.org/us-gaap/2025/elts/us-gaap-lab-2025.xml
 """
 
 import httpx
@@ -18,6 +19,19 @@ from datetime import datetime
 from collections import defaultdict
 from shared.utils.logger import get_logger
 
+# FASB US-GAAP 2025 Taxonomy (siguiendo TDH - Taxonomy Development Handbook)
+# - FASB_LABELS: Standard labels para display
+# - FASB_DATA_TYPES: monetary, shares, percent, perShare, etc.
+# - FASB_TOTAL_LABELS: Labels especiales para totales
+# - FASB_BALANCE: debit (outflow) vs credit (inflow)
+try:
+    from .fasb_labels import FASB_LABELS, FASB_DATA_TYPES, FASB_TOTAL_LABELS, FASB_BALANCE
+except ImportError:
+    FASB_LABELS = {}
+    FASB_DATA_TYPES = {}
+    FASB_TOTAL_LABELS = {}
+    FASB_BALANCE = {}
+    
 logger = get_logger(__name__)
 
 
@@ -224,170 +238,188 @@ class SECXBRLFinancialsService:
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
         return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
     
-    def _detect_financial_concept(self, field_name: str) -> Tuple[str, str, int]:
+    def _detect_financial_concept(self, field_name: str) -> Tuple[str, str, int, str]:
         """
         Detectar el concepto financiero de un campo XBRL.
-        Usa patrones basados en estándares contables.
+        Usa patrones basados en estándares contables (TDH compliant).
         
-        Returns: (canonical_key, display_label, importance_score)
+        Returns: (canonical_key, display_label, importance_score, data_type)
+        
+        data_type puede ser:
+        - "monetary": Valores en moneda (USD)
+        - "shares": Número de acciones
+        - "perShare": Valores por acción (EPS)
+        - "percent": Porcentajes
+        - "ratio": Ratios financieros
+        - "string": Texto
         """
         name = self._camel_to_snake(field_name).lower()
         
         # Patrones ordenados por especificidad (más específico primero)
-        # Format: (pattern_regex, canonical_key, label, importance)
+        # Format: (pattern_regex, canonical_key, label, importance, data_type)
         # Soporta US GAAP e IFRS
+        # data_type según TDH: monetary, shares, perShare, percent
         patterns = [
             # === INCOME STATEMENT (orden de aparición en P&L) ===
             
             # Revenue (US GAAP + IFRS)
             (r'^revenue$|^revenues$|^net_sales|^sales_revenue|revenue.*contract.*customer|^total_revenue', 
-             'revenue', 'Revenue', 10000),
+             'revenue', 'Revenue', 10000, 'monetary'),
             
             # Cost of Revenue / Cost of Sales (US GAAP + IFRS)
             (r'cost.*revenue|cost.*goods.*sold|cost.*sales|^cost_of_sales$', 
-             'cost_of_revenue', 'Cost of Revenue', 9500),
+             'cost_of_revenue', 'Cost of Revenue', 9500, 'monetary'),
             
             # Gross Profit
             (r'gross_profit', 
-             'gross_profit', 'Gross Profit', 9400),
+             'gross_profit', 'Gross Profit', 9400, 'monetary'),
             
             # R&D (US GAAP + IFRS)
             (r'research.*development|r_and_d', 
-             'rd_expenses', 'R&D Expenses', 9000),
+             'rd_expenses', 'R&D Expenses', 9000, 'monetary'),
             
             # SG&A (US GAAP)
             (r'selling.*general.*admin|sg.*a', 
-             'sga_expenses', 'SG&A Expenses', 8900),
+             'sga_expenses', 'SG&A Expenses', 8900, 'monetary'),
             
             # Selling & Marketing / Distribution Costs (US GAAP + IFRS)
             (r'selling.*marketing|sales.*marketing|selling_expense|distribution_cost', 
-             'sales_marketing', 'Sales & Marketing', 8850),
+             'sales_marketing', 'Sales & Marketing', 8850, 'monetary'),
             
             # Administrative Expense (IFRS specific)
             (r'^administrative_expense$|^general.*admin', 
-             'ga_expenses', 'G&A Expenses', 8800),
+             'ga_expenses', 'G&A Expenses', 8800, 'monetary'),
             
             # Operating Expenses
             (r'operating_expenses|costs.*expenses|total.*operating.*cost', 
-             'operating_expenses', 'Operating Expenses', 8500),
+             'operating_expenses', 'Operating Expenses', 8500, 'monetary'),
             
-            # IMPORTANTE: Nonoperating ANTES de Operating (evita que "nonoperating_income" 
-            # coincida con "operating_income" por la subcadena)
-            # Other Income/Expense / Nonoperating (US GAAP + IFRS)
+            # IMPORTANTE: Nonoperating ANTES de Operating
             (r'^nonoperating|^other.*income|^other.*expense|other_nonoperating', 
-             'other_income', 'Other Income/Expense', 7000),
+             'other_income', 'Other Income/Expense', 7000, 'monetary'),
             
             # Operating Income / Profit from Operations (US GAAP + IFRS)
-            # Ahora es seguro porque nonoperating ya fue capturado arriba
             (r'^operating_income|^income.*operations|profit_loss_from_operating|operating_profit', 
-             'operating_income', 'Operating Income', 8000),
+             'operating_income', 'Operating Income', 8000, 'monetary'),
             
             # Finance Income (IFRS specific)
             (r'^finance_income$|^interest_income|investment_income.*interest', 
-             'interest_income', 'Interest Income', 7500),
+             'interest_income', 'Interest Income', 7500, 'monetary'),
             
             # Finance Costs / Interest Expense (US GAAP + IFRS)
             (r'^finance_cost|^interest_expense|finance_expense', 
-             'interest_expense', 'Interest Expense', 7400),
+             'interest_expense', 'Interest Expense', 7400, 'monetary'),
             
             # Income Before Tax / Profit Before Tax (US GAAP + IFRS)
             (r'income.*before.*tax|profit.*loss.*before.*tax|income.*continuing.*operations.*before', 
-             'income_before_tax', 'Income Before Tax', 6500),
+             'income_before_tax', 'Income Before Tax', 6500, 'monetary'),
             
             # Income Tax (US GAAP + IFRS)
             (r'income.*tax.*expense|income.*tax.*benefit|provision.*income.*tax|^income_tax$', 
-             'income_tax', 'Income Tax', 6000),
+             'income_tax', 'Income Tax', 6000, 'monetary'),
             
             # Net Income / Profit or Loss (US GAAP + IFRS)
             (r'^net_income$|^net_income_loss$|^profit_loss$|^profit_loss_attributable', 
-             'net_income', 'Net Income', 5500),
+             'net_income', 'Net Income', 5500, 'monetary'),
             
             # EPS Basic (US GAAP + IFRS)
             (r'earnings.*share.*basic|eps.*basic|basic_earnings.*per.*share', 
-             'eps_basic', 'EPS Basic', 5000),
+             'eps_basic', 'EPS Basic', 5000, 'perShare'),
             
             # EPS Diluted (US GAAP + IFRS)
             (r'earnings.*share.*diluted|eps.*diluted|diluted_earnings.*per.*share', 
-             'eps_diluted', 'EPS Diluted', 4900),
+             'eps_diluted', 'EPS Diluted', 4900, 'perShare'),
             
             # Shares Basic
             (r'weighted.*shares.*basic|shares.*outstanding.*basic', 
-             'shares_basic', 'Shares Basic', 4800),
+             'shares_basic', 'Shares Basic', 4800, 'shares'),
             
             # Shares Diluted
             (r'weighted.*shares.*diluted|diluted.*shares', 
-             'shares_diluted', 'Shares Diluted', 4700),
+             'shares_diluted', 'Shares Diluted', 4700, 'shares'),
             
             # Depreciation (US GAAP + IFRS)
             (r'depreciation.*amortization|depreciation_depletion', 
-             'depreciation', 'D&A', 4500),
+             'depreciation', 'D&A', 4500, 'monetary'),
             
             # === BALANCE SHEET ===
             # Assets
-            (r'^assets$|^total_assets', 'total_assets', 'Total Assets', 10000),
-            (r'assets_current|current_assets|^assets_current$', 'current_assets', 'Current Assets', 9500),
-            (r'cash.*equivalents|cash_and_cash|^cash$', 'cash', 'Cash & Equivalents', 9400),
-            (r'short.*term.*investments|marketable.*securities.*current|available.*sale.*securities.*current', 'st_investments', 'Short-term Investments', 9300),
-            (r'accounts.*receivable|receivables.*net|^receivables$|nontrade.*receivables', 'receivables', 'Accounts Receivable', 9200),
-            (r'inventory|inventories', 'inventory', 'Inventory', 9100),
-            (r'prepaid.*expense|other.*assets.*current', 'prepaid', 'Prepaid & Other', 9000),
-            (r'property.*plant.*equipment', 'ppe', 'PP&E', 8500),
-            (r'goodwill$', 'goodwill', 'Goodwill', 8400),
-            (r'intangible', 'intangibles', 'Intangible Assets', 8300),
-            (r'long.*term.*investments|investments.*noncurrent|available.*sale.*securities.*noncurrent', 'lt_investments', 'Long-term Investments', 8200),
+            (r'^assets$|^total_assets', 'total_assets', 'Total Assets', 10000, 'monetary'),
+            (r'assets_current|current_assets|^assets_current$', 'current_assets', 'Current Assets', 9500, 'monetary'),
+            (r'cash.*equivalents|cash_and_cash|^cash$', 'cash', 'Cash & Equivalents', 9400, 'monetary'),
+            (r'short.*term.*investments|marketable.*securities.*current|available.*sale.*securities.*current', 'st_investments', 'Short-term Investments', 9300, 'monetary'),
+            (r'accounts.*receivable|receivables.*net|^receivables$|nontrade.*receivables', 'receivables', 'Accounts Receivable', 9200, 'monetary'),
+            (r'inventory|inventories', 'inventory', 'Inventory', 9100, 'monetary'),
+            (r'prepaid.*expense|other.*assets.*current', 'prepaid', 'Prepaid & Other', 9000, 'monetary'),
+            (r'property.*plant.*equipment', 'ppe', 'PP&E', 8500, 'monetary'),
+            (r'goodwill$', 'goodwill', 'Goodwill', 8400, 'monetary'),
+            (r'intangible', 'intangibles', 'Intangible Assets', 8300, 'monetary'),
+            (r'long.*term.*investments|investments.*noncurrent|available.*sale.*securities.*noncurrent', 'lt_investments', 'Long-term Investments', 8200, 'monetary'),
             
             # Liabilities
-            (r'^liabilities$|^total_liabilities', 'total_liabilities', 'Total Liabilities', 7500),
-            (r'liabilities_current|current_liabilities|^liabilities_current$', 'current_liabilities', 'Current Liabilities', 7400),
-            (r'accounts.*payable|payable.*and.*accrued', 'accounts_payable', 'Accounts Payable', 7300),
-            (r'accrued.*liabilities|accrued.*expenses|accrued_income_taxes', 'accrued_liabilities', 'Accrued Liabilities', 7250),
-            (r'short.*term.*debt|short.*term.*borrowings|current.*portion.*long.*term|notes.*payable.*current', 'st_debt', 'Short-term Debt', 7200),
-            (r'long.*term.*debt|long.*term.*notes|convertible.*long.*term|notes.*payable.*noncurrent', 'lt_debt', 'Long-term Debt', 7000),
-            (r'contract.*customer.*liability|deferred.*revenue|unearned.*revenue', 'deferred_revenue', 'Deferred Revenue', 6900),
-            (r'operating.*lease.*liability', 'lease_liability', 'Lease Liabilities', 6800),
+            (r'^liabilities$|^total_liabilities', 'total_liabilities', 'Total Liabilities', 7500, 'monetary'),
+            (r'liabilities_current|current_liabilities|^liabilities_current$', 'current_liabilities', 'Current Liabilities', 7400, 'monetary'),
+            (r'accounts.*payable|payable.*and.*accrued', 'accounts_payable', 'Accounts Payable', 7300, 'monetary'),
+            (r'accrued.*liabilities|accrued.*expenses|accrued_income_taxes', 'accrued_liabilities', 'Accrued Liabilities', 7250, 'monetary'),
+            (r'short.*term.*debt|short.*term.*borrowings|current.*portion.*long.*term|notes.*payable.*current', 'st_debt', 'Short-term Debt', 7200, 'monetary'),
+            (r'long.*term.*debt|long.*term.*notes|convertible.*long.*term|notes.*payable.*noncurrent', 'lt_debt', 'Long-term Debt', 7000, 'monetary'),
+            (r'contract.*customer.*liability|deferred.*revenue|unearned.*revenue', 'deferred_revenue', 'Deferred Revenue', 6900, 'monetary'),
+            (r'operating.*lease.*liability', 'lease_liability', 'Lease Liabilities', 6800, 'monetary'),
             
             # Equity
-            (r'stockholders.*equity|total.*equity|^equity$|liabilities_and_stockholders', 'total_equity', 'Total Equity', 6500),
-            (r'retained_earnings|accumulated_deficit', 'retained_earnings', 'Retained Earnings', 6400),
-            (r'common.*stock.*value|^common_stock$', 'common_stock', 'Common Stock', 6300),
-            (r'additional.*paid.*capital|paid.*capital', 'apic', 'Additional Paid-in Capital', 6200),
-            (r'treasury.*stock', 'treasury_stock', 'Treasury Stock', 6100),
-            (r'accumulated.*other.*comprehensive', 'aoci', 'AOCI', 6000),
+            (r'stockholders.*equity|total.*equity|^equity$|liabilities_and_stockholders', 'total_equity', 'Total Equity', 6500, 'monetary'),
+            (r'retained_earnings|accumulated_deficit', 'retained_earnings', 'Retained Earnings', 6400, 'monetary'),
+            (r'common.*stock.*value|^common_stock$', 'common_stock', 'Common Stock', 6300, 'monetary'),
+            (r'additional.*paid.*capital|paid.*capital', 'apic', 'Additional Paid-in Capital', 6200, 'monetary'),
+            (r'treasury.*stock', 'treasury_stock', 'Treasury Stock', 6100, 'monetary'),
+            (r'accumulated.*other.*comprehensive', 'aoci', 'AOCI', 6000, 'monetary'),
             
             # === CASH FLOW ===
             # Operating Activities
-            (r'net.*cash.*operating|operating_activities|^cash.*flows.*operating', 'operating_cf', 'Operating Cash Flow', 10000),
-            (r'change.*receivables|increase.*decrease.*receivables', 'cf_receivables', 'Δ Receivables', 9500),
-            (r'change.*inventory|increase.*decrease.*inventory', 'cf_inventory', 'Δ Inventory', 9400),
-            (r'change.*payables|increase.*decrease.*payables|increase.*decrease.*accounts.*payable', 'cf_payables', 'Δ Payables', 9300),
-            (r'share.*based.*compensation|stock.*compensation|stock_based_compensation', 'stock_compensation', 'Stock Compensation', 9200),
+            (r'net.*cash.*operating|operating_activities|^cash.*flows.*operating', 'operating_cf', 'Operating Cash Flow', 10000, 'monetary'),
+            (r'change.*receivables|increase.*decrease.*receivables', 'cf_receivables', 'Δ Receivables', 9500, 'monetary'),
+            (r'change.*inventory|increase.*decrease.*inventory', 'cf_inventory', 'Δ Inventory', 9400, 'monetary'),
+            (r'change.*payables|increase.*decrease.*payables|increase.*decrease.*accounts.*payable', 'cf_payables', 'Δ Payables', 9300, 'monetary'),
+            (r'share.*based.*compensation|stock.*compensation|stock_based_compensation', 'stock_compensation', 'Stock Compensation', 9200, 'monetary'),
             
             # Investing Activities
-            (r'net.*cash.*investing|investing_activities|^cash.*flows.*investing', 'investing_cf', 'Investing Cash Flow', 9000),
-            (r'capital.*expenditure|payments.*acquire.*property|purchase.*property.*plant|payments.*property', 'capex', 'CapEx', 8500),
-            (r'purchase.*investments|payments.*acquire.*investments', 'purchase_investments', 'Purchases of Investments', 8400),
-            (r'sale.*investments|proceeds.*sale.*investments|maturities.*investments', 'sale_investments', 'Sales of Investments', 8300),
-            (r'acquisitions|payments.*acquisitions|business.*combinations', 'acquisitions', 'Acquisitions', 8200),
+            (r'net.*cash.*investing|investing_activities|^cash.*flows.*investing', 'investing_cf', 'Investing Cash Flow', 9000, 'monetary'),
+            (r'capital.*expenditure|payments.*acquire.*property|purchase.*property.*plant|payments.*property', 'capex', 'CapEx', 8500, 'monetary'),
+            (r'purchase.*investments|payments.*acquire.*investments', 'purchase_investments', 'Purchases of Investments', 8400, 'monetary'),
+            (r'sale.*investments|proceeds.*sale.*investments|maturities.*investments', 'sale_investments', 'Sales of Investments', 8300, 'monetary'),
+            (r'acquisitions|payments.*acquisitions|business.*combinations', 'acquisitions', 'Acquisitions', 8200, 'monetary'),
             
             # Financing Activities  
-            (r'net.*cash.*financing|financing_activities|^cash.*flows.*financing', 'financing_cf', 'Financing Cash Flow', 8000),
-            (r'dividends.*paid|payments.*dividends', 'dividends_paid', 'Dividends Paid', 7500),
-            (r'repurchase.*common.*stock|stock.*repurchased|payments.*repurchase', 'stock_repurchased', 'Stock Repurchased', 7400),
-            (r'proceeds.*issuance.*common.*stock|proceeds.*stock|proceeds.*issuing.*shares', 'stock_issued', 'Stock Issued', 7300),
-            (r'proceeds.*debt|proceeds.*borrowings|proceeds.*long.*term', 'debt_issued', 'Debt Issued', 7200),
-            (r'repayments.*debt|payments.*long.*term|repayments.*borrowings', 'debt_repaid', 'Debt Repaid', 7100),
+            (r'net.*cash.*financing|financing_activities|^cash.*flows.*financing', 'financing_cf', 'Financing Cash Flow', 8000, 'monetary'),
+            (r'dividends.*paid|payments.*dividends', 'dividends_paid', 'Dividends Paid', 7500, 'monetary'),
+            (r'repurchase.*common.*stock|stock.*repurchased|payments.*repurchase', 'stock_repurchased', 'Stock Repurchased', 7400, 'monetary'),
+            (r'proceeds.*issuance.*common.*stock|proceeds.*stock|proceeds.*issuing.*shares', 'stock_issued', 'Stock Issued', 7300, 'monetary'),
+            (r'proceeds.*debt|proceeds.*borrowings|proceeds.*long.*term', 'debt_issued', 'Debt Issued', 7200, 'monetary'),
+            (r'repayments.*debt|payments.*long.*term|repayments.*borrowings', 'debt_repaid', 'Debt Repaid', 7100, 'monetary'),
         ]
         
         # Buscar el primer patrón que coincida
-        for pattern, key, label, importance in patterns:
+        for pattern, key, label, importance, dtype in patterns:
             if re.search(pattern, name):
-                return (key, label, importance)
+                return (key, label, importance, dtype)
         
-        # Si no hay match, generar label automático del nombre
+        # Si no hay match en CORE patterns, usar label oficial de FASB
+        # El nombre original del campo está en CamelCase, buscar directamente
+        original_name = ''.join(w.capitalize() for w in name.split('_'))
+        
+        if original_name in FASB_LABELS:
+            fasb_label = FASB_LABELS[original_name]
+            # Limpiar label (quitar paréntesis innecesarios)
+            clean_label = fasb_label.replace(' (Loss)', '').replace(' Attributable to Parent', '')
+            # Obtener data type de FASB
+            fasb_type = FASB_DATA_TYPES.get(original_name, 'monetary')
+            return (name, clean_label, 100, fasb_type)
+        
+        # Último fallback: generar label del nombre
         words = name.split('_')[:4]
         auto_label = ' '.join(w.capitalize() for w in words if w not in {'and', 'the', 'of', 'to', 'in'})
         
-        return (name, auto_label, 100)  # Baja importancia para campos no reconocidos
+        return (name, auto_label, 50, 'monetary')  # Asumir monetary por defecto
     
     def _should_skip_field(self, field_name: str) -> bool:
         """
@@ -637,8 +669,8 @@ class SECXBRLFinancialsService:
                 if self._should_skip_field(normalized_name):
                     continue
                 
-                # Detectar concepto financiero
-                canonical_key, label, importance = self._detect_financial_concept(normalized_name)
+                # Detectar concepto financiero (ahora incluye data_type)
+                canonical_key, label, importance, data_type = self._detect_financial_concept(normalized_name)
                 
                 # Crear grupo si no existe
                 if canonical_key not in concept_groups:
@@ -646,6 +678,7 @@ class SECXBRLFinancialsService:
                         'key': canonical_key,
                         'label': label,
                         'importance': importance,
+                        'data_type': data_type,  # TDH: monetaryItemType, sharesItemType, etc.
                         'values': [None] * len(all_periods_data),
                         'sources': []
                     }
@@ -664,13 +697,27 @@ class SECXBRLFinancialsService:
         for concept_key, group in concept_groups.items():
             # Solo incluir si tiene al menos un valor
             if any(v is not None for v in group['values']):
-                consolidated_fields.append({
+                # Obtener balance de FASB para el primer source field
+                balance = None
+                for src in group['sources']:
+                    if src in FASB_BALANCE:
+                        balance = FASB_BALANCE[src]
+                        break
+                
+                field_data = {
                     'key': group['key'],
                     'label': group['label'],
                     'values': group['values'],
                     'importance': group['importance'],
+                    'data_type': group.get('data_type', 'monetary'),  # TDH compliant
                     'source_fields': group['sources']
-                })
+                }
+                
+                # Solo añadir balance si lo encontramos (no hardcodear)
+                if balance:
+                    field_data['balance'] = balance  # "debit" o "credit"
+                
+                consolidated_fields.append(field_data)
         
         # Paso 3: Añadir campos calculados
         consolidated_fields = self._add_calculated_fields(consolidated_fields, len(all_periods_data))
@@ -1270,8 +1317,14 @@ class SECXBRLFinancialsService:
         Busca tanto:
         - endDate (para Income/CashFlow)
         - instant (para Balance Sheet)
+        
+        Para Balance Sheet, permite fechas cercanas (±5 días) al target_end_date
+        porque algunas empresas usan fechas ligeramente diferentes.
         """
         results = {}
+        
+        # Para balance sheet, aceptar fechas cercanas
+        target_year_month = target_end_date[:7] if target_end_date else ""  # "YYYY-MM"
         
         for section, cat in self.SECTION_MAPPING.items():
             if cat != category:
@@ -1297,8 +1350,17 @@ class SECXBRLFinancialsService:
                     end_date = period.get("endDate", "")
                     instant = period.get("instant", "")
                     
-                    # Coincidir con cualquiera de los dos
+                    # Coincidir con fecha exacta o misma año-mes para balance sheet
+                    date_match = False
                     if end_date == target_end_date or instant == target_end_date:
+                        date_match = True
+                    elif category == "balance" and target_year_month:
+                        # Para balance sheet, aceptar cualquier fecha del mismo mes
+                        if (end_date and end_date[:7] == target_year_month) or \
+                           (instant and instant[:7] == target_year_month):
+                            date_match = True
+                    
+                    if date_match:
                         try:
                             raw_value = item.get("value")
                             if raw_value is None:
@@ -1451,10 +1513,16 @@ class SECXBRLFinancialsService:
             fiscal_year, filed_at, period_end, xbrl = result
             
             if is_quarterly:
-                # Para quarterly: extraer TODOS los trimestres de cada XBRL
+                # Para quarterly: extraer SOLO el período principal de cada filing
+                # Cada 10-Q tiene balance sheet solo para su trimestre, no para históricos
+                # Usar la fecha del filing para determinar el período
                 quarters = self._extract_all_quarters_from_xbrl(xbrl)
-                for q_label, q_end_date, q_income, q_balance, q_cashflow in quarters:
-                    # Evitar duplicados
+                
+                # Solo tomar el trimestre más reciente de cada XBRL
+                # (el que corresponde al filing actual)
+                if quarters:
+                    q_label, q_end_date, q_income, q_balance, q_cashflow = quarters[0]
+                    
                     if q_label not in fiscal_years:
                         fiscal_years.append(q_label)
                         period_end_dates.append(q_end_date)

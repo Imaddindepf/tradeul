@@ -18,6 +18,8 @@ interface ConsolidatedField {
     values: (number | null)[];
     importance: number;
     source_fields?: string[];
+    data_type?: string;
+    balance?: 'debit' | 'credit' | null;  // debit = outflow (rojo), credit = inflow
 }
 
 interface SymbioticFinancialData {

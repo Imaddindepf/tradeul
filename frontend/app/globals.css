@@ -61,7 +61,14 @@ table {
 
 table td,
 table th {
-  color: inherit !important;
+  color: inherit;
+}
+
+/* Permitir colores específicos en tablas */
+table td.text-red-600,
+table th.text-red-600,
+.text-red-600 {
+  color: #dc2626 !important;
 }
 
 /* Asegurar que font-mono tenga buen contraste */

@@ -72,40 +72,63 @@ export function useCatalystDetector() {
   }, [tickerLists]);
   
   // Verificar si cumple criterios
+  // LÓGICA AND: cuando hay múltiples criterios habilitados, TODOS deben cumplirse
   const checkCriteria = useCallback((
     ticker: string,
     metrics: CatalystMetrics
   ): { passes: boolean; reason: string } => {
     const reasons: string[] = [];
-    let passes = false;
     
     // Filtro: solo scanner
     if (criteria.filters.onlyScanner && !isInScanner(ticker)) {
       return { passes: false, reason: 'Not in scanner' };
     }
     
+    // Contar criterios habilitados y cuántos pasan
+    let enabledCount = 0;
+    let passedCount = 0;
+    
     // Criterio: Cambio de precio
     if (criteria.priceChange.enabled) {
-      const change = criteria.priceChange.timeWindow === 1 
-        ? metrics.change_1m_pct 
-        : metrics.change_5m_pct;
+      enabledCount++;
       
-      if (change !== null && change !== undefined && Math.abs(change) >= criteria.priceChange.minPercent) {
-        passes = true;
+      // Prioridad: change_recent_pct > change_day_pct > legacy
+      let change: number | null = null;
+      let timeLabel = 'recent';
+      
+      if (metrics.change_recent_pct !== null && metrics.change_recent_pct !== undefined) {
+        change = metrics.change_recent_pct;
+        timeLabel = `${metrics.lookback_minutes || 3}min`;
+      } else if (metrics.change_day_pct !== null && metrics.change_day_pct !== undefined) {
+        change = metrics.change_day_pct;
+        timeLabel = 'day';
+      } else if (criteria.priceChange.timeWindow === 1 && metrics.change_1m_pct !== null) {
+        change = metrics.change_1m_pct;
+        timeLabel = '1min';
+      } else if (metrics.change_5m_pct !== null) {
+        change = metrics.change_5m_pct;
+        timeLabel = '5min';
+      }
+      
+      if (change !== null && Math.abs(change) >= criteria.priceChange.minPercent) {
+        passedCount++;
         const sign = change > 0 ? '+' : '';
-        reasons.push(`${sign}${change.toFixed(1)}% in ${criteria.priceChange.timeWindow}min`);
+        reasons.push(`${sign}${change.toFixed(1)}% ${timeLabel}`);
       }
     }
     
     // Criterio: RVOL
-    if (criteria.rvol.enabled && metrics.rvol >= criteria.rvol.minValue) {
-      passes = true;
-      reasons.push(`RVOL ${metrics.rvol.toFixed(1)}`);
+    if (criteria.rvol.enabled) {
+      enabledCount++;
+      if (metrics.rvol && metrics.rvol >= criteria.rvol.minValue) {
+        passedCount++;
+        reasons.push(`RVOL ${metrics.rvol.toFixed(1)}x`);
+      }
     }
     
-    // Solo alerta si al menos un criterio se cumple
-    if (!passes) {
-      return { passes: false, reason: 'No criteria met' };
+    // Para pasar, TODOS los criterios habilitados deben cumplirse (AND)
+    if (enabledCount === 0 || passedCount < enabledCount) {
+      return { passes: false, reason: 'Not all criteria met' };
     }
     
     return { passes: true, reason: reasons.join(' | ') };

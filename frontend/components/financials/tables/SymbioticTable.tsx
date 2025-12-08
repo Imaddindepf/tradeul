@@ -13,6 +13,8 @@ interface ConsolidatedField {
     values: (number | null)[];
     importance: number;
     source_fields?: string[];
+    data_type?: string;
+    balance?: 'debit' | 'credit' | null;  // debit = outflow (rojo), credit = inflow
 }
 
 interface SymbioticTableProps {
@@ -48,9 +50,9 @@ const formatMargin = (value: number | null, revenue: number | null): string => {
 
 // Detectar métricas clave por nombre
 const isKeyMetric = (key: string): boolean => {
-    const keyPatterns = ['revenue', 'gross_profit', 'operating_income', 'net_income', 
-                         'total_assets', 'total_liabilities', 'equity',
-                         'operating_activities', 'cash_flow'];
+    const keyPatterns = ['revenue', 'gross_profit', 'operating_income', 'net_income',
+        'total_assets', 'total_liabilities', 'equity',
+        'operating_activities', 'cash_flow'];
     return keyPatterns.some(p => key.includes(p));
 };
 
@@ -101,22 +103,32 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                         return (
                             <React.Fragment key={field.key}>
                                 {/* Main row */}
-                                <tr 
+                                <tr
                                     className="hover:bg-slate-50 cursor-pointer border-b border-slate-100"
                                     onClick={() => handleRowClick(field)}
                                 >
                                     <td className={`p-1.5 ${isKey ? 'font-medium text-slate-800' : 'text-slate-600 pl-3'}`}>
                                         {field.label}
                                     </td>
-                                    {field.values.map((value, idx) => (
-                                        <td 
-                                            key={idx} 
-                                            className={`text-right p-1.5 tabular-nums
-                                                ${value != null && value < 0 ? 'text-red-600' : ''}`}
-                                        >
-                                            {formatValue(value, currency)}
-                                        </td>
-                                    ))}
+                                    {field.values.map((value, idx) => {
+                                        // Determinar color:
+                                        // - debit (outflow/gasto): rojo
+                                        // - credit con valor negativo: rojo
+                                        // - credit con valor positivo: normal
+                                        const isDebit = field.balance === 'debit';
+                                        const isNegative = value != null && value < 0;
+                                        const showRed = isDebit || isNegative;
+
+                                        return (
+                                            <td
+                                                key={idx}
+                                                className={`text-right p-1.5 tabular-nums
+                                                    ${showRed ? 'text-red-600' : ''}`}
+                                            >
+                                                {formatValue(value, currency)}
+                                            </td>
+                                        );
+                                    })}
                                 </tr>
 
                                 {/* YoY row for key metrics */}

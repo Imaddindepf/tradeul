@@ -95,6 +95,7 @@ async def get_financials(
                 
                 # Verificar que tenemos datos (formato simbiótico)
                 periods_count = len(data.get("periods", []))
+                
                 if periods_count >= limit * 0.8:
                     # Calcular edad del caché
                     if "last_updated" in data:

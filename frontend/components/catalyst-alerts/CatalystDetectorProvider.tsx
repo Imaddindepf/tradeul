@@ -85,20 +85,26 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
   }, [tickerLists]);
   
   // Verificar si cumple criterios del usuario
+  // LÓGICA AND: cuando hay múltiples criterios habilitados, TODOS deben cumplirse
   const checkCriteria = useCallback((
     ticker: string,
     metrics: CatalystMetrics
   ): { passes: boolean; reason: string } => {
     const reasons: string[] = [];
-    let passes = false;
     
     // Filtro: solo scanner
     if (criteria.filters.onlyScanner && !isInScanner(ticker)) {
       return { passes: false, reason: 'Not in scanner' };
     }
     
+    // Contar criterios habilitados y cuántos pasan
+    let enabledCount = 0;
+    let passedCount = 0;
+    
     // Criterio: Cambio de precio
     if (criteria.priceChange.enabled) {
+      enabledCount++;
+      
       // Nuevo sistema: usar change_recent_pct (últimos 3 min) o change_day_pct
       // El usuario elige "1min" o "5min" pero usamos el mejor dato disponible
       let change: number | null = null;
@@ -122,20 +128,24 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       }
       
       if (change !== null && Math.abs(change) >= criteria.priceChange.minPercent) {
-        passes = true;
+        passedCount++;
         const sign = change > 0 ? '+' : '';
         reasons.push(`${sign}${change.toFixed(1)}% ${timeLabel}`);
       }
     }
     
     // Criterio: RVOL
-    if (criteria.rvol.enabled && metrics.rvol && metrics.rvol >= criteria.rvol.minValue) {
-      passes = true;
-      reasons.push(`RVOL ${(metrics.rvol ?? 0).toFixed(1)}x`);
+    if (criteria.rvol.enabled) {
+      enabledCount++;
+      if (metrics.rvol && metrics.rvol >= criteria.rvol.minValue) {
+        passedCount++;
+        reasons.push(`RVOL ${(metrics.rvol ?? 0).toFixed(1)}x`);
+      }
     }
     
-    if (!passes) {
-      return { passes: false, reason: 'No criteria met' };
+    // Para pasar, TODOS los criterios habilitados deben cumplirse (AND)
+    if (enabledCount === 0 || passedCount < enabledCount) {
+      return { passes: false, reason: 'Not all criteria met' };
     }
     
     return { passes: true, reason: reasons.join(' | ') };
