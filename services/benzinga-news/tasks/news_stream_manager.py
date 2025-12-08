@@ -98,26 +98,28 @@ class BenzingaNewsStreamManager:
         """
         Inicia el manager y comienza el polling
         """
-        logger.info("🚀 Starting Benzinga News Stream Manager...")
+        logger.info("Starting Benzinga News Stream Manager...")
         
         self.stats["started_at"] = datetime.now().isoformat()
         self._running = True
         
         # Iniciar motor de alertas de catalyst
         if self.catalyst_engine:
+            # Registrar callback para alertas confirmadas (diferidas)
+            self.catalyst_engine.set_alert_callback(self._send_confirmed_alert)
             await self.catalyst_engine.start()
-            logger.info("✅ Catalyst Alert Engine started")
+            logger.info("Catalyst Alert Engine started (hybrid mode: early + confirmed)")
         
         # Iniciar task de polling
         self._poll_task = asyncio.create_task(self._polling_loop())
         
-        logger.info("✅ Benzinga News Stream Manager started")
+        logger.info("Benzinga News Stream Manager started")
     
     async def stop(self):
         """
         Detiene el manager
         """
-        logger.info("🛑 Stopping Benzinga News Stream Manager...")
+        logger.info("Stopping Benzinga News Stream Manager...")
         
         self._running = False
         
@@ -134,7 +136,7 @@ class BenzingaNewsStreamManager:
         
         await self.news_client.close()
         
-        logger.info("✅ Benzinga News Stream Manager stopped")
+        logger.info("Benzinga News Stream Manager stopped")
     
     async def _polling_loop(self):
         """
@@ -144,7 +146,7 @@ class BenzingaNewsStreamManager:
         La deduplicación en Redis evita procesar duplicados.
         Esto es más robusto que depender de filtros de fecha de la API.
         """
-        logger.info(f"📰 Starting polling loop (interval: {self.poll_interval}s)")
+        logger.info(f"Starting polling loop (interval: {self.poll_interval}s)")
         
         while self._running:
             try:
@@ -163,7 +165,7 @@ class BenzingaNewsStreamManager:
                 
                 if new_articles > 0:
                     logger.info(
-                        "📰 Poll completed",
+                        "Poll completed",
                         new_articles=new_articles,
                         total_fetched=len(articles),
                         polls_completed=self.stats["polls_completed"]
@@ -298,153 +300,45 @@ class BenzingaNewsStreamManager:
         except Exception as e:
             logger.error("cache_by_ticker_error", error=str(e), ticker=ticker)
     
-    async def _get_catalyst_metrics(self, ticker: str) -> Optional[Dict[str, Any]]:
+    async def _send_confirmed_alert(self, ticker: str, metrics: Dict[str, Any]):
         """
-        Obtiene métricas de catalyst para un ticker.
-        
-        ESTRATEGIA: Primero obtener datos base del snapshot general (todos los tickers),
-        luego enriquecer con datos de minuto si hay snapshots de catalyst disponibles.
-        
-        Esto funciona para TODOS los tickers, no solo los del scanner.
-        
-        Returns:
-            Dict con métricas incluyendo:
-            - change_1m_pct: Cambio en último minuto (si hay catalyst snapshots)
-            - change_5m_pct: Cambio en últimos 5 minutos (si hay catalyst snapshots)
-            - change_day_pct: Cambio desde cierre anterior (siempre disponible)
+        Callback para enviar alertas confirmadas al stream.
+        Llamado por el CatalystAlertEngine después de evaluaciones diferidas.
         """
         try:
-            # PASO 1: Obtener datos base del snapshot general (funciona para TODOS los tickers)
-            base_metrics = await self._get_from_enriched_snapshot(ticker)
+            alert_payload = {
+                "type": "catalyst_confirmed",
+                "ticker": ticker,
+                "metrics": json.dumps(metrics),
+                "timestamp": datetime.now().isoformat()
+            }
             
-            if not base_metrics:
-                return None
+            await self.redis.xadd(
+                self.STREAM_KEY,
+                alert_payload,
+                maxlen=2000
+            )
             
-            # PASO 2: Intentar enriquecer con datos de catalyst snapshots (más precisos)
-            # Solo disponible para tickers en el scanner
-            key = f"catalyst:snapshot:{ticker}"
-            entries = await self.redis.lrange(key, 0, -1)
+            self.stats["catalyst_alerts"] += 1
             
-            if entries:
-            snapshots = []
-            for entry in entries:
-                try:
-                    data = json.loads(entry if isinstance(entry, str) else entry.decode())
-                    snapshots.append(data)
-                except:
-                    continue
-            
-                if snapshots:
-            now = datetime.now().timestamp() * 1000
-            current = snapshots[0]  # Más reciente
-            
-            # Buscar snapshot de hace ~1 minuto y ~5 minutos
-            price_1m_ago = None
-            price_5m_ago = None
-            
-            for snap in snapshots:
-                age_ms = now - snap.get("t", 0)
-                age_min = age_ms / 60000
-                
-                if age_min >= 0.8 and age_min <= 1.5 and price_1m_ago is None:
-                    price_1m_ago = snap.get("p")
-                elif age_min >= 4.5 and age_min <= 6 and price_5m_ago is None:
-                    price_5m_ago = snap.get("p")
-            
-            current_price = current.get("p", 0)
-            
-                    # Calcular cambios por minuto si tenemos los datos
-            if price_1m_ago and price_1m_ago > 0:
-                        base_metrics["change_1m_pct"] = round(((current_price - price_1m_ago) / price_1m_ago) * 100, 2)
-                        base_metrics["price_1m_ago"] = price_1m_ago
-            
-            if price_5m_ago and price_5m_ago > 0:
-                        base_metrics["change_5m_pct"] = round(((current_price - price_5m_ago) / price_5m_ago) * 100, 2)
-                        base_metrics["price_5m_ago"] = price_5m_ago
-                    
-                    # Actualizar precio y volumen con datos más recientes del catalyst
-                    base_metrics["price_at_news"] = current_price
-                    base_metrics["volume"] = current.get("v", base_metrics.get("volume", 0))
-                    base_metrics["source"] = "enriched+catalyst"  # Indica que tiene ambos
-            
-            return base_metrics
+            log_msg = (
+                f"CONFIRMED | {ticker} | "
+                f"+{metrics.get('change_since_news_pct', 0):.1f}% in {metrics.get('seconds_since_news', 0)}s | "
+                f"RVOL {metrics.get('rvol', 0):.1f}x | "
+                f"velocity {metrics.get('velocity_pct_per_min', 0):.2f}%/min"
+            )
+            print(log_msg, flush=True)
             
         except Exception as e:
-            logger.error("get_catalyst_metrics_error", error=str(e), ticker=ticker)
-            return None
+            logger.error("send_confirmed_alert_error", error=str(e), ticker=ticker)
     
-    async def _get_from_enriched_snapshot(self, ticker: str) -> Optional[Dict[str, Any]]:
-        """
-        Fallback: obtener datos del snapshot:enriched:latest cuando no hay catalyst snapshots.
-        Este snapshot contiene datos de todos los tickers del mercado.
-        
-        Devuelve métricas con:
-        - change_day_pct: Cambio desde el cierre anterior (siempre disponible)
-        - change_1m_pct / change_5m_pct: NULL (no tenemos datos por minuto)
-        
-        El frontend debe usar change_day_pct como fallback cuando los otros son null.
-        """
-        try:
-            # Obtener el snapshot enriched más reciente
-            snapshot_data = await self.redis.get("snapshot:enriched:latest")
-            if not snapshot_data:
-                return None
-            
-            snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
-            tickers_list = snapshot.get("tickers", [])
-            
-            # Buscar el ticker en el snapshot
-            ticker_upper = ticker.upper()
-            for item in tickers_list:
-                if item.get("ticker", "").upper() == ticker_upper:
-                    # Extraer datos del snapshot
-                    price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
-                    prev_day = item.get("prevDay", {})
-                    prev_close = prev_day.get("c", 0)
-                    volume = item.get("current_volume") or item.get("day", {}).get("v", 0)
-                    rvol = item.get("rvol", 0)
-                    
-                    # Usar todaysChangePerc directamente si existe (más preciso)
-                    change_day_pct = item.get("todaysChangePerc")
-                    if change_day_pct is not None:
-                        change_day_pct = round(change_day_pct, 2)
-                    elif prev_close and prev_close > 0 and price:
-                        # Fallback: calcular manualmente
-                        change_day_pct = round(((price - prev_close) / prev_close) * 100, 2)
-                    
-                    logger.info(
-                        "catalyst_metrics_from_enriched",
-                        ticker=ticker,
-                        price=price,
-                        change_day_pct=change_day_pct,
-                        rvol=rvol,
-                        source="enriched_snapshot"
-                    )
-                    
-                    return {
-                        "ticker": ticker,
-                        "price_at_news": price,
-                        "price_1m_ago": None,
-                        "price_5m_ago": prev_close,
-                        "change_1m_pct": None,  # No disponible sin snapshots por minuto
-                        "change_5m_pct": None,  # No disponible sin snapshots por minuto
-                        "change_day_pct": change_day_pct,  # NUEVO: Cambio desde cierre anterior
-                        "volume": volume,
-                        "rvol": rvol,
-                        "snapshot_time": int(datetime.now().timestamp() * 1000),
-                        "source": "enriched_snapshot"
-                    }
-            
-            return None
-            
-        except Exception as e:
-            logger.error("get_from_enriched_snapshot_error", error=str(e), ticker=ticker)
-            return None
-
     async def _publish_to_stream(self, article: BenzingaArticle):
         """
         Publica artículo a Redis Stream para broadcast.
-        Incluye métricas de catalyst (el frontend filtra según criterios del usuario).
+        
+        El sistema híbrido de alertas:
+        1. EARLY alert: Si hay movimiento pre-existente, se incluye en catalyst_metrics
+        2. CONFIRMED alert: Se envía después via callback (_send_confirmed_alert)
         """
         try:
             catalyst_metrics = None
@@ -454,7 +348,8 @@ class BenzingaNewsStreamManager:
             if self.catalyst_engine and article.tickers and len(article.tickers) > 0:
                 primary_ticker = article.tickers[0]
                 
-                # Capturar estado del mercado en este momento
+                # Procesar noticia: captura estado + programa evaluaciones diferidas
+                # Retorna EARLY alert si hay movimiento pre-existente, None si no
                 catalyst_metrics = await self.catalyst_engine.process_news(
                     news_id=str(article.benzinga_id),
                     ticker=primary_ticker,
@@ -482,7 +377,7 @@ class BenzingaNewsStreamManager:
                 "timestamp": datetime.now().isoformat()
             }
             
-            # Incluir métricas de catalyst (el frontend decide si alertar)
+            # Incluir métricas si hay EARLY alert (movimiento pre-existente)
             if catalyst_metrics:
                 stream_payload["catalyst_metrics"] = json.dumps(catalyst_metrics)
                 self.stats["catalyst_alerts"] += 1
@@ -495,15 +390,18 @@ class BenzingaNewsStreamManager:
             
             # Log
             if catalyst_metrics:
+                alert_type = catalyst_metrics.get('alert_type', 'early')
                 log_msg = (
-                    f"📰 NEWS | {primary_ticker} | "
-                    f"recent={catalyst_metrics.get('change_recent_pct')}% | "
-                    f"day={catalyst_metrics.get('change_day_pct')}% | "
-                    f"rvol={catalyst_metrics.get('rvol', 0):.1f}x | "
-                    f"{article.title[:35]}..."
+                    f"EARLY | {primary_ticker} | "
+                    f"day={catalyst_metrics.get('change_day_pct', 0):.1f}% | "
+                    f"RVOL {catalyst_metrics.get('rvol', 0):.1f}x | "
+                    f"{article.title[:40]}..."
                 )
             else:
-                log_msg = f"📰 NEWS | {article.tickers[:2] if article.tickers else []} | no_metrics | {article.title[:35]}..."
+                log_msg = (
+                    f"NEWS | {article.tickers[:2] if article.tickers else []} | "
+                    f"evaluating... | {article.title[:40]}..."
+                )
             print(log_msg, flush=True)
             
         except Exception as e:

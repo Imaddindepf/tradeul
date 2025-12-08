@@ -18,21 +18,42 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 // Types
 // ============================================================================
 
+/**
+ * Tipos de alerta:
+ * - early: Ticker ya en movimiento cuando llega la noticia (inmediata)
+ * - confirmed: Movimiento confirmado después de la noticia (diferida)
+ */
+export type AlertType = 'early' | 'confirmed';
+
 export interface CatalystMetrics {
-  // Nuevo sistema simplificado
-  price: number;
-  change_recent_pct: number | null;  // Cambio últimos 3 minutos (más preciso)
-  change_day_pct: number | null;     // Cambio del día (incluye momento actual)
-  rvol: number;
-  volume: number;
-  ticker?: string;
-  lookback_minutes?: number;
+  // Identificación
+  ticker: string;
+  news_id: string;
+  news_title?: string;
+  news_time: string;
   
-  // Campos legacy (compatibilidad)
-  price_at_news?: number;
-  change_1m_pct?: number | null;
-  change_5m_pct?: number | null;
-  snapshot_time?: number;
+  // Precios
+  price_at_news: number;       // Precio cuando llegó la noticia
+  price_current: number;       // Precio en evaluación
+  
+  // Cambios (lo más importante)
+  change_since_news_pct: number;  // Cambio REAL desde la noticia
+  seconds_since_news: number;     // Tiempo desde la noticia
+  
+  // Velocidad (momentum)
+  velocity_pct_per_min: number;   // % de cambio por minuto
+  
+  // Volumen
+  rvol: number;                   // RVOL del día
+  volume_spike_ratio: number;     // Spike de volumen reciente vs normal
+  current_volume: number;         // Volumen actual
+  
+  // Clasificación
+  alert_type: AlertType;          // "early" o "confirmed"
+  evaluation_window: number;      // Ventana de evaluación en segundos
+  
+  // Contexto adicional
+  change_day_pct?: number | null; // Cambio del día
 }
 
 export interface CatalystAlert {
@@ -44,34 +65,45 @@ export interface CatalystAlert {
   metrics: CatalystMetrics;
   triggeredAt: number;
   dismissed: boolean;
-  reason: string; // Ej: "Price +4.2% in 5min"
+  reason: string;          // Ej: "+4.2% in 30s | RVOL 5.2x"
+  alertType: AlertType;    // "early" o "confirmed"
 }
 
 export interface AlertCriteria {
-  // Movimiento de precio
+  // Cambio de precio desde la noticia
   priceChange: {
     enabled: boolean;
-    minPercent: number;  // Ej: 3 = 3%
-    timeWindow: 1 | 5;   // 1 o 5 minutos
+    minPercent: number;  // Ej: 2 = 2% mínimo
   };
   
-  // Volumen
-  volumeSpike: {
+  // Velocidad del movimiento
+  velocity: {
     enabled: boolean;
-    minMultiplier: number;  // Ej: 3 = 3x promedio
+    minPerMinute: number;  // Ej: 0.5 = 0.5% por minuto mínimo
   };
   
   // RVOL
   rvol: {
     enabled: boolean;
-    minValue: number;  // Ej: 2.5
+    minValue: number;  // Ej: 2.0 = 2x volumen normal
+  };
+  
+  // Volume Spike (ventana corta)
+  volumeSpike: {
+    enabled: boolean;
+    minRatio: number;  // Ej: 3 = 3x volumen normal reciente
+  };
+  
+  // Tipos de alerta a recibir
+  alertTypes: {
+    early: boolean;      // Alertas inmediatas (ticker ya en movimiento)
+    confirmed: boolean;  // Alertas confirmadas (después de evaluación)
   };
   
   // Filtros adicionales
   filters: {
     onlyScanner: boolean;     // Solo tickers en scanner
     onlyWatchlist: boolean;   // Solo tickers en watchlist
-    maxMarketCap: number | null;  // Ej: 1000000000 (1B)
   };
   
   // Notificaciones
@@ -116,21 +148,27 @@ interface CatalystAlertsState {
 const defaultCriteria: AlertCriteria = {
   priceChange: {
     enabled: true,
-    minPercent: 3,
-    timeWindow: 5,
+    minPercent: 2,  // 2% mínimo desde la noticia
+  },
+  velocity: {
+    enabled: false,
+    minPerMinute: 0.5,  // 0.5% por minuto mínimo
+  },
+  rvol: {
+    enabled: true,
+    minValue: 2.0,  // 2x volumen normal
   },
   volumeSpike: {
     enabled: false,
-    minMultiplier: 3,
+    minRatio: 3,  // 3x volumen reciente
   },
-  rvol: {
-    enabled: false,
-    minValue: 2.5,
+  alertTypes: {
+    early: true,      // Recibir alertas inmediatas
+    confirmed: true,  // Recibir alertas confirmadas
   },
   filters: {
     onlyScanner: false,
     onlyWatchlist: false,
-    maxMarketCap: null,
   },
   notifications: {
     popup: true,
@@ -142,6 +180,42 @@ const defaultCriteria: AlertCriteria = {
 // ============================================================================
 // Store
 // ============================================================================
+
+// Helper para merge profundo con defaults
+function mergeWithDefaults(stored: Partial<AlertCriteria> | undefined): AlertCriteria {
+  if (!stored) return defaultCriteria;
+  
+  return {
+    priceChange: {
+      ...defaultCriteria.priceChange,
+      ...(stored.priceChange || {}),
+    },
+    velocity: {
+      ...defaultCriteria.velocity,
+      ...(stored.velocity || {}),
+    },
+    rvol: {
+      ...defaultCriteria.rvol,
+      ...(stored.rvol || {}),
+    },
+    volumeSpike: {
+      ...defaultCriteria.volumeSpike,
+      ...(stored.volumeSpike || {}),
+    },
+    alertTypes: {
+      ...defaultCriteria.alertTypes,
+      ...(stored.alertTypes || {}),
+    },
+    filters: {
+      ...defaultCriteria.filters,
+      ...(stored.filters || {}),
+    },
+    notifications: {
+      ...defaultCriteria.notifications,
+      ...(stored.notifications || {}),
+    },
+  };
+}
 
 export const useCatalystAlertsStore = create<CatalystAlertsState>()(
   persist(
@@ -155,20 +229,28 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
       setEnabled: (enabled) => set({ enabled }),
       
       setCriteria: (newCriteria) => set((state) => ({
-        criteria: {
+        criteria: mergeWithDefaults({
           ...state.criteria,
           ...newCriteria,
           priceChange: {
             ...state.criteria.priceChange,
             ...(newCriteria.priceChange || {}),
           },
-          volumeSpike: {
-            ...state.criteria.volumeSpike,
-            ...(newCriteria.volumeSpike || {}),
+          velocity: {
+            ...state.criteria.velocity,
+            ...(newCriteria.velocity || {}),
           },
           rvol: {
             ...state.criteria.rvol,
             ...(newCriteria.rvol || {}),
+          },
+          volumeSpike: {
+            ...state.criteria.volumeSpike,
+            ...(newCriteria.volumeSpike || {}),
+          },
+          alertTypes: {
+            ...state.criteria.alertTypes,
+            ...(newCriteria.alertTypes || {}),
           },
           filters: {
             ...state.criteria.filters,
@@ -178,7 +260,7 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
             ...state.criteria.notifications,
             ...(newCriteria.notifications || {}),
           },
-        },
+        }),
       })),
       
       addAlert: (alert) => set((state) => {
@@ -213,11 +295,11 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
         set({ _syncing: true, _lastSyncError: null });
         
         try {
+          // La estructura de criteria ya incluye notifications
           const payload = {
             newsAlerts: {
               enabled: state.enabled,
               criteria: state.criteria,
-              notifications: state.criteria.notifications,
             }
           };
           
@@ -234,9 +316,9 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
             throw new Error(`Failed to sync: ${response.status}`);
           }
           
-          console.log('[CatalystAlerts] ✅ Synced to server');
+          console.log('[CatalystAlerts] Synced to server');
         } catch (error) {
-          console.error('[CatalystAlerts] ❌ Sync error:', error);
+          console.error('[CatalystAlerts] Sync error:', error);
           set({ _lastSyncError: String(error) });
         } finally {
           set({ _syncing: false });
@@ -258,31 +340,39 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
           
           if (data.newsAlerts) {
             const newsAlerts = data.newsAlerts;
+            // Merge con defaults para campos nuevos
+            const loadedCriteria = mergeWithDefaults(newsAlerts.criteria);
+            
             set({
               enabled: newsAlerts.enabled ?? false,
-              criteria: {
-                ...defaultCriteria,
-                ...newsAlerts.criteria,
-                notifications: {
-                  ...defaultCriteria.notifications,
-                  ...newsAlerts.notifications,
-                },
-              },
+              criteria: loadedCriteria,
             });
-            console.log('[CatalystAlerts] ✅ Loaded from server');
+            console.log('[CatalystAlerts] Loaded from server, enabled:', newsAlerts.enabled);
           }
         } catch (error) {
-          console.error('[CatalystAlerts] ❌ Load error:', error);
+          console.error('[CatalystAlerts] Load error:', error);
         }
       },
     }),
     {
       name: 'catalyst-alerts-storage',
+      version: 2, // Incrementar version para forzar migración
       partialize: (state) => ({
         enabled: state.enabled,
         criteria: state.criteria,
         // No persistimos alertas ni estado de sync
       }),
+      migrate: (persistedState: any, version: number) => {
+        // Migrar desde versiones anteriores
+        if (version < 2) {
+          // Aplicar defaults para campos nuevos
+          return {
+            ...persistedState,
+            criteria: mergeWithDefaults(persistedState?.criteria),
+          };
+        }
+        return persistedState;
+      },
     }
   )
 );

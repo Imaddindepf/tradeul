@@ -17,7 +17,7 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected } from '@/stores/useNewsStore';
-import { useSquawkService } from '@/hooks/useSquawkService';
+import { useSquawk } from '@/contexts/SquawkContext';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
@@ -56,7 +56,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const resumeWithBuffer = useNewsStore((state) => state.resumeWithBuffer);
   
   // Squawk Service (para UI de botón, la lógica de speak está en NewsProvider)
-  const squawk = useSquawkService();
+  const squawk = useSquawk();
   
   // ================================================================
   // ESTADO LOCAL (solo UI)

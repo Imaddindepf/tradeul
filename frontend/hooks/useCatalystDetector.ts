@@ -1,14 +1,17 @@
 /**
  * useCatalystDetector Hook
  * 
- * Detecta noticias que cumplen los criterios de alerta del usuario
- * y dispara notificaciones (popup, sonido, squawk)
+ * Hook auxiliar para detección de catalyst.
+ * La lógica principal está en CatalystDetectorProvider.
+ * 
+ * Este hook se puede usar para procesar noticias manualmente
+ * o integrar con otros componentes.
  */
 
 'use client';
 
 import { useRef, useCallback } from 'react';
-import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert } from '@/stores/useCatalystAlertsStore';
+import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert, AlertType } from '@/stores/useCatalystAlertsStore';
 import { useTickersStore } from '@/stores/useTickersStore';
 
 interface NewsWithMetrics {
@@ -22,7 +25,7 @@ interface NewsWithMetrics {
 }
 
 // Generar sonido de alerta usando Web Audio API
-function playAlertSound() {
+function playAlertSound(type: AlertType = 'early') {
   if (typeof window === 'undefined') return;
   
   try {
@@ -33,16 +36,30 @@ function playAlertSound() {
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
     
-    // Configurar sonido de alerta (tono ascendente)
-    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.1);
-    oscillator.frequency.exponentialRampToValueAtTime(800, audioContext.currentTime + 0.2);
-    
-    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.3);
+    if (type === 'confirmed') {
+      // Sonido más enfático para alertas confirmadas
+      oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(1000, audioContext.currentTime + 0.1);
+      oscillator.frequency.exponentialRampToValueAtTime(600, audioContext.currentTime + 0.15);
+      oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.25);
+      
+      gainNode.gain.setValueAtTime(0.35, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.4);
+    } else {
+      // Sonido simple para early alerts
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.1);
+      oscillator.frequency.exponentialRampToValueAtTime(800, audioContext.currentTime + 0.2);
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.3);
+    }
   } catch (e) {
     // Ignorar errores de audio
   }
@@ -79,6 +96,15 @@ export function useCatalystDetector() {
   ): { passes: boolean; reason: string } => {
     const reasons: string[] = [];
     
+    // Verificar tipo de alerta permitido
+    const alertType = metrics.alert_type || 'early';
+    if (alertType === 'early' && !criteria.alertTypes.early) {
+      return { passes: false, reason: 'Early alerts disabled' };
+    }
+    if (alertType === 'confirmed' && !criteria.alertTypes.confirmed) {
+      return { passes: false, reason: 'Confirmed alerts disabled' };
+    }
+    
     // Filtro: solo scanner
     if (criteria.filters.onlyScanner && !isInScanner(ticker)) {
       return { passes: false, reason: 'Not in scanner' };
@@ -91,38 +117,48 @@ export function useCatalystDetector() {
     // Criterio: Cambio de precio
     if (criteria.priceChange.enabled) {
       enabledCount++;
+      const change = metrics.change_since_news_pct ?? metrics.change_day_pct ?? 0;
       
-      // Prioridad: change_recent_pct > change_day_pct > legacy
-      let change: number | null = null;
-      let timeLabel = 'recent';
-      
-      if (metrics.change_recent_pct !== null && metrics.change_recent_pct !== undefined) {
-        change = metrics.change_recent_pct;
-        timeLabel = `${metrics.lookback_minutes || 3}min`;
-      } else if (metrics.change_day_pct !== null && metrics.change_day_pct !== undefined) {
-        change = metrics.change_day_pct;
-        timeLabel = 'day';
-      } else if (criteria.priceChange.timeWindow === 1 && metrics.change_1m_pct !== null) {
-        change = metrics.change_1m_pct;
-        timeLabel = '1min';
-      } else if (metrics.change_5m_pct !== null) {
-        change = metrics.change_5m_pct;
-        timeLabel = '5min';
-      }
-      
-      if (change !== null && Math.abs(change) >= criteria.priceChange.minPercent) {
+      if (Math.abs(change) >= criteria.priceChange.minPercent) {
         passedCount++;
         const sign = change > 0 ? '+' : '';
-        reasons.push(`${sign}${change.toFixed(1)}% ${timeLabel}`);
+        const timeLabel = metrics.seconds_since_news 
+          ? `${metrics.seconds_since_news}s`
+          : 'now';
+        reasons.push(`${sign}${change.toFixed(1)}% in ${timeLabel}`);
+      }
+    }
+    
+    // Criterio: Velocidad
+    if (criteria.velocity.enabled) {
+      enabledCount++;
+      const velocity = metrics.velocity_pct_per_min ?? 0;
+      
+      if (velocity >= criteria.velocity.minPerMinute) {
+        passedCount++;
+        reasons.push(`${velocity.toFixed(2)}%/min`);
       }
     }
     
     // Criterio: RVOL
     if (criteria.rvol.enabled) {
       enabledCount++;
-      if (metrics.rvol && metrics.rvol >= criteria.rvol.minValue) {
+      const rvol = metrics.rvol ?? 0;
+      
+      if (rvol >= criteria.rvol.minValue) {
         passedCount++;
-        reasons.push(`RVOL ${metrics.rvol.toFixed(1)}x`);
+        reasons.push(`RVOL ${rvol.toFixed(1)}x`);
+      }
+    }
+    
+    // Criterio: Volume Spike
+    if (criteria.volumeSpike.enabled) {
+      enabledCount++;
+      const spike = metrics.volume_spike_ratio ?? 1;
+      
+      if (spike >= criteria.volumeSpike.minRatio) {
+        passedCount++;
+        reasons.push(`Spike ${spike.toFixed(1)}x`);
       }
     }
     
@@ -135,9 +171,9 @@ export function useCatalystDetector() {
   }, [criteria, isInScanner]);
   
   // Reproducir sonido
-  const playSound = useCallback(() => {
+  const playSound = useCallback((type: AlertType = 'early') => {
     if (criteria.notifications.sound) {
-      playAlertSound();
+      playAlertSound(type);
     }
   }, [criteria.notifications.sound]);
   
@@ -149,6 +185,7 @@ export function useCatalystDetector() {
     
     const ticker = news.catalyst_metrics.ticker || news.tickers[0];
     const metrics = news.catalyst_metrics;
+    const alertType = (metrics.alert_type || 'early') as AlertType;
     
     // Verificar criterios
     const { passes, reason } = checkCriteria(ticker, metrics);
@@ -157,7 +194,7 @@ export function useCatalystDetector() {
     
     // Crear alerta
     const alert: CatalystAlert = {
-      id: `${news.benzinga_id || news.id || Date.now()}-${ticker}`,
+      id: `${news.benzinga_id || news.id || Date.now()}-${ticker}-${alertType}`,
       ticker,
       title: news.title,
       url: news.url,
@@ -166,20 +203,21 @@ export function useCatalystDetector() {
       triggeredAt: Date.now(),
       dismissed: false,
       reason,
+      alertType,
     };
     
     // Añadir alerta
     addAlert(alert);
     
     // Reproducir sonido
-    playSound();
+    playSound(alertType);
     
-    console.log('[Catalyst] 🔔 Alert triggered:', ticker, reason);
+    console.log(`[Catalyst] ALERT ${alertType.toUpperCase()}:`, ticker, reason);
   }, [enabled, checkCriteria, addAlert, playSound]);
   
   return {
     processNews,
+    checkCriteria,
     enabled,
   };
 }
-

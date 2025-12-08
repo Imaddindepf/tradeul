@@ -44,17 +44,16 @@ class WindowLayout(BaseModel):
 
 
 class NewsAlertsPreferences(BaseModel):
-    """Preferencias de alertas de noticias (catalyst alerts)"""
+    """Preferencias de alertas de noticias (catalyst alerts) - Sistema profesional"""
     enabled: bool = False
     criteria: Dict[str, Any] = Field(default_factory=lambda: {
-        "priceChange": {"enabled": True, "minPercent": 3, "timeWindow": 5},
-        "rvol": {"enabled": False, "minValue": 2.5},
-        "filters": {"onlyScanner": False, "onlyWatchlist": False}
-    })
-    notifications: Dict[str, bool] = Field(default_factory=lambda: {
-        "popup": True,
-        "sound": True,
-        "squawk": False
+        "priceChange": {"enabled": True, "minPercent": 2},
+        "velocity": {"enabled": False, "minPerMinute": 0.5},
+        "rvol": {"enabled": True, "minValue": 2.0},
+        "volumeSpike": {"enabled": False, "minRatio": 3},
+        "alertTypes": {"early": True, "confirmed": True},
+        "filters": {"onlyScanner": False, "onlyWatchlist": False},
+        "notifications": {"popup": True, "sound": True, "squawk": False}
     })
 
 

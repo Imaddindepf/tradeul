@@ -17,7 +17,7 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
-import { useSquawkService } from '@/hooks/useSquawkService';
+import { useSquawk } from '@/contexts/SquawkContext';
 import { useCatalystDetector } from '@/hooks/useCatalystDetector';
 import { useNewsStore, NewsArticle } from '@/stores/useNewsStore';
 import { useNewsTickersStore } from '@/stores/useNewsTickersStore';
@@ -40,8 +40,8 @@ export function NewsProvider({ children }: NewsProviderProps) {
   // WebSocket (ya autenticado desde AuthWebSocketProvider)
   const ws = useWebSocket();
   
-  // Squawk Service (memoizado)
-  const squawk = useSquawkService();
+  // Squawk Service (contexto global)
+  const squawk = useSquawk();
   
   // Catalyst detector
   const { processNews: processCatalystNews } = useCatalystDetector();
