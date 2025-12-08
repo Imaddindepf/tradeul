@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Sparkles, Newspaper, Globe, Zap } from 'lucide-react';
+import { X, Sparkles, Newspaper, TrendingUp, Filter, Zap } from 'lucide-react';
 
-const ANNOUNCEMENT_KEY = 'announcement_catalyst_alerts_v1';
+const ANNOUNCEMENT_KEY = 'announcement_news_markers_v2';
 
 export function AnnouncementBanner() {
     const { t } = useTranslation();
@@ -52,47 +52,47 @@ export function AnnouncementBanner() {
 
             {/* Content */}
             <div className="p-4 space-y-3">
-                {/* Feature 1: Scanner + News */}
-                <div className="flex items-start gap-3">
-                    <div className="p-1.5 bg-blue-50 rounded-lg flex-shrink-0">
-                        <Newspaper className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-slate-900 text-sm">
-                            {t('announcement.scannersWithNews')}
-                        </h3>
-                        <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
-                            {t('announcement.scannersWithNewsDesc')}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Feature 2: Catalyst Alerts */}
+                {/* Feature 1: News Markers on Chart */}
                 <div className="flex items-start gap-3">
                     <div className="p-1.5 bg-amber-50 rounded-lg flex-shrink-0">
-                        <Zap className="w-4 h-4 text-amber-600" />
+                        <Newspaper className="w-4 h-4 text-amber-600" />
                     </div>
                     <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-slate-900 text-sm">
-                            {t('announcement.catalystAlerts')}
+                            {t('announcement.newsMarkersChart')}
                         </h3>
                         <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
-                            {t('announcement.catalystAlertsDesc')}
+                            {t('announcement.newsMarkersChartDesc')}
                         </p>
                     </div>
                 </div>
 
-                {/* Feature 3: Multi-language */}
+                {/* Feature 2: Catalyst Realtime */}
                 <div className="flex items-start gap-3">
-                    <div className="p-1.5 bg-emerald-50 rounded-lg flex-shrink-0">
-                        <Globe className="w-4 h-4 text-emerald-600" />
+                    <div className="p-1.5 bg-red-50 rounded-lg flex-shrink-0">
+                        <Zap className="w-4 h-4 text-red-600" />
                     </div>
                     <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-slate-900 text-sm">
-                            {t('announcement.multiLanguage')}
+                            {t('announcement.catalystRealtime')}
                         </h3>
                         <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
-                            {t('announcement.multiLanguageDesc')}
+                            {t('announcement.catalystRealtimeDesc')}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Feature 3: Scanner Filters Persistence */}
+                <div className="flex items-start gap-3">
+                    <div className="p-1.5 bg-emerald-50 rounded-lg flex-shrink-0">
+                        <Filter className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-slate-900 text-sm">
+                            {t('announcement.filtersPersist')}
+                        </h3>
+                        <p className="text-xs text-slate-500 leading-relaxed mt-0.5">
+                            {t('announcement.filtersPersistDesc')}
                         </p>
                     </div>
                 </div>

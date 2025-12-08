@@ -250,12 +250,12 @@
   },
   "announcement": {
     "newFeature": "Novedades",
-    "scannersWithNews": "Scanner + News",
-    "scannersWithNewsDesc": "Ve qué tickers del scanner tienen noticias hoy. Pulsa Ctrl+8 o busca \"SC With News\". Haz clic en el número de noticias para ver artículos.",
-    "catalystAlerts": "Alertas de Catalizador",
-    "catalystAlertsDesc": "Recibe alertas popup en tiempo real cuando las noticias provocan movimientos explosivos de precio. Haz clic en \"Alerts\" en la barra para activar. Clic derecho para configurar.",
-    "multiLanguage": "Soporte Multi-idioma",
-    "multiLanguageDesc": "La plataforma ahora está disponible en español e inglés. Cámbialo en Ajustes.",
+    "newsMarkersChart": "Noticias en el Gráfico",
+    "newsMarkersChartDesc": "Activa el botón de noticias en el gráfico para ver marcadores en las velas donde hubo noticias. Haz clic en el marcador para ver la noticia.",
+    "catalystRealtime": "Alertas WebSocket en Tiempo Real",
+    "catalystRealtimeDesc": "Las alertas de catalizador ahora detectan el cambio DESDE la noticia (no del día). Monitoreo en tiempo real via WebSocket.",
+    "filtersPersist": "Filtros del Scanner Guardados",
+    "filtersPersistDesc": "Los filtros del scanner ahora se guardan automáticamente. Al recargar la app, tus filtros estarán como los dejaste.",
     "dismiss": "Entendido"
   },
   "sidebar": {
