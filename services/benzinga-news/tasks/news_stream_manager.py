@@ -326,39 +326,39 @@ class BenzingaNewsStreamManager:
             entries = await self.redis.lrange(key, 0, -1)
             
             if entries:
-                snapshots = []
-                for entry in entries:
-                    try:
-                        data = json.loads(entry if isinstance(entry, str) else entry.decode())
-                        snapshots.append(data)
-                    except:
-                        continue
-                
+            snapshots = []
+            for entry in entries:
+                try:
+                    data = json.loads(entry if isinstance(entry, str) else entry.decode())
+                    snapshots.append(data)
+                except:
+                    continue
+            
                 if snapshots:
-                    now = datetime.now().timestamp() * 1000
-                    current = snapshots[0]  # Más reciente
-                    
-                    # Buscar snapshot de hace ~1 minuto y ~5 minutos
-                    price_1m_ago = None
-                    price_5m_ago = None
-                    
-                    for snap in snapshots:
-                        age_ms = now - snap.get("t", 0)
-                        age_min = age_ms / 60000
-                        
-                        if age_min >= 0.8 and age_min <= 1.5 and price_1m_ago is None:
-                            price_1m_ago = snap.get("p")
-                        elif age_min >= 4.5 and age_min <= 6 and price_5m_ago is None:
-                            price_5m_ago = snap.get("p")
-                    
-                    current_price = current.get("p", 0)
-                    
+            now = datetime.now().timestamp() * 1000
+            current = snapshots[0]  # Más reciente
+            
+            # Buscar snapshot de hace ~1 minuto y ~5 minutos
+            price_1m_ago = None
+            price_5m_ago = None
+            
+            for snap in snapshots:
+                age_ms = now - snap.get("t", 0)
+                age_min = age_ms / 60000
+                
+                if age_min >= 0.8 and age_min <= 1.5 and price_1m_ago is None:
+                    price_1m_ago = snap.get("p")
+                elif age_min >= 4.5 and age_min <= 6 and price_5m_ago is None:
+                    price_5m_ago = snap.get("p")
+            
+            current_price = current.get("p", 0)
+            
                     # Calcular cambios por minuto si tenemos los datos
-                    if price_1m_ago and price_1m_ago > 0:
+            if price_1m_ago and price_1m_ago > 0:
                         base_metrics["change_1m_pct"] = round(((current_price - price_1m_ago) / price_1m_ago) * 100, 2)
                         base_metrics["price_1m_ago"] = price_1m_ago
-                    
-                    if price_5m_ago and price_5m_ago > 0:
+            
+            if price_5m_ago and price_5m_ago > 0:
                         base_metrics["change_5m_pct"] = round(((current_price - price_5m_ago) / price_5m_ago) * 100, 2)
                         base_metrics["price_5m_ago"] = price_5m_ago
                     

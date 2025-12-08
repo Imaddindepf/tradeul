@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useSquawkService } from '@/hooks/useSquawkService';
 import { useCatalystDetector } from '@/hooks/useCatalystDetector';
 import { useNewsStore, NewsArticle } from '@/stores/useNewsStore';
@@ -37,9 +37,8 @@ interface NewsProviderProps {
 export function NewsProvider({ children }: NewsProviderProps) {
   const { t } = useTranslation();
   
-  // WebSocket
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-  const ws = useAuthWebSocket(wsUrl);
+  // WebSocket (ya autenticado desde AuthWebSocketProvider)
+  const ws = useWebSocket();
   
   // Squawk Service (memoizado)
   const squawk = useSquawkService();

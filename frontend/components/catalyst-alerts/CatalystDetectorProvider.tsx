@@ -14,7 +14,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert } from '@/stores/useCatalystAlertsStore';
 import { useTickersStore } from '@/stores/useTickersStore';
-import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useCatalystAlertsSync } from '@/hooks/useCatalystAlertsSync';
 
 interface NewsWithMetrics {
@@ -66,9 +66,8 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
   // Tickers en scanner (para filtro)
   const tickerLists = useTickersStore((state) => state.lists);
   
-  // WebSocket
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-  const ws = useAuthWebSocket(wsUrl);
+  // WebSocket (ya autenticado desde AuthWebSocketProvider)
+  const ws = useWebSocket();
   
   // Ref para tracking de noticias procesadas (evitar duplicados)
   const processedNewsRef = useRef<Set<string>>(new Set());

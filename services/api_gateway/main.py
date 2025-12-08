@@ -33,7 +33,7 @@ from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client
-from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key
+from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key, set_sec_api_key
 from routes.proxy import router as proxy_router
 from routes.realtime import router as realtime_router, set_redis_client as set_realtime_redis
 from routers.watchlist_router import router as watchlist_router
@@ -79,10 +79,20 @@ async def lifespan(app: FastAPI):
     set_user_filters_timescale_client(timescale_client)  # Para user_filters
     logger.info("timescale_connected")
     
-    # Configurar router de financials con Redis y FMP API key
+    # Configurar router de financials con Redis, FMP y SEC-API XBRL
     set_financials_redis(redis_client)
     set_fmp_api_key(settings.FMP_API_KEY)
-    logger.info("financials_router_configured_fmp")
+    
+    # SEC-API XBRL (fuente principal para financials)
+    sec_api_key = settings.SEC_API_IO_KEY
+    polygon_api_key = settings.POLYGON_API_KEY
+    if sec_api_key:
+        set_sec_api_key(sec_api_key, polygon_api_key)
+        logger.info("financials_router_configured_sec_xbrl", key_prefix=sec_api_key[:8], splits_enabled=bool(polygon_api_key))
+    else:
+        logger.warning("SEC_API_IO not configured, using FMP only")
+    
+    logger.info("financials_router_configured")
     
     # Configurar router de realtime con Redis
     set_realtime_redis(redis_client)
@@ -110,6 +120,7 @@ async def lifespan(app: FastAPI):
     # stream_broadcaster_task = asyncio.create_task(broadcast_streams())
     stream_broadcaster_task = None
     logger.info("WebSocket broadcaster disabled - using dedicated websocket_server")
+    
     
     logger.info("api_gateway_started")
     

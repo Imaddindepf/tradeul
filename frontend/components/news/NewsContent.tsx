@@ -67,7 +67,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const [currentPage, setCurrentPage] = useState(1);
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null);
-
+  
   // ================================================================
   // FILTRADO Y PAGINACIÓN (memoizado)
   // ================================================================

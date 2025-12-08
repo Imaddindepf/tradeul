@@ -73,7 +73,7 @@ class FMPFinancialsService:
         data = await self._get("profile", params)
         if data and len(data) > 0:
             return data[0]
-        return None
+            return None
     
     async def get_financials(
         self,

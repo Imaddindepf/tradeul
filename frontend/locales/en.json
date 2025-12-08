@@ -140,6 +140,10 @@
     "tablesLegend": "Legend:"
   },
   "news": {
+      "name": "News",
+      "description": "Market news"
+    },
+    "alerts": {
     "title": "News",
     "loadingNews": "Loading news...",
     "errorLoading": "Error loading news",

@@ -2,9 +2,14 @@
 Financial Models - Shared
 Modelos Pydantic para datos financieros (Income, Balance, Cash Flow)
 Usados por API Gateway y otros servicios
+
+Incluye campos específicos de industria:
+- Seguros: premiums_earned, policy_benefits, investment_income
+- Bancos: net_interest_income, provision_loan_losses, deposits
+- Healthcare: medical_costs, medical_cost_ratio
 """
 
-from typing import Optional, List
+from typing import Optional, List, Any
 from pydantic import BaseModel
 from datetime import date
 
@@ -12,7 +17,7 @@ from datetime import date
 class FinancialPeriod(BaseModel):
     """Información del período financiero"""
     date: str
-    symbol: str
+    symbol: Optional[str] = None
     fiscal_year: str
     period: str  # Q1, Q2, Q3, Q4, FY
     filing_date: Optional[str] = None
@@ -22,6 +27,10 @@ class FinancialPeriod(BaseModel):
 class IncomeStatement(BaseModel):
     """Income Statement / Estado de Resultados"""
     period: FinancialPeriod
+    
+    # =========================================================================
+    # CAMPOS UNIVERSALES
+    # =========================================================================
     # Revenue
     revenue: Optional[float] = None
     cost_of_revenue: Optional[float] = None
@@ -31,10 +40,9 @@ class IncomeStatement(BaseModel):
     selling_general_admin: Optional[float] = None
     operating_expenses: Optional[float] = None
     operating_income: Optional[float] = None
-    # Interest (Banks)
+    # Interest
     interest_expense: Optional[float] = None
     interest_income: Optional[float] = None
-    net_interest_income: Optional[float] = None  # Banks: interest_income - interest_expense
     # Other
     other_income_expense: Optional[float] = None
     income_before_tax: Optional[float] = None
@@ -49,11 +57,40 @@ class IncomeStatement(BaseModel):
     ebitda: Optional[float] = None
     ebit: Optional[float] = None
     depreciation: Optional[float] = None
+    
+    # =========================================================================
+    # CAMPOS ESPECÍFICOS DE INDUSTRIA
+    # =========================================================================
+    
+    # SEGUROS (Insurance)
+    premiums_earned: Optional[float] = None  # Primas ganadas
+    policy_benefits: Optional[float] = None  # Beneficios pagados a asegurados
+    investment_income: Optional[float] = None  # Ingresos de inversiones
+    
+    # BANCOS (Banks/Financial Services)
+    net_interest_income: Optional[float] = None  # interest_income - interest_expense
+    provision_loan_losses: Optional[float] = None  # Provisión para pérdidas
+    non_interest_income: Optional[float] = None  # Comisiones, trading, etc.
+    non_interest_expense: Optional[float] = None  # Salarios, operaciones, etc.
+    
+    # HEALTHCARE (UNH, CVS, CI)
+    medical_costs: Optional[float] = None  # Costos médicos (claims)
+    medical_cost_ratio: Optional[float] = None  # MCR = medical_costs / premiums
+    
+    # OTROS
+    minority_interest: Optional[float] = None  # Participación no controladora
+    
+    class Config:
+        extra = 'allow'  # Permitir campos adicionales de XBRL
 
 
 class BalanceSheet(BaseModel):
     """Balance Sheet / Balance General"""
     period: FinancialPeriod
+    
+    # =========================================================================
+    # CAMPOS UNIVERSALES
+    # =========================================================================
     # Assets
     total_assets: Optional[float] = None
     current_assets: Optional[float] = None
@@ -90,11 +127,34 @@ class BalanceSheet(BaseModel):
     total_debt: Optional[float] = None
     net_debt: Optional[float] = None
     total_investments: Optional[float] = None
+    
+    # =========================================================================
+    # CAMPOS ESPECÍFICOS DE INDUSTRIA
+    # =========================================================================
+    
+    # BANCOS (Banks)
+    loans_net: Optional[float] = None  # Préstamos netos
+    deposits: Optional[float] = None  # Depósitos de clientes
+    allowance_loan_losses: Optional[float] = None  # Reserva para pérdidas
+    
+    # SEGUROS (Insurance)
+    policy_liabilities: Optional[float] = None  # Pasivos de pólizas
+    unearned_premiums: Optional[float] = None  # Primas no devengadas
+    
+    # REITS
+    real_estate_assets: Optional[float] = None
+    
+    class Config:
+        extra = 'allow'
 
 
 class CashFlow(BaseModel):
     """Cash Flow Statement / Estado de Flujo de Efectivo"""
     period: FinancialPeriod
+    
+    # =========================================================================
+    # CAMPOS UNIVERSALES
+    # =========================================================================
     # Operating
     net_income: Optional[float] = None
     depreciation: Optional[float] = None
@@ -125,6 +185,9 @@ class CashFlow(BaseModel):
     cash_beginning: Optional[float] = None
     cash_ending: Optional[float] = None
     free_cash_flow: Optional[float] = None
+    
+    class Config:
+        extra = 'allow'
 
 
 class FinancialRatios(BaseModel):
@@ -147,6 +210,11 @@ class FinancialRatios(BaseModel):
     # Cash
     working_capital: Optional[float] = None
     fcf_margin: Optional[float] = None  # Free Cash Flow Margin
+    
+    # Industry-specific
+    net_interest_margin: Optional[float] = None  # Banks
+    medical_cost_ratio: Optional[float] = None  # Healthcare
+    combined_ratio: Optional[float] = None  # Insurance
 
 
 class FinancialData(BaseModel):
@@ -155,11 +223,11 @@ class FinancialData(BaseModel):
     currency: str = "USD"
     industry: Optional[str] = None  # From FMP profile (e.g., "Consumer Electronics")
     sector: Optional[str] = None    # From FMP profile (e.g., "Technology")
-    income_statements: List[IncomeStatement] = []
-    balance_sheets: List[BalanceSheet] = []
-    cash_flows: List[CashFlow] = []
+    source: Optional[str] = None    # "sec-api-xbrl" or "fmp"
+    income_statements: List[Any] = []  # List[IncomeStatement] pero más flexible
+    balance_sheets: List[Any] = []
+    cash_flows: List[Any] = []
     ratios: List[FinancialRatios] = []
     last_updated: str
     cached: bool = False
     cache_age_seconds: Optional[int] = None
-

@@ -106,9 +106,9 @@ export function CatalystAlertsPopup() {
                   </span>
                 )}
                 {(alert.metrics.price || alert.metrics.price_at_news) && (
-                  <span className="font-mono">
+                <span className="font-mono">
                     ${(alert.metrics.price ?? alert.metrics.price_at_news ?? 0).toFixed(2)}
-                  </span>
+                </span>
                 )}
               </div>
             </div>

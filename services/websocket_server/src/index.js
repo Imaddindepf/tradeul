@@ -1982,13 +1982,29 @@ wss.on("connection", async (ws, req) => {
     "✅ Client connected"
   );
 
-  // Enviar mensaje de bienvenida
+  // Enviar mensaje de bienvenida con trading_date (para detectar cambio de día)
+  // Leemos el estado de sesión de Redis para obtener el trading_date actual
+  let tradingDate = null;
+  let currentSession = null;
+  try {
+    const sessionStatus = await redis.get("market:session:status");
+    if (sessionStatus) {
+      const parsed = JSON.parse(sessionStatus);
+      tradingDate = parsed.trading_date;
+      currentSession = parsed.current_session;
+    }
+  } catch (err) {
+    logger.warn({ err }, "Could not read market session status");
+  }
+  
   sendMessage(connectionId, {
     type: "connected",
     connection_id: connectionId,
     message: "Connected to Tradeul Scanner (Hybrid: Rankings + Real-time)",
     timestamp: new Date().toISOString(),
     authenticated: !!user,
+    trading_date: tradingDate,
+    current_session: currentSession,
   });
 
   // Manejar mensajes del cliente

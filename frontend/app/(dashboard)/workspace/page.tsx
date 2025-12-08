@@ -14,7 +14,7 @@ import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
-import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
 import TickersWithNewsTable from '@/components/scanner/TickersWithNewsTable';
@@ -71,9 +71,8 @@ export default function ScannerPage() {
   const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, getScannerCategory } = useCommandExecutor();
   const { getSavedLayout, hasLayout } = useLayoutPersistence();
 
-  // WebSocket con Auth para recibir cambios de sesión en tiempo real
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-  const ws = useAuthWebSocket(wsUrl);
+  // WebSocket (ya autenticado desde AuthWebSocketProvider)
+  const ws = useWebSocket();
 
   const layoutRestoredRef = useRef(false);
   const initialTablesOpenedRef = useRef(false);

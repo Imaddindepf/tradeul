@@ -36,11 +36,8 @@ import { useTickersStore } from '@/stores/useTickersStore';
 import { useFiltersStore } from '@/stores/useFiltersStore';
 import { passesFilter } from '@/lib/scanner/filterEngine';
 
-// Para procesar snapshots/deltas de todas las categorías
-import { useRxWebSocket } from '@/hooks/useRxWebSocket';
-
-// WebSocket
-import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+// WebSocket (ya autenticado desde AuthWebSocketProvider)
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useMultiListSubscription } from '@/hooks/useRxWebSocket';
 
 // Categorías del scanner a considerar
@@ -202,17 +199,13 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   const initializeList = useTickersStore((state) => state.initializeList);
   const applyDeltas = useTickersStore((state) => state.applyDeltas);
 
-  // WebSocket para procesar snapshots de todas las categorías
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-  const rxWs = useRxWebSocket(wsUrl);
+  // WebSocket (ya autenticado desde AuthWebSocketProvider)
+  const ws = useWebSocket();
 
   // User Filters - Zustand store para reactividad en tiempo real
   const activeFilters = useFiltersStore((state) => state.activeFilters);
   const hasActiveFilters = useFiltersStore((state) => state.hasActiveFilters);
   const filtersKey = JSON.stringify(activeFilters); // Para detectar cambios
-
-  // WebSocket status (reusa wsUrl de arriba)
-  const ws = useAuthWebSocket(wsUrl);
 
   // ======================================================================
   // SUSCRIBIRSE A TODAS LAS CATEGORÍAS DEL SCANNER
@@ -227,17 +220,17 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   // ======================================================================
 
   useEffect(() => {
-    if (!rxWs.isConnected) return;
+    if (!ws.isConnected) return;
 
     // Procesar snapshots
-    const snapshotSub = rxWs.snapshots$.subscribe((snapshot: any) => {
+    const snapshotSub = ws.snapshots$.subscribe((snapshot: any) => {
       if (!snapshot.list || !SCANNER_CATEGORIES.includes(snapshot.list)) return;
       if (!snapshot.rows || !Array.isArray(snapshot.rows)) return;
       initializeList(snapshot.list, snapshot);
     });
 
     // Procesar deltas
-    const deltaSub = rxWs.deltas$.subscribe((delta: any) => {
+    const deltaSub = ws.deltas$.subscribe((delta: any) => {
       if (!delta.list || !SCANNER_CATEGORIES.includes(delta.list)) return;
       if (!delta.deltas || !Array.isArray(delta.deltas)) return;
       applyDeltas(delta.list, delta.deltas, delta.sequence);
@@ -247,7 +240,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
       snapshotSub.unsubscribe();
       deltaSub.unsubscribe();
     };
-  }, [rxWs.isConnected, rxWs.snapshots$, rxWs.deltas$, initializeList, applyDeltas]);
+  }, [ws.isConnected, ws.snapshots$, ws.deltas$, initializeList, applyDeltas]);
 
   // ======================================================================
   // CARGAR NOTICIAS

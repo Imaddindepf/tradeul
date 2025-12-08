@@ -1,0 +1,1536 @@
+"""
+SEC-API XBRL Financials Service - PROFESSIONAL SYMBIOTIC APPROACH
+Extrae TODOS los campos XBRL y los consolida semánticamente sin hardcodeos.
+
+Algoritmo:
+1. Extraer todos los campos disponibles del XBRL
+2. Normalizar nombres a formato estándar
+3. Agrupar campos semánticamente por concepto financiero
+4. Consolidar valores de campos relacionados por período
+5. Ordenar por importancia financiera detectada
+"""
+
+import httpx
+import asyncio
+import re
+from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime
+from collections import defaultdict
+from shared.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class SECXBRLFinancialsService:
+    """
+    Servicio simbiótico profesional para SEC-API XBRL.
+    Sin hardcodeos - todo es dinámico y basado en análisis semántico.
+    Incluye ajuste automático por stock splits usando Polygon.
+    """
+    
+    BASE_URL = "https://api.sec-api.io"
+    POLYGON_URL = "https://api.polygon.io"
+    
+    # Secciones XBRL por categoría (esto es estructura de SEC, no hardcodeo)
+    SECTION_MAPPING = {
+        "StatementsOfIncome": "income",
+        "StatementsOfComprehensiveIncome": "income",
+        "StatementsOfOperations": "income",
+        "BalanceSheets": "balance",
+        "StatementsOfFinancialPosition": "balance",
+        "StatementsOfCashFlows": "cashflow",
+    }
+    
+    # Configuración de paralelismo (SEC-API: 10 req/s para XBRL)
+    MAX_CONCURRENT_XBRL = 8  # 8 paralelas = ~80% del límite (margen de seguridad)
+    XBRL_REQUEST_DELAY = 0.05  # 50ms entre requests (20 req/s teórico, pero con 8 concurrent = ~8/s real)
+    
+    def __init__(self, api_key: str, polygon_api_key: str = None):
+        self.api_key = api_key
+        self.polygon_api_key = polygon_api_key
+        self.client = httpx.AsyncClient(timeout=60.0)
+        self._splits_cache: Dict[str, List[Dict]] = {}  # Cache de splits por ticker
+        self._xbrl_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_XBRL)
+    
+    async def close(self):
+        await self.client.aclose()
+    
+    # =========================================================================
+    # STOCK SPLITS - Polygon API
+    # =========================================================================
+    
+    async def get_splits(self, ticker: str) -> List[Dict[str, Any]]:
+        """
+        Obtener historial de splits de Polygon.
+        Cachea los resultados para evitar llamadas repetidas.
+        """
+        if not self.polygon_api_key:
+            return []
+        
+        # Check cache
+        if ticker in self._splits_cache:
+            return self._splits_cache[ticker]
+        
+        try:
+            response = await self.client.get(
+                f"{self.POLYGON_URL}/v3/reference/splits",
+                params={
+                    "ticker": ticker,
+                    "limit": 100,
+                    "apiKey": self.polygon_api_key
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            splits = data.get("results", [])
+            # Ordenar por fecha de ejecución descendente
+            splits.sort(key=lambda x: x.get("execution_date", ""), reverse=True)
+            
+            self._splits_cache[ticker] = splits
+            logger.info(f"Found {len(splits)} splits for {ticker}")
+            return splits
+            
+        except Exception as e:
+            logger.warning(f"Error getting splits for {ticker}: {e}")
+            return []
+    
+    def _get_split_adjustment_factor(
+        self, 
+        splits: List[Dict], 
+        period_end_date: str
+    ) -> float:
+        """
+        Calcular el factor de ajuste acumulativo para una fecha.
+        
+        Para ajustar datos históricos al valor actual:
+        - Multiplicar EPS por este factor
+        - Dividir Shares por este factor
+        
+        Ejemplo: GOOGL split 20:1 en 2022-07-18
+        - Datos de 2021 (antes del split): factor = 1/20 = 0.05
+        - EPS 2021 original: $58.61 → Ajustado: $58.61 * 0.05 = $2.93
+        """
+        if not splits or not period_end_date:
+            return 1.0
+        
+        factor = 1.0
+        
+        for split in splits:
+            execution_date = split.get("execution_date", "")
+            split_from = split.get("split_from", 1)
+            split_to = split.get("split_to", 1)
+            
+            if not execution_date or split_from == 0:
+                continue
+            
+            # Si el período es ANTES del split, aplicar el factor
+            if period_end_date < execution_date:
+                # split_to / split_from = factor de ajuste
+                # Ej: 20:1 split → 20/1 = 20 → factor = 1/20 = 0.05
+                split_factor = split_to / split_from
+                factor *= (1.0 / split_factor)
+        
+        return factor
+    
+    def _adjust_for_splits(
+        self,
+        fields: List[Dict[str, Any]],
+        splits: List[Dict[str, Any]],
+        period_dates: List[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Ajustar campos de EPS y Shares por splits históricos.
+        """
+        if not splits:
+            return fields
+        
+        # Campos que necesitan ajuste por splits
+        eps_keys = {'eps_basic', 'eps_diluted'}
+        shares_keys = {'shares_basic', 'shares_diluted'}
+        
+        # Calcular factores de ajuste para cada período
+        adjustment_factors = [
+            self._get_split_adjustment_factor(splits, date) 
+            for date in period_dates
+        ]
+        
+        # Log si hay ajustes
+        if any(f != 1.0 for f in adjustment_factors):
+            logger.info(f"Split adjustment factors: {dict(zip(period_dates, adjustment_factors))}")
+        
+        adjusted_fields = []
+        
+        for field in fields:
+            key = field['key']
+            
+            if key in eps_keys:
+                # Ajustar EPS: multiplicar por factor
+                adjusted_values = [
+                    v * adjustment_factors[i] if v is not None and i < len(adjustment_factors) else v
+                    for i, v in enumerate(field['values'])
+                ]
+                adjusted_fields.append({
+                    **field,
+                    'values': adjusted_values,
+                    'split_adjusted': any(f != 1.0 for f in adjustment_factors[:len(field['values'])])
+                })
+            elif key in shares_keys:
+                # Ajustar Shares: dividir por factor (inverso)
+                adjusted_values = [
+                    v / adjustment_factors[i] if v is not None and adjustment_factors[i] != 0 and i < len(adjustment_factors) else v
+                    for i, v in enumerate(field['values'])
+                ]
+                adjusted_fields.append({
+                    **field,
+                    'values': adjusted_values,
+                    'split_adjusted': any(f != 1.0 for f in adjustment_factors[:len(field['values'])])
+                })
+            else:
+                adjusted_fields.append(field)
+        
+        return adjusted_fields
+    
+    def _get_period_end_date(self, xbrl: Dict[str, Any], filed_at: str) -> str:
+        """
+        Obtener la fecha de fin del período del filing.
+        Busca en los datos XBRL o usa la fecha de filing como fallback.
+        """
+        # Intentar obtener del balance sheet (tiene fechas de período)
+        for section in ["BalanceSheets", "StatementsOfFinancialPosition"]:
+            if section in xbrl:
+                section_data = xbrl[section]
+                if isinstance(section_data, dict):
+                    # Buscar la primera fecha disponible
+                    for key, value in section_data.items():
+                        if isinstance(value, dict) and "period" in value:
+                            period = value["period"]
+                            if isinstance(period, dict) and "endDate" in period:
+                                return period["endDate"]
+        
+        # Fallback: usar la fecha del filing (YYYY-MM-DD)
+        if filed_at and len(filed_at) >= 10:
+            return filed_at[:10]
+        
+        return filed_at[:4] + "-12-31" if filed_at else ""
+    
+    # =========================================================================
+    # NORMALIZACIÓN SEMÁNTICA PROFESIONAL
+    # Basado en conceptos contables estándar (US GAAP / IFRS)
+    # =========================================================================
+    
+    def _camel_to_snake(self, name: str) -> str:
+        """Convertir CamelCase a snake_case"""
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+    
+    def _detect_financial_concept(self, field_name: str) -> Tuple[str, str, int]:
+        """
+        Detectar el concepto financiero de un campo XBRL.
+        Usa patrones basados en estándares contables.
+        
+        Returns: (canonical_key, display_label, importance_score)
+        """
+        name = self._camel_to_snake(field_name).lower()
+        
+        # Patrones ordenados por especificidad (más específico primero)
+        # Format: (pattern_regex, canonical_key, label, importance)
+        # Soporta US GAAP e IFRS
+        patterns = [
+            # === INCOME STATEMENT (orden de aparición en P&L) ===
+            
+            # Revenue (US GAAP + IFRS)
+            (r'^revenue$|^revenues$|^net_sales|^sales_revenue|revenue.*contract.*customer|^total_revenue', 
+             'revenue', 'Revenue', 10000),
+            
+            # Cost of Revenue / Cost of Sales (US GAAP + IFRS)
+            (r'cost.*revenue|cost.*goods.*sold|cost.*sales|^cost_of_sales$', 
+             'cost_of_revenue', 'Cost of Revenue', 9500),
+            
+            # Gross Profit
+            (r'gross_profit', 
+             'gross_profit', 'Gross Profit', 9400),
+            
+            # R&D (US GAAP + IFRS)
+            (r'research.*development|r_and_d', 
+             'rd_expenses', 'R&D Expenses', 9000),
+            
+            # SG&A (US GAAP)
+            (r'selling.*general.*admin|sg.*a', 
+             'sga_expenses', 'SG&A Expenses', 8900),
+            
+            # Selling & Marketing / Distribution Costs (US GAAP + IFRS)
+            (r'selling.*marketing|sales.*marketing|selling_expense|distribution_cost', 
+             'sales_marketing', 'Sales & Marketing', 8850),
+            
+            # Administrative Expense (IFRS specific)
+            (r'^administrative_expense$|^general.*admin', 
+             'ga_expenses', 'G&A Expenses', 8800),
+            
+            # Operating Expenses
+            (r'operating_expenses|costs.*expenses|total.*operating.*cost', 
+             'operating_expenses', 'Operating Expenses', 8500),
+            
+            # IMPORTANTE: Nonoperating ANTES de Operating (evita que "nonoperating_income" 
+            # coincida con "operating_income" por la subcadena)
+            # Other Income/Expense / Nonoperating (US GAAP + IFRS)
+            (r'^nonoperating|^other.*income|^other.*expense|other_nonoperating', 
+             'other_income', 'Other Income/Expense', 7000),
+            
+            # Operating Income / Profit from Operations (US GAAP + IFRS)
+            # Ahora es seguro porque nonoperating ya fue capturado arriba
+            (r'^operating_income|^income.*operations|profit_loss_from_operating|operating_profit', 
+             'operating_income', 'Operating Income', 8000),
+            
+            # Finance Income (IFRS specific)
+            (r'^finance_income$|^interest_income|investment_income.*interest', 
+             'interest_income', 'Interest Income', 7500),
+            
+            # Finance Costs / Interest Expense (US GAAP + IFRS)
+            (r'^finance_cost|^interest_expense|finance_expense', 
+             'interest_expense', 'Interest Expense', 7400),
+            
+            # Income Before Tax / Profit Before Tax (US GAAP + IFRS)
+            (r'income.*before.*tax|profit.*loss.*before.*tax|income.*continuing.*operations.*before', 
+             'income_before_tax', 'Income Before Tax', 6500),
+            
+            # Income Tax (US GAAP + IFRS)
+            (r'income.*tax.*expense|income.*tax.*benefit|provision.*income.*tax|^income_tax$', 
+             'income_tax', 'Income Tax', 6000),
+            
+            # Net Income / Profit or Loss (US GAAP + IFRS)
+            (r'^net_income$|^net_income_loss$|^profit_loss$|^profit_loss_attributable', 
+             'net_income', 'Net Income', 5500),
+            
+            # EPS Basic (US GAAP + IFRS)
+            (r'earnings.*share.*basic|eps.*basic|basic_earnings.*per.*share', 
+             'eps_basic', 'EPS Basic', 5000),
+            
+            # EPS Diluted (US GAAP + IFRS)
+            (r'earnings.*share.*diluted|eps.*diluted|diluted_earnings.*per.*share', 
+             'eps_diluted', 'EPS Diluted', 4900),
+            
+            # Shares Basic
+            (r'weighted.*shares.*basic|shares.*outstanding.*basic', 
+             'shares_basic', 'Shares Basic', 4800),
+            
+            # Shares Diluted
+            (r'weighted.*shares.*diluted|diluted.*shares', 
+             'shares_diluted', 'Shares Diluted', 4700),
+            
+            # Depreciation (US GAAP + IFRS)
+            (r'depreciation.*amortization|depreciation_depletion', 
+             'depreciation', 'D&A', 4500),
+            
+            # === BALANCE SHEET ===
+            # Assets
+            (r'^assets$|^total_assets', 'total_assets', 'Total Assets', 10000),
+            (r'assets_current|current_assets|^assets_current$', 'current_assets', 'Current Assets', 9500),
+            (r'cash.*equivalents|cash_and_cash|^cash$', 'cash', 'Cash & Equivalents', 9400),
+            (r'short.*term.*investments|marketable.*securities.*current|available.*sale.*securities.*current', 'st_investments', 'Short-term Investments', 9300),
+            (r'accounts.*receivable|receivables.*net|^receivables$|nontrade.*receivables', 'receivables', 'Accounts Receivable', 9200),
+            (r'inventory|inventories', 'inventory', 'Inventory', 9100),
+            (r'prepaid.*expense|other.*assets.*current', 'prepaid', 'Prepaid & Other', 9000),
+            (r'property.*plant.*equipment', 'ppe', 'PP&E', 8500),
+            (r'goodwill$', 'goodwill', 'Goodwill', 8400),
+            (r'intangible', 'intangibles', 'Intangible Assets', 8300),
+            (r'long.*term.*investments|investments.*noncurrent|available.*sale.*securities.*noncurrent', 'lt_investments', 'Long-term Investments', 8200),
+            
+            # Liabilities
+            (r'^liabilities$|^total_liabilities', 'total_liabilities', 'Total Liabilities', 7500),
+            (r'liabilities_current|current_liabilities|^liabilities_current$', 'current_liabilities', 'Current Liabilities', 7400),
+            (r'accounts.*payable|payable.*and.*accrued', 'accounts_payable', 'Accounts Payable', 7300),
+            (r'accrued.*liabilities|accrued.*expenses|accrued_income_taxes', 'accrued_liabilities', 'Accrued Liabilities', 7250),
+            (r'short.*term.*debt|short.*term.*borrowings|current.*portion.*long.*term|notes.*payable.*current', 'st_debt', 'Short-term Debt', 7200),
+            (r'long.*term.*debt|long.*term.*notes|convertible.*long.*term|notes.*payable.*noncurrent', 'lt_debt', 'Long-term Debt', 7000),
+            (r'contract.*customer.*liability|deferred.*revenue|unearned.*revenue', 'deferred_revenue', 'Deferred Revenue', 6900),
+            (r'operating.*lease.*liability', 'lease_liability', 'Lease Liabilities', 6800),
+            
+            # Equity
+            (r'stockholders.*equity|total.*equity|^equity$|liabilities_and_stockholders', 'total_equity', 'Total Equity', 6500),
+            (r'retained_earnings|accumulated_deficit', 'retained_earnings', 'Retained Earnings', 6400),
+            (r'common.*stock.*value|^common_stock$', 'common_stock', 'Common Stock', 6300),
+            (r'additional.*paid.*capital|paid.*capital', 'apic', 'Additional Paid-in Capital', 6200),
+            (r'treasury.*stock', 'treasury_stock', 'Treasury Stock', 6100),
+            (r'accumulated.*other.*comprehensive', 'aoci', 'AOCI', 6000),
+            
+            # === CASH FLOW ===
+            # Operating Activities
+            (r'net.*cash.*operating|operating_activities|^cash.*flows.*operating', 'operating_cf', 'Operating Cash Flow', 10000),
+            (r'change.*receivables|increase.*decrease.*receivables', 'cf_receivables', 'Δ Receivables', 9500),
+            (r'change.*inventory|increase.*decrease.*inventory', 'cf_inventory', 'Δ Inventory', 9400),
+            (r'change.*payables|increase.*decrease.*payables|increase.*decrease.*accounts.*payable', 'cf_payables', 'Δ Payables', 9300),
+            (r'share.*based.*compensation|stock.*compensation|stock_based_compensation', 'stock_compensation', 'Stock Compensation', 9200),
+            
+            # Investing Activities
+            (r'net.*cash.*investing|investing_activities|^cash.*flows.*investing', 'investing_cf', 'Investing Cash Flow', 9000),
+            (r'capital.*expenditure|payments.*acquire.*property|purchase.*property.*plant|payments.*property', 'capex', 'CapEx', 8500),
+            (r'purchase.*investments|payments.*acquire.*investments', 'purchase_investments', 'Purchases of Investments', 8400),
+            (r'sale.*investments|proceeds.*sale.*investments|maturities.*investments', 'sale_investments', 'Sales of Investments', 8300),
+            (r'acquisitions|payments.*acquisitions|business.*combinations', 'acquisitions', 'Acquisitions', 8200),
+            
+            # Financing Activities  
+            (r'net.*cash.*financing|financing_activities|^cash.*flows.*financing', 'financing_cf', 'Financing Cash Flow', 8000),
+            (r'dividends.*paid|payments.*dividends', 'dividends_paid', 'Dividends Paid', 7500),
+            (r'repurchase.*common.*stock|stock.*repurchased|payments.*repurchase', 'stock_repurchased', 'Stock Repurchased', 7400),
+            (r'proceeds.*issuance.*common.*stock|proceeds.*stock|proceeds.*issuing.*shares', 'stock_issued', 'Stock Issued', 7300),
+            (r'proceeds.*debt|proceeds.*borrowings|proceeds.*long.*term', 'debt_issued', 'Debt Issued', 7200),
+            (r'repayments.*debt|payments.*long.*term|repayments.*borrowings', 'debt_repaid', 'Debt Repaid', 7100),
+        ]
+        
+        # Buscar el primer patrón que coincida
+        for pattern, key, label, importance in patterns:
+            if re.search(pattern, name):
+                return (key, label, importance)
+        
+        # Si no hay match, generar label automático del nombre
+        words = name.split('_')[:4]
+        auto_label = ' '.join(w.capitalize() for w in words if w not in {'and', 'the', 'of', 'to', 'in'})
+        
+        return (name, auto_label, 100)  # Baja importancia para campos no reconocidos
+    
+    def _should_skip_field(self, field_name: str) -> bool:
+        """
+        Determinar si un campo debe ser ignorado.
+        Ignora campos secundarios que no aportan información principal.
+        """
+        name = field_name.lower()
+        
+        # Patrones de campos a ignorar
+        skip_patterns = [
+            r'comprehensive_income',  # OCI es secundario
+            r'reclassification',
+            r'adjustment',
+            r'discontinued',
+            r'preferred.*dividends',
+            r'noncontrolling',
+            r'segment',  # Datos por segmento
+            r'_hedge_',
+            r'_aoci_',
+            r'unrealized_holding',
+        ]
+        
+        return any(re.search(p, name) for p in skip_patterns)
+    
+    # =========================================================================
+    # BÚSQUEDA DE FILINGS
+    # =========================================================================
+    
+    async def get_cik(self, ticker: str) -> Optional[str]:
+        """Obtener el CIK de una empresa"""
+        try:
+            response = await self.client.post(
+                f"{self.BASE_URL}?token={self.api_key}",
+                json={
+                    "query": {"query_string": {"query": f'ticker:{ticker}'}},
+                    "from": "0",
+                    "size": "1"
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            filings = data.get("filings", [])
+            return filings[0].get("cik") if filings else None
+        except Exception as e:
+            logger.error(f"Error getting CIK for {ticker}: {e}")
+            return None
+    
+    async def get_filings(
+        self, 
+        ticker: str, 
+        form_type: str = "10-K",
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Obtener filings por ticker, usando CIK para histórico completo"""
+        try:
+            # Buscar por ticker primero
+            response = await self.client.post(
+                f"{self.BASE_URL}?token={self.api_key}",
+                json={
+                    "query": {"query_string": {"query": f'ticker:{ticker} AND formType:"{form_type}"'}},
+                    "from": "0",
+                    "size": str(limit),
+                    "sort": [{"filedAt": {"order": "desc"}}]
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            filings = data.get("filings", [])
+            
+            # Si hay pocos resultados, buscar por CIK
+            if len(filings) < limit * 0.8:
+                cik = filings[0].get("cik") if filings else await self.get_cik(ticker)
+                if cik:
+                    logger.info(f"Searching by CIK {cik} for {ticker}")
+                    response = await self.client.post(
+                        f"{self.BASE_URL}?token={self.api_key}",
+                        json={
+                            "query": {"query_string": {"query": f'cik:{cik} AND formType:"{form_type}"'}},
+                            "from": "0",
+                            "size": str(limit + 5),
+                            "sort": [{"filedAt": {"order": "desc"}}]
+                        }
+                    )
+                    response.raise_for_status()
+                    cik_filings = response.json().get("filings", [])
+                    if len(cik_filings) > len(filings):
+                        filings = cik_filings
+            
+            return filings[:limit]
+            
+        except Exception as e:
+            logger.error(f"Error getting filings for {ticker}: {e}")
+            return []
+    
+    async def get_xbrl_data(self, accession_no: str, max_retries: int = 3) -> Optional[Dict[str, Any]]:
+        """Obtener datos XBRL con retry"""
+        for attempt in range(max_retries):
+            try:
+                response = await self.client.get(
+                    f"{self.BASE_URL}/xbrl-to-json",
+                    params={"accession-no": accession_no, "token": self.api_key}
+                )
+                
+                if response.status_code == 429:
+                    await asyncio.sleep((attempt + 1) * 2)
+                    continue
+                
+                response.raise_for_status()
+                return response.json()
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error(f"Error getting XBRL for {accession_no}: {e}")
+                await asyncio.sleep((attempt + 1) * 2)
+        
+        return None
+    
+    # =========================================================================
+    # EXTRACCIÓN SIMBIÓTICA
+    # =========================================================================
+    
+    def _extract_all_fields_from_section(
+        self, 
+        xbrl_data: Dict, 
+        section_name: str,
+        fiscal_year: str
+    ) -> Dict[str, Tuple[float, str]]:
+        """
+        Extraer todos los campos de una sección XBRL.
+        Soporta tanto US GAAP (valores consolidados) como IFRS (valores segmentados).
+        Returns: {normalized_name: (value, original_name)}
+        """
+        section_data = xbrl_data.get(section_name, {})
+        results = {}
+        
+        for field_name, values in section_data.items():
+            if not isinstance(values, list) or not values:
+                continue
+            
+            # Prioridad 1: Valores consolidados (sin segmento) - US GAAP style
+            consolidated = [
+                item for item in values 
+                if "segment" not in item and item.get("value") is not None
+            ]
+            
+            # Prioridad 2: Si no hay consolidados, usar valores segmentados - IFRS style
+            # Sumar segmentos de producto/servicio (no geográficos) del mismo período
+            if not consolidated:
+                period_sums = {}  # {end_date: sum of product segments}
+                period_max = {}   # {end_date: max value as fallback}
+                
+                for item in values:
+                    if item.get("value") is None:
+                        continue
+                    period = item.get("period", {})
+                    end_date = period.get("endDate") or period.get("instant", "")
+                    if not end_date:
+                        continue
+                    
+                    try:
+                        val = float(item["value"])
+                    except (ValueError, TypeError):
+                        continue
+                    
+                    # Track max value as fallback
+                    if end_date not in period_max or abs(val) > abs(period_max[end_date]):
+                        period_max[end_date] = val
+                    
+                    # Check if this is a product/service segment (not geographic)
+                    segment = item.get("segment", {})
+                    segment_dim = segment.get("dimension", "") if isinstance(segment, dict) else ""
+                    segment_val = segment.get("value", "") if isinstance(segment, dict) else ""
+                    
+                    # Product segments typically have "Member" suffix and product-related dimensions
+                    is_product_segment = (
+                        "ProductsAndServices" in segment_dim or
+                        "Revenue" in segment_val or
+                        "Member" in segment_val and "country:" not in segment_val and "srt:" not in segment_val
+                    )
+                    
+                    if is_product_segment:
+                        if end_date not in period_sums:
+                            period_sums[end_date] = 0
+                        period_sums[end_date] += val
+                
+                # Use sum if available, otherwise use max
+                period_values = {}
+                for end_date in set(list(period_sums.keys()) + list(period_max.keys())):
+                    if end_date in period_sums and period_sums[end_date] != 0:
+                        period_values[end_date] = period_sums[end_date]
+                    elif end_date in period_max:
+                        period_values[end_date] = period_max[end_date]
+                
+                # Convertir a formato consolidado
+                consolidated = [
+                    {"value": str(v), "period": {"endDate": d}}
+                    for d, v in period_values.items()
+                ]
+            
+            if not consolidated:
+                continue
+            
+            # Buscar valor del año fiscal
+            best_value = None
+            best_date = ""
+            
+            for item in consolidated:
+                period = item.get("period", {})
+                end_date = period.get("endDate") or period.get("instant", "")
+                
+                # Coincidir por año fiscal (4 dígitos)
+                if end_date and end_date[:4] == str(fiscal_year)[:4]:
+                    try:
+                        best_value = float(item["value"])
+                        break
+                    except (ValueError, TypeError):
+                        continue
+                
+                # Fallback: tomar el más reciente
+                if end_date > best_date:
+                    try:
+                        best_value = float(item["value"])
+                        best_date = end_date
+                    except (ValueError, TypeError):
+                        continue
+            
+            if best_value is not None:
+                normalized = self._camel_to_snake(field_name)
+                results[normalized] = (best_value, field_name)
+        
+        return results
+    
+    def _consolidate_fields_semantically(
+        self,
+        all_periods_data: List[Dict[str, Tuple[float, str]]],
+        fiscal_years: List[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Consolidar campos semánticamente relacionados usando detección de conceptos financieros.
+        """
+        # Paso 1: Agrupar por concepto financiero detectado
+        concept_groups: Dict[str, Dict] = {}
+        
+        for period_idx, period_data in enumerate(all_periods_data):
+            for normalized_name, (value, original) in period_data.items():
+                # Ignorar campos secundarios
+                if self._should_skip_field(normalized_name):
+                    continue
+                
+                # Detectar concepto financiero
+                canonical_key, label, importance = self._detect_financial_concept(normalized_name)
+                
+                # Crear grupo si no existe
+                if canonical_key not in concept_groups:
+                    concept_groups[canonical_key] = {
+                        'key': canonical_key,
+                        'label': label,
+                        'importance': importance,
+                        'values': [None] * len(all_periods_data),
+                        'sources': []
+                    }
+                
+                # Añadir valor (solo si no hay uno ya)
+                if concept_groups[canonical_key]['values'][period_idx] is None:
+                    concept_groups[canonical_key]['values'][period_idx] = value
+                
+                # Registrar fuente
+                if original not in concept_groups[canonical_key]['sources']:
+                    concept_groups[canonical_key]['sources'].append(original)
+        
+        # Paso 2: Convertir a lista y ordenar por importancia
+        consolidated_fields = []
+        
+        for concept_key, group in concept_groups.items():
+            # Solo incluir si tiene al menos un valor
+            if any(v is not None for v in group['values']):
+                consolidated_fields.append({
+                    'key': group['key'],
+                    'label': group['label'],
+                    'values': group['values'],
+                    'importance': group['importance'],
+                    'source_fields': group['sources']
+                })
+        
+        # Paso 3: Añadir campos calculados
+        consolidated_fields = self._add_calculated_fields(consolidated_fields, len(all_periods_data))
+        
+        # Paso 4: Ordenar por importancia
+        consolidated_fields.sort(key=lambda x: x['importance'], reverse=True)
+        
+        return consolidated_fields
+    
+    # Patrones para clasificar gastos (IFRS "por naturaleza" → "por función")
+    # Gastos DIRECTOS (Cost of Revenue): relacionados con producción/ventas
+    DIRECT_COST_PATTERNS = [
+        r'energy.*transmission', r'energy.*cost', r'electricity',
+        r'site.*expense', r'hosting', r'data.*center',
+        r'cost.*sales', r'cost.*goods', r'cost.*revenue',
+        r'raw.*material', r'direct.*cost', r'production.*cost',
+        r'mining.*cost', r'fuel', r'utilities',
+    ]
+    
+    # Gastos OPERATIVOS (OpEx): SG&A y similares
+    OPEX_PATTERNS = [
+        r'employee.*benefit', r'salaries', r'wages', r'compensation',
+        r'share.*based.*payment', r'stock.*compensation',
+        r'professional.*fee', r'legal.*fee', r'consulting',
+        r'administrative', r'general.*admin', r'office',
+        r'selling.*expense', r'marketing', r'advertising',
+        r'research.*development', r'r.*d',
+        r'other.*expense', r'miscellaneous',
+    ]
+    
+    def _classify_expense(self, field_key: str) -> str:
+        """
+        Clasificar un gasto como 'direct' (Cost of Revenue) u 'opex' (Operating Expense).
+        """
+        key_lower = field_key.lower()
+        
+        for pattern in self.DIRECT_COST_PATTERNS:
+            if re.search(pattern, key_lower):
+                return 'direct'
+        
+        for pattern in self.OPEX_PATTERNS:
+            if re.search(pattern, key_lower):
+                return 'opex'
+        
+        # Por defecto, gastos sin clasificar van a opex
+        return 'opex'
+    
+    def _add_calculated_fields(self, fields: List[Dict], num_periods: int) -> List[Dict]:
+        """
+        Añadir campos calculados si no existen.
+        
+        Para empresas IFRS "por naturaleza" (sin Gross Profit/Cost of Revenue):
+        1. Clasificar gastos como directos vs operativos
+        2. Cost of Revenue = suma de gastos directos
+        3. Gross Profit = Revenue - Cost of Revenue
+        4. Operating Expenses = suma de gastos operativos
+        5. Operating Income = Gross Profit - Operating Expenses
+        6. EBITDA = Operating Income + D&A
+        """
+        field_map = {f['key']: f for f in fields}
+        
+        # =========================================================================
+        # PASO 1: Calcular Cost of Revenue si no existe (IFRS por naturaleza)
+        # =========================================================================
+        # Verificar si cost_of_revenue tiene valores null que necesitan calcularse
+        existing_cor = field_map.get('cost_of_revenue')
+        cor_has_nulls = existing_cor and any(v is None for v in existing_cor['values'])
+        needs_cor_calc = ('cost_of_revenue' not in field_map) or cor_has_nulls
+        
+        if needs_cor_calc and 'revenue' in field_map:
+            direct_cost_fields = []
+            opex_fields = []
+            
+            # Clasificar todos los campos de gastos
+            for f in fields:
+                key = f['key']
+                # Solo campos que parecen gastos (valores negativos o nombres de gastos)
+                is_expense = any(x in key for x in ['expense', 'cost', 'charge', 'fee', 'payment'])
+                is_excluded = key in ['interest_expense', 'income_tax', 'finance_income_cost', 'interest_revenue_expense']
+                
+                if is_expense and not is_excluded:
+                    classification = self._classify_expense(key)
+                    if classification == 'direct':
+                        direct_cost_fields.append(f)
+                    else:
+                        opex_fields.append(f)
+            
+            # Calcular Cost of Revenue = suma de gastos directos
+            if direct_cost_fields:
+                # Calcular valores desde gastos directos
+                calculated_cor = [0.0] * num_periods
+                source_fields = []
+                
+                for f in direct_cost_fields:
+                    source_fields.append(f['key'])
+                    for i, v in enumerate(f['values']):
+                        if i < num_periods and v is not None:
+                            calculated_cor[i] += abs(v)
+                
+                # Si ya existe cost_of_revenue, solo rellenar los nulls
+                if existing_cor:
+                    merged_cor = []
+                    for i in range(num_periods):
+                        existing_val = existing_cor['values'][i] if i < len(existing_cor['values']) else None
+                        calc_val = calculated_cor[i] if i < len(calculated_cor) else 0
+                        # Usar existente si no es null, sino usar calculado
+                        if existing_val is not None:
+                            merged_cor.append(existing_val)
+                        elif calc_val > 0:
+                            merged_cor.append(calc_val)
+                        else:
+                            merged_cor.append(None)
+                    existing_cor['values'] = merged_cor
+                    existing_cor['source_fields'] = existing_cor.get('source_fields', []) + source_fields
+                    existing_cor['calculated'] = True
+                    logger.info(f"Merged Cost of Revenue with calculated values from: {source_fields}")
+                else:
+                    # Crear nuevo campo
+                    if any(v > 0 for v in calculated_cor):
+                        fields.append({
+                            'key': 'cost_of_revenue',
+                            'label': 'Cost of Revenue',
+                            'values': calculated_cor,
+                            'importance': 9500,
+                            'source_fields': source_fields,
+                            'calculated': True
+                        })
+                        field_map['cost_of_revenue'] = fields[-1]
+                        logger.info(f"Created Cost of Revenue from: {source_fields}")
+            
+            # Calcular Operating Expenses = suma de gastos operativos
+            if opex_fields and 'operating_expenses' not in field_map:
+                operating_expenses = [0.0] * num_periods
+                source_fields = []
+                
+                for f in opex_fields:
+                    source_fields.append(f['key'])
+                    for i, v in enumerate(f['values']):
+                        if i < num_periods and v is not None:
+                            operating_expenses[i] += abs(v)
+                
+                if any(v > 0 for v in operating_expenses):
+                    fields.append({
+                        'key': 'operating_expenses',
+                        'label': 'Operating Expenses',
+                        'values': operating_expenses,
+                        'importance': 8500,
+                        'source_fields': source_fields,
+                        'calculated': True
+                    })
+                    field_map['operating_expenses'] = fields[-1]
+        
+        # =========================================================================
+        # PASO 2: Calcular Gross Profit = Revenue - Cost of Revenue
+        # =========================================================================
+        existing_gp = field_map.get('gross_profit')
+        gp_has_nulls = existing_gp and any(v is None for v in existing_gp['values'])
+        needs_gp_calc = ('gross_profit' not in field_map) or gp_has_nulls
+        
+        if needs_gp_calc and 'revenue' in field_map and 'cost_of_revenue' in field_map:
+            revenue = field_map['revenue']['values']
+            cost = field_map['cost_of_revenue']['values']
+            calculated_gp = []
+            
+            for i in range(num_periods):
+                r = revenue[i] if i < len(revenue) else None
+                c = cost[i] if i < len(cost) else None
+                if r is not None and c is not None:
+                    calculated_gp.append(r - c)
+                else:
+                    calculated_gp.append(None)
+            
+            if existing_gp:
+                # Merge: usar existente si no es null, sino usar calculado
+                merged_gp = []
+                for i in range(num_periods):
+                    existing_val = existing_gp['values'][i] if i < len(existing_gp['values']) else None
+                    calc_val = calculated_gp[i] if i < len(calculated_gp) else None
+                    merged_gp.append(existing_val if existing_val is not None else calc_val)
+                existing_gp['values'] = merged_gp
+                existing_gp['calculated'] = True
+            else:
+                if any(v is not None for v in calculated_gp):
+                    fields.append({
+                        'key': 'gross_profit',
+                        'label': 'Gross Profit',
+                        'values': calculated_gp,
+                        'importance': 9400,
+                        'source_fields': ['revenue', 'cost_of_revenue'],
+                        'calculated': True
+                    })
+                    field_map['gross_profit'] = fields[-1]
+        
+        # =========================================================================
+        # PASO 3: Calcular Operating Income SOLO si no existe o tiene nulls
+        # =========================================================================
+        # NO sobrescribir valores del XBRL - solo rellenar nulls o crear si no existe
+        existing_oi = field_map.get('operating_income')
+        oi_has_nulls = existing_oi and any(v is None for v in existing_oi['values'])
+        needs_oi_calc = ('operating_income' not in field_map) or oi_has_nulls
+        
+        if needs_oi_calc and 'gross_profit' in field_map and 'operating_expenses' in field_map:
+            gross = field_map['gross_profit']['values']
+            opex = field_map['operating_expenses']['values']
+            calculated_oi = []
+            
+            for i in range(num_periods):
+                g = gross[i] if i < len(gross) else None
+                o = opex[i] if i < len(opex) else None
+                if g is not None and o is not None:
+                    calculated_oi.append(g - o)
+                else:
+                    calculated_oi.append(None)
+            
+            if existing_oi:
+                # Solo rellenar nulls, no sobrescribir valores existentes
+                merged_oi = []
+                for i in range(num_periods):
+                    existing_val = existing_oi['values'][i] if i < len(existing_oi['values']) else None
+                    calc_val = calculated_oi[i] if i < len(calculated_oi) else None
+                    merged_oi.append(existing_val if existing_val is not None else calc_val)
+                existing_oi['values'] = merged_oi
+            else:
+                if any(v is not None for v in calculated_oi):
+                    fields.append({
+                        'key': 'operating_income',
+                        'label': 'Operating Income',
+                        'values': calculated_oi,
+                        'importance': 8000,
+                        'source_fields': ['gross_profit', 'operating_expenses'],
+                        'calculated': True
+                    })
+                    field_map['operating_income'] = fields[-1]
+        
+        # =========================================================================
+        # PASO 4: Calcular Income Before Tax
+        # =========================================================================
+        if 'income_before_tax' not in field_map and 'net_income' in field_map and 'income_tax' in field_map:
+            net_income = field_map['net_income']['values']
+            tax = field_map['income_tax']['values']
+            income_before_tax = []
+            
+            for i in range(num_periods):
+                ni = net_income[i] if i < len(net_income) else None
+                t = tax[i] if i < len(tax) else None
+                if ni is not None and t is not None:
+                    income_before_tax.append(ni + abs(t))
+                else:
+                    income_before_tax.append(None)
+            
+            if any(v is not None for v in income_before_tax):
+                fields.append({
+                    'key': 'income_before_tax',
+                    'label': 'Income Before Tax',
+                    'values': income_before_tax,
+                    'importance': 6500,
+                    'source_fields': ['net_income', 'income_tax'],
+                    'calculated': True
+                })
+                field_map['income_before_tax'] = fields[-1]
+        
+        # =========================================================================
+        # PASO 5: Calcular EBITDA = Operating Income + D&A
+        # =========================================================================
+        if 'operating_income' in field_map:
+            op_income = field_map['operating_income']['values']
+            
+            # Combinar depreciation de múltiples campos (10-K usa un nombre, 20-F usa otro)
+            da_fields = [
+                field_map.get('depreciation'),
+                field_map.get('depreciation_expense'),
+                field_map.get('depreciation_amortization'),
+            ]
+            
+            # Merge: para cada período, usar el primer valor no-null de cualquier campo
+            da = [0] * num_periods
+            for i in range(num_periods):
+                for da_field in da_fields:
+                    if da_field and i < len(da_field['values']) and da_field['values'][i] is not None:
+                        da[i] = da_field['values'][i]
+                        break
+            
+            ebitda = []
+            for i in range(num_periods):
+                oi = op_income[i] if i < len(op_income) else None
+                d = da[i] if da[i] else 0
+                if oi is not None:
+                    ebitda.append(oi + abs(d))
+                else:
+                    ebitda.append(None)
+            
+            if any(v is not None for v in ebitda):
+                # Actualizar o añadir EBITDA
+                if 'ebitda' in field_map:
+                    field_map['ebitda']['values'] = ebitda
+                    field_map['ebitda']['calculated'] = True
+                else:
+                    fields.append({
+                        'key': 'ebitda',
+                        'label': 'EBITDA',
+                        'values': ebitda,
+                        'importance': 4600,
+                        'source_fields': ['operating_income', 'depreciation'],
+                        'calculated': True
+                    })
+        
+        return fields
+    
+    def _recalculate_ebitda_with_cashflow(
+        self, 
+        income_fields: List[Dict], 
+        cashflow_fields: List[Dict],
+        num_periods: int
+    ) -> List[Dict]:
+        """
+        Recalcular EBITDA usando D&A de Cash Flow Statement.
+        Muchas empresas reportan D&A solo en Cash Flow (como ajuste al Net Income),
+        no en el Income Statement.
+        
+        EBITDA = Operating Income + D&A
+        """
+        # Crear mapas para acceso rápido
+        income_map = {f['key']: f for f in income_fields}
+        cashflow_map = {f['key']: f for f in cashflow_fields}
+        
+        # Obtener Operating Income
+        op_income_field = income_map.get('operating_income')
+        if not op_income_field:
+            return income_fields
+        
+        op_income = op_income_field['values']
+        
+        # Buscar D&A en múltiples fuentes (primero Income Statement, luego Cash Flow)
+        da_sources = [
+            ('income', 'depreciation'),
+            ('income', 'depreciation_expense'),
+            ('income', 'depreciation_amortization'),
+            ('cashflow', 'depreciation'),
+            ('cashflow', 'depreciation_expense'),
+            ('cashflow', 'depreciation_amortization'),
+        ]
+        
+        # Combinar D&A de todas las fuentes
+        da_values = [0] * num_periods
+        da_source_found = None
+        
+        for source_type, field_key in da_sources:
+            source_map = income_map if source_type == 'income' else cashflow_map
+            da_field = source_map.get(field_key)
+            
+            if da_field and any(v is not None and v != 0 for v in da_field['values']):
+                # Merge: usar valores de esta fuente donde no tengamos ya
+                for i in range(min(num_periods, len(da_field['values']))):
+                    if da_values[i] == 0 and da_field['values'][i] is not None:
+                        da_values[i] = da_field['values'][i]
+                        da_source_found = f"{source_type}:{field_key}"
+        
+        # Calcular EBITDA = Operating Income + |D&A|
+        ebitda_values = []
+        for i in range(num_periods):
+            oi = op_income[i] if i < len(op_income) else None
+            da = abs(da_values[i]) if da_values[i] else 0
+            
+            if oi is not None:
+                ebitda_values.append(oi + da)
+            else:
+                ebitda_values.append(None)
+        
+        # Actualizar o añadir EBITDA en income_fields
+        if 'ebitda' in income_map:
+            # Actualizar valores existentes
+            income_map['ebitda']['values'] = ebitda_values
+            income_map['ebitda']['calculated'] = True
+            if da_source_found:
+                income_map['ebitda']['source_fields'] = ['operating_income', da_source_found]
+        else:
+            # Añadir nuevo campo EBITDA
+            income_fields.append({
+                'key': 'ebitda',
+                'label': 'EBITDA',
+                'values': ebitda_values,
+                'importance': 4600,
+                'source_fields': ['operating_income', da_source_found or 'depreciation'],
+                'calculated': True
+            })
+        
+        return income_fields
+    
+    # Campos clave que NUNCA se filtran (siempre se muestran si existen)
+    KEY_FINANCIAL_FIELDS = {
+        # === INCOME STATEMENT ===
+        'revenue', 'cost_of_revenue', 'gross_profit',
+        'operating_income', 'operating_expenses', 'sga_expenses', 'rd_expenses',
+        'net_income', 'income_before_tax', 'income_tax',
+        'ebitda', 'eps_basic', 'eps_diluted',
+        'interest_income', 'interest_expense', 'other_income',
+        'depreciation', 'depreciation_expense',
+        'shares_basic', 'shares_diluted',
+        'stock_compensation',
+        
+        # === BALANCE SHEET ===
+        'total_assets', 'current_assets', 'cash',
+        'receivables', 'inventory', 'st_investments', 'prepaid',
+        'ppe', 'goodwill', 'intangibles', 'lt_investments',
+        'total_liabilities', 'current_liabilities',
+        'accounts_payable', 'accrued_liabilities', 'deferred_revenue',
+        'st_debt', 'lt_debt', 'lease_liability',
+        'total_equity', 'retained_earnings', 'common_stock', 'apic', 'treasury_stock',
+        
+        # === CASH FLOW ===
+        'operating_cf', 'investing_cf', 'financing_cf',
+        'capex', 'cf_receivables', 'cf_inventory', 'cf_payables',
+        'dividends_paid', 'stock_repurchased', 'stock_issued',
+        'debt_issued', 'debt_repaid',
+        'purchase_investments', 'sale_investments', 'acquisitions',
+    }
+    
+    def _filter_low_value_fields(
+        self, 
+        fields: List[Dict[str, Any]], 
+        threshold_ratio: float = 0.3
+    ) -> List[Dict[str, Any]]:
+        """
+        Filtrar campos con pocos datos o valores mayormente cero.
+        threshold_ratio: mínimo ratio de valores no-nulos/no-cero requerido
+        
+        Campos clave (revenue, cost_of_revenue, etc.) NUNCA se filtran.
+        """
+        filtered = []
+        
+        for field in fields:
+            key = field["key"]
+            values = field["values"]
+            total = len(values)
+            
+            # Campos clave SIEMPRE se mantienen (si tienen al menos 1 valor)
+            if key in self.KEY_FINANCIAL_FIELDS:
+                if any(v is not None for v in values):
+                    filtered.append(field)
+                continue
+            
+            # Contar valores significativos (no null y no cero)
+            significant = sum(1 for v in values if v is not None and abs(v) > 0.01)
+            
+            # Mantener si tiene suficientes valores significativos
+            if total > 0 and significant / total >= threshold_ratio:
+                filtered.append(field)
+        
+        return filtered
+    
+    # =========================================================================
+    # API PRINCIPAL
+    # =========================================================================
+    
+    async def _fetch_xbrl_with_semaphore(
+        self, 
+        filing: Dict[str, Any],
+        is_quarterly: bool = False
+    ) -> Optional[Tuple[str, str, str, Dict]]:
+        """
+        Fetch XBRL data con semáforo para rate limiting.
+        Retorna: (period_label, filed_at, period_end, xbrl_data) o None si falla.
+        """
+        async with self._xbrl_semaphore:
+            accession_no = filing.get("accessionNo")
+            filed_at = filing.get("filedAt", "")
+            
+            # Pequeño delay para evitar rate limiting
+            await asyncio.sleep(self.XBRL_REQUEST_DELAY)
+            
+            xbrl = await self.get_xbrl_data(accession_no)
+            if not xbrl:
+                return None
+            
+            period_end = self._get_period_end_date(xbrl, filed_at)
+            
+            # Determinar etiqueta del período
+            if is_quarterly and period_end:
+                # Para quarterly: usar Q1/Q2/Q3/Q4 basado en el mes del period_end
+                try:
+                    month = int(period_end[5:7])
+                    year = period_end[:4]
+                    quarter = (month - 1) // 3 + 1
+                    period_label = f"Q{quarter} {year}"
+                except:
+                    period_label = filed_at[:4]
+            else:
+                # Para annual: solo el año
+                period_label = period_end[:4] if period_end else filed_at[:4]
+            
+            return (period_label, filed_at, period_end, xbrl)
+    
+    def _extract_filing_data(
+        self, 
+        xbrl: Dict, 
+        fiscal_year: str
+    ) -> Tuple[Dict, Dict, Dict]:
+        """
+        Extraer datos de income, balance y cashflow de un XBRL.
+        """
+        income_fields = {}
+        balance_fields = {}
+        cashflow_fields = {}
+        
+        for section, category in self.SECTION_MAPPING.items():
+            fields = self._extract_all_fields_from_section(xbrl, section, fiscal_year)
+            if category == "income":
+                income_fields.update(fields)
+            elif category == "balance":
+                balance_fields.update(fields)
+            elif category == "cashflow":
+                cashflow_fields.update(fields)
+        
+        return income_fields, balance_fields, cashflow_fields
+    
+    def _extract_all_quarters_from_xbrl(
+        self, 
+        xbrl: Dict
+    ) -> List[Tuple[str, Dict, Dict, Dict]]:
+        """
+        Extraer TODOS los trimestres de un XBRL (para empresas extranjeras con 6-K).
+        Retorna lista de (period_label, end_date, income_data, balance_data, cashflow_data).
+        
+        IMPORTANTE: Los períodos se detectan SOLO desde Income Statement (startDate/endDate).
+        El Balance Sheet usa fechas instant que se asocian al end_date del income.
+        
+        Esto evita crear períodos "fantasma" basados solo en balance sheet
+        que no tienen datos de income statement.
+        """
+        from datetime import datetime
+        
+        # 1. Detectar períodos SOLO desde secciones de income statement
+        quarterly_periods = set()  # (end_date, period_label)
+        income_sections = ["StatementsOfIncome", "StatementsOfComprehensiveIncome", "StatementsOfOperations"]
+        
+        for section in income_sections:
+            section_data = xbrl.get(section, {})
+            if not isinstance(section_data, dict):
+                continue
+            
+            for field_name, values in section_data.items():
+                if not isinstance(values, list):
+                    continue
+                
+                for item in values:
+                    if not isinstance(item, dict):
+                        continue
+                    
+                    period = item.get("period", {})
+                    if not isinstance(period, dict):
+                        continue
+                    
+                    start_date = period.get("startDate", "")
+                    end_date = period.get("endDate", "")
+                    
+                    if start_date and end_date:
+                        try:
+                            start = datetime.strptime(start_date, "%Y-%m-%d")
+                            end = datetime.strptime(end_date, "%Y-%m-%d")
+                            days = (end - start).days
+                            
+                            # Solo períodos de ~3 meses (80-100 días)
+                            if 80 <= days <= 100:
+                                month = end.month
+                                year = end.year
+                                quarter = (month - 1) // 3 + 1
+                                period_label = f"Q{quarter} {year}"
+                                quarterly_periods.add((end_date, period_label))
+                        except:
+                            continue
+        
+        if not quarterly_periods:
+            return []
+        
+        # 2. Extraer datos para cada trimestre detectado
+        results = []
+        for end_date, period_label in sorted(quarterly_periods, reverse=True):
+            income_data = self._extract_fields_for_period(xbrl, "income", end_date)
+            balance_data = self._extract_fields_for_period(xbrl, "balance", end_date)
+            cashflow_data = self._extract_fields_for_period(xbrl, "cashflow", end_date)
+            
+            # Solo incluir si hay datos de income (el período se detectó desde income)
+            if income_data:
+                results.append((period_label, end_date, income_data, balance_data, cashflow_data))
+        
+        return results
+    
+    def _extract_fields_for_period(
+        self, 
+        xbrl: Dict, 
+        category: str, 
+        target_end_date: str
+    ) -> Dict[str, Tuple[float, str]]:
+        """
+        Extraer campos para un período específico.
+        
+        Busca tanto:
+        - endDate (para Income/CashFlow)
+        - instant (para Balance Sheet)
+        """
+        results = {}
+        
+        for section, cat in self.SECTION_MAPPING.items():
+            if cat != category:
+                continue
+            
+            section_data = xbrl.get(section, {})
+            if not isinstance(section_data, dict):
+                continue
+            
+            for field_name, values in section_data.items():
+                if not isinstance(values, list):
+                    continue
+                
+                for item in values:
+                    if not isinstance(item, dict):
+                        continue
+                    
+                    period = item.get("period", {})
+                    if not isinstance(period, dict):
+                        continue
+                    
+                    # Buscar tanto endDate como instant
+                    end_date = period.get("endDate", "")
+                    instant = period.get("instant", "")
+                    
+                    # Coincidir con cualquiera de los dos
+                    if end_date == target_end_date or instant == target_end_date:
+                        try:
+                            raw_value = item.get("value")
+                            if raw_value is None:
+                                continue
+                            value = float(raw_value)
+                            normalized = self._camel_to_snake(field_name)
+                            
+                            # Preferir valores sin segmento
+                            segment = item.get("segment")
+                            if normalized not in results or segment is None:
+                                results[normalized] = (value, field_name)
+                        except (ValueError, TypeError):
+                            continue
+        
+        return results
+    
+    async def get_financials(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Obtener datos financieros consolidados semánticamente.
+        
+        OPTIMIZADO: Requests XBRL en paralelo con semáforo.
+        - Splits y filings se obtienen en paralelo
+        - XBRL requests con concurrencia controlada (max 8)
+        - Soporta empresas US (10-K/10-Q) y extranjeras (20-F/6-K)
+        """
+        # Form types: US companies use 10-K/10-Q, foreign companies use 20-F/6-K
+        if period == "annual":
+            form_types = ["10-K", "20-F"]  # Annual reports
+        else:
+            form_types = ["10-Q", "6-K"]  # Quarterly reports
+        
+        start_time = asyncio.get_event_loop().time()
+        
+        # 1. PARALELO: Obtener filings de ambos tipos Y splits simultáneamente
+        filing_tasks = [self.get_filings(ticker, ft, limit + 5) for ft in form_types]
+        splits_task = self.get_splits(ticker)
+        
+        results = await asyncio.gather(*filing_tasks, splits_task)
+        
+        # Combinar filings de ambos tipos
+        all_filings = []
+        for i, ft in enumerate(form_types):
+            all_filings.extend(results[i] or [])
+        splits = results[-1]
+        
+        # Ordenar por fecha descendente
+        all_filings.sort(key=lambda x: x.get("filedAt", ""), reverse=True)
+        
+        if period == "annual":
+            # Para ANNUAL: Deduplicar por año fiscal (priorizar 10-K sobre 20-F)
+            seen_years = set()
+            filings = []
+            for f in all_filings:
+                fiscal_year = f.get("filedAt", "")[:4]
+                form = f.get("formType", "")
+                
+                if fiscal_year not in seen_years:
+                    filings.append(f)
+                    seen_years.add(fiscal_year)
+                elif form == "10-K":
+                    # Reemplazar 20-F con 10-K si existe
+                    for i, existing in enumerate(filings):
+                        if existing.get("filedAt", "")[:4] == fiscal_year:
+                            if existing.get("formType") == "20-F":
+                                filings[i] = f
+                            break
+        else:
+            # Para QUARTERLY: Deduplicar por periodOfReport (período que cubre el reporte)
+            # NO usar filedAt porque múltiples 6-K pueden presentarse el mismo mes:
+            # - Business updates (SIN datos financieros)
+            # - Reportes trimestrales (CON datos financieros)
+            # 
+            # Priorizar:
+            # 1. 10-Q sobre 6-K
+            # 2. Archivos con formato ticker-YYYYMMDD.htm (reportes financieros reales)
+            #    sobre archivos como "form6-k...", "businessupdate...", etc.
+            seen_periods = set()  # periodOfReport como clave
+            filings = []
+            
+            for f in all_filings:
+                period_of_report = f.get("periodOfReport", "")  # Usar período, NO fecha presentación
+                form = f.get("formType", "")
+                link = f.get("linkToFilingDetails", "")
+                filename = link.split('/')[-1].lower() if link else ""
+                
+                # Determinar si es un reporte financiero real vs business update
+                # Los reportes financieros tienen formato: ticker-YYYYMMDD.htm
+                # Los updates tienen: form6-k..., irenlimited-6kbusiness..., etc.
+                is_financial_report = (
+                    filename.startswith(('iren-', 'googl-', 'goog-', 'aapl-', 'msft-')) or
+                    (len(filename) > 15 and filename[4] == '-' and filename[5:13].isdigit())
+                )
+                
+                if period_of_report not in seen_periods:
+                    filings.append(f)
+                    seen_periods.add(period_of_report)
+                else:
+                    # Ya existe uno para este período, ver si debemos reemplazarlo
+                    for i, existing in enumerate(filings):
+                        if existing.get("periodOfReport") == period_of_report:
+                            existing_form = existing.get("formType", "")
+                            existing_link = existing.get("linkToFilingDetails", "")
+                            existing_filename = existing_link.split('/')[-1].lower() if existing_link else ""
+                            existing_is_financial = (
+                                existing_filename.startswith(('iren-', 'googl-', 'goog-', 'aapl-', 'msft-')) or
+                                (len(existing_filename) > 15 and existing_filename[4] == '-' and existing_filename[5:13].isdigit())
+                            )
+                            
+                            # Prioridad: 10-Q > 6-K financiero > 6-K update
+                            should_replace = False
+                            if form == "10-Q" and existing_form != "10-Q":
+                                should_replace = True
+                            elif is_financial_report and not existing_is_financial:
+                                should_replace = True
+                            
+                            if should_replace:
+                                filings[i] = f
+                            break
+        
+        if not filings:
+            return self._empty_response(ticker)
+        
+        logger.info(f"[{ticker}] Got {len(filings)} filings, {len(splits)} splits in {asyncio.get_event_loop().time() - start_time:.2f}s")
+        
+        # 2. PARALELO: Fetch todos los XBRL con semáforo (max 5 concurrent)
+        is_quarterly = (period == "quarterly")
+        xbrl_tasks = [
+            self._fetch_xbrl_with_semaphore(filing, is_quarterly) 
+            for filing in filings[:limit]
+        ]
+        
+        xbrl_results = await asyncio.gather(*xbrl_tasks, return_exceptions=True)
+        
+        # 3. Procesar resultados (mantener orden cronológico)
+        income_data = []
+        balance_data = []
+        cashflow_data = []
+        fiscal_years = []
+        period_end_dates = []
+        
+        for result in xbrl_results:
+            if result is None or isinstance(result, Exception):
+                continue
+            
+            fiscal_year, filed_at, period_end, xbrl = result
+            
+            if is_quarterly:
+                # Para quarterly: extraer TODOS los trimestres de cada XBRL
+                quarters = self._extract_all_quarters_from_xbrl(xbrl)
+                for q_label, q_end_date, q_income, q_balance, q_cashflow in quarters:
+                    # Evitar duplicados
+                    if q_label not in fiscal_years:
+                        fiscal_years.append(q_label)
+                        period_end_dates.append(q_end_date)
+                        income_data.append(q_income)
+                        balance_data.append(q_balance)
+                        cashflow_data.append(q_cashflow)
+            else:
+                # Para annual: extraer solo el período principal
+                fiscal_years.append(fiscal_year)
+                period_end_dates.append(period_end)
+                income_fields, balance_fields, cashflow_fields = self._extract_filing_data(xbrl, fiscal_year)
+                income_data.append(income_fields)
+                balance_data.append(balance_fields)
+                cashflow_data.append(cashflow_fields)
+        
+        if not fiscal_years:
+            return self._empty_response(ticker)
+        
+        # Ordenar por fecha descendente (más reciente primero)
+        if period_end_dates:
+            sorted_indices = sorted(range(len(period_end_dates)), key=lambda i: period_end_dates[i] or "", reverse=True)
+            fiscal_years = [fiscal_years[i] for i in sorted_indices]
+            period_end_dates = [period_end_dates[i] for i in sorted_indices]
+            income_data = [income_data[i] for i in sorted_indices]
+            balance_data = [balance_data[i] for i in sorted_indices]
+            cashflow_data = [cashflow_data[i] for i in sorted_indices]
+        
+        logger.info(f"[{ticker}] Fetched {len(fiscal_years)} periods from XBRL in {asyncio.get_event_loop().time() - start_time:.2f}s")
+        
+        # 4. Consolidar semánticamente
+        income_consolidated = self._consolidate_fields_semantically(income_data, fiscal_years)
+        balance_consolidated = self._consolidate_fields_semantically(balance_data, fiscal_years)
+        cashflow_consolidated = self._consolidate_fields_semantically(cashflow_data, fiscal_years)
+        
+        # 4.5 Recalcular EBITDA usando D&A de Cash Flow (muchas empresas no lo tienen en Income Statement)
+        income_consolidated = self._recalculate_ebitda_with_cashflow(income_consolidated, cashflow_consolidated, len(fiscal_years))
+        
+        # 5. Ajustar EPS y Shares por splits
+        if splits:
+            income_consolidated = self._adjust_for_splits(income_consolidated, splits, period_end_dates)
+        
+        # 6. Filtrar campos con pocos datos
+        income_filtered = self._filter_low_value_fields(income_consolidated)
+        balance_filtered = self._filter_low_value_fields(balance_consolidated)
+        cashflow_filtered = self._filter_low_value_fields(cashflow_consolidated)
+        
+        total_time = asyncio.get_event_loop().time() - start_time
+        logger.info(f"[{ticker}] Total processing: {total_time:.2f}s ({len(fiscal_years)} periods)")
+        
+        # 7. Formatear respuesta
+        has_split_adjustments = any(f.get('split_adjusted') for f in income_filtered)
+        
+        return {
+            "symbol": ticker,
+            "currency": "USD",
+            "source": "sec-api-xbrl",
+            "symbiotic": True,
+            "split_adjusted": has_split_adjustments,
+            "splits": [{"date": s.get("execution_date"), "ratio": f"{s.get('split_to')}:{s.get('split_from')}"} for s in splits] if splits else [],
+            "periods": fiscal_years,
+            "income_statement": income_filtered,
+            "balance_sheet": balance_filtered,
+            "cash_flow": cashflow_filtered,
+            "processing_time_seconds": round(total_time, 2),
+            "last_updated": datetime.utcnow().isoformat()
+        }
+    
+    def _empty_response(self, ticker: str) -> Dict[str, Any]:
+        return {
+            "symbol": ticker,
+            "currency": "USD",
+            "source": "sec-api-xbrl",
+            "symbiotic": True,
+            "periods": [],
+            "income_statement": [],
+            "balance_sheet": [],
+            "cash_flow": [],
+            "last_updated": datetime.utcnow().isoformat()
+        }

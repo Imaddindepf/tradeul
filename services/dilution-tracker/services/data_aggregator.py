@@ -315,13 +315,13 @@ class DataAggregator:
             if db_holders:
                 latest_date = db_holders[0]['report_date']
                 if latest_date:
-                    days_old = (datetime.now().date() - latest_date).days
-                    
-                    if days_old < 30:
+                days_old = (datetime.now().date() - latest_date).days
+                
+                if days_old < 30:
                         logger.debug("using_db_holders", ticker=ticker, source="SEC-13F")
-                        # Filtrar holders con shares_held = 0
-                        filtered = [h for h in db_holders if h.get('shares_held', 0) > 0]
-                        return filtered
+                    # Filtrar holders con shares_held = 0
+                    filtered = [h for h in db_holders if h.get('shares_held', 0) > 0]
+                    return filtered
             
             # Fetch desde SEC-API.io 13F filings
             logger.info("fetching_holders_from_sec_13f", ticker=ticker)
@@ -383,11 +383,11 @@ class DataAggregator:
                 if latest_date is None:
                     logger.warning("filing_date_is_none", ticker=ticker)
                 else:
-                    days_old = (datetime.now().date() - latest_date).days
-                    
-                    if days_old < 7:
+                days_old = (datetime.now().date() - latest_date).days
+                
+                if days_old < 7:
                         logger.debug("using_db_filings", ticker=ticker, count=len(db_filings))
-                        return db_filings
+                    return db_filings
             
             # Fetch desde FMP
             logger.info("fetching_filings_from_fmp", ticker=ticker)

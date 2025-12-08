@@ -265,7 +265,8 @@ function formatValue(value: number | null, type: string = 'currency'): string {
   return `${sign}$${absValue.toFixed(0)}`;
 }
 
-function formatValueCompact(value: number, type: string = 'currency'): string {
+function formatValueCompact(value: number | null | undefined, type: string = 'currency'): string {
+  if (value == null) return '--';
   if (type === 'percent') return `${value.toFixed(1)}%`;
   if (type === 'ratio') return value.toFixed(1);
   if (type === 'eps') return `$${value.toFixed(2)}`;
@@ -296,12 +297,15 @@ export function FinancialMetricChart({
   valueType = 'currency',
   isNegativeBad = true,
 }: FinancialMetricChartProps) {
+  // Ensure data is always an array
+  const safeData = Array.isArray(data) ? data : [];
+  
   // All available periods (for the slider)
   const allPeriods = useMemo(() => {
-    return data
+    return safeData
       .filter(d => d.value !== null && d.value !== undefined)
       .map(d => d.period);
-  }, [data]);
+  }, [safeData]);
 
   // Range state: default to full range
   const [rangeStart, setRangeStart] = useState(0);
@@ -321,7 +325,7 @@ export function FinancialMetricChart({
 
   // Prepare chart data filtered by range
   const chartData = useMemo(() => {
-    return data
+    return safeData
       .filter(d => d.value !== null && d.value !== undefined)
       .slice(rangeStart, rangeEnd + 1)
       .map((d, index, arr) => ({
@@ -329,7 +333,7 @@ export function FinancialMetricChart({
         displayValue: d.value as number,
         isLatest: index === arr.length - 1,
       }));
-  }, [data, rangeStart, rangeEnd]);
+  }, [safeData, rangeStart, rangeEnd]);
 
   // Calculate statistics
   const stats = useMemo(() => {

@@ -11,7 +11,7 @@ import {
     X
 } from "lucide-react";
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { useAuthWebSocket } from '@/hooks/useAuthWebSocket';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 
 type DocumentFile = {
     sequence: string;
@@ -64,9 +64,8 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
     const [selectedFiling, setSelectedFiling] = useState<SECFiling | null>(null);
     const PAGE_SIZE = 100;
 
-    // WebSocket con Auth
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-    const ws = useAuthWebSocket(wsUrl);
+    // WebSocket (ya autenticado desde AuthWebSocketProvider)
+    const ws = useWebSocket();
     const seenAccessions = useRef<Set<string>>(new Set());
     const realtimeAccessions = useRef<Set<string>>(new Set()); // Track cuáles son real-time
 

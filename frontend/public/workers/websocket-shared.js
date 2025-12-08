@@ -18,9 +18,17 @@ let connectionInfo = {
   isConnected: false,
   reconnectAttempts: 0,
   reconnectTimer: null,
+  waitingForToken: false, // Flag: esperando token nuevo antes de reconectar
+  tokenTimeout: null,     // Timer de fallback si el token no llega
 };
 
 let heartbeatTimer = null;
+
+// Trading day tracking para detectar cambio de sesión
+// Se actualiza cuando:
+// 1. Recibimos mensaje "connected" del servidor (al conectar)
+// 2. Recibimos "market_session_change" con is_new_day o trading_date diferente
+let currentTradingDate = null;
 
 // ============================================================================
 // LOGGING - Solo errores en producción
@@ -71,6 +79,13 @@ function connectWebSocket(url) {
       // log('info', '✅ SharedWorker WebSocket connected');
       connectionInfo.isConnected = true;
       connectionInfo.reconnectAttempts = 0;
+      connectionInfo.waitingForToken = false; // Limpiar flag
+      
+      // Limpiar timeout de token si existe
+      if (connectionInfo.tokenTimeout) {
+        clearTimeout(connectionInfo.tokenTimeout);
+        connectionInfo.tokenTimeout = null;
+      }
 
       broadcastStatus();
       resubscribeAllLists();
@@ -95,6 +110,7 @@ function connectWebSocket(url) {
       // Log silenciado - descomentar para debug
       // log('warn', '❌ SharedWorker WebSocket closed');
       connectionInfo.isConnected = false;
+      connectionInfo.waitingForToken = true; // Flag: esperando token nuevo
       stopHeartbeat();
       broadcastStatus();
 
@@ -109,7 +125,6 @@ function connectWebSocket(url) {
 
         connectionInfo.reconnectTimer = setTimeout(function() {
           // Pedir token nuevo al frontend antes de reconectar
-          // Esto evita reconectar con tokens expirados
           ports.forEach(function(port) {
             port.postMessage({
               type: 'request_fresh_token',
@@ -117,12 +132,15 @@ function connectWebSocket(url) {
             });
           });
           
-          // Dar tiempo al frontend para enviar el token nuevo (500ms)
-          // Si no llega, reconectar con la URL actual (mejor que no reconectar)
-          setTimeout(function() {
-            // log('info', '🔄 Reconnecting (attempt ' + connectionInfo.reconnectAttempts + ')');
-          connectWebSocket(connectionInfo.url);
-          }, 500);
+          // Esperar hasta 3 segundos para el token nuevo
+          // Si no llega, reconectar con la URL actual como fallback
+          connectionInfo.tokenTimeout = setTimeout(function() {
+            if (connectionInfo.waitingForToken) {
+              log('error', '⚠️ Token timeout, reconnecting with current URL');
+              connectionInfo.waitingForToken = false;
+              connectWebSocket(connectionInfo.url);
+            }
+          }, 3000);
         }, backoff);
       }
     };
@@ -156,6 +174,78 @@ function startHeartbeat() {
 // ============================================================================
 
 function broadcastMessage(message) {
+  // =========================================================================
+  // DETECTAR CAMBIO DE DÍA DE TRADING
+  // El servidor envía trading_date en:
+  // 1. Mensaje "connected" (al conectar)
+  // 2. Mensaje "market_session_change" (cuando cambia la sesión)
+  // =========================================================================
+  
+  // CASO 1: Mensaje de conexión inicial - guardar trading_date
+  if (message.type === 'connected' && message.trading_date) {
+    const serverTradingDate = message.trading_date;
+    
+    // Si ya teníamos un trading_date y es diferente, es un cambio de día
+    if (currentTradingDate && currentTradingDate !== serverTradingDate) {
+      log('error', '🔄 Trading day changed (reconnect): ' + currentTradingDate + ' → ' + serverTradingDate);
+      
+      // Broadcast a todos los ports para que limpien su caché
+      ports.forEach(function(port) {
+        try {
+          port.postMessage({
+            type: 'trading_day_changed',
+            data: {
+              previousDate: currentTradingDate,
+              newDate: serverTradingDate,
+              session: message.current_session,
+              timestamp: message.timestamp,
+            },
+          });
+        } catch (e) {
+          // Port cerrado
+        }
+      });
+    }
+    
+    currentTradingDate = serverTradingDate;
+  }
+  
+  // CASO 2: Cambio de sesión en tiempo real
+  if (message.type === 'market_session_change' && message.data) {
+    const newTradingDate = message.data.trading_date;
+    const isNewDay = message.data.is_new_day;
+    
+    // Detectar cambio de día
+    if (isNewDay || (newTradingDate && currentTradingDate && newTradingDate !== currentTradingDate)) {
+      log('error', '🔄 Trading day changed: ' + currentTradingDate + ' → ' + newTradingDate);
+      
+      // Broadcast a todos los ports para que limpien su caché
+      ports.forEach(function(port) {
+        try {
+          port.postMessage({
+            type: 'trading_day_changed',
+            data: {
+              previousDate: currentTradingDate,
+              newDate: newTradingDate,
+              session: message.data.current_session,
+              timestamp: message.data.timestamp,
+            },
+          });
+        } catch (e) {
+          // Port cerrado
+        }
+      });
+    }
+    
+    // Actualizar el día de trading conocido
+    if (newTradingDate) {
+      currentTradingDate = newTradingDate;
+    }
+  }
+  
+  // =========================================================================
+  // BROADCAST NORMAL DEL MENSAJE
+  // =========================================================================
   ports.forEach(function(port) {
     const sub = subscriptions.get(port);
     if (!sub) return;
@@ -261,11 +351,22 @@ function handlePortMessage(port, data) {
     case 'update_token':
       if (data.url) {
         connectionInfo.url = data.url; // Actualizar URL para futuras reconexiones
-        // Log silenciado - descomentar para debug
-        // log('info', '🔐 Token URL updated for future reconnections');
         
-        // Si estamos conectados, enviar refresh_token al servidor
-        if (ws && ws.readyState === WebSocket.OPEN && data.token) {
+        // Si estamos esperando token para reconectar, hacerlo ahora
+        if (connectionInfo.waitingForToken) {
+          connectionInfo.waitingForToken = false;
+          
+          // Cancelar el timeout de fallback
+          if (connectionInfo.tokenTimeout) {
+            clearTimeout(connectionInfo.tokenTimeout);
+            connectionInfo.tokenTimeout = null;
+          }
+          
+          // log('info', '🔐 Got fresh token, reconnecting now...');
+          connectWebSocket(data.url);
+        }
+        // Si ya estamos conectados, enviar refresh_token al servidor
+        else if (ws && ws.readyState === WebSocket.OPEN && data.token) {
           ws.send(JSON.stringify({ action: 'refresh_token', token: data.token }));
           // log('info', '🔐 Sent refresh_token to server');
         }
