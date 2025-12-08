@@ -10,17 +10,18 @@ import { FloatingWindowManager } from '@/components/floating-window/FloatingWind
 import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/catalyst-alerts';
 import { NewsProvider } from '@/components/news/NewsProvider';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
+import { useScannerFiltersSync } from '@/hooks/useScannerFiltersSync';
 
 interface AppShellProps {
   children: ReactNode;
 }
 
 /**
- * Componente interno que usa el hook de reset de día de trading
- * Se monta dentro de AuthWebSocketProvider para tener acceso al WebSocket
+ * Componente interno que usa hooks globales
  */
-function TradingDayResetHandler() {
+function GlobalHooksHandler() {
   useTradingDayReset();
+  useScannerFiltersSync(); // Sincroniza filtros del scanner con BD
   return null;
 }
 
@@ -29,8 +30,8 @@ export function AppShell({ children }: AppShellProps) {
     <AuthWebSocketProvider>
       <SquawkProvider>
         <FloatingWindowProvider>
-          {/* TradingDayResetHandler: detecta cambio de dia y limpia stores automaticamente */}
-          <TradingDayResetHandler />
+          {/* GlobalHooksHandler: hooks globales (reset dia, sync filtros) */}
+          <GlobalHooksHandler />
           {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
           <NewsProvider>
             {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}

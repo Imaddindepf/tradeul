@@ -12,11 +12,14 @@ import {
     Time,
     UTCTimestamp,
     LineStyle,
-    PriceScaleMode
+    PriceScaleMode,
+    SeriesMarker
 } from 'lightweight-charts';
-import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut, Radio, Minus, Trash2, MousePointer } from 'lucide-react';
+import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut, Radio, Minus, Trash2, MousePointer, Newspaper, ExternalLink } from 'lucide-react';
 import { useLiveChartData, type ChartInterval, type ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
 import { useChartDrawings, type Drawing, type DrawingTool } from '@/hooks/useChartDrawings';
+import { useNewsStore } from '@/stores/useNewsStore';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 
 // ============================================================================
 // Types
@@ -161,6 +164,68 @@ function formatPrice(price: number): string {
 }
 
 // ============================================================================
+// News Popup Component (for chart markers)
+// ============================================================================
+
+interface NewsArticle {
+    benzinga_id?: string;
+    id?: string;
+    title: string;
+    url: string;
+    published: string;
+    author?: string;
+}
+
+function ChartNewsPopup({ ticker, articles }: { ticker: string; articles: NewsArticle[] }) {
+    const formatTime = (isoString: string) => {
+        try {
+            const d = new Date(isoString);
+            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        } catch {
+            return '—';
+        }
+    };
+
+    if (articles.length === 0) {
+        return (
+            <div className="flex items-center justify-center h-full bg-white p-4">
+                <p className="text-slate-500 text-sm">No news for {ticker}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col h-full bg-white">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200">
+                <span className="text-sm font-bold text-blue-600">{ticker}</span>
+                <span className="text-xs text-slate-500 ml-2">
+                    {articles.length} article{articles.length !== 1 ? 's' : ''}
+                </span>
+            </div>
+            <div className="flex-1 overflow-auto divide-y divide-slate-100">
+                {articles.map((article, i) => (
+                    <a
+                        key={article.benzinga_id || article.id || i}
+                        href={article.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block px-3 py-2 hover:bg-slate-50 group"
+                    >
+                        <div className="flex items-start gap-2">
+                            <span className="text-xs text-slate-800 flex-1 leading-snug">{article.title}</span>
+                            <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-500 flex-shrink-0" />
+                        </div>
+                        <div className="text-xs text-slate-400 mt-1">
+                            {formatTime(article.published)} · {article.author || 'Benzinga'}
+                        </div>
+                    </a>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+// ============================================================================
 // Component
 // ============================================================================
 
@@ -182,9 +247,19 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
     const [showMA, setShowMA] = useState(true);
     const [showEMA, setShowEMA] = useState(false);
     const [showVolume, setShowVolume] = useState(true);
+    const [showNewsMarkers, setShowNewsMarkers] = useState(false);
     const [hoveredBar, setHoveredBar] = useState<ChartBar | null>(null);
 
     const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval);
+
+    // News for markers
+    const allNews = useNewsStore((state) => state.articles);
+    const tickerNews = allNews.filter(article => 
+        article.tickers?.some(t => t.toUpperCase() === currentTicker.toUpperCase())
+    );
+    
+    // Floating window for news popup
+    const { openWindow } = useFloatingWindow();
 
     // Drawing tools
     const {
@@ -601,6 +676,11 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
         candleSeriesRef.current.setData(candleData);
         volumeSeriesRef.current.setData(volumeData);
 
+        // Clear markers if news markers disabled
+        if (!showNewsMarkers) {
+            candleSeriesRef.current.setMarkers([]);
+        }
+
         // Calculate and set MAs
         if (ma20SeriesRef.current && ma50SeriesRef.current) {
             const ma20Data = calculateSMA(data, 20);
@@ -619,7 +699,138 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
 
         // Apply selected time range
         setTimeout(() => applyTimeRange(selectedRange), 50);
-    }, [data, selectedRange, applyTimeRange]);
+    }, [data, selectedRange, applyTimeRange, currentTicker, showNewsMarkers]);
+
+    // ============================================================================
+    // News markers effect - positioned at exact price with click support
+    // ============================================================================
+    const newsPriceLinesRef = useRef<any[]>([]);
+    const newsTimeMapRef = useRef<Map<number, any[]>>(new Map()); // Map candle time -> news articles
+    
+    useEffect(() => {
+        if (!candleSeriesRef.current || !data || data.length === 0) return;
+        
+        // Clear previous price lines
+        for (const line of newsPriceLinesRef.current) {
+            try {
+                candleSeriesRef.current.removePriceLine(line);
+            } catch (e) {
+                // Ignore if already removed
+            }
+        }
+        newsPriceLinesRef.current = [];
+        newsTimeMapRef.current.clear();
+        
+        // Clear markers too
+        candleSeriesRef.current.setMarkers([]);
+        
+        if (!showNewsMarkers || tickerNews.length === 0) {
+            return;
+        }
+
+        const newsMarkers: SeriesMarker<Time>[] = [];
+        
+        // Create a map of candle data for quick lookup
+        const candleDataMap = new Map<number, { time: number; open: number; high: number; low: number; close: number }>();
+        for (const bar of data) {
+            // Round to minute for matching
+            const roundedTime = Math.floor(bar.time / 60) * 60;
+            candleDataMap.set(roundedTime, {
+                time: bar.time,
+                open: bar.open,
+                high: bar.high,
+                low: bar.low,
+                close: bar.close
+            });
+        }
+
+        // For each news, find the matching candle and create marker at price
+        for (const news of tickerNews) {
+            if (!news.published) continue;
+            
+            // Parse news published time
+            const newsDate = new Date(news.published);
+            const newsTimestamp = Math.floor(newsDate.getTime() / 1000);
+            const roundedNewsTime = Math.floor(newsTimestamp / 60) * 60;
+            
+            // Find matching candle
+            const candleData = candleDataMap.get(roundedNewsTime);
+            
+            if (candleData) {
+                // Store the news for this candle time (for click handling)
+                if (!newsTimeMapRef.current.has(candleData.time)) {
+                    newsTimeMapRef.current.set(candleData.time, []);
+                }
+                newsTimeMapRef.current.get(candleData.time)!.push(news);
+                
+                // Get the exact price if available, otherwise interpolate
+                let newsPrice: number;
+                const tickerUpper = currentTicker.toUpperCase();
+                
+                if (news.tickerPrices && news.tickerPrices[tickerUpper]) {
+                    // Use exact captured price
+                    newsPrice = news.tickerPrices[tickerUpper];
+                } else {
+                    // Fallback: Interpolate price based on seconds within the minute
+                    const secondsInMinute = newsDate.getSeconds();
+                    const ratio = secondsInMinute / 60; // 0 to 1
+                    newsPrice = candleData.open + (candleData.close - candleData.open) * ratio;
+                }
+                
+                // Add marker at the candle - arrowDown pointing to the price
+                newsMarkers.push({
+                    time: candleData.time as UTCTimestamp,
+                    position: 'aboveBar',
+                    color: '#f59e0b', // amber/gold color
+                    shape: 'arrowDown',
+                    text: '📰',
+                    size: 2,
+                });
+                
+                // Add a small price line annotation at that price
+                const priceLine = candleSeriesRef.current.createPriceLine({
+                    price: newsPrice,
+                    color: '#f59e0b',
+                    lineWidth: 2,
+                    lineStyle: 2, // Dashed
+                    axisLabelVisible: true,
+                    title: `📰 ${newsDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
+                });
+                newsPriceLinesRef.current.push(priceLine);
+            }
+        }
+
+        // Sort markers by time (required by lightweight-charts)
+        newsMarkers.sort((a, b) => (a.time as number) - (b.time as number));
+        
+        // Remove duplicates (same time) - keep first occurrence
+        const uniqueMarkers = newsMarkers.filter((marker, index, self) => 
+            index === self.findIndex(m => m.time === marker.time)
+        );
+
+        candleSeriesRef.current.setMarkers(uniqueMarkers);
+        
+        if (uniqueMarkers.length > 0) {
+            console.log('[Chart] News markers added:', uniqueMarkers.length, 'with price lines');
+        }
+    }, [showNewsMarkers, tickerNews, data]);
+    
+    // Handler for clicking on news markers
+    const handleNewsMarkerClick = useCallback((time: number) => {
+        const newsAtTime = newsTimeMapRef.current.get(time);
+        if (newsAtTime && newsAtTime.length > 0) {
+            openWindow({
+                title: `📰 News: ${currentTicker}`,
+                content: <ChartNewsPopup ticker={currentTicker} articles={newsAtTime} />,
+                width: 400,
+                height: 300,
+                x: 300,
+                y: 150,
+                minWidth: 320,
+                minHeight: 200,
+            });
+        }
+    }, [currentTicker, openWindow]);
 
     // ============================================================================
     // Register real-time update handler (uses series.update() - NO re-render)
@@ -771,6 +982,12 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
             const price = candleSeries.coordinateToPrice(param.point.y);
             if (price === null) return;
 
+            // Check if clicked on a news marker
+            if (showNewsMarkers && param.time && newsTimeMapRef.current.has(param.time as number)) {
+                handleNewsMarkerClick(param.time as number);
+                return;
+            }
+
             if (activeTool === 'horizontal_line') {
                 // Modo dibujo: crear línea horizontal
                 handleChartClick(price);
@@ -804,7 +1021,7 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
             chart.unsubscribeClick(handleClick);
             chart.unsubscribeDblClick(handleDoubleClick);
         };
-    }, [activeTool, handleChartClick, findDrawingNearPrice, selectDrawing, openEditPopup]);
+    }, [activeTool, handleChartClick, findDrawingNearPrice, selectDrawing, openEditPopup, showNewsMarkers, handleNewsMarkerClick]);
 
     // ============================================================================
     // Hover detection para selección de líneas (solo cuando no estamos dibujando)
@@ -1146,6 +1363,18 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
                         title="Volume"
                     >
                         <BarChart3 className="w-4 h-4" />
+                    </button>
+
+                    {/* News markers toggle */}
+                    <button
+                        onClick={() => setShowNewsMarkers(!showNewsMarkers)}
+                        className={`p-1.5 rounded transition-colors ${showNewsMarkers
+                            ? 'bg-blue-100 text-blue-600'
+                            : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                            }`}
+                        title={`News Markers (${tickerNews.length})`}
+                    >
+                        <Newspaper className="w-4 h-4" />
                     </button>
 
                     <div className="w-px h-5 bg-slate-200 mx-1" />

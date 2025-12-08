@@ -5,17 +5,18 @@
  * 
  * Sistema profesional de detección de catalyst para traders de breaking news.
  * 
- * Soporta dos tipos de alertas:
- * 1. EARLY: Ticker ya en movimiento cuando llega la noticia (inmediata)
- * 2. CONFIRMED: Movimiento confirmado después de evaluar (diferida)
+ * Detecta el IMPACTO REAL de noticias en tiempo real via WebSocket:
+ * - Cuando llega una noticia, captura el precio actual
+ * - Monitorea el ticker en tiempo real
+ * - Alerta cuando detecta movimiento significativo desde la noticia + RVOL alto
  * 
- * IMPORTANTE: Este componente debe estar montado en el layout principal
- * para que las alertas funcionen aunque la ventana de News no esté abierta.
+ * NO usa el cambio del día (inútil para catalyst).
+ * SI usa el cambio desde que llegó la noticia.
  */
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@clerk/nextjs';
-import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert, AlertType } from '@/stores/useCatalystAlertsStore';
+import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert } from '@/stores/useCatalystAlertsStore';
 import { useTickersStore } from '@/stores/useTickersStore';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useCatalystAlertsSync } from '@/hooks/useCatalystAlertsSync';
@@ -33,7 +34,7 @@ interface NewsWithMetrics {
 }
 
 // Generar sonido de alerta usando Web Audio API
-function playAlertSound(type: AlertType = 'early') {
+function playAlertSound() {
   if (typeof window === 'undefined') return;
   
   try {
@@ -44,30 +45,17 @@ function playAlertSound(type: AlertType = 'early') {
     oscillator.connect(gainNode);
     gainNode.connect(audioContext.destination);
     
-    if (type === 'confirmed') {
-      // Sonido más enfático para alertas confirmadas (doble tono)
-      oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(1000, audioContext.currentTime + 0.1);
-      oscillator.frequency.exponentialRampToValueAtTime(600, audioContext.currentTime + 0.15);
-      oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.25);
-      
-      gainNode.gain.setValueAtTime(0.35, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
-      
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.4);
-    } else {
-      // Sonido simple para early alerts
-      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.1);
-      oscillator.frequency.exponentialRampToValueAtTime(800, audioContext.currentTime + 0.2);
-      
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-      
-      oscillator.start(audioContext.currentTime);
-      oscillator.stop(audioContext.currentTime + 0.3);
-    }
+    // Sonido distintivo para alertas de catalyst
+    oscillator.frequency.setValueAtTime(600, audioContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(1000, audioContext.currentTime + 0.1);
+    oscillator.frequency.exponentialRampToValueAtTime(600, audioContext.currentTime + 0.15);
+    oscillator.frequency.exponentialRampToValueAtTime(1200, audioContext.currentTime + 0.25);
+    
+    gainNode.gain.setValueAtTime(0.35, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.4);
   } catch (e) {
     // Ignorar errores de audio
   }
@@ -153,9 +141,8 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
   }, [getToken]);
   
   // Hablar texto (squawk)
-  const speakAlert = useCallback((ticker: string, reason: string, alertType: AlertType) => {
-    const typeText = alertType === 'confirmed' ? 'confirmed' : 'early';
-    const text = `${ticker} ${typeText} alert. ${reason}`;
+  const speakAlert = useCallback((ticker: string, reason: string) => {
+    const text = `${ticker} catalyst alert. ${reason}`;
     
     // Limpiar y acortar
     const cleanText = text.substring(0, 150);
@@ -183,15 +170,6 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     metrics: CatalystMetrics
   ): { passes: boolean; reason: string } => {
     const reasons: string[] = [];
-    
-    // Verificar tipo de alerta permitido
-    const alertType = metrics.alert_type || 'early';
-    if (alertType === 'early' && !criteria.alertTypes.early) {
-      return { passes: false, reason: 'Early alerts disabled' };
-    }
-    if (alertType === 'confirmed' && !criteria.alertTypes.confirmed) {
-      return { passes: false, reason: 'Confirmed alerts disabled' };
-    }
     
     // Filtro: solo scanner
     if (criteria.filters.onlyScanner && !isInScanner(ticker)) {
@@ -258,14 +236,13 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     return { passes: true, reason: reasons.join(' | ') };
   }, [criteria, isInScanner]);
   
-  // Procesar noticia con métricas de catalyst
+  // Procesar alerta de catalyst
   const processNews = useCallback((news: NewsWithMetrics) => {
     if (!news.catalyst_metrics) return;
     if (!news.tickers || news.tickers.length === 0) return;
     
     const newsId = `${news.benzinga_id || news.id || Date.now()}`;
-    const alertType = (news.catalyst_metrics.alert_type || 'early') as AlertType;
-    const uniqueId = `${newsId}-${alertType}`;
+    const uniqueId = `catalyst-${newsId}`;
     
     // Evitar duplicados
     if (processedNewsRef.current.has(uniqueId)) return;
@@ -284,7 +261,7 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     const { passes, reason } = checkCriteria(ticker, metrics);
     
     if (!passes) {
-      console.log(`[CatalystProvider] Skipped ${alertType}:`, ticker, reason);
+      console.log(`[CatalystProvider] Skipped:`, ticker, reason);
       return;
     }
     
@@ -299,7 +276,6 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       triggeredAt: Date.now(),
       dismissed: false,
       reason,
-      alertType,
     };
     
     // Añadir alerta
@@ -307,29 +283,16 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     
     // Reproducir sonido
     if (criteria.notifications.sound) {
-      playAlertSound(alertType);
+      playAlertSound();
     }
     
     // Squawk (TTS)
     if (criteria.notifications.squawk) {
-      speakAlert(ticker, reason, alertType);
+      speakAlert(ticker, reason);
     }
     
-    console.log(`[CatalystProvider] ALERT ${alertType.toUpperCase()}:`, ticker, reason);
+    console.log(`[CatalystProvider] ALERT:`, ticker, reason);
   }, [checkCriteria, addAlert, criteria.notifications.sound, criteria.notifications.squawk, speakAlert]);
-  
-  // Procesar alerta confirmada (diferida)
-  const processConfirmedAlert = useCallback((data: { ticker: string; metrics: CatalystMetrics }) => {
-    // Crear un pseudo-news para reutilizar processNews
-    processNews({
-      benzinga_id: data.metrics.news_id,
-      title: data.metrics.news_title || `${data.ticker} catalyst confirmed`,
-      url: '',
-      published: data.metrics.news_time,
-      tickers: [data.ticker],
-      catalyst_metrics: data.metrics,
-    });
-  }, [processNews]);
   
   // Suscribirse a noticias cuando las alertas están habilitadas
   useEffect(() => {
@@ -337,7 +300,7 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       return;
     }
     
-    console.log('[CatalystProvider] Subscribing to news for catalyst detection (hybrid mode)...');
+    console.log('[CatalystProvider] Subscribing to catalyst alerts (WebSocket realtime)...');
     
     // Suscribirse a noticias
     ws.send({ action: 'subscribe_benzinga_news' });
@@ -353,38 +316,26 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     if (!enabled) return;
     
     const subscription = ws.messages$.subscribe((message: any) => {
-      // Noticias con EARLY alert
-      if ((message.type === 'news' || message.type === 'benzinga_news') && message.article) {
-        const article = message.article;
-        
-        // Procesar métricas de catalyst si existen (EARLY alert)
-        if (message.catalyst_metrics) {
-          const metrics = typeof message.catalyst_metrics === 'string' 
-            ? JSON.parse(message.catalyst_metrics) 
-            : message.catalyst_metrics;
-          
-          processNews({
-            ...article,
-            catalyst_metrics: metrics,
-          });
-        }
-      }
-      
-      // Alertas CONFIRMED (diferidas)
-      if (message.type === 'catalyst_confirmed' && message.ticker && message.metrics) {
+      // Alertas de catalyst (impacto real detectado por WebSocket)
+      if (message.type === 'catalyst_alert' && message.ticker && message.metrics) {
         const metrics = typeof message.metrics === 'string'
           ? JSON.parse(message.metrics)
           : message.metrics;
         
-        processConfirmedAlert({
-          ticker: message.ticker,
-          metrics,
+        // Procesar la alerta
+        processNews({
+          benzinga_id: metrics.news_id,
+          title: metrics.news_title || `${message.ticker} catalyst`,
+          url: '',
+          published: metrics.news_time,
+          tickers: [message.ticker],
+          catalyst_metrics: metrics,
         });
       }
     });
     
     return () => subscription.unsubscribe();
-  }, [enabled, ws.messages$, processNews, processConfirmedAlert]);
+  }, [enabled, ws.messages$, processNews]);
   
   // Este componente es invisible, solo renderiza children
   return <>{children}</>;

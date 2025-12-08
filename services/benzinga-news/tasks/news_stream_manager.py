@@ -105,10 +105,10 @@ class BenzingaNewsStreamManager:
         
         # Iniciar motor de alertas de catalyst
         if self.catalyst_engine:
-            # Registrar callback para alertas confirmadas (diferidas)
-            self.catalyst_engine.set_alert_callback(self._send_confirmed_alert)
+            # Registrar callback para alertas
+            self.catalyst_engine.set_alert_callback(self._send_catalyst_alert)
             await self.catalyst_engine.start()
-            logger.info("Catalyst Alert Engine started (hybrid mode: early + confirmed)")
+            logger.info("Catalyst Alert Engine started (WebSocket realtime mode)")
         
         # Iniciar task de polling
         self._poll_task = asyncio.create_task(self._polling_loop())
@@ -300,14 +300,14 @@ class BenzingaNewsStreamManager:
         except Exception as e:
             logger.error("cache_by_ticker_error", error=str(e), ticker=ticker)
     
-    async def _send_confirmed_alert(self, ticker: str, metrics: Dict[str, Any]):
+    async def _send_catalyst_alert(self, ticker: str, metrics: Dict[str, Any]):
         """
-        Callback para enviar alertas confirmadas al stream.
-        Llamado por el CatalystAlertEngine después de evaluaciones diferidas.
+        Callback para enviar alertas de catalyst al stream.
+        Llamado por el CatalystAlertEngine cuando detecta impacto real.
         """
         try:
             alert_payload = {
-                "type": "catalyst_confirmed",
+                "type": "catalyst_alert",
                 "ticker": ticker,
                 "metrics": json.dumps(metrics),
                 "timestamp": datetime.now().isoformat()
@@ -321,66 +321,78 @@ class BenzingaNewsStreamManager:
             
             self.stats["catalyst_alerts"] += 1
             
+            change = metrics.get('change_since_news_pct', 0)
+            sign = "+" if change >= 0 else ""
             log_msg = (
-                f"CONFIRMED | {ticker} | "
-                f"+{metrics.get('change_since_news_pct', 0):.1f}% in {metrics.get('seconds_since_news', 0)}s | "
-                f"RVOL {metrics.get('rvol', 0):.1f}x | "
-                f"velocity {metrics.get('velocity_pct_per_min', 0):.2f}%/min"
+                f"CATALYST ALERT | {ticker} | "
+                f"{sign}{change:.1f}% in {metrics.get('seconds_since_news', 0)}s | "
+                f"RVOL {metrics.get('rvol', 0):.1f}x"
             )
             print(log_msg, flush=True)
             
         except Exception as e:
-            logger.error("send_confirmed_alert_error", error=str(e), ticker=ticker)
+            logger.error("send_catalyst_alert_error", error=str(e), ticker=ticker)
+    
+    async def _get_ticker_prices_fast(self, tickers: List[str]) -> Dict[str, float]:
+        """
+        Obtiene precios de tickers del snapshot en Redis.
+        Operación rápida, no bloqueante (solo lectura de memoria).
+        """
+        prices = {}
+        try:
+            snapshot_data = await self.redis.get("snapshot:enriched:latest")
+            if snapshot_data:
+                snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
+                tickers_list = snapshot.get("tickers", [])
+                
+                # Build lookup set for O(1) matching
+                ticker_set = {t.upper() for t in tickers}
+                
+                for item in tickers_list:
+                    ticker = item.get("ticker", "").upper()
+                    if ticker in ticker_set:
+                        price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
+                        if price:
+                            prices[ticker] = float(price)
+        except Exception as e:
+            # Non-blocking: if we can't get prices, just continue without them
+            logger.debug("get_prices_fast_error", error=str(e))
+        
+        return prices
     
     async def _publish_to_stream(self, article: BenzingaArticle):
         """
         Publica artículo a Redis Stream para broadcast.
         
-        El sistema híbrido de alertas:
-        1. EARLY alert: Si hay movimiento pre-existente, se incluye en catalyst_metrics
-        2. CONFIRMED alert: Se envía después via callback (_send_confirmed_alert)
+        El motor de catalyst monitorea en tiempo real via WebSocket.
+        Las alertas se envían via callback cuando detecta impacto real.
         """
         try:
-            catalyst_metrics = None
-            primary_ticker = None
+            # Capturar precios actuales (no bloqueante, solo Redis)
+            ticker_prices = {}
+            if article.tickers:
+                ticker_prices = await self._get_ticker_prices_fast(article.tickers[:5])
             
-            # Obtener métricas de catalyst para el primer ticker
-            if self.catalyst_engine and article.tickers and len(article.tickers) > 0:
-                primary_ticker = article.tickers[0]
-                
-                # Procesar noticia: captura estado + programa evaluaciones diferidas
-                # Retorna EARLY alert si hay movimiento pre-existente, None si no
-                catalyst_metrics = await self.catalyst_engine.process_news(
-                    news_id=str(article.benzinga_id),
-                    ticker=primary_ticker,
-                    title=article.title,
-                    categories=article.channels or []
-                )
-                
-                # Si el primer ticker no tiene datos, intentar con otros
-                if catalyst_metrics is None:
-                    for ticker in article.tickers[1:3]:
-                        catalyst_metrics = await self.catalyst_engine.process_news(
-                            news_id=f"{article.benzinga_id}_{ticker}",
-                            ticker=ticker,
-                            title=article.title,
-                            categories=article.channels or []
-                        )
-                        if catalyst_metrics:
-                            primary_ticker = ticker
-                            break
+            # Iniciar monitoreo de catalyst para cada ticker
+            if self.catalyst_engine and article.tickers:
+                for ticker in article.tickers[:3]:  # Máximo 3 tickers por noticia
+                    await self.catalyst_engine.process_news(
+                        news_id=f"{article.benzinga_id}_{ticker}",
+                        ticker=ticker,
+                        title=article.title,
+                        categories=article.channels or []
+                    )
             
-            # Publicar noticia al stream
+            # Publicar noticia al stream con precios
             stream_payload = {
                 "type": "news",
                 "data": article.model_dump_json(),
                 "timestamp": datetime.now().isoformat()
             }
             
-            # Incluir métricas si hay EARLY alert (movimiento pre-existente)
-            if catalyst_metrics:
-                stream_payload["catalyst_metrics"] = json.dumps(catalyst_metrics)
-                self.stats["catalyst_alerts"] += 1
+            # Añadir precios si los tenemos
+            if ticker_prices:
+                stream_payload["ticker_prices"] = json.dumps(ticker_prices)
             
             await self.redis.xadd(
                 self.STREAM_KEY,
@@ -389,20 +401,13 @@ class BenzingaNewsStreamManager:
             )
             
             # Log
-            if catalyst_metrics:
-                alert_type = catalyst_metrics.get('alert_type', 'early')
-                log_msg = (
-                    f"EARLY | {primary_ticker} | "
-                    f"day={catalyst_metrics.get('change_day_pct', 0):.1f}% | "
-                    f"RVOL {catalyst_metrics.get('rvol', 0):.1f}x | "
-                    f"{article.title[:40]}..."
-                )
-            else:
-                log_msg = (
-                    f"NEWS | {article.tickers[:2] if article.tickers else []} | "
-                    f"evaluating... | {article.title[:40]}..."
-                )
-            print(log_msg, flush=True)
+            tickers_str = ','.join(article.tickers[:3]) if article.tickers else 'N/A'
+            logger.debug(
+                "news_published",
+                tickers=tickers_str,
+                title=article.title[:50],
+                prices_captured=len(ticker_prices)
+            )
             
         except Exception as e:
             logger.error("publish_to_stream_error", error=str(e))

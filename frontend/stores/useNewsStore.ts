@@ -31,6 +31,7 @@ export interface NewsArticle {
   body?: string;
   isLive?: boolean;
   receivedAt?: number; // Timestamp de cuando se recibió
+  tickerPrices?: Record<string, number>; // Precios capturados cuando llegó la noticia
 }
 
 interface NewsState {

@@ -178,6 +178,17 @@ export function NewsProvider({ children }: NewsProviderProps) {
       
       const article = message.article as NewsArticle;
       
+      // Añadir precios capturados si vienen en el mensaje
+      if (message.ticker_prices) {
+        try {
+          article.tickerPrices = typeof message.ticker_prices === 'string'
+            ? JSON.parse(message.ticker_prices)
+            : message.ticker_prices;
+        } catch (e) {
+          // Ignorar si no se puede parsear
+        }
+      }
+      
       // Agregar al store (el store maneja deduplicación y pausa)
       const wasAdded = addArticle(article);
       

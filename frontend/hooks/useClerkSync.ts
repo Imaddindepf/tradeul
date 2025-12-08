@@ -139,6 +139,13 @@ export function useClerkSync() {
                     saveWindowLayouts(layouts);
                 }
 
+                // Cargar filtros guardados
+                if (data.savedFilters && Object.keys(data.savedFilters).length > 0) {
+                    Object.entries(data.savedFilters).forEach(([key, value]) => {
+                        useUserPreferencesStore.getState().saveFilters(key, value);
+                    });
+                }
+
                 // Guardar timestamp de última sincronización
                 lastSyncRef.current = data.updatedAt;
                 hasLoadedRef.current = true;
