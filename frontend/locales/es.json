@@ -254,12 +254,12 @@
   },
   "announcement": {
     "newFeature": "Novedades",
-    "newsMarkersChart": "Noticias en el Gráfico",
-    "newsMarkersChartDesc": "Activa el botón de noticias en el gráfico para ver marcadores en las velas donde hubo noticias. Haz clic en el marcador para ver la noticia.",
-    "catalystRealtime": "Alertas WebSocket en Tiempo Real",
-    "catalystRealtimeDesc": "Las alertas de catalizador ahora detectan el cambio DESDE la noticia (no del día). Monitoreo en tiempo real via WebSocket.",
-    "filtersPersist": "Filtros del Scanner Guardados",
-    "filtersPersistDesc": "Los filtros del scanner ahora se guardan automáticamente. Al recargar la app, tus filtros estarán como los dejaste.",
+    "communityChat": "Chat de la Comunidad",
+    "communityChatDesc": "Nuevo chat en tiempo real para conectar con otros traders. Comparte ideas, tickers con precios en vivo ($AAPL) y mantente al día.",
+    "groupsAndDMs": "Grupos y Mensajes Directos",
+    "groupsAndDMsDesc": "Crea grupos privados, invita miembros y gestiona roles. También puedes enviar mensajes directos a cualquier usuario.",
+    "chatPopOut": "Ventana Independiente",
+    "chatPopOutDesc": "Abre el chat en una ventana separada para tenerlo siempre visible mientras operas. Click en el icono ↗ para pop-out.",
     "dismiss": "Entendido"
   },
   "sidebar": {

@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, ExternalLink } from 'lucide-react';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { FloatingWindow as FloatingWindowType, useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 
@@ -13,6 +14,8 @@ interface FloatingWindowProps {
 export function FloatingWindow({ window }: FloatingWindowProps) {
   const { t } = useTranslation();
   const { closeWindow, updateWindow } = useFloatingWindow();
+  const { getToken, userId } = useAuth();
+  const { user } = useUser();
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Detectar si la ventana externa se cerró (desde su pestaña o botón X)
@@ -23,6 +26,17 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         if (window.poppedOutWindow?.closed) {
           // La ventana externa se cerró, restaurar contenido
           updateWindow(window.id, { isPoppedOut: false, poppedOutWindow: null });
+          
+          // Si es el chat, limpiar mensajes para forzar recarga
+          if (window.title === 'Community Chat') {
+            const { useChatStore } = require('@/stores/useChatStore');
+            const activeTarget = useChatStore.getState().activeTarget;
+            if (activeTarget) {
+              const key = `${activeTarget.type}:${activeTarget.id}`;
+              useChatStore.getState().clearMessages(key);
+            }
+          }
+          
           if (checkIntervalRef.current) {
             clearInterval(checkIntervalRef.current);
             checkIntervalRef.current = null;
@@ -153,6 +167,31 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         );
       } else {
         console.warn('Chart data not found for', window.title);
+      }
+    } else if (window.title === 'Community Chat') {
+      // Abrir Chat en about:blank con WebSocket
+      const { openChatWindow } = require('@/lib/window-injector');
+      const wsUrl = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'wss://wschat.tradeul.com';
+      const apiUrl = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
+      
+      const token = await getToken();
+      if (token) {
+        popOutWindow = openChatWindow(
+          {
+            wsUrl,
+            apiUrl,
+            token,
+            userId: userId || '',
+            userName: user?.username || user?.fullName || user?.firstName || 'User',
+            userAvatar: user?.imageUrl,
+          },
+          {
+            title: 'Community Chat - Tradeul',
+            width: 950,
+            height: 700,
+            centered: true
+          }
+        );
       }
     } else if (window.title === 'IPOs') {
       // Abrir IPOs en about:blank

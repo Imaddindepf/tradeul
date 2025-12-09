@@ -342,16 +342,16 @@ class BenzingaNewsStreamManager:
         try:
             snapshot_data = await self.redis.get("snapshot:enriched:latest")
             if snapshot_data:
-            snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
-            tickers_list = snapshot.get("tickers", [])
-            
+                snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
+                tickers_list = snapshot.get("tickers", [])
+                
                 # Build lookup set for O(1) matching
                 ticker_set = {t.upper() for t in tickers}
                 
-            for item in tickers_list:
+                for item in tickers_list:
                     ticker = item.get("ticker", "").upper()
                     if ticker in ticker_set:
-                    price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
+                        price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
                         if price:
                             prices[ticker] = float(price)
         except Exception as e:

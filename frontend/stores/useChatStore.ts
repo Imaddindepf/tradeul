@@ -119,6 +119,7 @@ export interface ChatState {
   addMessages: (targetKey: string, messages: ChatMessage[], prepend?: boolean) => void;
   updateMessage: (targetKey: string, messageId: string, updates: Partial<ChatMessage>) => void;
   removeMessage: (targetKey: string, messageId: string) => void;
+  clearMessages: (targetKey: string) => void;
   setHasMoreMessages: (targetKey: string, hasMore: boolean) => void;
   
   // Typing
@@ -253,6 +254,12 @@ export const useChatStore = create<ChatState>()(
             if (index !== -1) {
               messages.splice(index, 1);
             }
+          }),
+
+        clearMessages: (targetKey) =>
+          set((state) => {
+            state.messages[targetKey] = [];
+            state.hasMoreMessages[targetKey] = true;
           }),
 
         setHasMoreMessages: (targetKey, hasMore) =>

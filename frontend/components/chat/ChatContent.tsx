@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Loader2, Hash, Users, Plus, X, Search, ChevronDown, ChevronRight, MoreVertical, LogOut, Trash2, Settings, ExternalLink } from 'lucide-react';
+import { Loader2, Hash, Users, Plus, X, Search, ChevronDown, ChevronRight, MoreVertical, LogOut, Trash2, Settings } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { openChatWindow } from '@/lib/window-injector';
 import { useChatStore, selectActiveChannel, selectActiveGroup, selectOnlineCount } from '@/stores/useChatStore';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { ChatMessages } from './ChatMessages';
@@ -200,36 +199,6 @@ export function ChatContent() {
       console.error('Failed to leave group:', error);
     } finally {
       setActionLoading(false);
-    }
-  };
-
-  // Pop out to new window
-  const handlePopOut = async () => {
-    try {
-      const token = await getToken();
-      if (!token) return;
-      
-      const wsUrl = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'wss://wschat.tradeul.com';
-      
-      openChatWindow(
-        {
-          wsUrl,
-          apiUrl: CHAT_API_URL,
-          token,
-          userId: userId || '',
-          userName: user?.username || user?.fullName || user?.firstName || 'User',
-          userAvatar: user?.imageUrl,
-          activeTarget: activeTarget || undefined,
-        },
-        {
-          title: 'Community Chat - Tradeul',
-          width: 950,
-          height: 700,
-          centered: true,
-        }
-      );
-    } catch (error) {
-      console.error('Failed to open chat window:', error);
     }
   };
 
@@ -504,15 +473,6 @@ export function ChatContent() {
               <span className="w-1.5 h-1.5 rounded-full bg-success" />
               {onlineCount}
             </div>
-            
-            {/* Pop out button */}
-            <button
-              onClick={handlePopOut}
-              className="p-1 hover:bg-muted rounded transition-colors"
-              title="Abrir en ventana nueva"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-            </button>
             
             {/* Group menu */}
             {isGroup && (

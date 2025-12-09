@@ -29,6 +29,10 @@ class SubscriptionReconciler:
     Reconciliation Loop para mantener sincronización entre:
     - Source of Truth (Redis SET polygon_ws:active_tickers)
     - Estado Actual (Polygon WebSocket subscribed_tickers)
+    
+    IMPORTANTE: Excluye del cálculo de 'extra' los tickers que están siendo
+    monitoreados por otros sistemas (ej: catalyst alerts, quotes) para no
+    interferir con sus suscripciones temporales.
     """
     
     def __init__(
@@ -37,7 +41,8 @@ class SubscriptionReconciler:
         ws_client,
         event_types: Set[str],
         interval_seconds: int = 30,
-        source_of_truth_key: str = "polygon_ws:active_tickers"
+        source_of_truth_key: str = "polygon_ws:active_tickers",
+        exclude_sets: list = None
     ):
         """
         Args:
@@ -46,12 +51,15 @@ class SubscriptionReconciler:
             event_types: Tipos de eventos ({"A"} para aggregates)
             interval_seconds: Intervalo de reconciliación (default: 30s)
             source_of_truth_key: Key en Redis con tickers deseados
+            exclude_sets: Lista de sets de tickers a excluir del cálculo de 'extra'
+                          (ej: catalyst_subscribed_tickers, quote_subscribed_tickers)
         """
         self.redis = redis_client
         self.ws_client = ws_client
         self.event_types = event_types
         self.interval = interval_seconds
         self.source_key = source_of_truth_key
+        self.exclude_sets = exclude_sets or []
         
         # Métricas
         self.reconciliations_count = 0
@@ -117,7 +125,15 @@ class SubscriptionReconciler:
             
             # 3. CALCULAR DIFF
             missing = desired_tickers - actual_tickers  # Faltan en Polygon
-            extra = actual_tickers - desired_tickers    # Sobran en Polygon
+            
+            # Calcular extra excluyendo tickers de otros sistemas (catalyst, quotes, etc.)
+            # para no interferir con sus suscripciones temporales
+            excluded_tickers: Set[str] = set()
+            for exclude_set in self.exclude_sets:
+                if exclude_set:
+                    excluded_tickers.update(exclude_set)
+            
+            extra = actual_tickers - desired_tickers - excluded_tickers
             
             drift = len(missing) + len(extra)
             

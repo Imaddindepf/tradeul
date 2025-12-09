@@ -380,9 +380,9 @@ class CatalystAlertEngine:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 response = await client.get(f"{self.ANALYTICS_URL}/rvol/{ticker.upper()}")
-            
+                
                 if response.status_code == 200:
-            data = response.json()
+                    data = response.json()
                     rvol = data.get("rvol")
                     if rvol is not None:
                         return float(rvol)
@@ -392,24 +392,74 @@ class CatalystAlertEngine:
         except Exception:
             return None
     
+    # Stream para suscripciones de catalyst (leído por polygon_ws)
+    CATALYST_SUBSCRIPTION_STREAM = "polygon_ws:catalyst_subscriptions"
+    
     async def _request_subscription(self, ticker: str):
-        """Solicita al polygon_ws que se suscriba al ticker"""
+        """
+        Solicita al polygon_ws que se suscriba al ticker via Redis Stream.
+        
+        Usa el stream 'polygon_ws:catalyst_subscriptions' que es leído por
+        polygon_ws de forma independiente al scanner y quotes.
+        """
         try:
-            # Publicar solicitud de suscripción a Redis
-            await self.redis.publish(
-                "polygon_ws:subscribe_request",
-                json.dumps({
-                    "ticker": ticker.upper(),
-                    "event_type": "A",  # Aggregates
+            ticker_upper = ticker.upper()
+            
+            # Publicar al stream de suscripciones de catalyst
+            await self.redis.xadd(
+                self.CATALYST_SUBSCRIPTION_STREAM,
+                {
+                    "symbol": ticker_upper,
+                    "action": "subscribe",
                     "source": "catalyst_engine",
                     "timestamp": datetime.now().isoformat()
-                })
+                },
+                maxlen=1000  # Mantener stream limpio
             )
             
-            logger.debug("subscription_requested", ticker=ticker)
+            logger.debug("subscription_requested", ticker=ticker_upper)
             
         except Exception as e:
             logger.error("subscription_request_error", error=str(e), ticker=ticker)
+    
+    async def _request_unsubscription(self, ticker: str):
+        """
+        Solicita al polygon_ws que se desuscriba del ticker.
+        
+        Se llama cuando el monitoreo de una noticia expira.
+        """
+        try:
+            ticker_upper = ticker.upper()
+            
+            # Verificar si hay otras noticias monitoreando el mismo ticker
+            other_monitoring = any(
+                m.ticker.upper() == ticker_upper 
+                for m in self._monitored.values()
+            )
+            
+            if other_monitoring:
+                logger.debug(
+                    "skipping_unsubscribe_still_monitoring",
+                    ticker=ticker_upper
+                )
+                return
+            
+            # Publicar al stream de suscripciones de catalyst
+            await self.redis.xadd(
+                self.CATALYST_SUBSCRIPTION_STREAM,
+                {
+                    "symbol": ticker_upper,
+                    "action": "unsubscribe",
+                    "source": "catalyst_engine",
+                    "timestamp": datetime.now().isoformat()
+                },
+                maxlen=1000
+            )
+            
+            logger.debug("unsubscription_requested", ticker=ticker_upper)
+            
+        except Exception as e:
+            logger.error("unsubscription_request_error", error=str(e), ticker=ticker)
     
     async def _schedule_cleanup(self, news_id: str):
         """Programa limpieza de una noticia después del timeout"""
@@ -417,15 +467,20 @@ class CatalystAlertEngine:
         
         if news_id in self._monitored:
             monitored = self._monitored[news_id]
+            ticker = monitored.ticker
             
             if not monitored.alerted:
                 logger.debug(
                     "monitoring_timeout_no_alert",
-                    ticker=monitored.ticker,
+                    ticker=ticker,
                     news_id=news_id
                 )
             
+            # Eliminar del monitoreo
             del self._monitored[news_id]
+            
+            # Solicitar desuscripción (si no hay más noticias para este ticker)
+            await self._request_unsubscription(ticker)
     
     async def _cleanup_expired(self):
         """Limpia noticias expiradas"""

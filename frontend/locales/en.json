@@ -254,12 +254,12 @@
   },
   "announcement": {
     "newFeature": "What's New",
-    "newsMarkersChart": "News on Chart",
-    "newsMarkersChartDesc": "Enable the news button on the chart to see markers on candles where news occurred. Click the marker to view the article.",
-    "catalystRealtime": "WebSocket Realtime Alerts",
-    "catalystRealtimeDesc": "Catalyst alerts now detect change FROM the news (not day change). Real-time monitoring via WebSocket.",
-    "filtersPersist": "Scanner Filters Saved",
-    "filtersPersistDesc": "Scanner filters are now saved automatically. When you reload the app, your filters will be exactly as you left them.",
+    "communityChat": "Community Chat",
+    "communityChatDesc": "New real-time chat to connect with other traders. Share ideas, tickers with live prices ($AAPL) and stay updated.",
+    "groupsAndDMs": "Groups & Direct Messages",
+    "groupsAndDMsDesc": "Create private groups, invite members and manage roles. You can also send direct messages to any user.",
+    "chatPopOut": "Pop-out Window",
+    "chatPopOutDesc": "Open the chat in a separate window to keep it visible while trading. Click the ↗ icon for pop-out.",
     "dismiss": "Got it"
   },
   "sidebar": {

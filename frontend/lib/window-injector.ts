@@ -2476,14 +2476,21 @@ function injectChatContent(
   
   <style>
     * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-    body { font-family: 'JetBrains Mono', monospace; color: #171717; background: #ffffff; margin: 0; }
+    body { font-family: 'JetBrains Mono', monospace; color: #0F172A; background: #ffffff; margin: 0; font-size: 12px; }
     *::-webkit-scrollbar { width: 6px; height: 6px; }
-    *::-webkit-scrollbar-track { background: #f1f5f9; }
-    *::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-    *::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
-    .message:hover { background-color: rgba(0,0,0,0.02); }
+    *::-webkit-scrollbar-track { background: #F8FAFC; border-left: 1px solid #E2E8F0; }
+    *::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+    *::-webkit-scrollbar-thumb:hover { background: #2563EB; }
+    .message:hover { background-color: rgba(0,0,0,0.03); }
+    .channel-item { transition: all 0.15s; }
     .channel-item:hover { background-color: rgba(0,0,0,0.05); }
-    .channel-item.active { background-color: rgba(37, 99, 235, 0.1); color: #2563eb; }
+    .channel-item.active { background-color: rgba(37, 99, 235, 0.1); color: #2563eb; font-weight: 500; }
+    .ticker-mention { display: inline-flex; align-items: center; gap: 2px; padding: 0 4px; border-radius: 4px; border: 1px solid rgba(37, 99, 235, 0.4); font-size: 11px; cursor: pointer; }
+    .ticker-mention:hover { border-color: #2563EB; background-color: rgba(37, 99, 235, 0.05); }
+    .ticker-mention .symbol { color: #2563EB; font-weight: 500; }
+    .ticker-mention .price { color: #0F172A; font-size: 10px; }
+    .ticker-mention .change-positive { color: #10B981; font-size: 10px; }
+    .ticker-mention .change-negative { color: #EF4444; font-size: 10px; }
     .typing-dot { animation: typing 1.4s infinite both; }
     .typing-dot:nth-child(2) { animation-delay: 0.2s; }
     .typing-dot:nth-child(3) { animation-delay: 0.4s; }
@@ -2573,9 +2580,14 @@ function injectChatContent(
       switch (msg.type) {
         case 'new_message':
           if (isActiveMessage(msg.payload)) {
-            messages.push(msg.payload);
-            renderMessages();
-            scrollToBottom();
+            // Check if message already exists (avoid duplicates)
+            const exists = messages.some(m => m.id === msg.payload.id);
+            if (!exists) {
+              // Add new message at the START (array is newest-first)
+              messages.unshift(msg.payload);
+              renderMessages();
+              scrollToBottom();
+            }
           }
           break;
         case 'typing':
@@ -2683,8 +2695,9 @@ function injectChatContent(
         
         const res = await fetch(CONFIG.apiUrl + endpoint, { headers });
         if (res.ok) {
-          messages = await res.json();
-          messages.reverse(); // oldest first
+          const data = await res.json();
+          // API returns newest first (DESC), store as-is
+          messages = data;
         }
       } catch (e) {
         console.error('[Chat] Fetch messages error:', e);
@@ -2712,9 +2725,14 @@ function injectChatContent(
         
         if (res.ok) {
           const msg = await res.json();
-          messages.push(msg);
-          renderMessages();
-          scrollToBottom();
+          // Check if already exists (WebSocket might have added it first)
+          const exists = messages.some(m => m.id === msg.id);
+          if (!exists) {
+            // Add at START (array is newest-first)
+            messages.unshift(msg);
+            renderMessages();
+            scrollToBottom();
+          }
         }
       } catch (e) {
         console.error('[Chat] Send message error:', e);
@@ -2746,11 +2764,154 @@ function injectChatContent(
       scrollToBottom();
     };
     
+    // Ticker search state
+    let tickerSearchVisible = false;
+    let tickerResults = [];
+    let tickerSelectedIndex = 0;
+    let tickerSearchTimeout = null;
+    
     window.handleInput = function(e) {
       // Send typing indicator (debounced)
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(sendTyping, 300);
+      
+      // Update send button color
+      const sendBtn = document.getElementById('send-btn');
+      if (sendBtn) {
+        if (e.target.value.trim()) {
+          sendBtn.className = 'p-1 rounded bg-blue-600 text-white shrink-0 transition-colors hover:bg-blue-700';
+        } else {
+          sendBtn.className = 'p-1 rounded bg-slate-100 text-slate-400/40 shrink-0 transition-colors';
+        }
+      }
+      
+      // Check for $ at end to open ticker search
+      if (e.target.value.endsWith('$')) {
+        showTickerSearch();
+      }
     };
+    
+    window.toggleTickerSearch = function() {
+      if (tickerSearchVisible) {
+        hideTickerSearch();
+      } else {
+        showTickerSearch();
+      }
+    };
+    
+    function showTickerSearch() {
+      tickerSearchVisible = true;
+      const dropdown = document.getElementById('ticker-dropdown');
+      const tickerBtn = document.getElementById('ticker-btn');
+      if (dropdown) {
+        dropdown.classList.remove('hidden');
+        const input = document.getElementById('ticker-search-input');
+        if (input) {
+          input.value = '';
+          input.focus();
+        }
+      }
+      if (tickerBtn) {
+        tickerBtn.className = 'p-1 rounded bg-blue-600 text-white shrink-0';
+      }
+      tickerResults = [];
+      tickerSelectedIndex = 0;
+      renderTickerResults();
+    }
+    
+    function hideTickerSearch() {
+      tickerSearchVisible = false;
+      const dropdown = document.getElementById('ticker-dropdown');
+      const tickerBtn = document.getElementById('ticker-btn');
+      if (dropdown) dropdown.classList.add('hidden');
+      if (tickerBtn) tickerBtn.className = 'p-1 rounded transition-colors hover:bg-slate-100 text-slate-400 shrink-0';
+      document.getElementById('message-input')?.focus();
+    }
+    
+    window.handleTickerSearch = function(e) {
+      const query = e.target.value.toUpperCase();
+      clearTimeout(tickerSearchTimeout);
+      
+      if (!query) {
+        tickerResults = [];
+        renderTickerResults();
+        return;
+      }
+      
+      tickerSearchTimeout = setTimeout(async () => {
+        try {
+          const res = await fetch('https://tradeul.com/api/v1/metadata/search?q=' + encodeURIComponent(query) + '&limit=10');
+          if (res.ok) {
+            tickerResults = await res.json();
+            tickerSelectedIndex = 0;
+            renderTickerResults();
+          }
+        } catch (e) {
+          console.error('[Chat] Ticker search error:', e);
+        }
+      }, 200);
+    };
+    
+    window.handleTickerKeyDown = function(e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideTickerSearch();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        tickerSelectedIndex = Math.min(tickerSelectedIndex + 1, tickerResults.length - 1);
+        renderTickerResults();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        tickerSelectedIndex = Math.max(tickerSelectedIndex - 1, 0);
+        renderTickerResults();
+      } else if (e.key === 'Enter' && tickerResults.length > 0) {
+        e.preventDefault();
+        insertTicker(tickerResults[tickerSelectedIndex].symbol);
+      }
+    };
+    
+    window.selectTicker = function(symbol) {
+      insertTicker(symbol);
+    };
+    
+    function insertTicker(symbol) {
+      const input = document.getElementById('message-input');
+      if (input) {
+        // Replace trailing $ with $TICKER
+        if (input.value.endsWith('$')) {
+          input.value = input.value.slice(0, -1) + '$' + symbol + ' ';
+        } else {
+          input.value += '$' + symbol + ' ';
+        }
+        
+        // Update send button
+        const sendBtn = document.getElementById('send-btn');
+        if (sendBtn) {
+          sendBtn.className = 'p-1 rounded bg-blue-600 text-white shrink-0 transition-colors hover:bg-blue-700';
+        }
+      }
+      hideTickerSearch();
+    }
+    
+    function renderTickerResults() {
+      const container = document.getElementById('ticker-results');
+      if (!container) return;
+      
+      if (tickerResults.length === 0) {
+        container.innerHTML = '<div class="px-3 py-2 text-[10px] text-slate-400 text-center">Type to search...</div>';
+        return;
+      }
+      
+      container.innerHTML = tickerResults.map((t, i) => \`
+        <button 
+          onclick="selectTicker('\${t.symbol}')"
+          class="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-100 \${i === tickerSelectedIndex ? 'bg-slate-100' : ''}"
+        >
+          <span class="text-blue-600 font-mono">$\${t.symbol}</span>
+          <span class="text-slate-500 ml-1">- \${t.name || ''}</span>
+        </button>
+      \`).join('');
+    }
     
     window.handleKeyDown = function(e) {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -2795,46 +2956,56 @@ function injectChatContent(
         : (groups.find(g => g.id === activeTarget.id)?.name || 'Group');
       
       const statusDot = isConnected ? 'bg-emerald-500' : 'bg-slate-300 animate-pulse';
-      const statusText = isConnected ? 'Live' : 'Connecting...';
+      const statusText = isConnected ? 'OK' : '...';
+      const isGroup = activeTarget?.type === 'group';
       
       document.getElementById('root').innerHTML = \`
         <div class="h-screen flex bg-white text-xs" style="font-family: 'JetBrains Mono', monospace;">
-          <!-- Sidebar -->
-          <div class="w-36 border-r border-slate-200 flex flex-col bg-slate-50">
-            <!-- Channels -->
-            <div class="p-2 border-b border-slate-200">
-              <div class="text-[9px] uppercase text-slate-400 font-semibold mb-1 px-1">Channels</div>
-              \${channels.map(ch => \`
-                <div 
-                  onclick="selectChannel('\${ch.id}')"
-                  class="channel-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-slate-600 \${activeTarget?.type === 'channel' && activeTarget?.id === ch.id ? 'active' : ''}"
-                >
-                  <span class="text-slate-400">#</span>
-                  <span class="truncate">\${ch.name}</span>
-                </div>
-              \`).join('')}
-            </div>
+          <!-- Sidebar - w-36 like ChatContent -->
+          <div class="w-36 border-r border-slate-200 flex flex-col overflow-hidden" style="background: rgba(248, 250, 252, 0.2);">
             
-            <!-- Groups -->
-            <div class="flex-1 overflow-y-auto p-2">
-              <div class="text-[9px] uppercase text-slate-400 font-semibold mb-1 px-1">Groups</div>
+            <!-- DMs / Groups Section FIRST (top) -->
+            <div class="p-1.5 border-b border-slate-200">
+              <div class="flex items-center justify-between px-1 mb-1">
+                <div class="flex items-center gap-0.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
+                  <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                  DMs / Groups
+                </div>
+              </div>
               \${groups.length === 0 ? \`
-                <div class="text-[10px] text-slate-400 px-2 py-1">No groups</div>
+                <div class="text-[10px] text-slate-400 px-1.5 py-0.5 italic">No groups yet</div>
               \` : groups.map(g => \`
-                <div 
+                <button 
                   onclick="selectGroup('\${g.id}')"
-                  class="channel-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-slate-600 \${activeTarget?.type === 'group' && activeTarget?.id === g.id ? 'active' : ''}"
+                  class="w-full flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors text-left \${activeTarget?.type === 'group' && activeTarget?.id === g.id ? 'bg-blue-600 text-white' : 'hover:bg-slate-100 text-slate-700'}"
                 >
-                  <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg class="w-2.5 h-2.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
                   </svg>
                   <span class="truncate">\${g.name}</span>
-                </div>
+                </button>
               \`).join('')}
             </div>
             
-            <!-- Status -->
-            <div class="p-2 border-t border-slate-200">
+            <!-- Public Channels Section SECOND (bottom) -->
+            <div class="p-1.5 flex-1 overflow-y-auto">
+              <div class="flex items-center gap-0.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-1 px-1">
+                <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                Public Channels
+              </div>
+              \${channels.map(ch => \`
+                <button 
+                  onclick="selectChannel('\${ch.id}')"
+                  class="w-full flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors text-left \${activeTarget?.type === 'channel' && activeTarget?.id === ch.id ? 'bg-blue-600 text-white' : 'hover:bg-slate-100 text-slate-700'}"
+                >
+                  <svg class="w-2.5 h-2.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/></svg>
+                  <span class="truncate">\${ch.name}</span>
+                </button>
+              \`).join('')}
+            </div>
+            
+            <!-- Connection Status -->
+            <div class="p-1.5 border-t border-slate-200">
               <div class="flex items-center gap-1 px-1 text-[9px] text-slate-400">
                 <span class="w-1.5 h-1.5 rounded-full \${statusDot}"></span>
                 <span>\${statusText}</span>
@@ -2842,43 +3013,78 @@ function injectChatContent(
             </div>
           </div>
           
-          <!-- Main Chat -->
-          <div class="flex-1 flex flex-col min-w-0">
-            <!-- Header -->
-            <div class="h-8 px-3 flex items-center gap-2 border-b border-slate-200 bg-white">
-              <span class="text-slate-400">\${activeTarget?.type === 'channel' ? '#' : ''}</span>
-              <span class="font-medium text-slate-800">\${activeName}</span>
+          <!-- Main Chat Area -->
+          <div class="flex-1 flex flex-col min-w-0 relative">
+            <!-- Header - h-7 like ChatContent -->
+            <div class="h-7 px-2 flex items-center gap-2 border-b border-slate-200" style="background: rgba(248, 250, 252, 0.3);">
+              <div class="flex items-center gap-1">
+                \${isGroup ? \`
+                  <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                \` : \`
+                  <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"/></svg>
+                \`}
+                <span class="font-medium text-xs">\${activeName}</span>
+              </div>
               <div class="flex items-center gap-1 text-[9px] text-slate-400 ml-auto">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                 <span id="online-count">0</span>
               </div>
             </div>
             
-            <!-- Messages -->
-            <div id="messages-container" class="flex-1 overflow-y-auto p-2 space-y-0.5">
+            <!-- Ticker Search Dropdown (hidden by default) -->
+            <div id="ticker-dropdown" class="hidden absolute left-2 right-2 bottom-14 bg-white border border-slate-200 rounded shadow-lg z-10">
+              <div class="p-1.5 border-b border-slate-200">
+                <input 
+                  id="ticker-search-input"
+                  type="text" 
+                  placeholder="Search ticker..."
+                  oninput="handleTickerSearch(event)"
+                  onkeydown="handleTickerKeyDown(event)"
+                  class="w-full px-2 py-1 text-xs bg-slate-100 rounded focus:outline-none focus:ring-1 focus:ring-blue-400/50"
+                  autocomplete="off"
+                />
+              </div>
+              <div id="ticker-results" class="py-1 max-h-48 overflow-y-auto">
+                <div class="px-3 py-2 text-[10px] text-slate-400 text-center">Type to search...</div>
+              </div>
+            </div>
+            
+            <!-- Messages Container -->
+            <div id="messages-container" class="flex-1 overflow-y-auto">
               <div class="flex items-center justify-center h-full text-slate-400 text-[10px]">
                 Loading messages...
               </div>
             </div>
             
-            <!-- Typing -->
-            <div id="typing-indicator" class="px-3 h-4 text-[9px] text-slate-400"></div>
+            <!-- Typing Indicator -->
+            <div id="typing-indicator" class="h-5 px-2 text-[10px] text-slate-400/60"></div>
             
-            <!-- Input -->
-            <div class="px-3 py-2 border-t border-slate-200 flex items-center gap-2">
+            <!-- Input Area -->
+            <div class="px-2 py-1.5 border-t border-slate-200 flex items-center gap-1.5">
+              <button 
+                onclick="toggleTickerSearch()"
+                id="ticker-btn"
+                class="p-1 rounded transition-colors hover:bg-slate-100 text-slate-400 shrink-0"
+                title="Insert ticker ($)"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              </button>
               <input 
                 id="message-input"
                 type="text" 
-                placeholder="Message..."
+                placeholder="Message... ($ for ticker)"
                 oninput="handleInput(event)"
                 onkeydown="handleKeyDown(event)"
-                class="flex-1 px-3 py-1.5 text-xs bg-slate-100 rounded border-0 focus:ring-1 focus:ring-blue-400 focus:outline-none"
+                class="flex-1 px-2 py-1 text-xs bg-slate-100 rounded border-0 focus:ring-1 focus:ring-blue-400/50 focus:outline-none placeholder:text-slate-400/60"
               />
               <button 
                 onclick="handleSend()"
-                class="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700"
+                id="send-btn"
+                class="p-1 rounded bg-slate-100 text-slate-400/40 shrink-0 transition-colors"
               >
-                Send
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
               </button>
             </div>
           </div>
@@ -2901,7 +3107,16 @@ function injectChatContent(
         return;
       }
       
-      container.innerHTML = messages.map(msg => {
+      // Messages array is newest-first (from API DESC order)
+      // We need to display oldest-first (scroll down = newer)
+      // So we slice and reverse for display
+      const sortedMessages = messages.slice().sort((a, b) => {
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+      
+      console.log('[Chat] Rendering', messages.length, 'messages. First:', messages[0]?.created_at, 'After sort first:', sortedMessages[0]?.created_at);
+      
+      container.innerHTML = sortedMessages.map(msg => {
         const time = formatTime(msg.created_at);
         const colorClass = getUserColor(msg.user_id);
         const isSystem = msg.content_type === 'system';
@@ -2909,22 +3124,44 @@ function injectChatContent(
         if (isSystem) {
           return \`
             <div class="flex justify-center my-1">
-              <div class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[9px] italic">
+              <div class="px-2 py-0.5 rounded-full bg-slate-100/50 text-slate-500 text-[10px] italic">
                 \${msg.content}
               </div>
             </div>
           \`;
         }
         
+        // Parse ticker mentions ($AAPL)
+        const content = parseTickerMentions(msg.content, msg.ticker_prices);
+        
         return \`
-          <div class="message px-1 py-0.5 leading-snug">
-            <span class="text-[9px] text-slate-400">\${time}</span>
-            <span class="\${colorClass} font-medium">\${msg.user_name || 'anon'}</span>
-            <span class="text-slate-300">:</span>
-            <span class="text-slate-700">\${escapeHtml(msg.content)}</span>
+          <div class="message group relative px-1 leading-tight hover:bg-slate-50/50">
+            <span class="text-[9px] text-slate-400/40">\${time}</span>
+            <span class="\${colorClass}">\${msg.user_name || 'anon'}</span><span class="text-slate-400/30">:</span>
+            <span class="text-slate-700">\${content}</span>
           </div>
         \`;
-      }).join('');
+      }).join('') + '<div style="height: 20px;"></div>'; // Padding at bottom
+    }
+    
+    function parseTickerMentions(content, tickerPrices) {
+      if (!content) return '';
+      
+      // Replace $TICKER with styled mentions
+      return escapeHtml(content).replace(/\\$([A-Z]{1,5})/g, (match, symbol) => {
+        const priceData = tickerPrices?.[symbol];
+        if (priceData) {
+          const changeClass = priceData.change > 0 ? 'change-positive' : priceData.change < 0 ? 'change-negative' : '';
+          const changeSign = priceData.change > 0 ? '+' : '';
+          return \`<span class="ticker-mention">
+            <span class="symbol">$\${symbol}</span>
+            <span class="text-slate-400/80">·</span>
+            <span class="price">\${priceData.price.toFixed(2)}</span>
+            <span class="\${changeClass}">\${changeSign}\${priceData.changePercent.toFixed(2)}%</span>
+          </span>\`;
+        }
+        return \`<span class="ticker-mention"><span class="symbol">$\${symbol}</span></span>\`;
+      });
     }
     
     function renderTyping() {
@@ -2936,13 +3173,10 @@ function injectChatContent(
         return;
       }
       
-      const names = typingUsers.map(u => u.user_name).join(', ');
-      el.innerHTML = \`
-        <span>\${names} typing</span>
-        <span class="typing-dot inline-block w-1 h-1 bg-slate-400 rounded-full mx-0.5"></span>
-        <span class="typing-dot inline-block w-1 h-1 bg-slate-400 rounded-full mx-0.5"></span>
-        <span class="typing-dot inline-block w-1 h-1 bg-slate-400 rounded-full mx-0.5"></span>
-      \`;
+      const names = typingUsers.length === 1 
+        ? typingUsers[0].user_name + '...'
+        : typingUsers.length + ' typing...';
+      el.innerHTML = \`<span class="text-[10px] text-slate-400/60">\${names}</span>\`;
     }
     
     function scrollToBottom() {

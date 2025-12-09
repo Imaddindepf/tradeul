@@ -39,11 +39,15 @@ redis_client: Optional[RedisClient] = None
 ws_client: Optional[PolygonWebSocketClient] = None
 subscription_task: Optional[asyncio.Task] = None
 quote_subscription_task: Optional[asyncio.Task] = None  # Nueva tarea para quotes
+catalyst_subscription_task: Optional[asyncio.Task] = None  # Tarea para catalyst alerts
 reconciler: Optional[SubscriptionReconciler] = None
 reconciler_task: Optional[asyncio.Task] = None
 
 # Set de tickers suscritos a Quotes (separado de Aggregates)
 quote_subscribed_tickers: Set[str] = set()
+
+# Set de tickers suscritos temporalmente para Catalyst Alerts (Aggregates sin reconciler)
+catalyst_subscribed_tickers: Set[str] = set()
 
 
 # ============================================================================
@@ -53,7 +57,7 @@ quote_subscribed_tickers: Set[str] = set()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, ws_client, subscription_task, quote_subscription_task, reconciler, reconciler_task
+    global redis_client, ws_client, subscription_task, quote_subscription_task, catalyst_subscription_task, reconciler, reconciler_task
     
     logger.info("polygon_ws_service_starting")
     
@@ -71,20 +75,29 @@ async def lifespan(app: FastAPI):
     )
     
     # 🔥 PATRÓN PROFESIONAL: Inicializar Reconciler (solo para Aggregates)
+    # IMPORTANTE: Excluimos catalyst_subscribed_tickers para no desuscribir
+    # tickers que están siendo monitoreados temporalmente por el catalyst engine
     reconciler = SubscriptionReconciler(
         redis_client=redis_client,
         ws_client=ws_client,
         event_types={"A"},  # Solo Aggregates
-        interval_seconds=30  # Reconciliar cada 30 segundos
+        interval_seconds=30,  # Reconciliar cada 30 segundos
+        exclude_sets=[catalyst_subscribed_tickers]  # No tocar suscripciones de catalyst
     )
     
     # Iniciar tareas en background
     ws_task = asyncio.create_task(ws_client.connect())
     subscription_task = asyncio.create_task(manage_subscriptions())
-    quote_subscription_task = asyncio.create_task(manage_quote_subscriptions())  # ✅ Nueva tarea
+    quote_subscription_task = asyncio.create_task(manage_quote_subscriptions())
+    catalyst_subscription_task = asyncio.create_task(manage_catalyst_subscriptions())
     reconciler_task = asyncio.create_task(reconciler.start())
     
-    logger.info("polygon_ws_service_started", reconciler_enabled=True, quotes_enabled=True)
+    logger.info(
+        "polygon_ws_service_started",
+        reconciler_enabled=True,
+        quotes_enabled=True,
+        catalyst_enabled=True
+    )
     
     yield
     
@@ -112,6 +125,13 @@ async def lifespan(app: FastAPI):
         quote_subscription_task.cancel()
         try:
             await quote_subscription_task
+        except asyncio.CancelledError:
+            pass
+    
+    if catalyst_subscription_task:
+        catalyst_subscription_task.cancel()
+        try:
+            await catalyst_subscription_task
         except asyncio.CancelledError:
             pass
     
@@ -597,6 +617,166 @@ async def manage_quote_subscriptions():
 
 
 # ============================================================================
+# Catalyst Subscription Management (para Catalyst Alert Engine)
+# ============================================================================
+
+async def manage_catalyst_subscriptions():
+    """
+    Gestiona suscripciones temporales de AGGREGATES para el Catalyst Alert Engine.
+    
+    Diferente del Scanner (que usa reconciler), estas suscripciones son:
+    - Temporales: solo mientras se monitorea una noticia (típicamente 3 min)
+    - Sin reconciler: no hay SET de source of truth
+    - Independientes: no afectan al scanner ni a quotes
+    
+    Stream de entrada: polygon_ws:catalyst_subscriptions
+    Mensajes: {"action": "subscribe"|"unsubscribe", "symbol": "AKTX", "source": "catalyst_engine"}
+    
+    NOTA: Usa Aggregates (A) porque necesita precio OHLCV en tiempo real.
+    """
+    global catalyst_subscribed_tickers
+    
+    logger.info("catalyst_subscription_manager_started")
+    
+    # Stream de entrada para comandos de catalyst
+    input_stream = "polygon_ws:catalyst_subscriptions"
+    consumer_group = "polygon_ws_catalyst_group"
+    consumer_name = "polygon_ws_catalyst_consumer"
+    
+    # Tipo de evento: Aggregates (para precio en tiempo real)
+    event_types = {"A"}
+    
+    # Crear consumer group si no existe
+    try:
+        await redis_client.create_consumer_group(
+            input_stream,
+            consumer_group,
+            mkstream=True
+        )
+        logger.info(f"Consumer group '{consumer_group}' created for catalyst")
+    except Exception as e:
+        logger.debug("catalyst_consumer_group_already_exists", error=str(e))
+    
+    # Track de autenticación para re-suscribir
+    was_authenticated = False
+    
+    while True:
+        try:
+            # Detectar reconexión y re-suscribir a todos los tickers de catalyst
+            if ws_client.is_authenticated and not was_authenticated:
+                if catalyst_subscribed_tickers:
+                    logger.info(
+                        "re_subscribing_catalyst_after_reconnection",
+                        count=len(catalyst_subscribed_tickers),
+                        tickers=list(catalyst_subscribed_tickers)[:10]
+                    )
+                    await ws_client.subscribe_to_tickers(catalyst_subscribed_tickers, event_types)
+                was_authenticated = True
+            elif not ws_client.is_authenticated:
+                was_authenticated = False
+            
+            # Leer comandos de suscripción de catalyst
+            messages = await redis_client.read_stream(
+                stream_name=input_stream,
+                consumer_group=consumer_group,
+                consumer_name=consumer_name,
+                count=100,
+                block=2000  # 2 segundos (más rápido para alertas)
+            )
+            
+            if messages:
+                message_ids_to_ack = []
+                
+                for stream_name, stream_messages in messages:
+                    for message_id, data in stream_messages:
+                        symbol = data.get('symbol', '').upper()
+                        action = data.get('action', '').lower()
+                        source = data.get('source', 'unknown')
+                        
+                        if not symbol or not action:
+                            message_ids_to_ack.append(message_id)
+                            continue
+                        
+                        if action == "subscribe":
+                            # Solo añadir si no está ya suscrito (evitar duplicados)
+                            # NOTA: No verificamos ws_client.subscribed_tickers porque
+                            # el scanner podría tenerlo ya suscrito, y eso está bien
+                            if symbol not in catalyst_subscribed_tickers:
+                                catalyst_subscribed_tickers.add(symbol)
+                                
+                                # Solo suscribir en Polygon si NO está ya suscrito por el scanner
+                                if ws_client.is_authenticated and symbol not in ws_client.subscribed_tickers:
+                                    await ws_client.subscribe_to_tickers({symbol}, event_types)
+                                    logger.info(
+                                        "catalyst_ticker_subscribed",
+                                        symbol=symbol,
+                                        source=source,
+                                        total_catalyst=len(catalyst_subscribed_tickers)
+                                    )
+                                else:
+                                    logger.debug(
+                                        "catalyst_ticker_already_subscribed_by_scanner",
+                                        symbol=symbol,
+                                        source=source
+                                    )
+                        
+                        elif action == "unsubscribe":
+                            if symbol in catalyst_subscribed_tickers:
+                                catalyst_subscribed_tickers.discard(symbol)
+                                
+                                # Solo desuscribir si:
+                                # 1. Estamos autenticados
+                                # 2. Está suscrito en Polygon
+                                # 3. NO está en las suscripciones del scanner (para no afectarlo)
+                                if (ws_client.is_authenticated and 
+                                    symbol in ws_client.subscribed_tickers):
+                                    
+                                    # Verificar si el scanner lo necesita
+                                    scanner_tickers = await redis_client.client.smembers('polygon_ws:active_tickers')
+                                    scanner_tickers = {t.decode() if isinstance(t, bytes) else t for t in scanner_tickers}
+                                    
+                                    if symbol not in scanner_tickers:
+                                        await ws_client.unsubscribe_from_tickers({symbol}, event_types)
+                                        logger.info(
+                                            "catalyst_ticker_unsubscribed",
+                                            symbol=symbol,
+                                            source=source,
+                                            total_catalyst=len(catalyst_subscribed_tickers)
+                                        )
+                                    else:
+                                        logger.debug(
+                                            "catalyst_ticker_kept_for_scanner",
+                                            symbol=symbol,
+                                            source=source
+                                        )
+                        
+                        message_ids_to_ack.append(message_id)
+                
+                # ACK de todos los mensajes procesados
+                if message_ids_to_ack:
+                    try:
+                        await redis_client.xack(
+                            input_stream,
+                            consumer_group,
+                            *message_ids_to_ack
+                        )
+                    except Exception as e:
+                        logger.error("catalyst_xack_error", error=str(e))
+        
+        except asyncio.CancelledError:
+            logger.info("catalyst_subscription_manager_cancelled")
+            raise
+        
+        except Exception as e:
+            logger.error(
+                "catalyst_subscription_manager_error",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            await asyncio.sleep(2)
+
+
+# ============================================================================
 # API Endpoints
 # ============================================================================
 
@@ -649,6 +829,22 @@ async def get_quote_subscriptions():
         "count": len(quote_subscribed_tickers),
         "is_authenticated": ws_client.is_authenticated,
         "type": "quotes"
+    }
+
+
+@app.get("/subscriptions/catalyst")
+async def get_catalyst_subscriptions():
+    """Obtiene las suscripciones activas de Catalyst (temporales para alertas)"""
+    global catalyst_subscribed_tickers
+    
+    if not ws_client:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    
+    return {
+        "subscribed_tickers": list(catalyst_subscribed_tickers),
+        "count": len(catalyst_subscribed_tickers),
+        "is_authenticated": ws_client.is_authenticated,
+        "type": "catalyst_aggregates"
     }
 
 
