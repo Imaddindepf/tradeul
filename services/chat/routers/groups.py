@@ -2,11 +2,13 @@
 Group endpoints - Private groups with invitations
 """
 
+import os
 import json
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Body
 from pydantic import BaseModel
 import structlog
+import httpx
 
 from models.group import GroupCreate, GroupResponse, MemberResponse
 from auth.dependencies import get_current_user, get_current_user_optional
@@ -15,6 +17,46 @@ from http_clients import http_clients
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/groups", tags=["groups"])
+
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
+
+
+async def get_clerk_username(user_id: str) -> str:
+    """Get username from Clerk API."""
+    if not CLERK_SECRET_KEY:
+        return user_id.replace("user_", "")[:8]
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.clerk.com/v1/users/{user_id}",
+                headers={
+                    "Authorization": f"Bearer {CLERK_SECRET_KEY}",
+                    "Content-Type": "application/json",
+                },
+                timeout=5.0
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                # Priority: username > email prefix > first_name > id
+                username = data.get("username")
+                if username:
+                    return username
+                
+                email = data.get("email_addresses", [{}])[0].get("email_address", "")
+                if email:
+                    return email.split("@")[0]
+                
+                first_name = data.get("first_name", "")
+                if first_name:
+                    return first_name
+                
+                return user_id.replace("user_", "")[:8]
+    except Exception as e:
+        logger.error("clerk_username_lookup_error", user_id=user_id, error=str(e))
+    
+    return user_id.replace("user_", "")[:8]
 
 
 async def create_system_message(group_id: str, content: str):
@@ -83,6 +125,9 @@ async def create_group(
     # Create invites for initial members and notify them
     group_data = {**dict(group), "member_count": 1, "unread_count": 0}
     
+    # Get inviter's username once for all invites
+    inviter_username = await get_clerk_username(user.user_id)
+    
     for member_id in data.member_ids:
         if member_id != user.user_id:
             await db.execute("""
@@ -97,7 +142,7 @@ async def create_group(
                 "payload": {
                     "group": group_data,
                     "inviter_id": user.user_id,
-                    "inviter_name": user.name or user.username
+                    "inviter_name": inviter_username
                 }
             }, default=str))
     
@@ -281,6 +326,9 @@ async def invite_user(
             expires_at = NOW() + INTERVAL '7 days'
     """, group_id, user.user_id, invitee_id, invitee_name)
     
+    # Get inviter's username from Clerk
+    inviter_name = await get_clerk_username(user.user_id)
+    
     # Publish invite notification to the invitee via Redis Pub/Sub
     invite_payload = json.dumps({
         "type": "group_invite",
@@ -293,7 +341,7 @@ async def invite_user(
                 "is_dm": group["is_dm"],
             },
             "inviter_id": user.user_id,
-            "inviter_name": user.name,
+            "inviter_name": inviter_name,
         }
     })
     
