@@ -2381,3 +2381,605 @@ function formatValueJS(value: number | null, type: string): string {
   if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(2)}K`;
   return `${sign}$${abs.toFixed(0)}`;
 }
+
+
+// ============================================================================
+// CHAT WINDOW
+// ============================================================================
+
+export interface ChatWindowData {
+  wsUrl: string;
+  apiUrl: string;
+  token: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  activeTarget?: { type: 'channel' | 'group'; id: string };
+}
+
+export function openChatWindow(
+  data: ChatWindowData,
+  config: WindowConfig
+): Window | null {
+  const {
+    width = 900,
+    height = 650,
+    centered = true,
+  } = config;
+
+  const left = centered ? (window.screen.width - width) / 2 : 100;
+  const top = centered ? (window.screen.height - height) / 2 : 100;
+
+  const windowFeatures = [
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+    'resizable=yes',
+    'scrollbars=yes',
+    'status=yes',
+  ].join(',');
+
+  const newWindow = window.open('about:blank', '_blank', windowFeatures);
+
+  if (!newWindow) {
+    console.error('❌ Chat window blocked');
+    return null;
+  }
+
+  injectChatContent(newWindow, data, config);
+
+  return newWindow;
+}
+
+function injectChatContent(
+  targetWindow: Window,
+  data: ChatWindowData,
+  config: WindowConfig
+): void {
+  const { title } = config;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          },
+          colors: {
+            background: '#FFFFFF',
+            foreground: '#0F172A',
+            primary: { DEFAULT: '#2563EB', hover: '#1D4ED8' },
+            border: '#E2E8F0',
+            muted: '#F8FAFC',
+            success: '#10B981',
+            danger: '#EF4444'
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+    body { font-family: 'JetBrains Mono', monospace; color: #171717; background: #ffffff; margin: 0; }
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-track { background: #f1f5f9; }
+    *::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    *::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+    .message:hover { background-color: rgba(0,0,0,0.02); }
+    .channel-item:hover { background-color: rgba(0,0,0,0.05); }
+    .channel-item.active { background-color: rgba(37, 99, 235, 0.1); color: #2563eb; }
+    .typing-dot { animation: typing 1.4s infinite both; }
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typing { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+  </style>
+</head>
+<body class="bg-white overflow-hidden">
+  <div id="root" class="h-screen flex flex-col">
+    <div class="flex items-center justify-center h-full bg-slate-50">
+      <div class="text-center">
+        <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3"></div>
+        <p class="text-slate-600 text-sm">Conectando al chat...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const CONFIG = ${JSON.stringify(data)};
+    
+    let ws = null;
+    let isConnected = false;
+    let channels = [];
+    let groups = [];
+    let messages = [];
+    let activeTarget = CONFIG.activeTarget || null;
+    let typingUsers = [];
+    let heartbeatInterval = null;
+    let typingTimeout = null;
+    
+    console.log('🚀 [Chat Window] Init', CONFIG.userName);
+    
+    // ============================================================
+    // WEBSOCKET
+    // ============================================================
+    function initWebSocket() {
+      const url = CONFIG.wsUrl + '?token=' + encodeURIComponent(CONFIG.token);
+      console.log('🔌 [Chat] Connecting to:', CONFIG.wsUrl);
+      
+      ws = new WebSocket(url);
+      
+      ws.onopen = () => {
+        console.log('✅ [Chat] Connected');
+        isConnected = true;
+        
+        // Start heartbeat
+        heartbeatInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 25000);
+        
+        // Subscribe to active target
+        if (activeTarget) {
+          subscribe(activeTarget);
+        }
+        
+        render();
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleMessage(msg);
+        } catch (e) {
+          console.error('[Chat] Parse error:', e);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('[Chat] Error:', error);
+        isConnected = false;
+        render();
+      };
+      
+      ws.onclose = () => {
+        console.log('[Chat] Disconnected');
+        isConnected = false;
+        clearInterval(heartbeatInterval);
+        render();
+        
+        // Reconnect after 3s
+        setTimeout(initWebSocket, 3000);
+      };
+    }
+    
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'new_message':
+          if (isActiveMessage(msg.payload)) {
+            messages.push(msg.payload);
+            renderMessages();
+            scrollToBottom();
+          }
+          break;
+        case 'typing':
+          if (isActiveMessage(msg.payload) && msg.payload.user_id !== CONFIG.userId) {
+            const existing = typingUsers.find(u => u.user_id === msg.payload.user_id);
+            if (!existing) {
+              typingUsers.push(msg.payload);
+              renderTyping();
+            }
+            // Remove after 3s
+            setTimeout(() => {
+              typingUsers = typingUsers.filter(u => u.user_id !== msg.payload.user_id);
+              renderTyping();
+            }, 3000);
+          }
+          break;
+        case 'online_users':
+          document.getElementById('online-count').textContent = msg.payload.count || 0;
+          break;
+        case 'pong':
+          break;
+      }
+    }
+    
+    function isActiveMessage(payload) {
+      if (!activeTarget) return false;
+      if (activeTarget.type === 'channel' && payload.channel_id === activeTarget.id) return true;
+      if (activeTarget.type === 'group' && payload.group_id === activeTarget.id) return true;
+      return false;
+    }
+    
+    function subscribe(target) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: 'subscribe',
+        payload: target.type === 'channel' 
+          ? { channel_id: target.id }
+          : { group_id: target.id }
+      }));
+      console.log('[Chat] Subscribed to', target);
+    }
+    
+    function unsubscribe(target) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: 'unsubscribe',
+        payload: target.type === 'channel'
+          ? { channel_id: target.id }
+          : { group_id: target.id }
+      }));
+    }
+    
+    function sendTyping() {
+      if (!ws || ws.readyState !== WebSocket.OPEN || !activeTarget) return;
+      ws.send(JSON.stringify({
+        type: 'typing',
+        payload: activeTarget.type === 'channel'
+          ? { channel_id: activeTarget.id }
+          : { group_id: activeTarget.id }
+      }));
+    }
+    
+    // ============================================================
+    // API CALLS
+    // ============================================================
+    async function fetchChannels() {
+      try {
+        const res = await fetch(CONFIG.apiUrl + '/api/chat/channels');
+        if (res.ok) {
+          channels = await res.json();
+          if (!activeTarget && channels.length > 0) {
+            const general = channels.find(c => c.name === 'general') || channels[0];
+            activeTarget = { type: 'channel', id: general.id };
+          }
+        }
+      } catch (e) {
+        console.error('[Chat] Fetch channels error:', e);
+      }
+    }
+    
+    async function fetchGroups() {
+      try {
+        const res = await fetch(CONFIG.apiUrl + '/api/chat/groups', {
+          headers: { Authorization: 'Bearer ' + CONFIG.token }
+        });
+        if (res.ok) {
+          groups = await res.json();
+        }
+      } catch (e) {
+        console.error('[Chat] Fetch groups error:', e);
+      }
+    }
+    
+    async function fetchMessages() {
+      if (!activeTarget) return;
+      
+      try {
+        const endpoint = activeTarget.type === 'channel'
+          ? '/api/chat/messages/channel/' + activeTarget.id
+          : '/api/chat/messages/group/' + activeTarget.id;
+        
+        const headers = activeTarget.type === 'group' 
+          ? { Authorization: 'Bearer ' + CONFIG.token }
+          : {};
+        
+        const res = await fetch(CONFIG.apiUrl + endpoint, { headers });
+        if (res.ok) {
+          messages = await res.json();
+          messages.reverse(); // oldest first
+        }
+      } catch (e) {
+        console.error('[Chat] Fetch messages error:', e);
+      }
+    }
+    
+    async function sendMessage(content) {
+      if (!activeTarget || !content.trim()) return;
+      
+      try {
+        const res = await fetch(CONFIG.apiUrl + '/api/chat/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + CONFIG.token
+          },
+          body: JSON.stringify({
+            content: content.trim(),
+            channel_id: activeTarget.type === 'channel' ? activeTarget.id : undefined,
+            group_id: activeTarget.type === 'group' ? activeTarget.id : undefined,
+            user_name: CONFIG.userName,
+            user_avatar: CONFIG.userAvatar
+          })
+        });
+        
+        if (res.ok) {
+          const msg = await res.json();
+          messages.push(msg);
+          renderMessages();
+          scrollToBottom();
+        }
+      } catch (e) {
+        console.error('[Chat] Send message error:', e);
+      }
+    }
+    
+    // ============================================================
+    // UI ACTIONS
+    // ============================================================
+    window.selectChannel = async function(id) {
+      if (activeTarget) unsubscribe(activeTarget);
+      activeTarget = { type: 'channel', id };
+      messages = [];
+      render();
+      await fetchMessages();
+      subscribe(activeTarget);
+      renderMessages();
+      scrollToBottom();
+    };
+    
+    window.selectGroup = async function(id) {
+      if (activeTarget) unsubscribe(activeTarget);
+      activeTarget = { type: 'group', id };
+      messages = [];
+      render();
+      await fetchMessages();
+      subscribe(activeTarget);
+      renderMessages();
+      scrollToBottom();
+    };
+    
+    window.handleInput = function(e) {
+      // Send typing indicator (debounced)
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(sendTyping, 300);
+    };
+    
+    window.handleKeyDown = function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const input = document.getElementById('message-input');
+        if (input.value.trim()) {
+          sendMessage(input.value);
+          input.value = '';
+        }
+      }
+    };
+    
+    window.handleSend = function() {
+      const input = document.getElementById('message-input');
+      if (input.value.trim()) {
+        sendMessage(input.value);
+        input.value = '';
+      }
+    };
+    
+    // ============================================================
+    // RENDER
+    // ============================================================
+    function formatTime(isoString) {
+      if (!isoString) return '';
+      try {
+        const d = new Date(isoString);
+        return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+      } catch { return ''; }
+    }
+    
+    function getUserColor(userId) {
+      const colors = ['text-red-500', 'text-orange-500', 'text-amber-500', 'text-emerald-500', 
+                      'text-cyan-500', 'text-blue-500', 'text-violet-500', 'text-pink-500'];
+      const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      return colors[hash % colors.length];
+    }
+    
+    function render() {
+      const activeName = activeTarget?.type === 'channel'
+        ? (channels.find(c => c.id === activeTarget.id)?.name || 'Chat')
+        : (groups.find(g => g.id === activeTarget.id)?.name || 'Group');
+      
+      const statusDot = isConnected ? 'bg-emerald-500' : 'bg-slate-300 animate-pulse';
+      const statusText = isConnected ? 'Live' : 'Connecting...';
+      
+      document.getElementById('root').innerHTML = \`
+        <div class="h-screen flex bg-white text-xs" style="font-family: 'JetBrains Mono', monospace;">
+          <!-- Sidebar -->
+          <div class="w-36 border-r border-slate-200 flex flex-col bg-slate-50">
+            <!-- Channels -->
+            <div class="p-2 border-b border-slate-200">
+              <div class="text-[9px] uppercase text-slate-400 font-semibold mb-1 px-1">Channels</div>
+              \${channels.map(ch => \`
+                <div 
+                  onclick="selectChannel('\${ch.id}')"
+                  class="channel-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-slate-600 \${activeTarget?.type === 'channel' && activeTarget?.id === ch.id ? 'active' : ''}"
+                >
+                  <span class="text-slate-400">#</span>
+                  <span class="truncate">\${ch.name}</span>
+                </div>
+              \`).join('')}
+            </div>
+            
+            <!-- Groups -->
+            <div class="flex-1 overflow-y-auto p-2">
+              <div class="text-[9px] uppercase text-slate-400 font-semibold mb-1 px-1">Groups</div>
+              \${groups.length === 0 ? \`
+                <div class="text-[10px] text-slate-400 px-2 py-1">No groups</div>
+              \` : groups.map(g => \`
+                <div 
+                  onclick="selectGroup('\${g.id}')"
+                  class="channel-item flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-slate-600 \${activeTarget?.type === 'group' && activeTarget?.id === g.id ? 'active' : ''}"
+                >
+                  <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  <span class="truncate">\${g.name}</span>
+                </div>
+              \`).join('')}
+            </div>
+            
+            <!-- Status -->
+            <div class="p-2 border-t border-slate-200">
+              <div class="flex items-center gap-1 px-1 text-[9px] text-slate-400">
+                <span class="w-1.5 h-1.5 rounded-full \${statusDot}"></span>
+                <span>\${statusText}</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Main Chat -->
+          <div class="flex-1 flex flex-col min-w-0">
+            <!-- Header -->
+            <div class="h-8 px-3 flex items-center gap-2 border-b border-slate-200 bg-white">
+              <span class="text-slate-400">\${activeTarget?.type === 'channel' ? '#' : ''}</span>
+              <span class="font-medium text-slate-800">\${activeName}</span>
+              <div class="flex items-center gap-1 text-[9px] text-slate-400 ml-auto">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span id="online-count">0</span>
+              </div>
+            </div>
+            
+            <!-- Messages -->
+            <div id="messages-container" class="flex-1 overflow-y-auto p-2 space-y-0.5">
+              <div class="flex items-center justify-center h-full text-slate-400 text-[10px]">
+                Loading messages...
+              </div>
+            </div>
+            
+            <!-- Typing -->
+            <div id="typing-indicator" class="px-3 h-4 text-[9px] text-slate-400"></div>
+            
+            <!-- Input -->
+            <div class="px-3 py-2 border-t border-slate-200 flex items-center gap-2">
+              <input 
+                id="message-input"
+                type="text" 
+                placeholder="Message..."
+                oninput="handleInput(event)"
+                onkeydown="handleKeyDown(event)"
+                class="flex-1 px-3 py-1.5 text-xs bg-slate-100 rounded border-0 focus:ring-1 focus:ring-blue-400 focus:outline-none"
+              />
+              <button 
+                onclick="handleSend()"
+                class="px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      \`;
+      
+      renderMessages();
+    }
+    
+    function renderMessages() {
+      const container = document.getElementById('messages-container');
+      if (!container) return;
+      
+      if (messages.length === 0) {
+        container.innerHTML = \`
+          <div class="flex items-center justify-center h-full text-slate-400 text-[10px]">
+            No messages yet. Start the conversation!
+          </div>
+        \`;
+        return;
+      }
+      
+      container.innerHTML = messages.map(msg => {
+        const time = formatTime(msg.created_at);
+        const colorClass = getUserColor(msg.user_id);
+        const isSystem = msg.content_type === 'system';
+        
+        if (isSystem) {
+          return \`
+            <div class="flex justify-center my-1">
+              <div class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[9px] italic">
+                \${msg.content}
+              </div>
+            </div>
+          \`;
+        }
+        
+        return \`
+          <div class="message px-1 py-0.5 leading-snug">
+            <span class="text-[9px] text-slate-400">\${time}</span>
+            <span class="\${colorClass} font-medium">\${msg.user_name || 'anon'}</span>
+            <span class="text-slate-300">:</span>
+            <span class="text-slate-700">\${escapeHtml(msg.content)}</span>
+          </div>
+        \`;
+      }).join('');
+    }
+    
+    function renderTyping() {
+      const el = document.getElementById('typing-indicator');
+      if (!el) return;
+      
+      if (typingUsers.length === 0) {
+        el.innerHTML = '';
+        return;
+      }
+      
+      const names = typingUsers.map(u => u.user_name).join(', ');
+      el.innerHTML = \`
+        <span>\${names} typing</span>
+        <span class="typing-dot inline-block w-1 h-1 bg-slate-400 rounded-full mx-0.5"></span>
+        <span class="typing-dot inline-block w-1 h-1 bg-slate-400 rounded-full mx-0.5"></span>
+        <span class="typing-dot inline-block w-1 h-1 bg-slate-400 rounded-full mx-0.5"></span>
+      \`;
+    }
+    
+    function scrollToBottom() {
+      const container = document.getElementById('messages-container');
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // ============================================================
+    // INIT
+    // ============================================================
+    async function init() {
+      await Promise.all([fetchChannels(), fetchGroups()]);
+      render();
+      await fetchMessages();
+      renderMessages();
+      scrollToBottom();
+      initWebSocket();
+    }
+    
+    init();
+    console.log('✅ [Chat Window] Initialized');
+  </script>
+</body>
+</html>
+  `;
+
+  targetWindow.document.open();
+  targetWindow.document.write(htmlContent);
+  targetWindow.document.close();
+
+  console.log('✅ [WindowInjector] Chat injected');
+}
