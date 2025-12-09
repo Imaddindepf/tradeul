@@ -5,6 +5,9 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw, ExternalLink, TrendingUp, TrendingDown, Users, Building2, Calendar, Globe, Phone } from 'lucide-react';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { TradingChart } from '@/components/chart/TradingChart';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { ChartContent } from '@/components/chart/ChartContent';
+import { TickerNewsMini } from '@/components/news/TickerNewsMini';
 
 // ============================================================================
 // Types
@@ -142,9 +145,44 @@ SectionHeader.displayName = 'SectionHeader';
 
 function DescriptionContentComponent({ ticker, exchange }: DescriptionContentProps) {
   const { t } = useTranslation();
+  const { openWindow } = useFloatingWindow();
   const [data, setData] = useState<TickerDescription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Callback to open full Chart window
+  const handleOpenChart = useCallback(() => {
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+    const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+
+    openWindow({
+      title: `Chart: ${ticker}`,
+      content: <ChartContent ticker={ticker} exchange={exchange} />,
+      width: 900,
+      height: 600,
+      x: Math.max(50, screenWidth / 2 - 450),
+      y: Math.max(80, screenHeight / 2 - 300),
+      minWidth: 600,
+      minHeight: 400,
+    });
+  }, [ticker, exchange, openWindow]);
+
+  // Callback to open News window for this ticker
+  const handleOpenNews = useCallback(() => {
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+    const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+
+    openWindow({
+      title: `News: ${ticker}`,
+      content: <TickerNewsMini ticker={ticker} />,
+      width: 500,
+      height: 500,
+      x: Math.max(50, screenWidth / 2 - 250),
+      y: Math.max(80, screenHeight / 2 - 250),
+      minWidth: 400,
+      minHeight: 300,
+    });
+  }, [ticker, openWindow]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -186,10 +224,10 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
   const { company, stats, valuation, dividend, risk, analystRating, priceTargets, consensusTarget, targetUpside } = data;
 
   // Calculate analyst totals
-  const totalAnalysts = (analystRating?.analystRatingsStrongBuy || 0) + 
-    (analystRating?.analystRatingsbuy || 0) + 
-    (analystRating?.analystRatingsHold || 0) + 
-    (analystRating?.analystRatingsSell || 0) + 
+  const totalAnalysts = (analystRating?.analystRatingsStrongBuy || 0) +
+    (analystRating?.analystRatingsbuy || 0) +
+    (analystRating?.analystRatingsHold || 0) +
+    (analystRating?.analystRatingsSell || 0) +
     (analystRating?.analystRatingsStrongSell || 0);
 
   return (
@@ -209,8 +247,8 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
               <div className="flex items-start gap-3">
                 {/* Logo - usa proxy solo para URLs de Polygon */}
                 {company.logoUrl && (
-                  <img 
-                    src={company.logoUrl.includes('polygon.io') 
+                  <img
+                    src={company.logoUrl.includes('polygon.io')
                       ? `${API_URL}/api/v1/proxy/logo?url=${encodeURIComponent(company.logoUrl)}`
                       : company.logoUrl
                     }
@@ -219,23 +257,23 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                 )}
-                
+
                 {/* Company Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-600 text-white rounded">EQ</span>
                     <span className="text-sm font-semibold text-slate-800 truncate">{company.name}</span>
                   </div>
-                  
+
                   <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                     {company.ceo && <span>CEO: {company.ceo}</span>}
                     {company.sector && <span className="text-slate-400">• {company.sector}</span>}
                   </div>
-                  
+
                   {company.website && (
-                    <a 
-                      href={company.website} 
-                      target="_blank" 
+                    <a
+                      href={company.website}
+                      target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 mt-1 text-xs text-blue-600 hover:text-blue-700"
                     >
@@ -256,7 +294,13 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
 
             {/* Chart - min-h-0 allows proper shrinking after fullscreen */}
             <div className="flex-1 min-h-0 border-b border-slate-200 overflow-hidden" style={{ minHeight: '250px' }}>
-              <TradingChart ticker={ticker} exchange={exchange} />
+              <TradingChart
+                ticker={ticker}
+                exchange={exchange}
+                minimal={true}
+                onOpenChart={handleOpenChart}
+                onOpenNews={handleOpenNews}
+              />
             </div>
 
             {/* Stats Row */}
@@ -278,16 +322,16 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
                   <>
                     <div className="flex items-center gap-1 mb-1">
                       <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden flex">
-                        <div 
-                          className="bg-green-500 h-full" 
+                        <div
+                          className="bg-green-500 h-full"
                           style={{ width: `${((analystRating.analystRatingsStrongBuy || 0) + (analystRating.analystRatingsbuy || 0)) / totalAnalysts * 100}%` }}
                         />
-                        <div 
-                          className="bg-yellow-500 h-full" 
+                        <div
+                          className="bg-yellow-500 h-full"
                           style={{ width: `${(analystRating.analystRatingsHold || 0) / totalAnalysts * 100}%` }}
                         />
-                        <div 
-                          className="bg-red-500 h-full" 
+                        <div
+                          className="bg-red-500 h-full"
                           style={{ width: `${((analystRating.analystRatingsSell || 0) + (analystRating.analystRatingsStrongSell || 0)) / totalAnalysts * 100}%` }}
                         />
                       </div>
@@ -308,10 +352,10 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
                 {consensusTarget ? (
                   <>
                     <StatRow label={t('description.consensus')} value={`$${formatNumber(consensusTarget)}`} valueClass="text-blue-600" />
-                    <StatRow 
-                      label={t('description.upside')} 
-                      value={formatPercent(targetUpside)} 
-                      valueClass={targetUpside && targetUpside > 0 ? 'text-green-600' : 'text-red-600'} 
+                    <StatRow
+                      label={t('description.upside')}
+                      value={formatPercent(targetUpside)}
+                      valueClass={targetUpside && targetUpside > 0 ? 'text-green-600' : 'text-red-600'}
                     />
                     <StatRow label={t('description.52wLow')} value={`$${formatNumber(stats.yearLow)}`} />
                     <StatRow label={t('description.52wHigh')} value={`$${formatNumber(stats.yearHigh)}`} />

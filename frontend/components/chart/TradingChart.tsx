@@ -38,6 +38,11 @@ interface TradingChartProps {
     ticker: string;
     exchange?: string;
     onTickerChange?: (ticker: string) => void;
+    /** Modo minimal: oculta toolbar, indicadores, intervalos. Para uso en Description. */
+    minimal?: boolean;
+    /** Callbacks para botones externos (solo en modo minimal) */
+    onOpenChart?: () => void;
+    onOpenNews?: () => void;
 }
 
 // Interval type is now ChartInterval from useLiveChartData
@@ -229,7 +234,14 @@ function ChartNewsPopup({ ticker, articles }: { ticker: string; articles: NewsAr
 // Component
 // ============================================================================
 
-function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTickerChange }: TradingChartProps) {
+function TradingChartComponent({ 
+    ticker: initialTicker = 'AAPL', 
+    exchange, 
+    onTickerChange,
+    minimal = false,
+    onOpenChart,
+    onOpenNews 
+}: TradingChartProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -254,10 +266,10 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
 
     // News for markers
     const allNews = useNewsStore((state) => state.articles);
-    const tickerNews = allNews.filter(article => 
+    const tickerNews = allNews.filter(article =>
         article.tickers?.some(t => t.toUpperCase() === currentTicker.toUpperCase())
     );
-    
+
     // Floating window for news popup
     const { openWindow } = useFloatingWindow();
 
@@ -697,12 +709,12 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
             ema26SeriesRef.current.setData(ema26Data);
         }
     }, [data, currentTicker, showNewsMarkers]);
-    
+
     // Apply time range only on initial load or ticker change (not on every data update)
     const lastAppliedTickerRef = useRef<string>('');
     useEffect(() => {
         if (!data || data.length === 0 || !candleSeriesRef.current) return;
-        
+
         // Only apply when ticker changes (new chart loaded)
         if (lastAppliedTickerRef.current !== currentTicker) {
             lastAppliedTickerRef.current = currentTicker;
@@ -715,10 +727,10 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
     // ============================================================================
     const newsPriceLinesRef = useRef<any[]>([]);
     const newsTimeMapRef = useRef<Map<number, any[]>>(new Map()); // Map candle time -> news articles
-    
+
     useEffect(() => {
         if (!candleSeriesRef.current || !data || data.length === 0) return;
-        
+
         // Clear previous price lines
         for (const line of newsPriceLinesRef.current) {
             try {
@@ -729,16 +741,16 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
         }
         newsPriceLinesRef.current = [];
         newsTimeMapRef.current.clear();
-        
+
         // Clear markers too
         candleSeriesRef.current.setMarkers([]);
-        
+
         if (!showNewsMarkers || tickerNews.length === 0) {
             return;
         }
 
         const newsMarkers: SeriesMarker<Time>[] = [];
-        
+
         // Create a map of candle data for quick lookup
         const candleDataMap = new Map<number, { time: number; open: number; high: number; low: number; close: number }>();
         for (const bar of data) {
@@ -756,26 +768,26 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
         // For each news, find the matching candle and create marker at price
         for (const news of tickerNews) {
             if (!news.published) continue;
-            
+
             // Parse news published time
             const newsDate = new Date(news.published);
             const newsTimestamp = Math.floor(newsDate.getTime() / 1000);
             const roundedNewsTime = Math.floor(newsTimestamp / 60) * 60;
-            
+
             // Find matching candle
             const candleData = candleDataMap.get(roundedNewsTime);
-            
+
             if (candleData) {
                 // Store the news for this candle time (for click handling)
                 if (!newsTimeMapRef.current.has(candleData.time)) {
                     newsTimeMapRef.current.set(candleData.time, []);
                 }
                 newsTimeMapRef.current.get(candleData.time)!.push(news);
-                
+
                 // Get the exact price if available, otherwise interpolate
                 let newsPrice: number;
                 const tickerUpper = currentTicker.toUpperCase();
-                
+
                 if (news.tickerPrices && news.tickerPrices[tickerUpper]) {
                     // Use exact captured price
                     newsPrice = news.tickerPrices[tickerUpper];
@@ -785,7 +797,7 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
                     const ratio = secondsInMinute / 60; // 0 to 1
                     newsPrice = candleData.open + (candleData.close - candleData.open) * ratio;
                 }
-                
+
                 // Add marker at the candle - arrowDown pointing to the price
                 newsMarkers.push({
                     time: candleData.time as UTCTimestamp,
@@ -795,7 +807,7 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
                     text: '📰',
                     size: 2,
                 });
-                
+
                 // Add a small price line annotation at that price
                 const priceLine = candleSeriesRef.current.createPriceLine({
                     price: newsPrice,
@@ -811,19 +823,19 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
 
         // Sort markers by time (required by lightweight-charts)
         newsMarkers.sort((a, b) => (a.time as number) - (b.time as number));
-        
+
         // Remove duplicates (same time) - keep first occurrence
-        const uniqueMarkers = newsMarkers.filter((marker, index, self) => 
+        const uniqueMarkers = newsMarkers.filter((marker, index, self) =>
             index === self.findIndex(m => m.time === marker.time)
         );
 
         candleSeriesRef.current.setMarkers(uniqueMarkers);
-        
+
         if (uniqueMarkers.length > 0) {
             console.log('[Chart] News markers added:', uniqueMarkers.length, 'with price lines');
         }
     }, [showNewsMarkers, tickerNews, data]);
-    
+
     // Handler for clicking on news markers
     const handleNewsMarkerClick = useCallback((time: number) => {
         const newsAtTime = newsTimeMapRef.current.get(time);
@@ -1285,218 +1297,261 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
 
     return (
         <div className="h-full flex flex-col bg-white border border-slate-200 rounded-lg overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50">
-                <div className="flex items-center gap-4">
-                    {/* Ticker search */}
-                    <form onSubmit={handleTickerChange} className="flex items-center">
-                        <div className="relative">
-                            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                            <input
-                                type="text"
-                                value={inputValue}
-                                onChange={(e) => setInputValue(e.target.value.toUpperCase())}
-                                placeholder="TICKER"
-                                className="w-24 pl-7 pr-2 py-1.5 text-xs font-semibold tracking-wide
-                                         bg-white border border-slate-300 rounded-l-md
-                                         focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                         text-slate-800 placeholder-slate-400"
-                            />
-                        </div>
+            {/* Minimal Header (for Description) */}
+            {minimal ? (
+                <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-600 tracking-wide">PRICE CHART</span>
+                        <span className="text-[10px] text-slate-400">1 Year</span>
+                        <span className="text-[10px] text-slate-400">Intraday</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {/* Open full Chart window */}
+                        {onOpenChart && (
+                            <button
+                                onClick={onOpenChart}
+                                className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                                title="Open Chart Window"
+                            >
+                                G <span className="font-normal">&gt;</span>
+                            </button>
+                        )}
+                        {/* Open News window */}
+                        {onOpenNews && (
+                            <button
+                                onClick={onOpenNews}
+                                className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors"
+                                title="Open News Window"
+                            >
+                                N <span className="font-normal">&gt;</span>
+                            </button>
+                        )}
+                        {/* Open Chat window - placeholder for future */}
                         <button
-                            type="submit"
-                            className="px-3 py-1.5 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 
-                                     text-xs font-semibold transition-colors border border-blue-600"
+                            className="text-xs font-bold text-blue-600 opacity-50 cursor-not-allowed"
+                            title="Chat (coming soon)"
+                            disabled
                         >
-                            Go
+                            CHAT <span className="font-normal">&gt;</span>
                         </button>
-                    </form>
+                    </div>
+                </div>
+            ) : (
+                <>
+                    {/* Full Header */}
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50">
+                        <div className="flex items-center gap-4">
+                            {/* Ticker search */}
+                            <form onSubmit={handleTickerChange} className="flex items-center">
+                                <div className="relative">
+                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        value={inputValue}
+                                        onChange={(e) => setInputValue(e.target.value.toUpperCase())}
+                                        placeholder="TICKER"
+                                        className="w-24 pl-7 pr-2 py-1.5 text-xs font-semibold tracking-wide
+                                                 bg-white border border-slate-300 rounded-l-md
+                                                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                                                 text-slate-800 placeholder-slate-400"
+                                    />
+                                </div>
+                                <button
+                                    type="submit"
+                                    className="px-3 py-1.5 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 
+                                             text-xs font-semibold transition-colors border border-blue-600"
+                                >
+                                    Go
+                                </button>
+                            </form>
 
-                    {/* Price info */}
-                    {displayBar && (
-                        <div className="flex items-center gap-3">
-                            <span className="text-lg font-bold text-slate-800">
-                                ${formatPrice(displayBar.close)}
-                            </span>
-                            <span className={`flex items-center gap-1 text-sm font-semibold px-2 py-0.5 rounded ${isPositive
-                                ? 'text-emerald-700 bg-emerald-50'
-                                : 'text-red-700 bg-red-50'
-                                }`}>
-                                {isPositive ? '▲' : '▼'}
-                                {formatPrice(Math.abs(priceChange))} ({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%)
-                            </span>
-                            {/* Live indicator */}
-                            {isLive && (
-                                <span className="flex items-center gap-1 text-xs font-medium text-red-500 animate-pulse">
-                                    <Radio className="w-3 h-3" />
-                                    LIVE
-                                </span>
+                            {/* Price info */}
+                            {displayBar && (
+                                <div className="flex items-center gap-3">
+                                    <span className="text-lg font-bold text-slate-800">
+                                        ${formatPrice(displayBar.close)}
+                                    </span>
+                                    <span className={`flex items-center gap-1 text-sm font-semibold px-2 py-0.5 rounded ${isPositive
+                                        ? 'text-emerald-700 bg-emerald-50'
+                                        : 'text-red-700 bg-red-50'
+                                        }`}>
+                                        {isPositive ? '▲' : '▼'}
+                                        {formatPrice(Math.abs(priceChange))} ({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%)
+                                    </span>
+                                    {/* Live indicator */}
+                                    {isLive && (
+                                        <span className="flex items-center gap-1 text-xs font-medium text-red-500 animate-pulse">
+                                            <Radio className="w-3 h-3" />
+                                            LIVE
+                                        </span>
+                                    )}
+                                </div>
                             )}
                         </div>
-                    )}
-                </div>
 
-                {/* Right controls */}
-                <div className="flex items-center gap-1">
-                    {/* SMA toggle */}
-                    <button
-                        onClick={() => setShowMA(!showMA)}
-                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${showMA
-                            ? 'bg-amber-100 text-amber-700 border border-amber-300'
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent'
-                            }`}
-                        title="SMA (20, 50)"
-                    >
-                        SMA
-                    </button>
+                        {/* Right controls */}
+                        <div className="flex items-center gap-1">
+                            {/* SMA toggle */}
+                            <button
+                                onClick={() => setShowMA(!showMA)}
+                                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${showMA
+                                    ? 'bg-amber-100 text-amber-700 border border-amber-300'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent'
+                                    }`}
+                                title="SMA (20, 50)"
+                            >
+                                SMA
+                            </button>
 
-                    {/* EMA toggle */}
-                    <button
-                        onClick={() => setShowEMA(!showEMA)}
-                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${showEMA
-                            ? 'bg-pink-100 text-pink-700 border border-pink-300'
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent'
-                            }`}
-                        title="EMA (12, 26)"
-                    >
-                        EMA
-                    </button>
+                            {/* EMA toggle */}
+                            <button
+                                onClick={() => setShowEMA(!showEMA)}
+                                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${showEMA
+                                    ? 'bg-pink-100 text-pink-700 border border-pink-300'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent'
+                                    }`}
+                                title="EMA (12, 26)"
+                            >
+                                EMA
+                            </button>
 
-                    {/* Volume toggle */}
-                    <button
-                        onClick={() => setShowVolume(!showVolume)}
-                        className={`p-1.5 rounded transition-colors ${showVolume
-                            ? 'bg-blue-100 text-blue-600'
-                            : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                            }`}
-                        title="Volume"
-                    >
-                        <BarChart3 className="w-4 h-4" />
-                    </button>
+                            {/* Volume toggle */}
+                            <button
+                                onClick={() => setShowVolume(!showVolume)}
+                                className={`p-1.5 rounded transition-colors ${showVolume
+                                    ? 'bg-blue-100 text-blue-600'
+                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                                    }`}
+                                title="Volume"
+                            >
+                                <BarChart3 className="w-4 h-4" />
+                            </button>
 
-                    {/* News markers toggle */}
-                    <button
-                        onClick={() => setShowNewsMarkers(!showNewsMarkers)}
-                        className={`p-1.5 rounded transition-colors ${showNewsMarkers
-                            ? 'bg-blue-100 text-blue-600'
-                            : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                            }`}
-                        title={`News Markers (${tickerNews.length})`}
-                    >
-                        <Newspaper className="w-4 h-4" />
-                    </button>
+                            {/* News markers toggle */}
+                            <button
+                                onClick={() => setShowNewsMarkers(!showNewsMarkers)}
+                                className={`p-1.5 rounded transition-colors ${showNewsMarkers
+                                    ? 'bg-blue-100 text-blue-600'
+                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                                    }`}
+                                title={`News Markers (${tickerNews.length})`}
+                            >
+                                <Newspaper className="w-4 h-4" />
+                            </button>
 
-                    <div className="w-px h-5 bg-slate-200 mx-1" />
+                            <div className="w-px h-5 bg-slate-200 mx-1" />
 
-                    {/* Zoom controls */}
-                    <button
-                        onClick={zoomIn}
-                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-                        title="Zoom In"
-                    >
-                        <ZoomIn className="w-4 h-4" />
-                    </button>
-                    <button
-                        onClick={zoomOut}
-                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-                        title="Zoom Out"
-                    >
-                        <ZoomOut className="w-4 h-4" />
-                    </button>
+                            {/* Zoom controls */}
+                            <button
+                                onClick={zoomIn}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
+                                title="Zoom In"
+                            >
+                                <ZoomIn className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={zoomOut}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
+                                title="Zoom Out"
+                            >
+                                <ZoomOut className="w-4 h-4" />
+                            </button>
 
-                    <div className="w-px h-5 bg-slate-200 mx-1" />
+                            <div className="w-px h-5 bg-slate-200 mx-1" />
 
-                    {/* Refresh */}
-                    <button
-                        onClick={refetch}
-                        disabled={loading}
-                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 
-                                 disabled:opacity-50 transition-colors"
-                        title="Refresh"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    </button>
+                            {/* Refresh */}
+                            <button
+                                onClick={refetch}
+                                disabled={loading}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 
+                                         disabled:opacity-50 transition-colors"
+                                title="Refresh"
+                            >
+                                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                            </button>
 
-                    {/* Fullscreen */}
-                    <button
-                        onClick={toggleFullscreen}
-                        className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-                        title="Fullscreen"
-                    >
-                        {isFullscreen ? (
-                            <Minimize2 className="w-4 h-4" />
-                        ) : (
-                            <Maximize2 className="w-4 h-4" />
-                        )}
-                    </button>
-                </div>
-            </div>
+                            {/* Fullscreen */}
+                            <button
+                                onClick={toggleFullscreen}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
+                                title="Fullscreen"
+                            >
+                                {isFullscreen ? (
+                                    <Minimize2 className="w-4 h-4" />
+                                ) : (
+                                    <Maximize2 className="w-4 h-4" />
+                                )}
+                            </button>
+                        </div>
+                    </div>
 
-            {/* Interval + Range selector */}
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 bg-white">
-                {/* Interval buttons */}
-                <div className="flex items-center gap-1">
-                    {INTERVALS.map((int) => (
-                        <button
-                            key={int.interval}
-                            onClick={() => setSelectedInterval(int.interval)}
-                            className={`px-2 py-1 text-xs font-medium rounded transition-all ${selectedInterval === int.interval
-                                ? 'bg-blue-600 text-white shadow-sm'
-                                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                                }`}
-                        >
-                            {int.shortLabel}
-                        </button>
-                    ))}
-                </div>
+                    {/* Interval + Range selector */}
+                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 bg-white">
+                        {/* Interval buttons */}
+                        <div className="flex items-center gap-1">
+                            {INTERVALS.map((int) => (
+                                <button
+                                    key={int.interval}
+                                    onClick={() => setSelectedInterval(int.interval)}
+                                    className={`px-2 py-1 text-xs font-medium rounded transition-all ${selectedInterval === int.interval
+                                        ? 'bg-blue-600 text-white shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                >
+                                    {int.shortLabel}
+                                </button>
+                            ))}
+                        </div>
 
-                {/* Time Range buttons */}
-                <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-slate-400 mr-1">Range:</span>
-                    {TIME_RANGES.map((range) => (
-                        <button
-                            key={range.id}
-                            onClick={() => handleRangeChange(range.id)}
-                            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-all ${selectedRange === range.id
-                                ? 'bg-slate-700 text-white'
-                                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                                }`}
-                        >
-                            {range.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
+                        {/* Time Range buttons */}
+                        <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-slate-400 mr-1">Range:</span>
+                            {TIME_RANGES.map((range) => (
+                                <button
+                                    key={range.id}
+                                    onClick={() => handleRangeChange(range.id)}
+                                    className={`px-2 py-0.5 text-[10px] font-medium rounded transition-all ${selectedRange === range.id
+                                        ? 'bg-slate-700 text-white'
+                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                                        }`}
+                                >
+                                    {range.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
 
-            {/* Legend row */}
-            <div className="flex items-center justify-end px-3 py-1 border-b border-slate-50 bg-white">
-                <div className="flex items-center gap-3 text-[10px]">
-                    {showMA && (
-                        <>
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ma20 }}></span>
-                                <span className="text-slate-500">MA20</span>
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ma50 }}></span>
-                                <span className="text-slate-500">MA50</span>
-                            </span>
-                        </>
-                    )}
-                    {showEMA && (
-                        <>
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ema12 }}></span>
-                                <span className="text-slate-500">EMA12</span>
-                            </span>
-                            <span className="flex items-center gap-1.5">
-                                <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ema26 }}></span>
-                                <span className="text-slate-500">EMA26</span>
-                            </span>
-                        </>
-                    )}
-                </div>
-            </div>
+                    {/* Legend row */}
+                    <div className="flex items-center justify-end px-3 py-1 border-b border-slate-50 bg-white">
+                        <div className="flex items-center gap-3 text-[10px]">
+                            {showMA && (
+                                <>
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ma20 }}></span>
+                                        <span className="text-slate-500">MA20</span>
+                                    </span>
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ma50 }}></span>
+                                        <span className="text-slate-500">MA50</span>
+                                    </span>
+                                </>
+                            )}
+                            {showEMA && (
+                                <>
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ema12 }}></span>
+                                        <span className="text-slate-500">EMA12</span>
+                                    </span>
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ema26 }}></span>
+                                        <span className="text-slate-500">EMA26</span>
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </>
+            )}
 
             {/* Chart container with drawing toolbar */}
             <div className="flex-1 min-h-0 flex bg-white overflow-hidden">

@@ -1,15 +1,16 @@
 /**
  * TickerNewsMini - Mini ventana de noticias de un ticker
  * 
- * Muestra las noticias de un ticker específico extraídas del store
- * No usa WebSocket adicional, solo los datos ya cargados
+ * Muestra las noticias de un ticker específico extraídas del store principal
+ * Filtra por ticker de las noticias ya cargadas
  */
 
 'use client';
 
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink } from 'lucide-react';
-import { useNewsTickersStore } from '@/stores/useNewsTickersStore';
+import { useNewsStore } from '@/stores/useNewsStore';
 
 interface TickerNewsMiniProps {
   ticker: string;
@@ -26,9 +27,16 @@ function decodeHtmlEntities(text: string): string {
 export function TickerNewsMini({ ticker }: TickerNewsMiniProps) {
   const { t } = useTranslation();
   
-  // Obtener noticias del store (ya cargadas, sin WebSocket adicional)
-  const getTickerNews = useNewsTickersStore((state) => state.getTickerNews);
-  const articles = getTickerNews(ticker);
+  // Obtener todas las noticias del store principal
+  const allArticles = useNewsStore((state) => state.articles);
+  
+  // Filtrar por el ticker específico
+  const articles = useMemo(() => {
+    const upperTicker = ticker.toUpperCase();
+    return allArticles.filter(article => 
+      article.tickers?.some(t => t.toUpperCase() === upperTicker)
+    );
+  }, [allArticles, ticker]);
 
   // Formatear fecha/hora
   const formatDateTime = (isoString: string) => {

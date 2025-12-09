@@ -195,15 +195,16 @@ class MaintenanceOrchestrator:
         Tarea 1: Limpiar caches de tiempo real
         
         Limpia:
-        - scanner:* (resultados del scanner del día anterior)
         - snapshot:* (snapshots del día anterior)
         - realtime:* (datos en tiempo real viejos)
+        
+        NOTA: Los caches del scanner (scanner:*) se limpian a las 3:45 AM ET
+        en una tarea separada del scheduler, DESPUÉS del reset de Polygon (~3:30 AM).
+        Esto evita que el scanner repueble los caches con datos viejos.
         """
         try:
             patterns = [
-                "scanner:category:*",
-                "scanner:sequence:*",
-                "scanner:filtered_complete:*",
+                # NO limpiar scanner:* aquí - se hace a las 3:45 AM
                 "snapshot:enriched:*",
                 "snapshot:polygon:*",
                 "realtime:*",

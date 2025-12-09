@@ -61,12 +61,17 @@ class DailyMaintenanceScheduler:
         self.is_running = False
         
         # Configuración
-        self.maintenance_hour = 3   # 3:00 AM ET
+        self.maintenance_hour = 3   # 3:00 AM ET - Tareas de datos (OHLC, ATR, RVOL)
         self.maintenance_minute = 0
+        
+        # Limpieza de caches del scanner (después del reset de Polygon ~3:30 AM)
+        self.cache_cleanup_hour = 3
+        self.cache_cleanup_minute = 45
         self.check_interval = 30    # Verificar cada 30 segundos
         
         # Estado
         self.last_maintenance_date: Optional[date] = None
+        self.last_cache_cleanup_date: Optional[date] = None
         
     def _is_trading_day(self, check_date: date) -> bool:
         """
@@ -151,44 +156,58 @@ class DailyMaintenanceScheduler:
             logger.warning("failed_to_load_last_maintenance_date", error=str(e))
     
     async def _check_and_execute(self):
-        """Verificar si es momento de ejecutar mantenimiento"""
+        """Verificar si es momento de ejecutar mantenimiento o limpieza de caches"""
         now_et = datetime.now(NY_TZ)
         current_date = now_et.date()
         current_hour = now_et.hour
         current_minute = now_et.minute
         
-        # ¿Es la hora de mantenimiento? (3:00 AM con ventana de 1 minuto)
+        # ¿Es día de trading?
+        if not self._is_trading_day(current_date):
+            # Marcar como ejecutado para no verificar constantemente
+            if self.last_maintenance_date != current_date:
+                logger.info(
+                    "skipping_maintenance_not_trading_day",
+                    date=str(current_date),
+                    weekday=current_date.strftime("%A")
+                )
+                self.last_maintenance_date = current_date
+                self.last_cache_cleanup_date = current_date
+                await self.redis.set("maintenance:last_run", current_date.isoformat())
+            return
+        
+        # =============================================
+        # 1. MANTENIMIENTO PRINCIPAL (3:00 AM ET)
+        # =============================================
         is_maintenance_time = (
             current_hour == self.maintenance_hour and
             current_minute == self.maintenance_minute
         )
         
-        if not is_maintenance_time:
-            return
-        
-        # ¿Ya se ejecutó hoy?
-        if self.last_maintenance_date == current_date:
-            return
-        
-        # ¿Es día de trading?
-        if not self._is_trading_day(current_date):
+        if is_maintenance_time and self.last_maintenance_date != current_date:
             logger.info(
-                "skipping_maintenance_not_trading_day",
-                date=str(current_date),
-                weekday=current_date.strftime("%A")
+                "🚀 maintenance_time_reached",
+                current_time=now_et.strftime("%H:%M:%S %Z"),
+                date=str(current_date)
             )
-            self.last_maintenance_date = current_date
-            await self.redis.set("maintenance:last_run", current_date.isoformat())
-            return
+            await self._execute_daily_maintenance(current_date)
         
-        # Ejecutar mantenimiento
-        logger.info(
-            "🚀 maintenance_time_reached",
-            current_time=now_et.strftime("%H:%M:%S %Z"),
-            date=str(current_date)
+        # =============================================
+        # 2. LIMPIEZA DE CACHES (3:45 AM ET)
+        # Después del reset de Polygon (~3:30 AM)
+        # =============================================
+        is_cache_cleanup_time = (
+            current_hour == self.cache_cleanup_hour and
+            current_minute == self.cache_cleanup_minute
         )
         
-        await self._execute_daily_maintenance(current_date)
+        if is_cache_cleanup_time and self.last_cache_cleanup_date != current_date:
+            logger.info(
+                "🧹 cache_cleanup_time_reached",
+                current_time=now_et.strftime("%H:%M:%S %Z"),
+                date=str(current_date)
+            )
+            await self._execute_cache_cleanup(current_date)
     
     async def _execute_daily_maintenance(self, today: date):
         """
@@ -238,6 +257,83 @@ class DailyMaintenanceScheduler:
             logger.error(
                 "daily_maintenance_exception",
                 target_date=str(target_date),
+                error=str(e),
+                error_type=type(e).__name__
+            )
+    
+    async def _execute_cache_cleanup(self, today: date):
+        """
+        Limpiar caches del scanner DESPUÉS del reset de Polygon (~3:30 AM ET)
+        
+        Esta tarea se ejecuta a las 3:45 AM ET, después de que Polygon
+        resetea los datos del día anterior. Así evitamos que el scanner
+        repueble los caches con datos viejos.
+        
+        Args:
+            today: Fecha actual
+        """
+        logger.info(
+            "🧹 starting_cache_cleanup",
+            today=str(today),
+            reason="Cleaning scanner caches after Polygon reset"
+        )
+        
+        start_time = datetime.now()
+        
+        try:
+            # Patrones de caches del scanner a limpiar
+            patterns = [
+                "scanner:category:*",
+                "scanner:sequence:*",
+                "scanner:filtered_complete:*",
+            ]
+            
+            total_deleted = 0
+            
+            for pattern in patterns:
+                try:
+                    deleted = await self.redis.delete_pattern(pattern)
+                    total_deleted += deleted
+                    if deleted > 0:
+                        logger.info(
+                            "cache_pattern_deleted",
+                            pattern=pattern,
+                            count=deleted
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to delete pattern {pattern}: {e}")
+            
+            # Notificar al websocket_server para que limpie su cache en memoria
+            # via Redis Pub/Sub (el websocket_server está suscrito a este canal)
+            import json
+            await self.redis.client.publish(
+                "trading:new_day",
+                json.dumps({
+                    "event": "cache_cleanup",
+                    "date": today.isoformat(),
+                    "action": "clear_scanner_caches",
+                    "keys_deleted": total_deleted
+                })
+            )
+            logger.info(
+                "websocket_cache_clear_published",
+                channel="trading:new_day"
+            )
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            
+            self.last_cache_cleanup_date = today
+            await self.redis.set("maintenance:last_cache_cleanup", today.isoformat())
+            
+            logger.info(
+                "✅ cache_cleanup_completed",
+                keys_deleted=total_deleted,
+                duration_seconds=round(elapsed, 2)
+            )
+            
+        except Exception as e:
+            logger.error(
+                "cache_cleanup_exception",
                 error=str(e),
                 error_type=type(e).__name__
             )
