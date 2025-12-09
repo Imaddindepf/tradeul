@@ -233,7 +233,12 @@ export function useChatWebSocket() {
 
         case 'group_invite': {
           // Show invite notification
-          const { group, inviter_id, inviter_name } = msg.payload;
+          const payload = msg.payload;
+          if (!payload || !payload.group) {
+            console.warn('[ChatWS] Invalid group_invite message:', msg);
+            break;
+          }
+          const { group, inviter_id, inviter_name } = payload;
           useChatStore.getState().addInvite({
             id: `invite_${group.id}`,
             group_id: group.id,

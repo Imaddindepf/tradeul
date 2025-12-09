@@ -284,15 +284,17 @@ async def invite_user(
     # Publish invite notification to the invitee via Redis Pub/Sub
     invite_payload = json.dumps({
         "type": "group_invite",
-        "group": {
-            "id": group["id"],
-            "name": group["name"],
-            "description": group["description"],
-            "icon": group["icon"],
-            "is_dm": group["is_dm"],
-        },
-        "inviter_id": user.user_id,
-        "inviter_name": user.name,
+        "payload": {
+            "group": {
+                "id": group["id"],
+                "name": group["name"],
+                "description": group["description"],
+                "icon": group["icon"],
+                "is_dm": group["is_dm"],
+            },
+            "inviter_id": user.user_id,
+            "inviter_name": user.name,
+        }
     })
     
     # Publish to the invitee's personal channel
