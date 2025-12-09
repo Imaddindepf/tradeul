@@ -87,7 +87,6 @@ export function useChatWebSocket() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[ChatWS] Connected');
         setConnected(true);
         isConnected$.next(true);
 
@@ -107,7 +106,6 @@ export function useChatWebSocket() {
               ? { channel_id: currentTarget.id }
               : { group_id: currentTarget.id }
           }));
-          console.log('[ChatWS] Subscribed to', currentTarget);
         }
       };
 
@@ -127,7 +125,6 @@ export function useChatWebSocket() {
       };
 
       ws.onclose = () => {
-        console.log('[ChatWS] Disconnected');
         setConnected(false);
         isConnected$.next(false);
         wsRef.current = null;
@@ -180,7 +177,6 @@ export function useChatWebSocket() {
           const targetKey = msg.payload.channel_id
             ? `channel:${msg.payload.channel_id}`
             : `group:${msg.payload.group_id}`;
-          console.log('[ChatWS] New message received:', { targetKey, from: msg.payload.user_name, content: msg.payload.content?.slice(0, 50) });
           addMessage(targetKey, msg.payload);
           break;
         }
@@ -248,7 +244,6 @@ export function useChatWebSocket() {
             created_at: new Date().toISOString(),
             expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
           });
-          console.log('[ChatWS] Invite received for group:', group.name);
           break;
         }
       }
