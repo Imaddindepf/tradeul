@@ -465,6 +465,74 @@ services:
           memory: 512M
         reservations:
           memory: 256M
+
+  # =============================================
+  # CHAT SERVICE (REST API)
+  # =============================================
+
+  chat_service:
+    build:
+      context: .
+      dockerfile: services/chat/Dockerfile
+    container_name: tradeul_chat_service
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8016:8016"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # =============================================
+  # CHAT WEBSOCKET (SEPARADO DEL SCANNER WS)
+  # =============================================
+
+  websocket_chat:
+    build:
+      context: .
+      dockerfile: services/websocket_chat/Dockerfile
+    container_name: tradeul_websocket_chat
+    environment:
+      CHAT_WS_PORT: 9001
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      WS_AUTH_ENABLED: ${WS_AUTH_ENABLED:-false}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:9001:9001"  # Puerto DIFERENTE al scanner (9000)
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
   # admin_panel:
   #   build:
   #     context: .

@@ -1,0 +1,21 @@
+{
+  "name": "tradeul-websocket-chat",
+  "version": "1.0.0",
+  "description": "WebSocket server for community chat - Separate from scanner WS",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.1",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.2",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+
