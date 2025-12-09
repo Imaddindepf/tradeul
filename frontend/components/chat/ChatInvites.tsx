@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Check, X, Users, Loader2 } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useChatStore } from '@/stores/useChatStore';
@@ -10,10 +10,46 @@ import { motion, AnimatePresence } from 'framer-motion';
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 
 export function ChatInvites() {
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
   const { user } = useUser();
-  const { invites, removeInvite, groups, setGroups, setActiveTarget } = useChatStore();
+  const { invites, addInvite, removeInvite, groups, setGroups, setActiveTarget } = useChatStore();
   const [loading, setLoading] = useState<string | null>(null);
+  const hasFetched = useRef(false);
+
+  // Load pending invites on mount
+  useEffect(() => {
+    if (!isSignedIn || hasFetched.current) return;
+    hasFetched.current = true;
+
+    const fetchInvites = async () => {
+      try {
+        const token = await getToken();
+        const res = await fetch(`${CHAT_API_URL}/api/chat/invites`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          // Add each invite to store (avoiding duplicates)
+          for (const inv of data) {
+            addInvite({
+              id: inv.id,
+              group_id: inv.group_id,
+              group_name: inv.group_name,
+              inviter_id: inv.inviter_id,
+              inviter_name: inv.inviter_name,
+              status: inv.status,
+              created_at: inv.created_at,
+              expires_at: inv.expires_at,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch invites:', error);
+      }
+    };
+
+    fetchInvites();
+  }, [isSignedIn, getToken, addInvite]);
 
   const handleAccept = async (invite: typeof invites[0]) => {
     setLoading(invite.group_id);

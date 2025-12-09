@@ -72,7 +72,6 @@ async def list_my_invites(
             i.group_id::text,
             g.name as group_name,
             i.inviter_id,
-            NULL as inviter_name,  -- Would need user service lookup
             i.invitee_id,
             i.status,
             i.created_at,
@@ -86,7 +85,15 @@ async def list_my_invites(
         ORDER BY i.created_at DESC
     """, user.user_id)
     
-    return invites
+    # Get inviter names from Clerk
+    from .groups import get_clerk_username
+    result = []
+    for inv in invites:
+        inv_dict = dict(inv)
+        inv_dict["inviter_name"] = await get_clerk_username(inv["inviter_id"])
+        result.append(inv_dict)
+    
+    return result
 
 
 @router.post("/{invite_id}/accept")
