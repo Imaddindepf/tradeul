@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { type ChatMessage as ChatMessageType } from '@/stores/useChatStore';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { TickerMention } from './TickerMention';
 
 interface ChatMessageProps {
@@ -11,6 +13,25 @@ interface ChatMessageProps {
 const TICKER_REGEX = /\$([A-Z]{1,5})\b/g;
 
 export function ChatMessage({ message }: ChatMessageProps) {
+  const { openWindow } = useFloatingWindow();
+
+  // Open description window for ticker
+  const openTickerDescription = useCallback((symbol: string) => {
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+    const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+    
+    openWindow({
+      title: `Description: ${symbol}`,
+      content: <DescriptionContent ticker={symbol} exchange="NASDAQ" />,
+      width: 1100,
+      height: 700,
+      x: Math.max(50, screenWidth / 2 - 550),
+      y: Math.max(70, screenHeight / 2 - 350),
+      minWidth: 900,
+      minHeight: 550,
+    });
+  }, [openWindow]);
+
   // Parse tickers
   const parsedContent = useMemo(() => {
     const parts: (string | React.ReactNode)[] = [];
@@ -30,6 +51,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
           key={`${ticker}-${match.index}`}
           symbol={ticker} 
           priceData={priceData}
+          onClick={() => openTickerDescription(ticker)}
         />
       );
       lastIndex = regex.lastIndex;
