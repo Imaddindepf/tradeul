@@ -180,6 +180,7 @@ export function useChatWebSocket() {
           const targetKey = msg.payload.channel_id
             ? `channel:${msg.payload.channel_id}`
             : `group:${msg.payload.group_id}`;
+          console.log('[ChatWS] New message received:', { targetKey, from: msg.payload.user_name, content: msg.payload.content?.slice(0, 50) });
           addMessage(targetKey, msg.payload);
           break;
         }

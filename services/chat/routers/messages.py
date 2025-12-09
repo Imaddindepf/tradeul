@@ -39,6 +39,11 @@ def parse_message_row(row) -> dict:
             result["ticker_prices"] = json.loads(result["ticker_prices"])
         except (json.JSONDecodeError, TypeError):
             result["ticker_prices"] = None
+    # Ensure mentions and tickers are always lists (never None)
+    if result.get("mentions") is None:
+        result["mentions"] = []
+    if result.get("tickers") is None:
+        result["tickers"] = []
     return result
 
 

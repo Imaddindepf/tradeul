@@ -118,6 +118,18 @@ export function ChatMessages() {
     }
   }, [currentMessages.length]);
 
+  // Scroll to a specific message (for reply quotes)
+  const scrollToMessage = useCallback((messageId: string) => {
+    const index = currentMessages.findIndex(m => m.id === messageId);
+    if (index !== -1) {
+      virtuosoRef.current?.scrollToIndex({
+        index,
+        behavior: 'smooth',
+        align: 'center',
+      });
+    }
+  }, [currentMessages]);
+
   if (isLoadingMessages) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -140,7 +152,11 @@ export function ChatMessages() {
           initialTopMostItemIndex={currentMessages.length - 1}
           followOutput="smooth"
           itemContent={(_index: number, message: ChatMessageType) => (
-            <ChatMessage key={message.id} message={message} />
+            <ChatMessage
+              key={message.id}
+              message={message}
+              onScrollToMessage={scrollToMessage}
+            />
           )}
           components={{
             Header: () => (
@@ -150,6 +166,7 @@ export function ChatMessages() {
                 <button onClick={loadMore} className="w-full py-0.5 text-[10px] text-primary/60 hover:text-primary">more</button>
               ) : null
             ),
+            Footer: () => <div className="h-5" />, // Space for typing indicator
           }}
           className="flex-1"
         />

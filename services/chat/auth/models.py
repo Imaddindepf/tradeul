@@ -87,21 +87,31 @@ class AuthenticatedUser:
     @property
     def name(self) -> str:
         """Nombre del usuario."""
+        # 1. Priorizar username de metadata (si está configurado en Clerk)
+        username_from_meta = self.metadata.get("username")
+        if username_from_meta:
+            return username_from_meta
+        # 2. Usar email (sin dominio)
+        if self.email:
+            return self.email.split("@")[0]
+        # 3. Usar first_name
         if self.first_name:
             if self.last_name:
                 return f"{self.first_name} {self.last_name}"
             return self.first_name
-        if self.email:
-            return self.email.split("@")[0]
-        # Usar ID corto si no hay nombre (user_2xYz... -> user2xYz)
+        # 4. Fallback a ID legible
         if self.id:
-            short_id = self.id.replace("user_", "u").replace("-", "")[:8]
-            return short_id
+            short_id = self.id.replace("user_", "").replace("-", "")[:8]
+            return f"user_{short_id}"
         return "anon"
     
     @property
     def username(self) -> Optional[str]:
-        """Username (usa email si no hay)."""
+        """Username."""
+        # Priorizar username de metadata
+        username_from_meta = self.metadata.get("username")
+        if username_from_meta:
+            return username_from_meta
         if self.email:
             return self.email.split("@")[0]
         return None

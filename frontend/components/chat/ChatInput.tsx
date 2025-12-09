@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Send, DollarSign, Loader2 } from 'lucide-react';
+import { Send, DollarSign, Loader2, X, Reply } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useChatStore } from '@/stores/useChatStore';
@@ -35,7 +35,7 @@ export function ChatInput() {
 
   const { isSignedIn, getToken } = useAuth();
   const { user } = useUser();
-  const { activeTarget, addMessage, getTargetKey } = useChatStore();
+  const { activeTarget, addMessage, getTargetKey, replyingTo, setReplyingTo } = useChatStore();
   const { sendTyping } = useChatWebSocket();
 
   // Close picker on outside click
@@ -167,10 +167,16 @@ export function ChatInput() {
           content: messageContent,
           channel_id: activeTarget.type === 'channel' ? activeTarget.id : undefined,
           group_id: activeTarget.type === 'group' ? activeTarget.id : undefined,
+          reply_to_id: replyingTo?.id,
           user_name: displayName,
           user_avatar: user?.imageUrl,
         }),
       });
+
+      // Clear reply after sending
+      if (replyingTo) {
+        setReplyingTo(null);
+      }
 
       if (!response.ok) {
         throw new Error('Failed to send message');
@@ -197,7 +203,32 @@ export function ChatInput() {
   };
 
   return (
-    <div className="relative border-t border-border px-2 py-1.5">
+    <div className="relative border-t border-border">
+      {/* Reply indicator */}
+      <AnimatePresence>
+        {replyingTo && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border text-[10px]"
+          >
+            <Reply className="w-3 h-3 text-primary" />
+            <span className="text-muted-foreground">Respondiendo a</span>
+            <span className="text-foreground font-medium truncate max-w-[200px]">
+              {replyingTo.user_name}: {replyingTo.content}
+            </span>
+            <button
+              onClick={() => setReplyingTo(null)}
+              className="ml-auto p-0.5 hover:bg-muted rounded"
+            >
+              <X className="w-3 h-3 text-muted-foreground" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="px-2 py-1.5 relative">
       {/* Ticker Search Dropdown */}
       <AnimatePresence>
         {showTickerSearch && (
@@ -305,6 +336,7 @@ export function ChatInput() {
         >
           <Send className="w-3.5 h-3.5" />
         </button>
+      </div>
       </div>
     </div>
   );

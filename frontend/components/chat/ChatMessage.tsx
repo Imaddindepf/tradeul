@@ -1,19 +1,130 @@
 'use client';
 
-import React, { useMemo, useCallback } from 'react';
-import { type ChatMessage as ChatMessageType } from '@/stores/useChatStore';
+import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import { MoreVertical, Copy, Reply, Smile, MessageCircle, CornerDownRight } from 'lucide-react';
+import { type ChatMessage as ChatMessageType, useChatStore } from '@/stores/useChatStore';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useAuth } from '@clerk/nextjs';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { TickerMention } from './TickerMention';
+import { cn } from '@/lib/utils';
+
+const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
+
+// Common reactions
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '🚀', '💯', '👀'];
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  onScrollToMessage?: (messageId: string) => void;
 }
 
 const TICKER_REGEX = /\$([A-Z]{1,5})\b/g;
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
   const { openWindow } = useFloatingWindow();
+  const { getToken, userId } = useAuth();
+  const { groups, setGroups, setActiveTarget, messages, activeTarget, getTargetKey } = useChatStore();
+
+  // Find the original message if this is a reply
+  const replyToMessage = useMemo(() => {
+    if (!message.reply_to_id || !activeTarget) return null;
+    const targetKey = getTargetKey(activeTarget);
+    const targetMessages = messages[targetKey] || [];
+    return targetMessages.find(m => m.id === message.reply_to_id) || null;
+  }, [message.reply_to_id, activeTarget, getTargetKey, messages]);
+  
+  const [showMenu, setShowMenu] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const [showReactions, setShowReactions] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+        setShowReactions(false);
+      }
+    };
+    if (showMenu || showReactions) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu, showReactions]);
+
+  // Handle right click
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenuPosition({ x: e.clientX, y: e.clientY });
+    setShowMenu(true);
+  }, []);
+
+  // Copy message
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(message.content);
+    setShowMenu(false);
+  }, [message.content]);
+
+  // Reply to message
+  const handleReply = useCallback(() => {
+    useChatStore.getState().setReplyingTo(message);
+    setShowMenu(false);
+  }, [message]);
+
+  // Add reaction
+  const handleReaction = useCallback(async (emoji: string) => {
+    try {
+      const token = await getToken();
+      await fetch(`${CHAT_API_URL}/api/chat/messages/${message.id}/reactions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ emoji }),
+      });
+    } catch (error) {
+      console.error('Failed to add reaction:', error);
+    }
+    setShowReactions(false);
+    setShowMenu(false);
+  }, [message.id, getToken]);
+
+  // Open DM with user
+  const handleOpenDM = useCallback(async () => {
+    if (message.user_id === userId) return; // Can't DM yourself
+    
+    try {
+      const token = await getToken();
+      // Create or get existing DM group
+      const response = await fetch(`${CHAT_API_URL}/api/chat/groups`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: `DM: ${message.user_name}`,
+          is_dm: true,
+          member_ids: [message.user_id],
+        }),
+      });
+
+      if (response.ok) {
+        const group = await response.json();
+        // Add to groups if not exists
+        if (!groups.some(g => g.id === group.id)) {
+          setGroups([...groups, group]);
+        }
+        setActiveTarget({ type: 'group', id: group.id });
+      }
+    } catch (error) {
+      console.error('Failed to open DM:', error);
+    }
+    setShowMenu(false);
+  }, [message.user_id, message.user_name, userId, getToken, groups, setGroups, setActiveTarget]);
 
   // Open description window for ticker
   const openTickerDescription = useCallback((symbol: string) => {
@@ -86,14 +197,141 @@ export function ChatMessage({ message }: ChatMessageProps) {
     return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   }, [message.created_at]);
 
+  const isOwnMessage = message.user_id === userId;
+  const isSystemMessage = message.user_id === 'system' || message.content_type === 'system';
+
+  // Color for replied message author
+  const replyNameColor = useMemo(() => {
+    if (!replyToMessage) return '';
+    const colors = [
+      'text-red-400',
+      'text-orange-400',
+      'text-amber-400',
+      'text-emerald-400',
+      'text-cyan-400',
+      'text-blue-400',
+      'text-violet-400',
+      'text-pink-400',
+    ];
+    const hash = replyToMessage.user_id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return colors[hash % colors.length];
+  }, [replyToMessage]);
+
+  // System messages have a different style
+  if (isSystemMessage) {
+    return (
+      <div className="flex justify-center py-1">
+        <span className="text-[10px] text-muted-foreground/60 bg-muted/30 px-2 py-0.5 rounded-full">
+          {message.content}
+        </span>
+      </div>
+    );
+  }
+
   return (
-    <div className="px-1 leading-tight hover:bg-muted/10">
-      <span className="text-[9px] text-muted-foreground/40">{time}</span>
-      {' '}
-      <span className={nameColor}>{message.user_name}</span>
-      <span className="text-muted-foreground/30">:</span>
-      {' '}
-      <span>{parsedContent}</span>
-    </div>
+    <>
+      <div 
+        className="group relative px-1 leading-tight hover:bg-muted/10"
+        onContextMenu={handleContextMenu}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        {/* Reply quote */}
+        {replyToMessage && (
+          <button
+            onClick={() => onScrollToMessage?.(replyToMessage.id)}
+            className="flex items-center gap-1 mb-0.5 pl-2 border-l-2 border-primary/40 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <CornerDownRight className="w-2.5 h-2.5 opacity-50" />
+            <span className={cn("opacity-80", replyNameColor)}>{replyToMessage.user_name}</span>
+            <span className="truncate max-w-[200px] opacity-60">{replyToMessage.content}</span>
+          </button>
+        )}
+        
+        <span className="text-[9px] text-muted-foreground/40">{time}</span>
+        {' '}
+        <span className={nameColor}>{message.user_name}</span>
+        <span className="text-muted-foreground/30">:</span>
+        {' '}
+        <span>{parsedContent}</span>
+
+        {/* Three dots menu button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenuPosition({ x: e.clientX, y: e.clientY });
+            setShowMenu(true);
+          }}
+          className={cn(
+            "absolute right-1 top-0 p-0.5 rounded transition-opacity",
+            "hover:bg-muted text-muted-foreground",
+            isHovered ? "opacity-100" : "opacity-0"
+          )}
+        >
+          <MoreVertical className="w-3 h-3" />
+        </button>
+      </div>
+
+      {/* Context Menu */}
+      {showMenu && (
+        <div
+          ref={menuRef}
+          className="fixed z-50 bg-background border border-border rounded-md shadow-lg py-1 min-w-[150px]"
+          style={{ 
+            left: Math.min(menuPosition.x, window.innerWidth - 160),
+            top: Math.min(menuPosition.y, window.innerHeight - 200)
+          }}
+        >
+          <button
+            onClick={handleCopy}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+          >
+            <Copy className="w-3 h-3" />
+            Copiar
+          </button>
+          
+          <button
+            onClick={handleReply}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+          >
+            <Reply className="w-3 h-3" />
+            Responder
+          </button>
+
+          <button
+            onClick={() => setShowReactions(!showReactions)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+          >
+            <Smile className="w-3 h-3" />
+            Reaccionar
+          </button>
+
+          {!isOwnMessage && (
+            <button
+              onClick={handleOpenDM}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+            >
+              <MessageCircle className="w-3 h-3" />
+              Mensaje directo
+            </button>
+          )}
+
+          {/* Quick reactions */}
+          {showReactions && (
+            <div className="flex gap-1 px-2 py-1.5 border-t border-border mt-1">
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => handleReaction(emoji)}
+                  className="p-1 hover:bg-muted rounded transition-colors text-sm"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }

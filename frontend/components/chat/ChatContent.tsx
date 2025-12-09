@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Loader2, Hash, Users, Plus, X, Search, ChevronDown, ChevronRight, MoreVertical, LogOut, Trash2 } from 'lucide-react';
+import { Loader2, Hash, Users, Plus, X, Search, ChevronDown, ChevronRight, MoreVertical, LogOut, Trash2, Settings } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { useChatStore, selectActiveChannel, selectActiveGroup, selectOnlineCount } from '@/stores/useChatStore';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ChatInvites } from './ChatInvites';
+import { GroupManagePanel } from './GroupManagePanel';
 import { cn } from '@/lib/utils';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
@@ -32,6 +33,7 @@ export function ChatContent() {
   const [expandedDMs, setExpandedDMs] = useState(true);
   const [expandedChannels, setExpandedChannels] = useState(true);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const [showManagePanel, setShowManagePanel] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   
   const { getToken, isSignedIn, userId } = useAuth();
@@ -328,8 +330,15 @@ export function ChatContent() {
         </div>
       </div>
 
-      {/* Main Area - either Chat or Create Group */}
-      {showCreateGroup ? (
+      {/* Main Area - Chat, Create Group, or Manage Group */}
+      {showManagePanel && activeGroup ? (
+        <div className="flex-1 flex flex-col min-w-0 p-3">
+          <GroupManagePanel 
+            group={activeGroup} 
+            onClose={() => setShowManagePanel(false)} 
+          />
+        </div>
+      ) : showCreateGroup ? (
         <div className="flex-1 flex flex-col min-w-0 p-3">
           {/* Header */}
           <div className="flex items-center justify-between mb-3">
@@ -481,6 +490,19 @@ export function ChatContent() {
                       onClick={() => setShowGroupMenu(false)} 
                     />
                     <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded shadow-lg z-20 py-1 min-w-[140px]">
+                      {/* Manage group - owner and admins */}
+                      <button
+                        onClick={() => {
+                          setShowManagePanel(true);
+                          setShowGroupMenu(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors"
+                      >
+                        <Settings className="w-3 h-3" />
+                        Gestionar grupo
+                      </button>
+
+                      {/* Leave/Delete */}
                       {isGroupOwner ? (
                         <button
                           onClick={handleDeleteGroup}

@@ -103,6 +103,7 @@ export interface ChatState {
   isSidebarOpen: boolean;
   isLoadingMessages: boolean;
   hasMoreMessages: Record<string, boolean>;
+  replyingTo: ChatMessage | null;
   
   // Actions
   setConnected: (connected: boolean, error?: string) => void;
@@ -134,6 +135,7 @@ export interface ChatState {
   // UI
   toggleSidebar: () => void;
   setLoadingMessages: (loading: boolean) => void;
+  setReplyingTo: (message: ChatMessage | null) => void;
   
   // Utils
   getTargetKey: (target: { type: 'channel' | 'group'; id: string }) => string;
@@ -161,6 +163,7 @@ export const useChatStore = create<ChatState>()(
         isSidebarOpen: true,
         isLoadingMessages: false,
         hasMoreMessages: {},
+        replyingTo: null,
 
         // Connection
         setConnected: (connected, error) =>
@@ -329,6 +332,11 @@ export const useChatStore = create<ChatState>()(
         setLoadingMessages: (loading) =>
           set((state) => {
             state.isLoadingMessages = loading;
+          }),
+
+        setReplyingTo: (message) =>
+          set((state) => {
+            state.replyingTo = message;
           }),
 
         // Utils

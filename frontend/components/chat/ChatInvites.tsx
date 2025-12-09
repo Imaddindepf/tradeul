@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Check, X, Users, Loader2 } from 'lucide-react';
-import { useAuth } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { useChatStore } from '@/stores/useChatStore';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,6 +11,7 @@ const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.trade
 
 export function ChatInvites() {
   const { getToken } = useAuth();
+  const { user } = useUser();
   const { invites, removeInvite, groups, setGroups, setActiveTarget } = useChatStore();
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -18,9 +19,15 @@ export function ChatInvites() {
     setLoading(invite.group_id);
     try {
       const token = await getToken();
+      const displayName = user?.username || user?.fullName || user?.firstName || 'Usuario';
+      
       const response = await fetch(`${CHAT_API_URL}/api/chat/invites/group/${invite.group_id}/accept`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ user_name: displayName }),
       });
 
       if (response.ok) {
