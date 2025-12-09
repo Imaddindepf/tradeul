@@ -1548,7 +1548,8 @@ async def fetch_polygon_chunk(
     multiplier: int,
     timespan: str,
     to_date: str,
-    limit: int = 500
+    limit: int = 500,
+    before_timestamp: Optional[int] = None
 ) -> tuple[List[dict], Optional[int]]:
     """
     Fetch chart data from Polygon - optimized for speed.
@@ -1570,7 +1571,8 @@ async def fetch_polygon_chunk(
     if timespan == "minute":
         # Minutes: need more days for same number of bars
         bars_per_day = 390 // multiplier  # 390 min trading day
-        days_needed = max(5, (limit // bars_per_day) + 5)
+        # When loading more (before_timestamp set), need to go further back
+        days_needed = max(10, (limit // bars_per_day) + 10)
     else:
         # Hours: ~7 trading hours per day
         bars_per_day = 7 // multiplier
@@ -1593,8 +1595,12 @@ async def fetch_polygon_chunk(
     # Transform to our format
     all_bars = []
     for bar in results:
+        bar_time = int(bar["t"] / 1000)
+        # If before_timestamp is set, only include bars BEFORE that timestamp
+        if before_timestamp and bar_time >= before_timestamp:
+            continue
         all_bars.append({
-            "time": int(bar["t"] / 1000),
+            "time": bar_time,
             "open": float(bar["o"]),
             "high": float(bar["h"]),
             "low": float(bar["l"]),
@@ -1602,7 +1608,7 @@ async def fetch_polygon_chunk(
             "volume": int(bar["v"])
         })
     
-    # Take only the last 'limit' bars (most recent) if we got more
+    # Take only the last 'limit' bars (most recent of the filtered set) if we got more
     full_count = len(all_bars)
     if len(all_bars) > limit:
         all_bars = all_bars[-limit:]
@@ -1611,7 +1617,7 @@ async def fetch_polygon_chunk(
     oldest_time = all_bars[0]["time"] if all_bars else None
     has_more = full_count >= limit or data.get("next_url") is not None
     
-    logger.info("polygon_chunk_fetched", symbol=symbol, bars=len(all_bars), total_available=full_count, oldest=oldest_time)
+    logger.info("polygon_chunk_fetched", symbol=symbol, bars=len(all_bars), total_available=full_count, oldest=oldest_time, before=before_timestamp)
     return all_bars, oldest_time if has_more else None
 
 
@@ -1756,7 +1762,8 @@ async def get_chart_data(
                 config["polygon_multiplier"],
                 config["polygon_timespan"],
                 to_date,
-                bars_limit
+                bars_limit,
+                before_timestamp=before  # Pass the before timestamp for filtering
             )
             source = "polygon"
         

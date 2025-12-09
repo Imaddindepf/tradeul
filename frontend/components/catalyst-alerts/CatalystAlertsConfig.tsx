@@ -19,7 +19,7 @@ const inputDefaults = {
   alertTypes: { early: true, confirmed: true },
   filters: { onlyScanner: false, onlyWatchlist: false },
   notifications: { popup: true, sound: true, squawk: false },
-};
+  };
 
 export function CatalystAlertsConfig() {
   const { t } = useTranslation();
@@ -117,7 +117,7 @@ export function CatalystAlertsConfig() {
               disabled={!criteria.priceChange.enabled}
             />
             <span className="text-slate-500">%</span>
-          </div>
+      </div>
 
           {/* RVOL */}
           <div className="flex items-center gap-2 py-1">
@@ -196,61 +196,61 @@ export function CatalystAlertsConfig() {
             />
             <span className="text-slate-500">x</span>
           </div>
-        </div>
+      </div>
 
-        {/* Filters */}
+      {/* Filters */}
         <div className="border-b border-slate-100 pb-2">
           <div className="text-xs font-medium text-slate-500 mb-1">Filters</div>
           <label className="flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={criteria.filters.onlyScanner}
-              onChange={(e) => setCriteria({
-                filters: { ...criteria.filters, onlyScanner: e.target.checked }
-              })}
+          <input
+            type="checkbox"
+            checked={criteria.filters.onlyScanner}
+            onChange={(e) => setCriteria({
+              filters: { ...criteria.filters, onlyScanner: e.target.checked }
+            })}
               className="w-3.5 h-3.5 rounded border-slate-300"
-            />
+          />
             <span className="text-slate-700">Only tickers in scanner</span>
-          </label>
-        </div>
+        </label>
+      </div>
 
-        {/* Notifications */}
+      {/* Notifications */}
         <div>
           <div className="text-xs font-medium text-slate-500 mb-1">Notifications</div>
           <div className="flex gap-4">
             <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={criteria.notifications.popup}
-                onChange={(e) => setCriteria({
-                  notifications: { ...criteria.notifications, popup: e.target.checked }
-                })}
+          <input
+            type="checkbox"
+            checked={criteria.notifications.popup}
+            onChange={(e) => setCriteria({
+              notifications: { ...criteria.notifications, popup: e.target.checked }
+            })}
                 className="w-3.5 h-3.5 rounded border-slate-300"
-              />
+          />
               <span className="text-slate-700">Popup</span>
-            </label>
+        </label>
             <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={criteria.notifications.sound}
-                onChange={(e) => setCriteria({
-                  notifications: { ...criteria.notifications, sound: e.target.checked }
-                })}
+          <input
+            type="checkbox"
+            checked={criteria.notifications.sound}
+            onChange={(e) => setCriteria({
+              notifications: { ...criteria.notifications, sound: e.target.checked }
+            })}
                 className="w-3.5 h-3.5 rounded border-slate-300"
-              />
+          />
               <span className="text-slate-700">Sound</span>
-            </label>
+        </label>
             <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={criteria.notifications.squawk}
-                onChange={(e) => setCriteria({
-                  notifications: { ...criteria.notifications, squawk: e.target.checked }
-                })}
+          <input
+            type="checkbox"
+            checked={criteria.notifications.squawk}
+            onChange={(e) => setCriteria({
+              notifications: { ...criteria.notifications, squawk: e.target.checked }
+            })}
                 className="w-3.5 h-3.5 rounded border-slate-300"
-              />
+          />
               <span className="text-slate-700">Squawk</span>
-            </label>
+        </label>
           </div>
         </div>
       </div>

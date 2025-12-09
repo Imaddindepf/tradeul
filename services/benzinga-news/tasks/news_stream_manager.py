@@ -342,16 +342,16 @@ class BenzingaNewsStreamManager:
         try:
             snapshot_data = await self.redis.get("snapshot:enriched:latest")
             if snapshot_data:
-                snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
-                tickers_list = snapshot.get("tickers", [])
-                
+            snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
+            tickers_list = snapshot.get("tickers", [])
+            
                 # Build lookup set for O(1) matching
                 ticker_set = {t.upper() for t in tickers}
                 
-                for item in tickers_list:
+            for item in tickers_list:
                     ticker = item.get("ticker", "").upper()
                     if ticker in ticker_set:
-                        price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
+                    price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
                         if price:
                             prices[ticker] = float(price)
         except Exception as e:
@@ -359,7 +359,7 @@ class BenzingaNewsStreamManager:
             logger.debug("get_prices_fast_error", error=str(e))
         
         return prices
-    
+
     async def _publish_to_stream(self, article: BenzingaArticle):
         """
         Publica artículo a Redis Stream para broadcast.
@@ -372,16 +372,16 @@ class BenzingaNewsStreamManager:
             ticker_prices = {}
             if article.tickers:
                 ticker_prices = await self._get_ticker_prices_fast(article.tickers[:5])
-            
+                
             # Iniciar monitoreo de catalyst para cada ticker
             if self.catalyst_engine and article.tickers:
                 for ticker in article.tickers[:3]:  # Máximo 3 tickers por noticia
                     await self.catalyst_engine.process_news(
-                        news_id=f"{article.benzinga_id}_{ticker}",
-                        ticker=ticker,
-                        title=article.title,
-                        categories=article.channels or []
-                    )
+                            news_id=f"{article.benzinga_id}_{ticker}",
+                            ticker=ticker,
+                            title=article.title,
+                            categories=article.channels or []
+                        )
             
             # Publicar noticia al stream con precios
             stream_payload = {

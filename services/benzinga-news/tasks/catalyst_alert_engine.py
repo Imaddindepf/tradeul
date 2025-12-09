@@ -380,9 +380,9 @@ class CatalystAlertEngine:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
                 response = await client.get(f"{self.ANALYTICS_URL}/rvol/{ticker.upper()}")
-                
+            
                 if response.status_code == 200:
-                    data = response.json()
+            data = response.json()
                     rvol = data.get("rvol")
                     if rvol is not None:
                         return float(rvol)

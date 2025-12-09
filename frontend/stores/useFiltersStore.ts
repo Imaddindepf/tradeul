@@ -38,45 +38,45 @@ interface FiltersState {
 export const useFiltersStore = create<FiltersState>()(
   persist(
     (set, get) => ({
-      activeFilters: {},
-      hasActiveFilters: false,
+  activeFilters: {},
+  hasActiveFilters: false,
 
-      setFilter: (key, value) => {
-        set((state) => {
-          const newFilters = { ...state.activeFilters };
-          if (value === null || value === undefined) {
-            delete newFilters[key];
-          } else {
-            newFilters[key] = value;
-          }
-          const hasActive = Object.keys(newFilters).length > 0;
-          return { activeFilters: newFilters, hasActiveFilters: hasActive };
-        });
-      },
+  setFilter: (key, value) => {
+    set((state) => {
+      const newFilters = { ...state.activeFilters };
+      if (value === null || value === undefined) {
+        delete newFilters[key];
+      } else {
+        newFilters[key] = value;
+      }
+      const hasActive = Object.keys(newFilters).length > 0;
+      return { activeFilters: newFilters, hasActiveFilters: hasActive };
+    });
+  },
 
-      clearFilter: (key) => {
-        set((state) => {
-          const newFilters = { ...state.activeFilters };
-          delete newFilters[key];
-          const hasActive = Object.keys(newFilters).length > 0;
-          return { activeFilters: newFilters, hasActiveFilters: hasActive };
-        });
-      },
+  clearFilter: (key) => {
+    set((state) => {
+      const newFilters = { ...state.activeFilters };
+      delete newFilters[key];
+      const hasActive = Object.keys(newFilters).length > 0;
+      return { activeFilters: newFilters, hasActiveFilters: hasActive };
+    });
+  },
 
-      clearAllFilters: () => {
-        set({ activeFilters: {}, hasActiveFilters: false });
-      },
+  clearAllFilters: () => {
+    set({ activeFilters: {}, hasActiveFilters: false });
+  },
 
-      setAllFilters: (filters) => {
-        const cleanFilters: ActiveFilters = {};
-        Object.entries(filters).forEach(([key, value]) => {
-          if (value !== null && value !== undefined) {
-            cleanFilters[key as keyof ActiveFilters] = value;
-          }
-        });
-        const hasActive = Object.keys(cleanFilters).length > 0;
-        set({ activeFilters: cleanFilters, hasActiveFilters: hasActive });
-      },
+  setAllFilters: (filters) => {
+    const cleanFilters: ActiveFilters = {};
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== null && value !== undefined) {
+        cleanFilters[key as keyof ActiveFilters] = value;
+      }
+    });
+    const hasActive = Object.keys(cleanFilters).length > 0;
+    set({ activeFilters: cleanFilters, hasActiveFilters: hasActive });
+  },
     }),
     {
       name: 'tradeul-scanner-filters',

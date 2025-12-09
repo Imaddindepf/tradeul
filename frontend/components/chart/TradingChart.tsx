@@ -696,10 +696,19 @@ function TradingChartComponent({ ticker: initialTicker = 'AAPL', exchange, onTic
             ema12SeriesRef.current.setData(ema12Data);
             ema26SeriesRef.current.setData(ema26Data);
         }
-
-        // Apply selected time range
-        setTimeout(() => applyTimeRange(selectedRange), 50);
-    }, [data, selectedRange, applyTimeRange, currentTicker, showNewsMarkers]);
+    }, [data, currentTicker, showNewsMarkers]);
+    
+    // Apply time range only on initial load or ticker change (not on every data update)
+    const lastAppliedTickerRef = useRef<string>('');
+    useEffect(() => {
+        if (!data || data.length === 0 || !candleSeriesRef.current) return;
+        
+        // Only apply when ticker changes (new chart loaded)
+        if (lastAppliedTickerRef.current !== currentTicker) {
+            lastAppliedTickerRef.current = currentTicker;
+            setTimeout(() => applyTimeRange(selectedRange), 50);
+        }
+    }, [data, currentTicker, selectedRange, applyTimeRange]);
 
     // ============================================================================
     // News markers effect - positioned at exact price with click support

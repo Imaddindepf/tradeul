@@ -225,7 +225,7 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       if (spike >= criteria.volumeSpike.minRatio) {
         passedCount++;
         reasons.push(`Spike ${spike.toFixed(1)}x`);
-      }
+    }
     }
     
     // Para pasar, TODOS los criterios habilitados deben cumplirse (AND)
@@ -321,16 +321,16 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
         const metrics = typeof message.metrics === 'string'
           ? JSON.parse(message.metrics)
           : message.metrics;
-        
+          
         // Procesar la alerta
-        processNews({
+          processNews({
           benzinga_id: metrics.news_id,
           title: metrics.news_title || `${message.ticker} catalyst`,
           url: '',
           published: metrics.news_time,
           tickers: [message.ticker],
-          catalyst_metrics: metrics,
-        });
+            catalyst_metrics: metrics,
+          });
       }
     });
     

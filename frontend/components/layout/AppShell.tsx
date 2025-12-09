@@ -29,30 +29,30 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <AuthWebSocketProvider>
       <SquawkProvider>
-        <FloatingWindowProvider>
+      <FloatingWindowProvider>
           {/* GlobalHooksHandler: hooks globales (reset dia, sync filtros) */}
           <GlobalHooksHandler />
-          {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
-          <NewsProvider>
-            {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
-            <CatalystDetectorProvider>
-              <div className="min-h-screen bg-slate-50">
-                {/* Announcement Banner - floating toast */}
-                <AnnouncementBanner />
-                <Navbar />
-                <main className="w-full">
-                  {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
-                  <div className="min-h-screen bg-white w-full pt-16">
-                    {children}
-                  </div>
-                </main>
-                <FloatingWindowManager />
-                {/* Catalyst Alerts Popup - floating notifications */}
-                <CatalystAlertsPopup />
-              </div>
-            </CatalystDetectorProvider>
-          </NewsProvider>
-        </FloatingWindowProvider>
+        {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
+        <NewsProvider>
+          {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
+          <CatalystDetectorProvider>
+            <div className="min-h-screen bg-slate-50">
+              {/* Announcement Banner - floating toast */}
+              <AnnouncementBanner />
+              <Navbar />
+              <main className="w-full">
+                {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
+                <div className="min-h-screen bg-white w-full pt-16">
+                  {children}
+                </div>
+              </main>
+              <FloatingWindowManager />
+              {/* Catalyst Alerts Popup - floating notifications */}
+              <CatalystAlertsPopup />
+            </div>
+          </CatalystDetectorProvider>
+        </NewsProvider>
+      </FloatingWindowProvider>
       </SquawkProvider>
     </AuthWebSocketProvider>
   );
