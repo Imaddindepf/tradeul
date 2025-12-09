@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from http_clients import http_clients
 from auth.middleware import PassiveAuthMiddleware
-from routers import channels_router, groups_router, messages_router, invites_router
+from routers import channels_router, groups_router, messages_router, invites_router, users_router
 
 # Configure logging
 structlog.configure(
@@ -63,11 +63,13 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:3001",
-        os.getenv("FRONTEND_URL", "https://tradeul.com"),
+        "https://tradeul.com",
+        "https://www.tradeul.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Passive Auth (sets request.state.user if valid token)
@@ -78,6 +80,7 @@ app.include_router(channels_router, prefix="/api/chat")
 app.include_router(groups_router, prefix="/api/chat")
 app.include_router(messages_router, prefix="/api/chat")
 app.include_router(invites_router, prefix="/api/chat")
+app.include_router(users_router, prefix="/api/chat")
 
 
 @app.get("/health")

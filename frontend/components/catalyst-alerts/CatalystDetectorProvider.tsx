@@ -276,6 +276,7 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       triggeredAt: Date.now(),
       dismissed: false,
       reason,
+      alertType: 'confirmed', // Default to confirmed
     };
     
     // Añadir alerta

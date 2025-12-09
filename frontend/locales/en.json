@@ -87,6 +87,10 @@
       "name": "Scanner Filters",
       "description": "Real-time scanner filters"
     },
+    "chat": {
+      "name": "Community Chat",
+      "description": "Chat with the trader community"
+    },
     "help": {
       "name": "Help",
       "description": "Show terminal help"
@@ -396,6 +400,9 @@
       },
       "HELP": {
         "description": "Show terminal help"
+      },
+      "CHAT": {
+        "description": "Community chat for traders"
       }
     }
   }

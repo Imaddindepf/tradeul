@@ -14,7 +14,11 @@
 import { WebSocketServer } from 'ws';
 import Redis from 'ioredis';
 import pino from 'pino';
-import { verifyClerkJWT } from './clerkAuth.js';
+import { createRequire } from 'module';
+
+// Import CommonJS module
+const require = createRequire(import.meta.url);
+const { verifyClerkToken, isAuthEnabled } = require('./clerkAuth.cjs');
 
 // ============================================================================
 // CONFIGURATION
@@ -24,7 +28,6 @@ const PORT = parseInt(process.env.CHAT_WS_PORT || '9001');
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
-const AUTH_ENABLED = process.env.WS_AUTH_ENABLED === 'true';
 
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
@@ -81,6 +84,8 @@ async function handleMessage(ws, data) {
     const message = JSON.parse(data);
     const { type, payload } = message;
     
+    logger.info({ type, payload }, 'Message received from client');
+    
     switch (type) {
       case 'subscribe':
         handleSubscribe(ws, payload);
@@ -132,7 +137,7 @@ function handleSubscribe(ws, { channel_id, group_id }) {
     });
   }
   
-  logger.debug({ target }, 'Client subscribed');
+  logger.info({ target, totalSubs: subscriptions.get(target)?.size || 0 }, 'Client subscribed');
 }
 
 function handleUnsubscribe(ws, { channel_id, group_id }) {
@@ -190,6 +195,16 @@ function broadcastToTarget(target, message, excludeWs = null) {
   
   for (const ws of subs) {
     if (ws !== excludeWs && ws.readyState === 1) {
+      ws.send(payload);
+    }
+  }
+}
+
+function broadcastToUser(userId, message) {
+  const payload = JSON.stringify(message);
+  
+  for (const [ws, clientData] of clients) {
+    if (clientData.userId === userId && ws.readyState === 1) {
       ws.send(payload);
     }
   }
@@ -253,22 +268,33 @@ async function startRedisConsumer() {
   // Also use pub/sub for instant notifications
   const pubsubClient = createRedisClient('pubsub');
   
-  pubsubClient.psubscribe('chat:*', (err) => {
+  // Subscribe to chat channels and user notifications
+  pubsubClient.psubscribe('chat:*', 'user:*', (err) => {
     if (err) {
       logger.error({ error: err.message }, 'PSubscribe error');
     } else {
-      logger.info('Subscribed to chat:* channels');
+      logger.info('Subscribed to chat:* and user:* channels');
     }
   });
   
   pubsubClient.on('pmessage', (pattern, channel, message) => {
     try {
       const data = JSON.parse(message);
-      const target = channel.replace('chat:', '');
       
-      broadcastToTarget(target, data);
+      if (channel.startsWith('user:')) {
+        // Direct message to a specific user
+        const userId = channel.replace('user:', '');
+        broadcastToUser(userId, data);
+        logger.info({ userId, type: data.type }, 'User notification sent');
+      } else {
+        // Chat channel/group message
+        const target = channel.replace('chat:', '');
+        const subsCount = subscriptions.get(target)?.size || 0;
+        logger.info({ channel, target, subsCount }, 'Pub/sub message received');
+        broadcastToTarget(target, data);
+      }
     } catch (e) {
-      logger.error({ error: e.message }, 'Pub/sub message error');
+      logger.error({ error: e.message, channel }, 'Pub/sub message error');
     }
   });
 }
@@ -284,9 +310,9 @@ wss.on('connection', async (ws, req) => {
   let user = { userId: `anon_${Date.now()}`, userName: 'Anonymous' };
   
   // Authenticate if token provided
-  if (AUTH_ENABLED && token) {
+  if (isAuthEnabled() && token) {
     try {
-      const claims = await verifyClerkJWT(token);
+      const claims = await verifyClerkToken(token);
       if (claims) {
         user = {
           userId: claims.sub,
@@ -380,7 +406,7 @@ async function start() {
   
   logger.info({ 
     port: PORT,
-    auth: AUTH_ENABLED 
+    auth: isAuthEnabled() 
   }, '🚀 Chat WebSocket Server running');
 }
 

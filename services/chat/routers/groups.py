@@ -46,7 +46,9 @@ async def create_group(
         VALUES ($1::uuid, $2, $3, $4, 'owner')
     """, group_id, user.user_id, user.name or user.username, user.avatar)
     
-    # Create invites for initial members
+    # Create invites for initial members and notify them
+    group_data = {**dict(group), "member_count": 1, "unread_count": 0}
+    
     for member_id in data.member_ids:
         if member_id != user.user_id:
             await db.execute("""
@@ -54,10 +56,20 @@ async def create_group(
                 VALUES ($1::uuid, $2, $3)
                 ON CONFLICT (group_id, invitee_id) DO NOTHING
             """, group_id, user.user_id, member_id)
+            
+            # Notify invited user via Pub/Sub
+            await redis.publish(f"user:{member_id}", json.dumps({
+                "type": "group_invite",
+                "payload": {
+                    "group": group_data,
+                    "inviter_id": user.user_id,
+                    "inviter_name": user.name or user.username
+                }
+            }, default=str))
     
     logger.info("group_created", group_id=group_id, owner=user.user_id)
     
-    return {**dict(group), "member_count": 1, "unread_count": 0}
+    return group_data
 
 
 @router.get("", response_model=List[GroupResponse])

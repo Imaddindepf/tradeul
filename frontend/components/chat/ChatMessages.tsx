@@ -3,36 +3,42 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { Loader2 } from 'lucide-react';
-import { useChatStore, selectTypingUsers } from '@/stores/useChatStore';
+import { useAuth } from '@clerk/nextjs';
+import { useChatStore, selectTypingUsers, type ChatMessage as ChatMessageType } from '@/stores/useChatStore';
 import { ChatMessage } from './ChatMessage';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'http://localhost:8016';
+const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 
 export function ChatMessages() {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  
-  const { 
-    activeTarget, 
-    getTargetKey, 
-    messages, 
+  const { getToken } = useAuth();
+
+  const {
+    activeTarget,
+    getTargetKey,
+    messages,
     addMessages,
     setHasMoreMessages,
     hasMoreMessages,
     isLoadingMessages,
-    setLoadingMessages 
+    setLoadingMessages
   } = useChatStore();
-  
+
   const typingUsers = useChatStore(selectTypingUsers);
 
   const targetKey = activeTarget ? getTargetKey(activeTarget) : null;
   const currentMessages = targetKey ? messages[targetKey] || [] : [];
   const hasMore = targetKey ? hasMoreMessages[targetKey] ?? true : false;
 
-  // Initial load
+  // Load messages when target changes (only if not already loaded)
   useEffect(() => {
     if (!activeTarget) return;
+
+    // Skip if already have messages for this target
+    const key = `${activeTarget.type}:${activeTarget.id}`;
+    if (currentMessages.length > 0) return;
 
     const loadMessages = async () => {
       setLoadingMessages(true);
@@ -41,11 +47,18 @@ export function ChatMessages() {
           ? `${CHAT_API_URL}/api/chat/messages/channel/${activeTarget.id}`
           : `${CHAT_API_URL}/api/chat/messages/group/${activeTarget.id}`;
 
-        const res = await fetch(endpoint, { credentials: 'include' });
+        // Groups require auth
+        const headers: Record<string, string> = {};
+        if (activeTarget.type === 'group') {
+          const token = await getToken();
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const res = await fetch(endpoint, { headers });
         if (res.ok) {
           const data = await res.json();
-          addMessages(getTargetKey(activeTarget), data);
-          setHasMoreMessages(getTargetKey(activeTarget), data.length >= 50);
+          addMessages(key, data);
+          setHasMoreMessages(key, data.length >= 50);
         }
       } catch (error) {
         console.error('Failed to load messages:', error);
@@ -54,37 +67,46 @@ export function ChatMessages() {
       }
     };
 
-    // Only load if we don't have messages
-    if (currentMessages.length === 0) {
-      loadMessages();
-    }
-  }, [activeTarget, currentMessages.length, addMessages, getTargetKey, setHasMoreMessages, setLoadingMessages]);
+    loadMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTarget?.id, activeTarget?.type]);
 
   // Load more (older messages)
   const loadMore = useCallback(async () => {
-    if (!activeTarget || isLoadingMore || !hasMore || currentMessages.length === 0) return;
+    const target = useChatStore.getState().activeTarget;
+    const key = target ? `${target.type}:${target.id}` : null;
+    const msgs = key ? useChatStore.getState().messages[key] || [] : [];
+    const hasMoreMsgs = key ? useChatStore.getState().hasMoreMessages[key] ?? true : false;
+
+    if (!target || isLoadingMore || !hasMoreMsgs || msgs.length === 0) return;
 
     setIsLoadingMore(true);
     try {
-      const oldestId = currentMessages[0]?.id;
-      const endpoint = activeTarget.type === 'channel'
-        ? `${CHAT_API_URL}/api/chat/messages/channel/${activeTarget.id}?before=${oldestId}`
-        : `${CHAT_API_URL}/api/chat/messages/group/${activeTarget.id}?before=${oldestId}`;
+      const oldestId = msgs[0]?.id;
+      const endpoint = target.type === 'channel'
+        ? `${CHAT_API_URL}/api/chat/messages/channel/${target.id}?before=${oldestId}`
+        : `${CHAT_API_URL}/api/chat/messages/group/${target.id}?before=${oldestId}`;
 
-      const res = await fetch(endpoint, { credentials: 'include' });
+      const headers: Record<string, string> = {};
+      if (target.type === 'group') {
+        const token = await getToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(endpoint, { headers });
       if (res.ok) {
         const data = await res.json();
         if (data.length > 0) {
-          addMessages(getTargetKey(activeTarget), data, true); // prepend
+          addMessages(key!, data, true); // prepend
         }
-        setHasMoreMessages(getTargetKey(activeTarget), data.length >= 50);
+        setHasMoreMessages(key!, data.length >= 50);
       }
     } catch (error) {
       console.error('Failed to load more messages:', error);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [activeTarget, isLoadingMore, hasMore, currentMessages, addMessages, getTargetKey, setHasMoreMessages]);
+  }, [isLoadingMore, addMessages, setHasMoreMessages, getToken]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -117,24 +139,15 @@ export function ChatMessages() {
           startReached={loadMore}
           initialTopMostItemIndex={currentMessages.length - 1}
           followOutput="smooth"
-          itemContent={(index, message) => (
+          itemContent={(_index: number, message: ChatMessageType) => (
             <ChatMessage key={message.id} message={message} />
           )}
           components={{
             Header: () => (
               isLoadingMore ? (
-                <div className="flex justify-center py-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                </div>
+                <div className="text-center py-0.5 text-[10px] text-muted-foreground/50">...</div>
               ) : hasMore ? (
-                <div className="flex justify-center py-2">
-                  <button 
-                    onClick={loadMore}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    Load more
-                  </button>
-                </div>
+                <button onClick={loadMore} className="w-full py-0.5 text-[10px] text-primary/60 hover:text-primary">more</button>
               ) : null
             ),
           }}
@@ -146,23 +159,12 @@ export function ChatMessages() {
       <AnimatePresence>
         {typingUsers.length > 0 && (
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 10 }}
-            className="absolute bottom-0 left-0 right-0 px-4 py-2 bg-gradient-to-t from-background"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute bottom-0 left-1 text-[10px] text-muted-foreground/60"
           >
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="flex gap-0.5">
-                <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </span>
-              <span>
-                {typingUsers.length === 1
-                  ? `${typingUsers[0].user_name} is typing...`
-                  : `${typingUsers.length} people are typing...`}
-              </span>
-            </div>
+            {typingUsers.length === 1 ? `${typingUsers[0].user_name}...` : `${typingUsers.length} typing...`}
           </motion.div>
         )}
       </AnimatePresence>

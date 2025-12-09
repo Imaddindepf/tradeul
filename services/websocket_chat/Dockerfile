@@ -6,7 +6,7 @@ WORKDIR /app
 COPY services/websocket_chat/package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 # Copy source
 COPY services/websocket_chat/src ./src

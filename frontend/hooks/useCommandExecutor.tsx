@@ -17,6 +17,7 @@ import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/QuoteMonitor';
+import { ChatContent } from '@/components/chat';
 
 // Wrapper para TickerStrip que obtiene onClose del contexto de ventana
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -289,6 +290,19 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 250),
                     minWidth: 700,
                     minHeight: 350,
+                });
+                return null;
+
+            case 'chat':
+                openWindow({
+                    title: 'Community Chat',
+                    content: <ChatContent />,
+                    width: 700,
+                    height: 500,
+                    x: Math.max(50, screenWidth - 750),
+                    y: Math.max(80, screenHeight / 2 - 250),
+                    minWidth: 500,
+                    minHeight: 400,
                 });
                 return null;
 

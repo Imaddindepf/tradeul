@@ -131,3 +131,98 @@ async def decline_invite(
     
     return {"message": "Invitation declined"}
 
+
+
+@router.post("/group/{group_id}/accept")
+async def accept_invite_by_group(
+    group_id: str,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Accept an invitation by group_id and join the group.
+    Returns the group data.
+    """
+    db = http_clients.timescale
+    
+    # Get pending invite for this user and group
+    invite = await db.fetchrow("""
+        SELECT id::text, invitee_id, status, expires_at
+        FROM chat_invites
+        WHERE group_id = $1::uuid AND invitee_id = $2 AND status = 'pending'
+    """, group_id, user.user_id)
+    
+    if not invite:
+        raise HTTPException(status_code=404, detail="No pending invitation found")
+    
+    # Check if expired
+    from datetime import datetime, timezone
+    if invite["expires_at"] < datetime.now(timezone.utc):
+        await db.execute("""
+            UPDATE chat_invites SET status = 'expired' WHERE id = $1::uuid
+        """, invite["id"])
+        raise HTTPException(status_code=400, detail="Invitation expired")
+    
+    # Add as member
+    await db.execute("""
+        INSERT INTO chat_members (group_id, user_id, user_name, user_avatar, role)
+        VALUES ($1::uuid, $2, $3, $4, 'member')
+        ON CONFLICT (group_id, user_id) DO NOTHING
+    """, group_id, user.user_id, user.name or user.username, user.avatar)
+    
+    # Update invite status
+    await db.execute("""
+        UPDATE chat_invites 
+        SET status = 'accepted', responded_at = NOW()
+        WHERE id = $1::uuid
+    """, invite["id"])
+    
+    # Get group data to return
+    group = await db.fetchrow("""
+        SELECT 
+            g.id::text,
+            g.name,
+            g.description,
+            g.icon,
+            g.is_dm,
+            g.owner_id,
+            g.created_at,
+            (SELECT COUNT(*) FROM chat_members WHERE group_id = g.id) as member_count,
+            0 as unread_count
+        FROM chat_groups g
+        WHERE g.id = $1::uuid
+    """, group_id)
+    
+    logger.info("invite_accepted_by_group", group_id=group_id, user_id=user.user_id)
+    
+    return dict(group)
+
+
+@router.post("/group/{group_id}/decline")
+async def decline_invite_by_group(
+    group_id: str,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Decline an invitation by group_id.
+    """
+    db = http_clients.timescale
+    
+    # Get pending invite
+    invite = await db.fetchrow("""
+        SELECT id::text, status FROM chat_invites 
+        WHERE group_id = $1::uuid AND invitee_id = $2 AND status = 'pending'
+    """, group_id, user.user_id)
+    
+    if not invite:
+        raise HTTPException(status_code=404, detail="No pending invitation found")
+    
+    # Update status
+    await db.execute("""
+        UPDATE chat_invites 
+        SET status = 'declined', responded_at = NOW()
+        WHERE id = $1::uuid
+    """, invite["id"])
+    
+    logger.info("invite_declined_by_group", group_id=group_id, user_id=user.user_id)
+    
+    return {"message": "Invitation declined"}

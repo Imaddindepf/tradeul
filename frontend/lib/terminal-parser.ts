@@ -152,6 +152,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.HELP.description',
         shortcut: '?'
     },
+    CHAT: {
+        id: 'chat',
+        label: 'CHAT',
+        name: 'Community Chat',
+        descriptionKey: 'terminalCommands.globalCommands.CHAT.description',
+        shortcut: 'Ctrl+Shift+C'
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

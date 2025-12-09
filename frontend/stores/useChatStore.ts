@@ -109,6 +109,8 @@ export interface ChatState {
   setChannels: (channels: ChatChannel[]) => void;
   setGroups: (groups: ChatGroup[]) => void;
   setInvites: (invites: ChatInvite[]) => void;
+  addInvite: (invite: ChatInvite) => void;
+  removeInvite: (groupId: string) => void;
   setActiveTarget: (target: { type: 'channel' | 'group'; id: string } | null) => void;
   
   // Message actions
@@ -181,6 +183,19 @@ export const useChatStore = create<ChatState>()(
         setInvites: (invites) =>
           set((state) => {
             state.invites = invites;
+          }),
+
+        addInvite: (invite) =>
+          set((state) => {
+            const exists = state.invites.some((i) => i.id === invite.id || i.group_id === invite.group_id);
+            if (!exists) {
+              state.invites.push(invite);
+            }
+          }),
+
+        removeInvite: (groupId) =>
+          set((state) => {
+            state.invites = state.invites.filter((i) => i.group_id !== groupId);
           }),
 
         setActiveTarget: (target) =>

@@ -11,6 +11,9 @@ class MessageCreate(BaseModel):
     reply_to_id: Optional[str] = None
     mentions: List[str] = []
     tickers: List[str] = []  # Tickers mentioned like $AAPL
+    # Optional: client can send user info (from Clerk frontend)
+    user_name: Optional[str] = None
+    user_avatar: Optional[str] = None
 
 
 class MessageResponse(BaseModel):

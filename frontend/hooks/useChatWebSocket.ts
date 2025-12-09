@@ -19,7 +19,7 @@ import { useChatStore, type ChatMessage } from '@/stores/useChatStore';
 // CONFIGURATION
 // ============================================================================
 
-const CHAT_WS_URL = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'ws://localhost:9001';
+const CHAT_WS_URL = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'wss://wschat.tradeul.com';
 const RECONNECT_DELAY = 3000;
 const HEARTBEAT_INTERVAL = 30000;
 const TYPING_THROTTLE = 2000;
@@ -37,6 +37,7 @@ type ChatWSMessage =
   | { type: 'presence'; payload: { target: string; online: string[] } }
   | { type: 'reaction_added'; payload: { message_id: string; emoji: string; user_id: string } }
   | { type: 'reaction_removed'; payload: { message_id: string; emoji: string; user_id: string } }
+  | { type: 'group_invite'; payload: { group: { id: string; name: string }; inviter_id: string; inviter_name: string } }
   | { type: 'pong' };
 
 // ============================================================================
@@ -48,12 +49,12 @@ export function useChatWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const heartbeatIntervalRef = useRef<NodeJS.Timeout>();
-  
+
   // RxJS Subjects
   const destroy$ = useRef(new Subject<void>()).current;
   const message$ = useRef(new Subject<ChatWSMessage>()).current;
   const isConnected$ = useRef(new BehaviorSubject<boolean>(false)).current;
-  
+
   // Store actions
   const {
     setConnected,
@@ -97,14 +98,16 @@ export function useChatWebSocket() {
           }
         }, HEARTBEAT_INTERVAL);
 
-        // Re-subscribe to active target
-        if (activeTarget) {
-          send({
+        // Subscribe to active target immediately
+        const currentTarget = useChatStore.getState().activeTarget;
+        if (currentTarget) {
+          ws.send(JSON.stringify({
             type: 'subscribe',
-            payload: activeTarget.type === 'channel'
-              ? { channel_id: activeTarget.id }
-              : { group_id: activeTarget.id }
-          });
+            payload: currentTarget.type === 'channel'
+              ? { channel_id: currentTarget.id }
+              : { group_id: currentTarget.id }
+          }));
+          console.log('[ChatWS] Subscribed to', currentTarget);
         }
       };
 
@@ -142,7 +145,7 @@ export function useChatWebSocket() {
       setConnected(false, 'Failed to connect');
       reconnectTimeoutRef.current = setTimeout(connect, RECONNECT_DELAY);
     }
-  }, [isSignedIn, getToken, setConnected, activeTarget, message$, isConnected$]);
+  }, [isSignedIn, getToken, setConnected, message$, isConnected$]);
 
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -230,6 +233,23 @@ export function useChatWebSocket() {
           }
           break;
         }
+
+        case 'group_invite': {
+          // Show invite notification
+          const { group, inviter_id, inviter_name } = msg.payload;
+          useChatStore.getState().addInvite({
+            id: `invite_${group.id}`,
+            group_id: group.id,
+            group_name: group.name,
+            inviter_id,
+            inviter_name,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          });
+          console.log('[ChatWS] Invite received for group:', group.name);
+          break;
+        }
       }
     });
 
@@ -307,7 +327,7 @@ export function useChatWebSocket() {
     if (activeTarget) {
       subscribe(activeTarget);
     }
-    
+
     return () => {
       if (activeTarget) {
         unsubscribe(activeTarget);

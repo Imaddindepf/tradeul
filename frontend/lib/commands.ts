@@ -15,6 +15,7 @@ import {
   List,
   Filter,
   Zap,
+  MessageCircle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -42,6 +43,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'profile', label: 'PROFILE', description: 'commands.profile.description', icon: User },
   { id: 'settings', label: 'SET', description: 'commands.settings.description', icon: Settings, shortcut: 'Ctrl+,' },
   { id: 'filters', label: 'FILTERS', description: 'commands.filters.description', icon: Filter, shortcut: 'Ctrl+Shift+F' },
+  { id: 'chat', label: 'CHAT', description: 'commands.chat.description', icon: MessageCircle, shortcut: 'Ctrl+Shift+C' },
 ];
 
 /**

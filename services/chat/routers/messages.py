@@ -20,6 +20,28 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 TICKER_PATTERN = re.compile(r'\$([A-Z]{1,5})\b')
 
 
+def parse_message_row(row) -> dict:
+    """Convert database row to dict with proper JSON parsing for reactions/ticker_prices."""
+    if not row:
+        return None
+    result = dict(row)
+    # Parse reactions from JSON string if needed
+    if isinstance(result.get("reactions"), str):
+        try:
+            result["reactions"] = json.loads(result["reactions"]) or {}
+        except (json.JSONDecodeError, TypeError):
+            result["reactions"] = {}
+    elif result.get("reactions") is None:
+        result["reactions"] = {}
+    # Parse ticker_prices from JSON string if needed
+    if isinstance(result.get("ticker_prices"), str):
+        try:
+            result["ticker_prices"] = json.loads(result["ticker_prices"])
+        except (json.JSONDecodeError, TypeError):
+            result["ticker_prices"] = None
+    return result
+
+
 def extract_tickers(content: str) -> List[str]:
     """Extract tickers from message content"""
     matches = TICKER_PATTERN.findall(content)
@@ -84,8 +106,8 @@ async def send_message(
         data.channel_id if data.channel_id else None,
         data.group_id if data.group_id else None,
         user.user_id,
-        user.name or user.username or "Anonymous",
-        user.avatar,
+        data.user_name or user.name or user.username or "anon",
+        data.user_avatar or user.avatar,
         data.content,
         data.content_type,
         data.reply_to_id if data.reply_to_id else None,
@@ -97,17 +119,21 @@ async def send_message(
     if not message:
         raise HTTPException(status_code=500, detail="Failed to send message")
     
-    # Publish to Redis for real-time delivery
-    stream_key = f"stream:chat:{'channel:' + data.channel_id if data.channel_id else 'group:' + data.group_id}"
-    
-    await redis.xadd(stream_key, {
+    # Prepare message payload
+    target = f"channel:{data.channel_id}" if data.channel_id else f"group:{data.group_id}"
+    message_payload = json.dumps({
         "type": "new_message",
-        "payload": json.dumps({
-            **dict(message),
-            "created_at": message["created_at"].isoformat(),
-            "edited_at": message["edited_at"].isoformat() if message["edited_at"] else None,
-        })
+        "payload": parse_message_row(message)
+    }, default=str)
+    
+    # 1. Persist to Redis Stream (for history/replay)
+    await redis.xadd(f"stream:chat:{target}", {
+        "type": "new_message",
+        "payload": message_payload
     })
+    
+    # 2. Publish via Pub/Sub (for real-time delivery)
+    await redis.publish(f"chat:{target}", message_payload)
     
     logger.info("message_sent", 
         message_id=message["id"],
@@ -117,7 +143,7 @@ async def send_message(
         tickers=tickers
     )
     
-    return message
+    return parse_message_row(message)
 
 
 @router.get("/channel/{channel_id}", response_model=List[MessageResponse])
@@ -171,7 +197,7 @@ async def get_channel_messages(
         """, channel_id, limit)
     
     # Return in chronological order
-    return list(reversed(messages))
+    return [parse_message_row(m) for m in reversed(messages)]
 
 
 @router.get("/group/{group_id}", response_model=List[MessageResponse])
@@ -228,7 +254,7 @@ async def get_group_messages(
             LIMIT $2
         """, group_id, limit)
     
-    return list(reversed(messages))
+    return [parse_message_row(m) for m in reversed(messages)]
 
 
 @router.patch("/{message_id}", response_model=MessageResponse)
@@ -273,16 +299,18 @@ async def edit_message(
     
     # Notify via Redis
     target = f"channel:{original['channel_id']}" if original['channel_id'] else f"group:{original['group_id']}"
-    await redis.xadd(f"stream:chat:{target}", {
+    edit_payload = json.dumps({
         "type": "message_edited",
-        "payload": json.dumps({
+        "payload": {
             "id": message_id,
             "content": data.content,
             "edited_at": message["edited_at"].isoformat()
-        })
+        }
     })
+    await redis.xadd(f"stream:chat:{target}", {"type": "message_edited", "payload": edit_payload})
+    await redis.publish(f"chat:{target}", edit_payload)
     
-    return message
+    return parse_message_row(message)
 
 
 @router.delete("/{message_id}")
@@ -315,10 +343,12 @@ async def delete_message(
     
     # Notify
     target = f"channel:{original['channel_id']}" if original['channel_id'] else f"group:{original['group_id']}"
-    await redis.xadd(f"stream:chat:{target}", {
+    delete_payload = json.dumps({
         "type": "message_deleted",
-        "payload": json.dumps({"id": message_id})
+        "payload": {"id": message_id}
     })
+    await redis.xadd(f"stream:chat:{target}", {"type": "message_deleted", "payload": delete_payload})
+    await redis.publish(f"chat:{target}", delete_payload)
     
     logger.info("message_deleted", message_id=message_id, user_id=user.user_id)
     
@@ -360,14 +390,16 @@ async def add_reaction(
     
     # Notify
     target = f"channel:{original['channel_id']}" if original['channel_id'] else f"group:{original['group_id']}"
-    await redis.xadd(f"stream:chat:{target}", {
+    reaction_payload = json.dumps({
         "type": "reaction_added",
-        "payload": json.dumps({
+        "payload": {
             "message_id": message_id,
             "emoji": emoji,
             "user_id": user.user_id
-        })
+        }
     })
+    await redis.xadd(f"stream:chat:{target}", {"type": "reaction_added", "payload": reaction_payload})
+    await redis.publish(f"chat:{target}", reaction_payload)
     
     return {"message": "Reaction added"}
 
@@ -405,14 +437,16 @@ async def remove_reaction(
     
     # Notify
     target = f"channel:{original['channel_id']}" if original['channel_id'] else f"group:{original['group_id']}"
-    await redis.xadd(f"stream:chat:{target}", {
+    reaction_payload = json.dumps({
         "type": "reaction_removed",
-        "payload": json.dumps({
+        "payload": {
             "message_id": message_id,
             "emoji": emoji,
             "user_id": user.user_id
-        })
+        }
     })
+    await redis.xadd(f"stream:chat:{target}", {"type": "reaction_removed", "payload": reaction_payload})
+    await redis.publish(f"chat:{target}", reaction_payload)
     
     return {"message": "Reaction removed"}
 

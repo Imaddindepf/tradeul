@@ -80,6 +80,38 @@ class AuthenticatedUser:
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     @property
+    def user_id(self) -> str:
+        """Alias para id (compatibilidad con routers)."""
+        return self.id
+    
+    @property
+    def name(self) -> str:
+        """Nombre del usuario."""
+        if self.first_name:
+            if self.last_name:
+                return f"{self.first_name} {self.last_name}"
+            return self.first_name
+        if self.email:
+            return self.email.split("@")[0]
+        # Usar ID corto si no hay nombre (user_2xYz... -> user2xYz)
+        if self.id:
+            short_id = self.id.replace("user_", "u").replace("-", "")[:8]
+            return short_id
+        return "anon"
+    
+    @property
+    def username(self) -> Optional[str]:
+        """Username (usa email si no hay)."""
+        if self.email:
+            return self.email.split("@")[0]
+        return None
+    
+    @property
+    def avatar(self) -> Optional[str]:
+        """URL del avatar."""
+        return self.image_url
+    
+    @property
     def is_admin(self) -> bool:
         """Verificar si el usuario tiene rol de admin."""
         return "admin" in self.roles or self.metadata.get("role") == "admin"
@@ -92,13 +124,7 @@ class AuthenticatedUser:
     @property
     def display_name(self) -> str:
         """Nombre para mostrar del usuario."""
-        if self.first_name:
-            if self.last_name:
-                return f"{self.first_name} {self.last_name}"
-            return self.first_name
-        if self.email:
-            return self.email.split("@")[0]
-        return "Usuario"
+        return self.name
     
     @classmethod
     def from_claims(cls, claims: ClerkClaims) -> "AuthenticatedUser":
