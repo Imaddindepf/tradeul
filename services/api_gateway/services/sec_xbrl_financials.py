@@ -187,18 +187,20 @@ class SECXBRLFinancialsService:
         period_dates: List[str]
     ) -> List[Dict[str, Any]]:
         """
-        Ajustar campos de Shares por splits históricos.
+        Ajustar campos de Shares y EPS por splits históricos.
         
         IMPORTANTE: Los filings SEC recientes "restatan" datos históricos post-split,
         pero los datos MUY antiguos pueden venir de filings pre-split y necesitar ajuste.
         
         Estrategia: Detectar valores que parecen pre-split comparando magnitudes.
-        Si un valor es ~20x menor que valores post-split, aplicar ajuste.
+        - Shares: Si un valor es ~20x menor → multiplicar por factor
+        - EPS: Si un valor es ~20x mayor → dividir por factor
         """
         if not splits:
             return fields
         
         shares_keys = {'shares_basic', 'shares_diluted'}
+        eps_keys = {'eps_basic', 'eps_diluted'}
         
         # Encontrar el split más grande (ej: GOOGL 20:1)
         max_split_factor = 1.0
@@ -224,7 +226,6 @@ class SECXBRLFinancialsService:
                 values = field['values']
                 
                 # Encontrar la mediana de valores post-split (períodos recientes)
-                # para detectar cuáles parecen pre-split
                 post_split_values = []
                 for i, v in enumerate(values):
                     if v is not None and i < len(period_dates):
@@ -238,19 +239,17 @@ class SECXBRLFinancialsService:
                 
                 median_post_split = sorted(post_split_values)[len(post_split_values)//2]
                 
-                # Ajustar valores que parecen pre-split
-                # (mucho menores que la mediana post-split)
+                # Ajustar valores que parecen pre-split (mucho menores)
                 adjusted_values = []
                 for i, v in enumerate(values):
                     if v is None:
                         adjusted_values.append(None)
                     elif v > 0 and median_post_split / v > max_split_factor * 0.5:
-                        # Este valor parece pre-split, ajustar
+                        # Este valor parece pre-split, multiplicar por factor
                         adjusted_values.append(v * max_split_factor)
                     else:
                         adjusted_values.append(v)
                 
-                # Log si hubo ajustes
                 if adjusted_values != values:
                     logger.info(f"Split-adjusted {key}: detected pre-split values")
                 
@@ -259,6 +258,53 @@ class SECXBRLFinancialsService:
                     'values': adjusted_values,
                     'split_adjusted': adjusted_values != values
                 })
+            
+            elif key in eps_keys:
+                values = field['values']
+                
+                # Para EPS, usar método basado en fecha: si el período es ANTES del split,
+                # los datos deberían estar ya ajustados en los filings recientes.
+                # Pero verificamos comparando con valores post-split.
+                
+                # Obtener valores post-split para referencia
+                post_split_values = []
+                for i, v in enumerate(values):
+                    if v is not None and i < len(period_dates):
+                        date = period_dates[i]
+                        if date and date > max_split_date:
+                            post_split_values.append(v)
+                
+                if not post_split_values:
+                    adjusted_fields.append(field)
+                    continue
+                
+                median_post_split = sorted(post_split_values)[len(post_split_values)//2]
+                
+                # Ajustar TODOS los períodos pre-split que tengan valores > mediana * 1.5
+                # (esto captura tanto los muy altos como los moderadamente altos)
+                adjusted_values = []
+                for i, v in enumerate(values):
+                    if v is None:
+                        adjusted_values.append(None)
+                    elif i < len(period_dates):
+                        date = period_dates[i]
+                        # Si es período pre-split Y el valor es > 1.5x mediana, ajustar
+                        if date and date < max_split_date and v > median_post_split * 1.5:
+                            adjusted_values.append(v / max_split_factor)
+                        else:
+                            adjusted_values.append(v)
+                    else:
+                        adjusted_values.append(v)
+                
+                if adjusted_values != values:
+                    logger.info(f"Split-adjusted {key}: detected pre-split values")
+                
+                adjusted_fields.append({
+                    **field,
+                    'values': adjusted_values,
+                    'split_adjusted': adjusted_values != values
+                })
+            
             else:
                 adjusted_fields.append(field)
         
