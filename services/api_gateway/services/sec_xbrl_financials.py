@@ -40,19 +40,52 @@ class SECXBRLFinancialsService:
     Servicio simbiótico profesional para SEC-API XBRL.
     Sin hardcodeos - todo es dinámico y basado en análisis semántico.
     Incluye ajuste automático por stock splits usando Polygon.
+    
+    NUEVO ENFOQUE (v2): Procesar TODAS las secciones del XBRL y clasificar
+    cada campo por su concepto FASB, no por la sección en la que aparece.
+    Esto captura campos como InterestExpense, EffectiveTaxRate, SharesOutstanding
+    que antes se perdían por estar en secciones "Details".
     """
     
     BASE_URL = "https://api.sec-api.io"
     POLYGON_URL = "https://api.polygon.io"
     
-    # Secciones XBRL por categoría (esto es estructura de SEC, no hardcodeo)
-    SECTION_MAPPING = {
-        "StatementsOfIncome": "income",
-        "StatementsOfComprehensiveIncome": "income",
-        "StatementsOfOperations": "income",
-        "BalanceSheets": "balance",
-        "StatementsOfFinancialPosition": "balance",
-        "StatementsOfCashFlows": "cashflow",
+    # CLASIFICACIÓN POR CONCEPTO (no por sección)
+    # Patrones para determinar la categoría de cada campo XBRL
+    INCOME_PATTERNS = [
+        r'revenue', r'sales', r'cost.*goods', r'cost.*revenue', r'gross_profit',
+        r'operating.*income', r'operating.*expense', r'research.*development',
+        r'selling.*marketing', r'general.*admin', r'sg.*a', r'depreciation',
+        r'amortization', r'interest.*income', r'interest.*expense', r'finance.*cost',
+        r'income.*before.*tax', r'income.*tax', r'net_income', r'profit_loss',
+        r'earnings.*share', r'eps', r'weighted.*average.*shares', r'shares.*outstanding',
+        r'dividend.*per.*share', r'effective.*tax.*rate', r'nonoperating', r'other_income',
+        r'foreign.*currency.*transaction', r'gain_loss', r'equity.*method.*investment',
+        r'comprehensive_income',  # Ahora lo incluimos para capturar más datos
+    ]
+    
+    BALANCE_PATTERNS = [
+        r'^assets', r'current_assets', r'cash.*equivalent', r'^cash$', r'receivable',
+        r'inventory', r'prepaid', r'property.*plant', r'goodwill', r'intangible',
+        r'investment', r'^liabilities', r'current_liabilities', r'payable', r'accrued',
+        r'debt', r'borrowing', r'deferred.*revenue', r'lease.*liability', r'equity',
+        r'retained.*earnings', r'common.*stock', r'treasury', r'paid.*capital',
+        r'accumulated.*other.*comprehensive', r'working.*capital', r'book.*value',
+    ]
+    
+    CASHFLOW_PATTERNS = [
+        r'cash.*operating', r'cash.*investing', r'cash.*financing', r'operating.*activities',
+        r'investing.*activities', r'financing.*activities', r'capital.*expenditure',
+        r'capex', r'dividend.*paid', r'repurchase.*stock', r'stock.*issued',
+        r'proceeds.*debt', r'repayment.*debt', r'acquisition', r'free.*cash.*flow',
+        r'change.*working.*capital', r'depreciation.*amortization',
+    ]
+    
+    # Secciones a IGNORAR completamente (no contienen datos financieros útiles)
+    SKIP_SECTIONS = {
+        'CoverPage', 'DocumentAndEntityInformation', 'AuditInformation',
+        'AccountingPolicies', 'Policies', 'Tables', 'Parenthetical',
+        'InsiderTradingArrangements', 'SignificantAccountingPolicies',
     }
     
     # Configuración de paralelismo (SEC-API: 10 req/s para XBRL)
@@ -237,6 +270,62 @@ class SECXBRLFinancialsService:
         """Convertir CamelCase a snake_case"""
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
         return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+    
+    def _classify_concept_category(self, field_name: str) -> Optional[str]:
+        """
+        Clasificar un campo XBRL en su categoría (income/balance/cashflow)
+        basándose en el CONCEPTO del campo, NO en la sección donde aparece.
+        
+        Esto permite capturar campos como InterestExpense, EffectiveTaxRate,
+        SharesOutstanding que pueden aparecer en secciones "Details".
+        
+        Returns: 'income', 'balance', 'cashflow', o None si no es relevante
+        """
+        name = self._camel_to_snake(field_name).lower()
+        
+        # Primero verificar si debe ser ignorado
+        if self._should_skip_field(field_name):
+            return None
+        
+        # Verificar contra patrones de cada categoría
+        for pattern in self.CASHFLOW_PATTERNS:
+            if re.search(pattern, name):
+                return 'cashflow'
+        
+        for pattern in self.BALANCE_PATTERNS:
+            if re.search(pattern, name):
+                return 'balance'
+        
+        for pattern in self.INCOME_PATTERNS:
+            if re.search(pattern, name):
+                return 'income'
+        
+        # Si no matchea ningún patrón, intentar inferir de la sección
+        # (esto es un fallback, el método principal es por concepto)
+        return None
+    
+    def _should_skip_section(self, section_name: str) -> bool:
+        """
+        Determinar si una sección completa debe ser ignorada.
+        """
+        # Secciones explícitamente ignoradas
+        for skip in self.SKIP_SECTIONS:
+            if skip in section_name:
+                return True
+        
+        # Secciones de tablas o notas (no tienen datos principales)
+        name_lower = section_name.lower()
+        if any(x in name_lower for x in ['table', 'note', 'schedule', 'policy', 'policies']):
+            # Pero NO ignorar NetIncomePerShareSchedule (tiene shares outstanding)
+            if 'earningspershare' in name_lower or 'netincomepershare' in name_lower:
+                return False
+            if 'incometax' in name_lower:  # Tiene effective tax rate
+                return False
+            if 'supplemental' in name_lower:  # Tiene interest income/expense
+                return False
+            return True
+        
+        return False
     
     def _detect_financial_concept(self, field_name: str) -> Tuple[str, str, int, str]:
         """
@@ -1253,21 +1342,69 @@ class SECXBRLFinancialsService:
     ) -> Tuple[Dict, Dict, Dict]:
         """
         Extraer datos de income, balance y cashflow de un XBRL.
+        
+        NUEVO ENFOQUE (v2): Procesar TODAS las secciones del XBRL y clasificar
+        cada campo por su concepto FASB, no por la sección en la que aparece.
         """
         income_fields = {}
         balance_fields = {}
         cashflow_fields = {}
         
-        for section, category in self.SECTION_MAPPING.items():
-            fields = self._extract_all_fields_from_section(xbrl, section, fiscal_year)
-            if category == "income":
-                income_fields.update(fields)
-            elif category == "balance":
-                balance_fields.update(fields)
-            elif category == "cashflow":
-                cashflow_fields.update(fields)
+        # Procesar TODAS las secciones del XBRL
+        for section_name, section_data in xbrl.items():
+            # Saltar secciones no relevantes
+            if not isinstance(section_data, dict):
+                continue
+            if self._should_skip_section(section_name):
+                continue
+            
+            # Detectar categoría por nombre de sección (fallback)
+            section_category = self._get_section_category(section_name)
+            
+            # Extraer campos de esta sección
+            fields = self._extract_all_fields_from_section(xbrl, section_name, fiscal_year)
+            
+            for field_key, field_data in fields.items():
+                # Clasificar por concepto del campo (método principal)
+                # Usar el original_name para clasificar
+                original_name = field_data[1] if isinstance(field_data, tuple) else field_key
+                concept_category = self._classify_concept_category(original_name)
+                
+                # Si no hay categoría por concepto, usar la de la sección
+                category = concept_category or section_category
+                
+                if category == "income":
+                    # No sobrescribir si ya existe con mayor importancia
+                    if field_key not in income_fields:
+                        income_fields[field_key] = field_data
+                elif category == "balance":
+                    if field_key not in balance_fields:
+                        balance_fields[field_key] = field_data
+                elif category == "cashflow":
+                    if field_key not in cashflow_fields:
+                        cashflow_fields[field_key] = field_data
         
         return income_fields, balance_fields, cashflow_fields
+    
+    def _get_section_category(self, section_name: str) -> Optional[str]:
+        """
+        Obtener categoría de una sección por su nombre (fallback).
+        """
+        name = section_name.lower()
+        
+        # Cash Flow sections
+        if 'cashflow' in name or 'cash_flow' in name:
+            return 'cashflow'
+        
+        # Balance Sheet sections
+        if 'balance' in name or 'position' in name or 'assets' in name:
+            return 'balance'
+        
+        # Income Statement sections
+        if any(x in name for x in ['income', 'operations', 'earnings', 'profit', 'loss', 'revenue', 'expense', 'tax']):
+            return 'income'
+        
+        return None
     
     def _extract_all_annual_periods(
         self, 
@@ -1424,6 +1561,9 @@ class SECXBRLFinancialsService:
         """
         Extraer campos para un período específico.
         
+        NUEVO ENFOQUE (v2): Procesar TODAS las secciones y clasificar
+        cada campo por su concepto.
+        
         Busca tanto:
         - endDate (para Income/CashFlow)
         - instant (para Balance Sheet)
@@ -1436,16 +1576,24 @@ class SECXBRLFinancialsService:
         # Para balance sheet, aceptar fechas cercanas
         target_year_month = target_end_date[:7] if target_end_date else ""  # "YYYY-MM"
         
-        for section, cat in self.SECTION_MAPPING.items():
-            if cat != category:
-                continue
-            
-            section_data = xbrl.get(section, {})
+        # Procesar TODAS las secciones del XBRL
+        for section_name, section_data in xbrl.items():
             if not isinstance(section_data, dict):
+                continue
+            if self._should_skip_section(section_name):
                 continue
             
             for field_name, values in section_data.items():
                 if not isinstance(values, list):
+                    continue
+                
+                # Clasificar por concepto del campo
+                concept_category = self._classify_concept_category(field_name)
+                section_category = self._get_section_category(section_name)
+                field_category = concept_category or section_category
+                
+                # Solo procesar si coincide con la categoría buscada
+                if field_category != category:
                     continue
                 
                 for item in values:
