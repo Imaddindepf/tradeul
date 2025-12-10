@@ -113,9 +113,9 @@ export function ChatInvites() {
             <Users className="w-4 h-4 text-primary shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-[11px] truncate">
-                <span className="text-muted-foreground">{invite.inviter_name}</span>
+                <span className="text-muted-foreground font-medium">{invite.inviter_name || 'Alguien'}</span>
                 {' te invitó a '}
-                <span className="font-medium">{invite.group_name}</span>
+                <span className="font-medium text-primary">{invite.group_name}</span>
               </p>
             </div>
             

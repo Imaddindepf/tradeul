@@ -21,7 +21,7 @@ export interface ChatMessage {
   user_name: string;
   user_avatar?: string;
   content: string;
-  content_type: 'text' | 'image' | 'file' | 'ticker';
+  content_type: 'text' | 'image' | 'file' | 'ticker' | 'system';
   reply_to_id?: string;
   mentions: string[];
   tickers: string[];

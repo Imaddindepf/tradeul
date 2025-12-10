@@ -471,11 +471,47 @@ class SECXBRLFinancialsService:
         self, 
         ticker: str, 
         form_type: str = "10-K",
-        limit: int = 10
+        limit: int = 10,
+        cik: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Obtener filings por ticker, usando CIK para histórico completo"""
+        """
+        Obtener filings por CIK (preferido) o ticker.
+        
+        IMPORTANTE: Usar CIK garantiza que solo obtenemos filings de la empresa
+        actual, evitando mezclar datos de empresas que reutilizaron el mismo ticker.
+        
+        Args:
+            ticker: Símbolo del ticker (usado como fallback y para logging)
+            form_type: Tipo de formulario ("10-K", "10-Q", "20-F", "6-K")
+            limit: Número máximo de filings
+            cik: CIK de la empresa (opcional pero RECOMENDADO)
+        """
         try:
-            # Buscar por ticker primero
+            # ESTRATEGIA:
+            # 1. Si tenemos CIK → buscar SOLO por CIK (más preciso)
+            # 2. Si no tenemos CIK → buscar por ticker y extraer CIK del primer resultado
+            
+            if cik:
+                # Normalizar CIK: SEC-API espera sin ceros a la izquierda (1751008 no 0001751008)
+                normalized_cik = cik.lstrip('0') or '0'
+                
+                # Búsqueda PRECISA por CIK (evita tickers reutilizados como APP)
+                logger.info(f"[{ticker}] Searching by CIK {normalized_cik} for {form_type}")
+                response = await self.client.post(
+                    f"{self.BASE_URL}?token={self.api_key}",
+                    json={
+                        "query": {"query_string": {"query": f'cik:{normalized_cik} AND formType:"{form_type}"'}},
+                        "from": "0",
+                        "size": str(limit + 5),
+                        "sort": [{"filedAt": {"order": "desc"}}]
+                    }
+                )
+                response.raise_for_status()
+                filings = response.json().get("filings", [])
+                return filings[:limit]
+            
+            # Fallback: buscar por ticker (puede mezclar empresas con mismo ticker)
+            logger.warning(f"[{ticker}] No CIK provided, falling back to ticker search (may include old company data)")
             response = await self.client.post(
                 f"{self.BASE_URL}?token={self.api_key}",
                 json={
@@ -489,15 +525,15 @@ class SECXBRLFinancialsService:
             data = response.json()
             filings = data.get("filings", [])
             
-            # Si hay pocos resultados, buscar por CIK
-            if len(filings) < limit * 0.8:
-                cik = filings[0].get("cik") if filings else await self.get_cik(ticker)
-                if cik:
-                    logger.info(f"Searching by CIK {cik} for {ticker}")
+            # Si tenemos filings, extraer CIK del más reciente para búsqueda adicional
+            if filings and len(filings) < limit * 0.8:
+                extracted_cik = filings[0].get("cik")
+                if extracted_cik:
+                    logger.info(f"[{ticker}] Extracted CIK {extracted_cik}, expanding search")
                     response = await self.client.post(
                         f"{self.BASE_URL}?token={self.api_key}",
                         json={
-                            "query": {"query_string": {"query": f'cik:{cik} AND formType:"{form_type}"'}},
+                            "query": {"query_string": {"query": f'cik:{extracted_cik} AND formType:"{form_type}"'}},
                             "from": "0",
                             "size": str(limit + 5),
                             "sort": [{"filedAt": {"order": "desc"}}]
@@ -1381,7 +1417,8 @@ class SECXBRLFinancialsService:
         self,
         ticker: str,
         period: str = "annual",
-        limit: int = 10
+        limit: int = 10,
+        cik: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Obtener datos financieros consolidados semánticamente.
@@ -1390,6 +1427,13 @@ class SECXBRLFinancialsService:
         - Splits y filings se obtienen en paralelo
         - XBRL requests con concurrencia controlada (max 8)
         - Soporta empresas US (10-K/10-Q) y extranjeras (20-F/6-K)
+        
+        Args:
+            ticker: Símbolo del ticker (usado para splits y como fallback)
+            period: "annual" o "quarter"
+            limit: Número de períodos a obtener
+            cik: CIK de la empresa (opcional pero RECOMENDADO para evitar
+                 mezclar datos de empresas que reutilizaron el mismo ticker)
         """
         # Form types: US companies use 10-K/10-Q, foreign companies use 20-F/6-K
         if period == "annual":
@@ -1400,7 +1444,8 @@ class SECXBRLFinancialsService:
         start_time = asyncio.get_event_loop().time()
         
         # 1. PARALELO: Obtener filings de ambos tipos Y splits simultáneamente
-        filing_tasks = [self.get_filings(ticker, ft, limit + 5) for ft in form_types]
+        # Si tenemos CIK, lo usamos para búsqueda precisa (evita tickers reutilizados)
+        filing_tasks = [self.get_filings(ticker, ft, limit + 5, cik=cik) for ft in form_types]
         splits_task = self.get_splits(ticker)
         
         results = await asyncio.gather(*filing_tasks, splits_task)

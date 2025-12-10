@@ -33,7 +33,7 @@ from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client
-from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key, set_sec_api_key
+from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key, set_sec_api_key, set_ticker_metadata_client
 from routes.proxy import router as proxy_router
 from routes.realtime import router as realtime_router, set_redis_client as set_realtime_redis
 from routers.watchlist_router import router as watchlist_router
@@ -91,6 +91,12 @@ async def lifespan(app: FastAPI):
         logger.info("financials_router_configured_sec_xbrl", key_prefix=sec_api_key[:8], splits_enabled=bool(polygon_api_key))
     else:
         logger.warning("SEC_API_IO not configured, using FMP only")
+    
+    # TickerMetadataClient para obtener CIK (evita mezclar datos de tickers reutilizados)
+    from http_clients import TickerMetadataClient
+    ticker_metadata_client = TickerMetadataClient()
+    set_ticker_metadata_client(ticker_metadata_client)
+    logger.info("financials_ticker_metadata_configured")
     
     logger.info("financials_router_configured")
     

@@ -20,6 +20,7 @@ from shared.utils.logger import get_logger
 from shared.models.financials import FinancialData
 from services.fmp_financials import FMPFinancialsService
 from services.sec_xbrl_financials import SECXBRLFinancialsService
+from http_clients import TickerMetadataClient
 
 logger = get_logger(__name__)
 
@@ -29,6 +30,13 @@ router = APIRouter(prefix="/api/v1/financials", tags=["financials"])
 _redis_client: Optional[RedisClient] = None
 _fmp_service: Optional[FMPFinancialsService] = None
 _sec_xbrl_service: Optional[SECXBRLFinancialsService] = None
+_ticker_metadata_client: Optional[TickerMetadataClient] = None
+
+
+def set_ticker_metadata_client(client: TickerMetadataClient):
+    """Inyectar cliente de metadata para obtener CIK"""
+    global _ticker_metadata_client
+    _ticker_metadata_client = client
 
 # TTL de caché largo (7 días - los financials históricos no cambian)
 CACHE_TTL_SECONDS = 604800  # 7 días
@@ -114,11 +122,35 @@ async def get_financials(
         except Exception as e:
             logger.warning("financials_cache_error", symbol=symbol, error=str(e))
     
+    # Obtener CIK del servicio de metadata (fuente única de verdad)
+    # Esto garantiza que buscamos filings de la empresa ACTUAL, no de tickers reutilizados
+    cik = None
+    try:
+        # Opción 1: Redis directo (más rápido)
+        if _redis_client:
+            metadata_raw = await _redis_client.get(f"metadata:ticker:{symbol}")
+            if metadata_raw:
+                metadata = json.loads(metadata_raw) if isinstance(metadata_raw, str) else metadata_raw
+                cik = metadata.get("cik")
+        
+        # Opción 2: Fallback a TickerMetadataClient
+        if not cik and _ticker_metadata_client:
+            metadata = await _ticker_metadata_client.get_metadata(symbol)
+            if metadata:
+                cik = metadata.get("cik")
+                
+        if cik:
+            logger.info("financials_cik_resolved", symbol=symbol, cik=cik)
+        else:
+            logger.warning("financials_cik_not_found", symbol=symbol, fallback="ticker-based search")
+    except Exception as e:
+        logger.warning("financials_cik_lookup_error", symbol=symbol, error=str(e))
+    
     # Obtener datos frescos de SEC-API XBRL
-    logger.info("financials_fetching_sec", symbol=symbol, period=period, limit=limit)
+    logger.info("financials_fetching_sec", symbol=symbol, period=period, limit=limit, cik=cik)
     
     try:
-        raw_data = await _sec_xbrl_service.get_financials(symbol, period, limit)
+        raw_data = await _sec_xbrl_service.get_financials(symbol, period, limit, cik=cik)
         
         if not raw_data or not raw_data.get("income_statement"):
             raise HTTPException(status_code=404, detail=f"No financial data found for {symbol}")

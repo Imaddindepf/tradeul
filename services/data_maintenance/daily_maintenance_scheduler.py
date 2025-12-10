@@ -178,10 +178,11 @@ class DailyMaintenanceScheduler:
         
         # =============================================
         # 1. MANTENIMIENTO PRINCIPAL (3:00 AM ET)
+        # Tolerancia: ejecutar entre 3:00 y 3:05 para no perder la ventana
         # =============================================
         is_maintenance_time = (
             current_hour == self.maintenance_hour and
-            current_minute == self.maintenance_minute
+            self.maintenance_minute <= current_minute <= self.maintenance_minute + 5
         )
         
         if is_maintenance_time and self.last_maintenance_date != current_date:
@@ -195,10 +196,11 @@ class DailyMaintenanceScheduler:
         # =============================================
         # 2. LIMPIEZA DE CACHES (3:45 AM ET)
         # Después del reset de Polygon (~3:30 AM)
+        # Tolerancia: ejecutar entre 3:45 y 3:50 para no perder la ventana
         # =============================================
         is_cache_cleanup_time = (
             current_hour == self.cache_cleanup_hour and
-            current_minute == self.cache_cleanup_minute
+            self.cache_cleanup_minute <= current_minute <= self.cache_cleanup_minute + 5
         )
         
         if is_cache_cleanup_time and self.last_cache_cleanup_date != current_date:

@@ -90,7 +90,9 @@ async def list_my_invites(
     result = []
     for inv in invites:
         inv_dict = dict(inv)
-        inv_dict["inviter_name"] = await get_clerk_username(inv["inviter_id"])
+        inviter_name = await get_clerk_username(inv["inviter_id"])
+        inv_dict["inviter_name"] = inviter_name
+        logger.info("invite_with_name", inviter_id=inv["inviter_id"], inviter_name=inviter_name, group_name=inv["group_name"])
         result.append(inv_dict)
     
     return result

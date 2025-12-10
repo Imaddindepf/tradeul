@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Loader2, Hash, Users, Plus, X, Search, ChevronDown, ChevronRight, MoreVertical, LogOut, Trash2, Settings } from 'lucide-react';
+import { Loader2, Hash, Users, Plus, X, Search, ChevronDown, ChevronRight, MoreVertical, LogOut, Trash2, Settings, AlertTriangle } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore, selectActiveChannel, selectActiveGroup, selectOnlineCount } from '@/stores/useChatStore';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { ChatMessages } from './ChatMessages';
@@ -10,6 +11,78 @@ import { ChatInput } from './ChatInput';
 import { ChatInvites } from './ChatInvites';
 import { GroupManagePanel } from './GroupManagePanel';
 import { cn } from '@/lib/utils';
+
+// Compact confirmation modal
+interface ConfirmModalProps {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: 'danger' | 'warning';
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmModal({ isOpen, title, message, confirmText = 'Confirmar', cancelText = 'Cancelar', variant = 'danger', onConfirm, onCancel }: ConfirmModalProps) {
+  if (!isOpen) return null;
+  
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-center justify-center"
+        onClick={onCancel}
+      >
+        {/* Backdrop */}
+        <div className="absolute inset-0 bg-black/40" />
+        
+        {/* Modal */}
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.95, opacity: 0 }}
+          onClick={(e) => e.stopPropagation()}
+          className="relative bg-background border border-border rounded-lg shadow-xl p-3 max-w-[280px] w-full mx-4"
+          style={{ fontFamily: 'var(--font-mono-selected)' }}
+        >
+          <div className="flex items-start gap-2 mb-3">
+            <div className={cn(
+              "p-1 rounded shrink-0",
+              variant === 'danger' ? "bg-danger/10 text-danger" : "bg-warning/10 text-warning"
+            )}>
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-medium mb-0.5">{title}</h3>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">{message}</p>
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-1.5">
+            <button
+              onClick={onCancel}
+              className="px-2.5 py-1 text-[10px] rounded border border-border hover:bg-muted transition-colors"
+            >
+              {cancelText}
+            </button>
+            <button
+              onClick={onConfirm}
+              className={cn(
+                "px-2.5 py-1 text-[10px] rounded text-white transition-colors",
+                variant === 'danger' ? "bg-danger hover:bg-danger/90" : "bg-warning hover:bg-warning/90"
+              )}
+            >
+              {confirmText}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://tradeul.com';
@@ -35,6 +108,10 @@ export function ChatContent() {
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [showManagePanel, setShowManagePanel] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'leave' | 'delete' | null;
+  }>({ isOpen: false, type: null });
   
   const { getToken, isSignedIn, userId } = useAuth();
   const { user } = useUser();
@@ -61,12 +138,11 @@ export function ChatContent() {
       try {
         // Get token for authenticated requests
         const token = isSignedIn ? await getToken() : null;
-        const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
 
         const [channelsRes, groupsRes] = await Promise.all([
           fetch(`${CHAT_API_URL}/api/chat/channels`),
           token 
-            ? fetch(`${CHAT_API_URL}/api/chat/groups`, { headers: authHeaders })
+            ? fetch(`${CHAT_API_URL}/api/chat/groups`, { headers: { Authorization: `Bearer ${token}` } })
             : Promise.resolve({ ok: false } as Response),
         ]);
 
@@ -176,9 +252,6 @@ export function ChatContent() {
   const handleLeaveGroup = async () => {
     if (!activeGroup || actionLoading) return;
     
-    const confirmed = window.confirm('¿Seguro que quieres salir del grupo?');
-    if (!confirmed) return;
-    
     setActionLoading(true);
     try {
       const token = await getToken();
@@ -194,6 +267,7 @@ export function ChatContent() {
         setGroups(groups.filter(g => g.id !== activeGroup.id));
         setActiveTarget(channels[0] ? { type: 'channel', id: channels[0].id } : null);
         setShowGroupMenu(false);
+        setConfirmModal({ isOpen: false, type: null });
       }
     } catch (error) {
       console.error('Failed to leave group:', error);
@@ -205,9 +279,6 @@ export function ChatContent() {
   // Delete group (owner only)
   const handleDeleteGroup = async () => {
     if (!activeGroup || actionLoading) return;
-    
-    const confirmed = window.confirm('¿Eliminar grupo permanentemente? Esto borrará todos los mensajes.');
-    if (!confirmed) return;
     
     setActionLoading(true);
     try {
@@ -224,6 +295,7 @@ export function ChatContent() {
         setGroups(groups.filter(g => g.id !== activeGroup.id));
         setActiveTarget(channels[0] ? { type: 'channel', id: channels[0].id } : null);
         setShowGroupMenu(false);
+        setConfirmModal({ isOpen: false, type: null });
       }
     } catch (error) {
       console.error('Failed to delete group:', error);
@@ -506,7 +578,10 @@ export function ChatContent() {
                       {/* Leave/Delete */}
                       {isGroupOwner ? (
                         <button
-                          onClick={handleDeleteGroup}
+                          onClick={() => {
+                            setConfirmModal({ isOpen: true, type: 'delete' });
+                            setShowGroupMenu(false);
+                          }}
                           disabled={actionLoading}
                           className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-danger hover:bg-danger/10 transition-colors"
                         >
@@ -515,7 +590,10 @@ export function ChatContent() {
                         </button>
                       ) : (
                         <button
-                          onClick={handleLeaveGroup}
+                          onClick={() => {
+                            setConfirmModal({ isOpen: true, type: 'leave' });
+                            setShowGroupMenu(false);
+                          }}
                           disabled={actionLoading}
                           className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-warning hover:bg-warning/10 transition-colors"
                         >
@@ -540,6 +618,28 @@ export function ChatContent() {
           <ChatInput />
         </div>
       )}
+
+      {/* Confirmation Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        title={confirmModal.type === 'delete' ? 'Eliminar grupo' : 'Salir del grupo'}
+        message={
+          confirmModal.type === 'delete'
+            ? 'Esta acción eliminará el grupo y todos sus mensajes permanentemente.'
+            : `¿Seguro que quieres salir de "${activeGroup?.name || 'este grupo'}"?`
+        }
+        confirmText={confirmModal.type === 'delete' ? 'Eliminar' : 'Salir'}
+        cancelText="Cancelar"
+        variant={confirmModal.type === 'delete' ? 'danger' : 'warning'}
+        onConfirm={() => {
+          if (confirmModal.type === 'delete') {
+            handleDeleteGroup();
+          } else {
+            handleLeaveGroup();
+          }
+        }}
+        onCancel={() => setConfirmModal({ isOpen: false, type: null })}
+      />
     </div>
   );
 }
