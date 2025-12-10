@@ -314,7 +314,7 @@ export function ChatInput() {
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           placeholder={isSignedIn ? "Message... ($ for ticker)" : "Sign in"}
-          disabled={!isSignedIn || isSending}
+          disabled={!isSignedIn}
           className={cn(
             "flex-1 px-2 py-1 text-xs rounded bg-muted border-0",
             "focus:ring-1 focus:ring-primary/50 focus:outline-none",

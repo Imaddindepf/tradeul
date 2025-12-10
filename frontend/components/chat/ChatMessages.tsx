@@ -108,15 +108,8 @@ export function ChatMessages() {
     }
   }, [isLoadingMore, addMessages, setHasMoreMessages, getToken]);
 
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    if (currentMessages.length > 0) {
-      virtuosoRef.current?.scrollToIndex({
-        index: currentMessages.length - 1,
-        behavior: 'smooth',
-      });
-    }
-  }, [currentMessages.length]);
+  // Virtuoso ya tiene followOutput="smooth" que maneja el scroll automáticamente
+  // No necesitamos useEffect adicional que puede interferir con el foco
 
   // Scroll to a specific message (for reply quotes)
   const scrollToMessage = useCallback((messageId: string) => {
@@ -150,7 +143,7 @@ export function ChatMessages() {
           data={currentMessages}
           startReached={loadMore}
           initialTopMostItemIndex={currentMessages.length - 1}
-          followOutput="smooth"
+          followOutput="auto"
           itemContent={(_index: number, message: ChatMessageType) => (
             <ChatMessage
               key={message.id}
