@@ -187,51 +187,77 @@ class SECXBRLFinancialsService:
         period_dates: List[str]
     ) -> List[Dict[str, Any]]:
         """
-        Ajustar campos de EPS y Shares por splits históricos.
+        Ajustar campos de Shares por splits históricos.
+        
+        IMPORTANTE: Los filings SEC recientes "restatan" datos históricos post-split,
+        pero los datos MUY antiguos pueden venir de filings pre-split y necesitar ajuste.
+        
+        Estrategia: Detectar valores que parecen pre-split comparando magnitudes.
+        Si un valor es ~20x menor que valores post-split, aplicar ajuste.
         """
         if not splits:
             return fields
         
-        # Campos que necesitan ajuste por splits
-        eps_keys = {'eps_basic', 'eps_diluted'}
         shares_keys = {'shares_basic', 'shares_diluted'}
         
-        # Calcular factores de ajuste para cada período
-        adjustment_factors = [
-            self._get_split_adjustment_factor(splits, date) 
-            for date in period_dates
-        ]
+        # Encontrar el split más grande (ej: GOOGL 20:1)
+        max_split_factor = 1.0
+        max_split_date = ""
+        for split in splits:
+            split_from = split.get("split_from", 1)
+            split_to = split.get("split_to", 1)
+            if split_from > 0:
+                factor = split_to / split_from
+                if factor > max_split_factor:
+                    max_split_factor = factor
+                    max_split_date = split.get("execution_date", "")
         
-        # Log si hay ajustes
-        if any(f != 1.0 for f in adjustment_factors):
-            logger.info(f"Split adjustment factors: {dict(zip(period_dates, adjustment_factors))}")
+        if max_split_factor <= 1.5:  # No hay split significativo
+            return fields
         
         adjusted_fields = []
         
         for field in fields:
             key = field['key']
             
-            if key in eps_keys:
-                # Ajustar EPS: multiplicar por factor
-                adjusted_values = [
-                    v * adjustment_factors[i] if v is not None and i < len(adjustment_factors) else v
-                    for i, v in enumerate(field['values'])
-                ]
+            if key in shares_keys:
+                values = field['values']
+                
+                # Encontrar la mediana de valores post-split (períodos recientes)
+                # para detectar cuáles parecen pre-split
+                post_split_values = []
+                for i, v in enumerate(values):
+                    if v is not None and i < len(period_dates):
+                        date = period_dates[i]
+                        if date and date > max_split_date:
+                            post_split_values.append(v)
+                
+                if not post_split_values:
+                    adjusted_fields.append(field)
+                    continue
+                
+                median_post_split = sorted(post_split_values)[len(post_split_values)//2]
+                
+                # Ajustar valores que parecen pre-split
+                # (mucho menores que la mediana post-split)
+                adjusted_values = []
+                for i, v in enumerate(values):
+                    if v is None:
+                        adjusted_values.append(None)
+                    elif v > 0 and median_post_split / v > max_split_factor * 0.5:
+                        # Este valor parece pre-split, ajustar
+                        adjusted_values.append(v * max_split_factor)
+                    else:
+                        adjusted_values.append(v)
+                
+                # Log si hubo ajustes
+                if adjusted_values != values:
+                    logger.info(f"Split-adjusted {key}: detected pre-split values")
+                
                 adjusted_fields.append({
                     **field,
                     'values': adjusted_values,
-                    'split_adjusted': any(f != 1.0 for f in adjustment_factors[:len(field['values'])])
-                })
-            elif key in shares_keys:
-                # Ajustar Shares: dividir por factor (inverso)
-                adjusted_values = [
-                    v / adjustment_factors[i] if v is not None and adjustment_factors[i] != 0 and i < len(adjustment_factors) else v
-                    for i, v in enumerate(field['values'])
-                ]
-                adjusted_fields.append({
-                    **field,
-                    'values': adjusted_values,
-                    'split_adjusted': any(f != 1.0 for f in adjustment_factors[:len(field['values'])])
+                    'split_adjusted': adjusted_values != values
                 })
             else:
                 adjusted_fields.append(field)
@@ -529,6 +555,9 @@ class SECXBRLFinancialsService:
             r'_hedge_',
             r'_aoci_',
             r'unrealized_holding',
+            r'accumulated_depreciation',  # Depreciación acumulada (no gasto del año)
+            r'accumulated_depletion',
+            r'accumulated_amortization',
         ]
         
         return any(re.search(p, name) for p in skip_patterns)
@@ -1176,13 +1205,16 @@ class SECXBRLFinancialsService:
         op_income = op_income_field['values']
         
         # Buscar D&A en múltiples fuentes (primero Income Statement, luego Cash Flow)
+        # Incluir variantes de nombres usados por diferentes empresas
         da_sources = [
             ('income', 'depreciation'),
             ('income', 'depreciation_expense'),
             ('income', 'depreciation_amortization'),
+            ('income', 'depreciation_and_impairment_on_disposition_of_property_and_equipment'),
             ('cashflow', 'depreciation'),
             ('cashflow', 'depreciation_expense'),
             ('cashflow', 'depreciation_amortization'),
+            ('cashflow', 'depreciation_and_impairment_on_disposition_of_property_and_equipment'),
         ]
         
         # Combinar D&A de todas las fuentes
