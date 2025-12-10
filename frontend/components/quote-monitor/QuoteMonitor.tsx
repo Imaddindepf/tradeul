@@ -128,7 +128,7 @@ const QuoteRow = memo(function QuoteRow({ ticker, quote, onRemove, onRowClick, o
       {/* Latency */}
       <td className="w-[40px] px-1.5 py-0 text-right">
         <span className={`font-mono text-[10px] tabular-nums ${(quote?._latency?.latencyMs || 0) < 100 ? 'text-green-600' :
-            (quote?._latency?.latencyMs || 0) < 500 ? 'text-yellow-600' : 'text-red-600'
+          (quote?._latency?.latencyMs || 0) < 500 ? 'text-yellow-600' : 'text-red-600'
           }`}>
           {quote?._latency?.latencyMs ? `${quote._latency.latencyMs}` : '-'}
         </span>
@@ -343,8 +343,8 @@ const Tab = memo(function Tab({ watchlist, isActive, onClick, onRename, onDelete
   return (
     <div
       className={`group flex items-center gap-0.5 px-2 py-1 rounded-t cursor-pointer text-[11px] ${isActive
-          ? 'bg-white border-t border-l border-r border-slate-200 -mb-px font-medium'
-          : 'bg-slate-200/50 hover:bg-slate-200 text-slate-500'
+        ? 'bg-white border-t border-l border-r border-slate-200 -mb-px font-medium'
+        : 'bg-slate-200/50 hover:bg-slate-200 text-slate-500'
         }`}
       style={{ borderColor: isActive && watchlist.color ? watchlist.color : undefined }}
       onClick={onClick}
@@ -438,6 +438,7 @@ export function QuoteMonitor() {
   // Drag & Drop state
   const [draggedSymbol, setDraggedSymbol] = useState<string | null>(null);
   const [dragOverSectionId, setDragOverSectionId] = useState<string | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Handle adding ticker
   const handleAddTicker = async () => {

@@ -1751,6 +1751,23 @@ async function processBenzingaNewsStream() {
               logger.error({ err: parseErr }, "Error parsing Benzinga news data");
             }
           }
+          // Alertas de catalyst (impacto real detectado por el engine)
+          else if (message.type === "catalyst_alert" && message.ticker) {
+            try {
+              let metrics = null;
+              if (message.metrics) {
+                metrics = typeof message.metrics === "string" 
+                  ? JSON.parse(message.metrics) 
+                  : message.metrics;
+              }
+              
+              // Broadcast alerta de catalyst directamente
+              broadcastCatalystAlert(message.ticker, metrics);
+              
+            } catch (parseErr) {
+              logger.error({ err: parseErr }, "Error parsing catalyst alert");
+            }
+          }
         }
       }
     } catch (err) {
@@ -1924,6 +1941,62 @@ function broadcastBenzingaNews(articleData, catalystMetrics = null) {
         hasCatalystMetrics: !!catalystMetrics
       },
       "📰 Broadcasted Benzinga news"
+    );
+  }
+}
+
+/**
+ * Broadcast de alerta de catalyst a clientes suscritos a Benzinga News
+ * Estas alertas son diferentes a las noticias: son impactos reales detectados
+ */
+function broadcastCatalystAlert(ticker, metrics) {
+  if (benzingaNewsSubscribers.size === 0) {
+    logger.debug({ ticker }, "🚨 Catalyst alert but no subscribers");
+    return;
+  }
+
+  const message = {
+    type: "catalyst_alert",
+    ticker: ticker,
+    metrics: metrics,
+    timestamp: new Date().toISOString()
+  };
+
+  const messageStr = JSON.stringify(message);
+  let sentCount = 0;
+  const disconnected = [];
+
+  benzingaNewsSubscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
+
+    if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      disconnected.push(connectionId);
+      return;
+    }
+
+    try {
+      conn.ws.send(messageStr);
+      sentCount++;
+    } catch (err) {
+      logger.error({ connectionId, err }, "Error sending catalyst alert");
+      disconnected.push(connectionId);
+    }
+  });
+
+  // Limpiar conexiones desconectadas
+  disconnected.forEach((connectionId) => {
+    benzingaNewsSubscribers.delete(connectionId);
+  });
+
+  if (sentCount > 0) {
+    logger.info(
+      {
+        ticker,
+        change: metrics?.change_since_news_pct,
+        rvol: metrics?.rvol,
+        sentTo: sentCount,
+      },
+      "🚨 Catalyst alert broadcast"
     );
   }
 }

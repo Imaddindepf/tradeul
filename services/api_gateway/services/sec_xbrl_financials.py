@@ -1269,6 +1269,80 @@ class SECXBRLFinancialsService:
         
         return income_fields, balance_fields, cashflow_fields
     
+    def _extract_all_annual_periods(
+        self, 
+        xbrl: Dict,
+        form_type: str = "10-K"
+    ) -> List[Tuple[str, str, Dict, Dict, Dict]]:
+        """
+        Extraer TODOS los años anuales de un XBRL (para obtener datos comparativos).
+        
+        Cada 10-K típicamente tiene 3 años de datos comparativos.
+        Cada S-1 puede tener más años de datos históricos pre-IPO.
+        
+        Args:
+            xbrl: Datos XBRL parseados
+            form_type: Tipo de formulario (10-K, S-1, etc.) para priorización
+            
+        Returns:
+            Lista de (year, end_date, income_data, balance_data, cashflow_data)
+            ordenada por año descendente (más reciente primero)
+        """
+        from datetime import datetime, timedelta
+        
+        # 1. Detectar todos los períodos anuales disponibles en el XBRL
+        # Un período anual es ~365 días (permitimos 350-380 días)
+        annual_periods = {}  # {fiscal_year_label: end_date}
+        
+        income_sections = ["StatementsOfIncome", "StatementsOfOperations", "StatementsOfComprehensiveIncome"]
+        
+        for section in income_sections:
+            section_data = xbrl.get(section, {})
+            for field_name, values in section_data.items():
+                if not isinstance(values, list):
+                    continue
+                for item in values:
+                    if not isinstance(item, dict):
+                        continue
+                    # Skip si tiene segment (breakdown)
+                    if item.get("segment"):
+                        continue
+                    period = item.get("period", {})
+                    start = period.get("startDate", "")
+                    end = period.get("endDate", "")
+                    
+                    if not start or not end:
+                        continue
+                    
+                    try:
+                        start_dt = datetime.strptime(start, "%Y-%m-%d")
+                        end_dt = datetime.strptime(end, "%Y-%m-%d")
+                        days = (end_dt - start_dt).days
+                        
+                        # Período anual: entre 350 y 380 días
+                        if 350 <= days <= 380:
+                            # Usar el año del end_date como label fiscal
+                            fiscal_year = end[:4]
+                            if fiscal_year not in annual_periods:
+                                annual_periods[fiscal_year] = end
+                    except ValueError:
+                        continue
+        
+        if not annual_periods:
+            return []
+        
+        # 2. Extraer datos para cada año detectado
+        results = []
+        for fiscal_year in sorted(annual_periods.keys(), reverse=True):
+            end_date = annual_periods[fiscal_year]
+            income, balance, cashflow = self._extract_filing_data(xbrl, fiscal_year)
+            
+            # Solo incluir si tiene datos significativos
+            if income or balance:
+                results.append((fiscal_year, end_date, income, balance, cashflow, form_type))
+        
+        return results
+    
     def _extract_all_quarters_from_xbrl(
         self, 
         xbrl: Dict
@@ -1435,9 +1509,12 @@ class SECXBRLFinancialsService:
             cik: CIK de la empresa (opcional pero RECOMENDADO para evitar
                  mezclar datos de empresas que reutilizaron el mismo ticker)
         """
-        # Form types: US companies use 10-K/10-Q, foreign companies use 20-F/6-K
+        # Form types: 
+        # - US companies: 10-K/10-Q
+        # - Foreign companies: 20-F/6-K  
+        # - S-1/S-1A: Registration statements with historical data (pre-IPO)
         if period == "annual":
-            form_types = ["10-K", "20-F"]  # Annual reports
+            form_types = ["10-K", "20-F", "S-1", "S-1/A"]  # Annual reports + S-1 for historical
         else:
             form_types = ["10-Q", "6-K"]  # Quarterly reports
         
@@ -1544,27 +1621,22 @@ class SECXBRLFinancialsService:
         
         xbrl_results = await asyncio.gather(*xbrl_tasks, return_exceptions=True)
         
-        # 3. Procesar resultados (mantener orden cronológico)
+        # 3. Procesar resultados
         income_data = []
         balance_data = []
         cashflow_data = []
         fiscal_years = []
         period_end_dates = []
         
-        for result in xbrl_results:
-            if result is None or isinstance(result, Exception):
-                continue
-            
-            fiscal_year, filed_at, period_end, xbrl = result
-            
-            if is_quarterly:
-                # Para quarterly: extraer SOLO el período principal de cada filing
-                # Cada 10-Q tiene balance sheet solo para su trimestre, no para históricos
-                # Usar la fecha del filing para determinar el período
+        if is_quarterly:
+            # Para QUARTERLY: extraer solo el período principal de cada filing
+            for result in xbrl_results:
+                if result is None or isinstance(result, Exception):
+                    continue
+                
+                fiscal_year, filed_at, period_end, xbrl = result
                 quarters = self._extract_all_quarters_from_xbrl(xbrl)
                 
-                # Solo tomar el trimestre más reciente de cada XBRL
-                # (el que corresponde al filing actual)
                 if quarters:
                     q_label, q_end_date, q_income, q_balance, q_cashflow = quarters[0]
                     
@@ -1574,26 +1646,55 @@ class SECXBRLFinancialsService:
                         income_data.append(q_income)
                         balance_data.append(q_balance)
                         cashflow_data.append(q_cashflow)
-            else:
-                # Para annual: extraer solo el período principal
-                fiscal_years.append(fiscal_year)
-                period_end_dates.append(period_end)
-                income_fields, balance_fields, cashflow_fields = self._extract_filing_data(xbrl, fiscal_year)
-                income_data.append(income_fields)
-                balance_data.append(balance_fields)
-                cashflow_data.append(cashflow_fields)
+        else:
+            # Para ANNUAL: extraer TODOS los años de cada filing (datos comparativos)
+            # Esto permite obtener datos históricos de S-1 y años comparativos de 10-K
+            all_years_data = {}  # {year: (end_date, income, balance, cashflow, form_type, priority)}
+            
+            # Prioridad de fuentes (menor número = mayor prioridad)
+            FORM_PRIORITY = {"10-K": 1, "20-F": 2, "S-1": 3, "S-1/A": 3}
+            
+            for i, result in enumerate(xbrl_results):
+                if result is None or isinstance(result, Exception):
+                    continue
+                
+                fiscal_year, filed_at, period_end, xbrl = result
+                form_type = filings[i].get("formType", "10-K") if i < len(filings) else "10-K"
+                
+                # Extraer TODOS los años de este filing
+                all_periods = self._extract_all_annual_periods(xbrl, form_type)
+                
+                for year_data in all_periods:
+                    year, end_date, income, balance, cashflow, ft = year_data
+                    priority = FORM_PRIORITY.get(ft, 99)
+                    
+                    # Solo usar si es mejor fuente o no existe
+                    if year not in all_years_data:
+                        all_years_data[year] = (end_date, income, balance, cashflow, ft, priority)
+                    else:
+                        existing_priority = all_years_data[year][5]
+                        if priority < existing_priority:
+                            # Mejor fuente encontrada
+                            all_years_data[year] = (end_date, income, balance, cashflow, ft, priority)
+            
+            # Ordenar por año descendente
+            for year in sorted(all_years_data.keys(), reverse=True):
+                end_date, income, balance, cashflow, ft, _ = all_years_data[year]
+                fiscal_years.append(year)
+                period_end_dates.append(end_date)
+                income_data.append(income)
+                balance_data.append(balance)
+                cashflow_data.append(cashflow)
+            
+            # Log de fuentes usadas
+            sources_used = {}
+            for year in all_years_data:
+                ft = all_years_data[year][4]
+                sources_used[ft] = sources_used.get(ft, 0) + 1
+            logger.info(f"[{ticker}] Year sources: {sources_used}")
         
         if not fiscal_years:
             return self._empty_response(ticker)
-        
-        # Ordenar por fecha descendente (más reciente primero)
-        if period_end_dates:
-            sorted_indices = sorted(range(len(period_end_dates)), key=lambda i: period_end_dates[i] or "", reverse=True)
-            fiscal_years = [fiscal_years[i] for i in sorted_indices]
-            period_end_dates = [period_end_dates[i] for i in sorted_indices]
-            income_data = [income_data[i] for i in sorted_indices]
-            balance_data = [balance_data[i] for i in sorted_indices]
-            cashflow_data = [cashflow_data[i] for i in sorted_indices]
         
         logger.info(f"[{ticker}] Fetched {len(fiscal_years)} periods from XBRL in {asyncio.get_event_loop().time() - start_time:.2f}s")
         
@@ -1620,6 +1721,16 @@ class SECXBRLFinancialsService:
         # 7. Formatear respuesta
         has_split_adjustments = any(f.get('split_adjusted') for f in income_filtered)
         
+        # Detectar el mes típico de cierre del año fiscal
+        # (la mayoría de empresas cierran el mismo mes cada año)
+        fiscal_year_end_month = None
+        if period_end_dates:
+            months = [int(d[5:7]) for d in period_end_dates if d and len(d) >= 7]
+            if months:
+                # Usar el mes más común
+                from collections import Counter
+                fiscal_year_end_month = Counter(months).most_common(1)[0][0]
+        
         return {
             "symbol": ticker,
             "currency": "USD",
@@ -1628,6 +1739,8 @@ class SECXBRLFinancialsService:
             "split_adjusted": has_split_adjustments,
             "splits": [{"date": s.get("execution_date"), "ratio": f"{s.get('split_to')}:{s.get('split_from')}"} for s in splits] if splits else [],
             "periods": fiscal_years,
+            "period_end_dates": period_end_dates,  # Fechas exactas de cierre de cada período
+            "fiscal_year_end_month": fiscal_year_end_month,  # Mes típico de cierre (1-12)
             "income_statement": income_filtered,
             "balance_sheet": balance_filtered,
             "cash_flow": cashflow_filtered,
@@ -1642,6 +1755,8 @@ class SECXBRLFinancialsService:
             "source": "sec-api-xbrl",
             "symbiotic": True,
             "periods": [],
+            "period_end_dates": [],
+            "fiscal_year_end_month": None,
             "income_statement": [],
             "balance_sheet": [],
             "cash_flow": [],

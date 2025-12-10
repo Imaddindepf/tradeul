@@ -24,6 +24,7 @@ import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { NewsContent } from '@/components/news/NewsContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
+import { ChatContent } from '@/components/chat/ChatContent';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -85,6 +86,7 @@ export default function ScannerPage() {
     if (title === 'SEC Filings') return <SECFilingsContent />;
     if (title === 'News') return <NewsContent />;
     if (title === 'Financial Analysis') return <FinancialsContent />;
+    if (title === 'Community Chat') return <ChatContent />;
 
     // Verificar si es una tabla del scanner
     if (title.startsWith('Scanner: ')) {

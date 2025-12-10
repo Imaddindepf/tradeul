@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { useChatStore, selectTypingUsers, type ChatMessage as ChatMessageType } from '@/stores/useChatStore';
@@ -9,9 +8,20 @@ import { ChatMessage } from './ChatMessage';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
+const PAGE_SIZE = 50;
+const MAX_MESSAGES_IN_VIEW = 500; // Límite para rendimiento
 
+/**
+ * ChatMessages - Lista invertida con flex-direction: column-reverse
+ * 
+ * Técnica probada que funciona:
+ * - CSS flex-direction: column-reverse
+ * - Scroll natural (dirección correcta)
+ * - Scroll position 0 = abajo (mensajes recientes)
+ * - Límite de mensajes en memoria para rendimiento
+ */
 export function ChatMessages() {
-  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const { getToken } = useAuth();
 
@@ -32,13 +42,17 @@ export function ChatMessages() {
   const currentMessages = targetKey ? messages[targetKey] || [] : [];
   const hasMore = targetKey ? hasMoreMessages[targetKey] ?? true : false;
 
-  // Load messages when target changes (only if not already loaded)
+  // Limitar mensajes para rendimiento (mantener los más recientes)
+  const displayMessages = currentMessages.length > MAX_MESSAGES_IN_VIEW
+    ? currentMessages.slice(-MAX_MESSAGES_IN_VIEW)
+    : currentMessages;
+
+  // Cargar mensajes iniciales
   useEffect(() => {
     if (!activeTarget) return;
 
-    // Skip if already have messages for this target
-    const key = `${activeTarget.type}:${activeTarget.id}`;
-    if (currentMessages.length > 0) return;
+    const key = getTargetKey(activeTarget);
+    if (messages[key]?.length > 0) return;
 
     const loadMessages = async () => {
       setLoadingMessages(true);
@@ -47,7 +61,6 @@ export function ChatMessages() {
           ? `${CHAT_API_URL}/api/chat/messages/channel/${activeTarget.id}`
           : `${CHAT_API_URL}/api/chat/messages/group/${activeTarget.id}`;
 
-        // Groups require auth
         const headers: Record<string, string> = {};
         if (activeTarget.type === 'group') {
           const token = await getToken();
@@ -58,37 +71,34 @@ export function ChatMessages() {
         if (res.ok) {
           const data = await res.json();
           addMessages(key, data);
-          setHasMoreMessages(key, data.length >= 50);
+          setHasMoreMessages(key, data.length >= PAGE_SIZE);
         }
       } catch (error) {
-        console.error('Failed to load messages:', error);
+        console.error('[ChatMessages] Failed to load:', error);
       } finally {
         setLoadingMessages(false);
       }
     };
 
     loadMessages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTarget?.id, activeTarget?.type]);
+  }, [activeTarget, getTargetKey, messages, addMessages, setHasMoreMessages, setLoadingMessages, getToken]);
 
-  // Load more (older messages)
-  const loadMore = useCallback(async () => {
-    const target = useChatStore.getState().activeTarget;
-    const key = target ? `${target.type}:${target.id}` : null;
-    const msgs = key ? useChatStore.getState().messages[key] || [] : [];
-    const hasMoreMsgs = key ? useChatStore.getState().hasMoreMessages[key] ?? true : false;
+  // Cargar mensajes antiguos
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeTarget || isLoadingMore || !hasMore || currentMessages.length === 0) return;
 
-    if (!target || isLoadingMore || !hasMoreMsgs || msgs.length === 0) return;
+    const key = getTargetKey(activeTarget);
+    const oldestId = currentMessages[0]?.id;
+    if (!oldestId) return;
 
     setIsLoadingMore(true);
     try {
-      const oldestId = msgs[0]?.id;
-      const endpoint = target.type === 'channel'
-        ? `${CHAT_API_URL}/api/chat/messages/channel/${target.id}?before=${oldestId}`
-        : `${CHAT_API_URL}/api/chat/messages/group/${target.id}?before=${oldestId}`;
+      const endpoint = activeTarget.type === 'channel'
+        ? `${CHAT_API_URL}/api/chat/messages/channel/${activeTarget.id}?before=${oldestId}`
+        : `${CHAT_API_URL}/api/chat/messages/group/${activeTarget.id}?before=${oldestId}`;
 
       const headers: Record<string, string> = {};
-      if (target.type === 'group') {
+      if (activeTarget.type === 'group') {
         const token = await getToken();
         if (token) headers['Authorization'] = `Bearer ${token}`;
       }
@@ -97,88 +107,110 @@ export function ChatMessages() {
       if (res.ok) {
         const data = await res.json();
         if (data.length > 0) {
-          addMessages(key!, data, true); // prepend
+          addMessages(key, data, true);
         }
-        setHasMoreMessages(key!, data.length >= 50);
+        setHasMoreMessages(key, data.length >= PAGE_SIZE);
       }
     } catch (error) {
-      console.error('Failed to load more messages:', error);
+      console.error('[ChatMessages] Failed to load more:', error);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, addMessages, setHasMoreMessages, getToken]);
+  }, [activeTarget, getTargetKey, currentMessages, isLoadingMore, hasMore, addMessages, setHasMoreMessages, getToken]);
 
-  // Virtuoso ya tiene followOutput="smooth" que maneja el scroll automáticamente
-  // No necesitamos useEffect adicional que puede interferir con el foco
+  // Detectar scroll hacia arriba (mensajes antiguos)
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // En column-reverse: scrollTop es negativo, cerca de 0 = arriba (antiguos)
+    const distanceFromTop = scrollHeight + scrollTop - clientHeight;
 
-  // Scroll to a specific message (for reply quotes)
-  const scrollToMessage = useCallback((messageId: string) => {
-    const index = currentMessages.findIndex(m => m.id === messageId);
-    if (index !== -1) {
-      virtuosoRef.current?.scrollToIndex({
-        index,
-        behavior: 'smooth',
-        align: 'center',
-      });
+    if (distanceFromTop < 100 && hasMore && !isLoadingMore) {
+      loadOlderMessages();
     }
-  }, [currentMessages]);
+  }, [hasMore, isLoadingMore, loadOlderMessages]);
 
+  // Scroll a un mensaje específico
+  const scrollToMessage = useCallback((messageId: string) => {
+    const element = document.getElementById(`msg-${messageId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+
+  // Estado: Cargando
   if (isLoadingMessages) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <Loader2 className="w-5 h-5 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Estado: Sin mensajes
+  if (currentMessages.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs">
+        <p>No hay mensajes. ¡Inicia la conversación!</p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col relative">
-      {currentMessages.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <p>No messages yet. Start the conversation!</p>
-        </div>
-      ) : (
-        <Virtuoso
-          ref={virtuosoRef}
-          data={currentMessages}
-          startReached={loadMore}
-          initialTopMostItemIndex={currentMessages.length - 1}
-          followOutput="auto"
-          itemContent={(_index: number, message: ChatMessageType) => (
+    <div className="flex-1 relative overflow-hidden">
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="absolute inset-0 overflow-y-auto flex flex-col-reverse"
+      >
+        {/* Espacio para typing indicator */}
+        <div className="h-5 shrink-0" />
+
+        {/* Mensajes (invertidos para column-reverse) */}
+        {[...displayMessages].reverse().map((message) => (
+          <div key={message.id} id={`msg-${message.id}`}>
             <ChatMessage
-              key={message.id}
               message={message}
               onScrollToMessage={scrollToMessage}
             />
-          )}
-          components={{
-            Header: () => (
-              isLoadingMore ? (
-                <div className="text-center py-0.5 text-[10px] text-muted-foreground/50">...</div>
-              ) : hasMore ? (
-                <button onClick={loadMore} className="w-full py-0.5 text-[10px] text-primary/60 hover:text-primary">more</button>
-              ) : null
-            ),
-            Footer: () => <div className="h-5" />, // Space for typing indicator
-          }}
-          className="flex-1"
-        />
-      )}
+          </div>
+        ))}
 
-      {/* Typing indicator */}
+        {/* Header: cargar más / inicio */}
+        <div className="shrink-0">
+          {isLoadingMore ? (
+            <div className="flex justify-center py-3">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : hasMore ? (
+            <button
+              onClick={loadOlderMessages}
+              className="w-full py-2 text-[10px] text-muted-foreground hover:text-primary transition-colors"
+            >
+              Cargar más
+            </button>
+          ) : (
+            <div className="py-3 text-center text-[10px] text-muted-foreground/50">
+              Inicio de la conversación
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Indicador de escritura */}
       <AnimatePresence>
         {typingUsers.length > 0 && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute bottom-0 left-1 text-[10px] text-muted-foreground/60"
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 5 }}
+            className="absolute bottom-1 left-2 text-[10px] text-muted-foreground/70 italic"
           >
-            {typingUsers.length === 1 ? `${typingUsers[0].user_name}...` : `${typingUsers.length} typing...`}
+            {typingUsers.length === 1
+              ? `${typingUsers[0].user_name} está escribiendo...`
+              : `${typingUsers.length} personas escribiendo...`}
           </motion.div>
         )}
       </AnimatePresence>
     </div>
   );
 }
-

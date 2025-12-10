@@ -110,13 +110,13 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
         <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
             <div className="relative h-3 mb-1">
                 {periods.map((period, idx) => (
-                    <span
+        <span
                         key={idx}
                         className="absolute text-[9px] text-slate-500 font-medium transform -translate-x-1/2"
                         style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
                     >
                         '{period.slice(-2)}
-                    </span>
+        </span>
                 ))}
             </div>
             <div
@@ -146,12 +146,12 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
                     style={{ left: `${endPercent}%` }}
                     onMouseDown={(e) => handleMouseDown(e, 'end')}
                 />
-            </div>
+        </div>
             <div className="flex items-center justify-between mt-1 text-[9px] text-slate-500">
                 <span className="font-medium text-blue-600">{periods[startIndex]?.startsWith('Q') ? periods[startIndex] : `FY${periods[startIndex]}`}</span>
                 <span>{endIndex - startIndex + 1} of {periods.length} periods</span>
                 <span className="font-medium text-blue-600">{periods[endIndex]?.startsWith('Q') ? periods[endIndex] : `FY${periods[endIndex]}`}</span>
-            </div>
+        </div>
         </div>
     );
 }
@@ -332,7 +332,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
 
     // Error state
     if (error && !data) {
-        return (
+    return (
             <div className="flex flex-col h-full">
                 <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
                     <TickerSearch

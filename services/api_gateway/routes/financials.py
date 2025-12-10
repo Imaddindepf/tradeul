@@ -178,6 +178,8 @@ async def get_financials(
             "split_adjusted": raw_data.get("split_adjusted", False),
             "splits": raw_data.get("splits", []),
             "periods": raw_data.get("periods", []),
+            "period_end_dates": raw_data.get("period_end_dates", []),  # Fechas exactas de cierre
+            "fiscal_year_end_month": raw_data.get("fiscal_year_end_month"),  # Mes típico de cierre (1-12)
             "income_statement": raw_data.get("income_statement", []),
             "balance_sheet": raw_data.get("balance_sheet", []),
             "cash_flow": raw_data.get("cash_flow", []),
