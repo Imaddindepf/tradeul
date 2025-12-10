@@ -1309,6 +1309,190 @@ class SECXBRLFinancialsService:
         
         return income_fields
     
+    def _add_calculated_metrics(
+        self,
+        income_fields: List[Dict],
+        cashflow_fields: List[Dict],
+        num_periods: int
+    ) -> List[Dict]:
+        """
+        Añadir métricas calculadas como TIKR:
+        1. % Margins (Gross, Operating, Net, EBITDA)
+        2. % YoY para métricas clave
+        3. Dividend per Share
+        """
+        income_map = {f['key']: f for f in income_fields}
+        cashflow_map = {f['key']: f for f in cashflow_fields}
+        
+        # Obtener valores base para cálculos
+        revenue = income_map.get('revenue', {}).get('values', [])
+        gross_profit = income_map.get('gross_profit', {}).get('values', [])
+        operating_income = income_map.get('operating_income', {}).get('values', [])
+        net_income = income_map.get('net_income', {}).get('values', [])
+        ebitda = income_map.get('ebitda', {}).get('values', [])
+        shares_basic = income_map.get('shares_basic', {}).get('values', [])
+        dividends_paid = cashflow_map.get('dividends_paid', {}).get('values', [])
+        
+        # =========================================================================
+        # 1. MÁRGENES (% del Revenue)
+        # =========================================================================
+        def calc_margin(values: List, revenue: List) -> List:
+            """Calcular margen como porcentaje del revenue."""
+            margin = []
+            for i in range(num_periods):
+                val = values[i] if i < len(values) else None
+                rev = revenue[i] if i < len(revenue) else None
+                if val is not None and rev is not None and rev != 0:
+                    margin.append(round(val / rev, 4))  # 4 decimales (0.5432 = 54.32%)
+                else:
+                    margin.append(None)
+            return margin
+        
+        # Gross Margin
+        if gross_profit and revenue:
+            gross_margin = calc_margin(gross_profit, revenue)
+            if any(v is not None for v in gross_margin):
+                income_fields.append({
+                    'key': 'gross_margin',
+                    'label': 'Gross Margin %',
+                    'values': gross_margin,
+                    'importance': 9350,
+                    'data_type': 'percent',
+                    'source_fields': ['gross_profit', 'revenue'],
+                    'calculated': True
+                })
+        
+        # Operating Margin
+        if operating_income and revenue:
+            operating_margin = calc_margin(operating_income, revenue)
+            if any(v is not None for v in operating_margin):
+                income_fields.append({
+                    'key': 'operating_margin',
+                    'label': 'Operating Margin %',
+                    'values': operating_margin,
+                    'importance': 7950,
+                    'data_type': 'percent',
+                    'source_fields': ['operating_income', 'revenue'],
+                    'calculated': True
+                })
+        
+        # Net Margin
+        if net_income and revenue:
+            net_margin = calc_margin(net_income, revenue)
+            if any(v is not None for v in net_margin):
+                income_fields.append({
+                    'key': 'net_margin',
+                    'label': 'Net Margin %',
+                    'values': net_margin,
+                    'importance': 5450,
+                    'data_type': 'percent',
+                    'source_fields': ['net_income', 'revenue'],
+                    'calculated': True
+                })
+        
+        # EBITDA Margin
+        if ebitda and revenue:
+            ebitda_margin = calc_margin(ebitda, revenue)
+            if any(v is not None for v in ebitda_margin):
+                income_fields.append({
+                    'key': 'ebitda_margin',
+                    'label': 'EBITDA Margin %',
+                    'values': ebitda_margin,
+                    'importance': 4550,
+                    'data_type': 'percent',
+                    'source_fields': ['ebitda', 'revenue'],
+                    'calculated': True
+                })
+        
+        # =========================================================================
+        # 2. % YoY (Cambio interanual)
+        # =========================================================================
+        def calc_yoy(values: List) -> List:
+            """Calcular cambio YoY. Los períodos están en orden descendente (2024, 2023, 2022...)."""
+            yoy = [None]  # Primer período no tiene YoY
+            for i in range(1, num_periods):
+                curr = values[i] if i < len(values) else None
+                prev = values[i - 1] if (i - 1) < len(values) else None  # El período anterior cronológicamente
+                # En nuestro array, i-1 es más reciente, i es más antiguo
+                # YoY = (actual - anterior) / anterior
+                # Pero el orden es invertido: values[0] = 2024, values[1] = 2023
+                # YoY de 2024 = (2024 - 2023) / 2023
+                if curr is not None and prev is not None and curr != 0:
+                    yoy.append(round((prev - curr) / abs(curr), 4))
+                else:
+                    yoy.append(None)
+            return yoy
+        
+        # YoY para Revenue
+        if revenue and len(revenue) > 1:
+            revenue_yoy = calc_yoy(revenue)
+            if any(v is not None for v in revenue_yoy):
+                income_fields.append({
+                    'key': 'revenue_yoy',
+                    'label': 'Revenue % YoY',
+                    'values': revenue_yoy,
+                    'importance': 9900,
+                    'data_type': 'percent',
+                    'source_fields': ['revenue'],
+                    'calculated': True
+                })
+        
+        # YoY para Net Income
+        if net_income and len(net_income) > 1:
+            net_income_yoy = calc_yoy(net_income)
+            if any(v is not None for v in net_income_yoy):
+                income_fields.append({
+                    'key': 'net_income_yoy',
+                    'label': 'Net Income % YoY',
+                    'values': net_income_yoy,
+                    'importance': 5400,
+                    'data_type': 'percent',
+                    'source_fields': ['net_income'],
+                    'calculated': True
+                })
+        
+        # YoY para EPS
+        eps = income_map.get('eps_diluted', {}).get('values', [])
+        if eps and len(eps) > 1:
+            eps_yoy = calc_yoy(eps)
+            if any(v is not None for v in eps_yoy):
+                income_fields.append({
+                    'key': 'eps_yoy',
+                    'label': 'EPS % YoY',
+                    'values': eps_yoy,
+                    'importance': 4850,
+                    'data_type': 'percent',
+                    'source_fields': ['eps_diluted'],
+                    'calculated': True
+                })
+        
+        # =========================================================================
+        # 3. DIVIDEND PER SHARE
+        # =========================================================================
+        if dividends_paid and shares_basic:
+            dps = []
+            for i in range(num_periods):
+                div = dividends_paid[i] if i < len(dividends_paid) else None
+                shares = shares_basic[i] if i < len(shares_basic) else None
+                if div is not None and shares is not None and shares > 0:
+                    # dividends_paid suele ser positivo o negativo dependiendo del filing
+                    dps.append(round(abs(div) / shares, 4))
+                else:
+                    dps.append(None)
+            
+            if any(v is not None and v > 0 for v in dps):
+                income_fields.append({
+                    'key': 'dividend_per_share',
+                    'label': 'Dividend per Share',
+                    'values': dps,
+                    'importance': 4750,
+                    'data_type': 'perShare',
+                    'source_fields': ['dividends_paid', 'shares_basic'],
+                    'calculated': True
+                })
+        
+        return income_fields
+    
     # Campos clave que NUNCA se filtran (siempre se muestran si existen)
     KEY_FINANCIAL_FIELDS = {
         # === INCOME STATEMENT ===
@@ -1320,6 +1504,10 @@ class SECXBRLFinancialsService:
         'depreciation', 'depreciation_expense',
         'shares_basic', 'shares_diluted',
         'stock_compensation',
+        # Nuevos campos calculados
+        'gross_margin', 'operating_margin', 'net_margin', 'ebitda_margin',
+        'revenue_yoy', 'net_income_yoy', 'eps_yoy',
+        'dividend_per_share',
         
         # === BALANCE SHEET ===
         'total_assets', 'current_assets', 'cash',
@@ -1935,6 +2123,13 @@ class SECXBRLFinancialsService:
         # 5. Ajustar EPS y Shares por splits
         if splits:
             income_consolidated = self._adjust_for_splits(income_consolidated, splits, period_end_dates)
+        
+        # 5.5 Añadir métricas calculadas (márgenes, YoY, DPS)
+        income_consolidated = self._add_calculated_metrics(
+            income_consolidated, 
+            cashflow_consolidated, 
+            len(fiscal_years)
+        )
         
         # 6. Filtrar campos con pocos datos
         income_filtered = self._filter_low_value_fields(income_consolidated)
