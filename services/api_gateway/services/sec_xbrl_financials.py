@@ -2918,6 +2918,8 @@ class SECXBRLFinancialsService:
     # =========================================================================
     # XBRL ENRICHER INTEGRATION - Campos adicionales via edgartools
     # =========================================================================
+    # XBRL ENRICHER - Campos adicionales via edgartools
+    # =========================================================================
     
     async def _enrich_income_statement(
         self, 
@@ -2928,31 +2930,40 @@ class SECXBRLFinancialsService:
         """
         Enriquecer income statement con campos adicionales de edgartools.
         
-        SEC-API no extrae todos los componentes de revenue (investment income,
-        products/services revenue, etc.). Usamos edgartools para complementar.
-        
-        Solo añade campos que NO están ya presentes en los datos de SEC-API.
+        Añade campos que SEC-API no extrae (Investment Income, Products/Services).
+        Los datos se alinean automáticamente con los períodos de SEC-API.
         """
         try:
             from services.xbrl_enricher import get_xbrl_enricher
             
             enricher = get_xbrl_enricher()
-            additional = await enricher.get_income_statement_details(ticker, len(periods))
+            enrichment_data = await enricher.get_enrichment_fields(ticker, periods)
             
-            if not additional or 'fields' not in additional:
+            if not enrichment_data:
                 return income_fields
             
             # Crear set de keys existentes
+            # Si tenemos revenue_corrected de edgartools, verificar si hay inconsistencias
+            # SEC-API a veces extrae Product Revenue en lugar del Revenue total
+            if 'revenue_corrected' in enrichment_data:
+                revenue_field = next((f for f in income_fields if f['key'] == 'revenue'), None)
+                if revenue_field:
+                    corrected_values = enrichment_data['revenue_corrected']
+                    original_values = revenue_field.get('values', [])
+                    corrected = False
+                    for i in range(len(original_values)):
+                        orig = original_values[i] if i < len(original_values) else None
+                        corr = corrected_values[i] if i < len(corrected_values) else None
+                        if orig is not None and corr is not None:
+                            if orig < corr * 0.5:
+                                original_values[i] = corr
+                                corrected = True
+                    if corrected:
+                        revenue_field['corrected'] = True
+                        logger.info(f"[{ticker}] Revenue values corrected from edgartools")
             existing_keys = {f['key'] for f in income_fields}
             
-            # Keys que queremos añadir si no están
-            ENRICHMENT_KEYS = {
-                'investment_income',    # Investment & Other Income
-                'products_revenue',     # Products Revenue  
-                'services_revenue',     # Services Revenue
-            }
-            
-            # Mapeo de keys a nuestra estructura
+            # Estructura para cada campo de enriquecimiento
             ENRICHMENT_STRUCTURE = {
                 'investment_income': {
                     'section': 'Revenue',
@@ -2984,49 +2995,39 @@ class SECXBRLFinancialsService:
             }
             
             added = []
-            for field in additional['fields']:
-                key = field.get('key')
+            for key, values in enrichment_data.items():
+                # Solo añadir si no existe ya
+                if key in existing_keys:
+                    continue
                 
-                # Solo añadir si es un key que queremos y no existe
-                if key in ENRICHMENT_KEYS and key not in existing_keys:
-                    # Alinear valores con nuestros períodos
-                    enricher_periods = additional.get('periods', [])
-                    aligned_values = []
-                    
-                    for our_period in periods:
-                        value = None
-                        for i, enr_period in enumerate(enricher_periods):
-                            if enr_period == our_period:
-                                values = field.get('values', [])
-                                if i < len(values):
-                                    value = values[i]
-                                break
-                        aligned_values.append(value)
-                    
-                    # Solo añadir si tiene datos
-                    if any(v is not None and v != 0 for v in aligned_values):
-                        structure = ENRICHMENT_STRUCTURE.get(key, {})
-                        income_fields.append({
-                            'key': key,
-                            'label': structure.get('label', field.get('label')),
-                            'values': aligned_values,
-                            'data_type': structure.get('data_type', 'monetary'),
-                            'importance': structure.get('importance', 1000),
-                            'section': structure.get('section', 'Revenue'),
-                            'order': structure.get('order', 100),
-                            'indent': structure.get('indent', 1),
-                            'is_subtotal': structure.get('is_subtotal', False),
-                            'source': 'edgartools',
-                        })
-                        added.append(key)
+                # Solo añadir si tiene datos
+                if not any(v is not None and v != 0 for v in values):
+                    continue
+                
+                structure = ENRICHMENT_STRUCTURE.get(key, {})
+                if not structure:
+                    continue
+                
+                income_fields.append({
+                    'key': key,
+                    'label': structure['label'],
+                    'values': values,
+                    'data_type': structure['data_type'],
+                    'importance': structure['importance'],
+                    'section': structure['section'],
+                    'order': structure['order'],
+                    'indent': structure['indent'],
+                    'is_subtotal': structure['is_subtotal'],
+                    'source': 'edgartools',
+                })
+                added.append(key)
             
             if added:
-                logger.info(f"[{ticker}] Enriched income statement with: {added}")
-                # Re-ordenar por order
+                logger.info(f"[{ticker}] Enriched: {added}")
                 income_fields.sort(key=lambda x: x.get('order', 9999))
             
             return income_fields
             
         except Exception as e:
-            logger.warning(f"[{ticker}] Could not enrich income statement: {e}")
+            logger.warning(f"[{ticker}] Enrichment failed: {e}")
             return income_fields

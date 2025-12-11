@@ -415,7 +415,7 @@ async def get_company_info(symbol: str):
 @router.get("/{symbol}/income-details")
 async def get_income_details(
     symbol: str,
-    years: int = Query(5, ge=1, le=10, description="Años a extraer")
+    years: int = Query(5, ge=1, le=15, description="Años a extraer")
 ):
     """
     Obtener income statement completo con todos los componentes de revenue.
