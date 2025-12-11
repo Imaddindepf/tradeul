@@ -119,6 +119,7 @@ async def get_financials(
                     return data
                 else:
                     logger.info("financials_cache_incomplete", symbol=symbol, cached_periods=periods_count, requested=limit)
+                    return data
         except Exception as e:
             logger.warning("financials_cache_error", symbol=symbol, error=str(e))
     

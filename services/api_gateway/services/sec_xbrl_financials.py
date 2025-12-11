@@ -437,7 +437,8 @@ class SECXBRLFinancialsService:
              'gross_profit', 'Gross Profit', 9400, 'monetary'),
             
             # R&D (US GAAP + IFRS)
-            (r'research.*development|r_and_d', 
+            # Amazon: "Technology and Infrastructure/Content"
+            (r'research.*development|r_and_d|technology.*infrastructure|technology.*content', 
              'rd_expenses', 'R&D Expenses', 9000, 'monetary'),
             
             # SG&A (US GAAP)
@@ -445,8 +446,12 @@ class SECXBRLFinancialsService:
              'sga_expenses', 'SG&A Expenses', 8900, 'monetary'),
             
             # Selling & Marketing / Distribution Costs (US GAAP + IFRS)
-            (r'selling.*marketing|sales.*marketing|selling_expense|distribution_cost', 
+            (r'selling.*marketing|sales.*marketing|selling_expense|distribution_cost|^marketing_expense$', 
              'sales_marketing', 'Sales & Marketing', 8850, 'monetary'),
+            
+            # Fulfillment (Amazon, e-commerce specific)
+            (r'fulfillment.*expense|fulfillment.*cost', 
+             'fulfillment_expense', 'Fulfillment Expense', 8840, 'monetary'),
             
             # Administrative Expense (IFRS specific)
             (r'^administrative_expense$|^general.*admin', 
@@ -1560,8 +1565,9 @@ class SECXBRLFinancialsService:
         # === SECCIÓN: OPERATING EXPENSES ===
         'rd_expenses':       {'section': 'Operating Expenses', 'order': 300, 'indent': 1, 'is_subtotal': False},
         'sales_marketing':   {'section': 'Operating Expenses', 'order': 310, 'indent': 1, 'is_subtotal': False},
-        'sga_expenses':      {'section': 'Operating Expenses', 'order': 311, 'indent': 1, 'is_subtotal': False},
-        'ga_expenses':       {'section': 'Operating Expenses', 'order': 312, 'indent': 1, 'is_subtotal': False},
+        'fulfillment_expense':{'section': 'Operating Expenses', 'order': 315, 'indent': 1, 'is_subtotal': False},
+        'sga_expenses':      {'section': 'Operating Expenses', 'order': 320, 'indent': 1, 'is_subtotal': False},
+        'ga_expenses':       {'section': 'Operating Expenses', 'order': 325, 'indent': 1, 'is_subtotal': False},
         'stock_compensation':{'section': 'Operating Expenses', 'order': 320, 'indent': 1, 'is_subtotal': False},
         'restructuring_charges': {'section': 'Operating Expenses', 'order': 330, 'indent': 1, 'is_subtotal': False},
         'operating_expenses':{'section': 'Operating Expenses', 'order': 390, 'indent': 0, 'is_subtotal': True},
@@ -1662,7 +1668,7 @@ class SECXBRLFinancialsService:
     KEY_FINANCIAL_FIELDS = {
         # === INCOME STATEMENT ===
         'revenue', 'cost_of_revenue', 'gross_profit',
-        'operating_income', 'operating_expenses', 'sga_expenses', 'rd_expenses',
+        'operating_income', 'operating_expenses', 'sga_expenses', 'rd_expenses', 'sales_marketing', 'fulfillment_expense',
         'net_income', 'income_before_tax', 'income_tax',
         'ebitda', 'eps_basic', 'eps_diluted',
         'interest_income', 'interest_expense', 'other_income',

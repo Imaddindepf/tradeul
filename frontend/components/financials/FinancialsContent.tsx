@@ -114,7 +114,7 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
                         key={idx}
                         className="absolute text-[9px] text-slate-500 font-medium transform -translate-x-1/2"
                         style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
-                    >
+        >
                         '{period.slice(-2)}
         </span>
                 ))}
@@ -130,7 +130,7 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
                             ${idx >= startIndex && idx <= endIndex ? 'bg-blue-500' : 'bg-slate-300'}`}
                         style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
                     />
-                ))}
+            ))}
                 <div
                     className="absolute h-full bg-blue-500 rounded-full cursor-grab"
                     style={{ left: `${startPercent}%`, width: `${endPercent - startPercent}%` }}
@@ -376,7 +376,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                     >
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                     </button>
-                )}
+                    )}
             </div>
 
             {!data ? (
