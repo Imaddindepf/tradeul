@@ -460,16 +460,8 @@ class SECXBRLFinancialsService:
             (r'restructuring.*charge|restructuring.*cost|merger.*restructur', 
              'restructuring_charges', 'Restructuring Charges', 8200, 'monetary'),
             
-            # Crypto/Digital Asset Gains/Losses (non-operating) - ANTES del operating
-            (r'crypto.*asset.*gain.*loss.*nonoperating', 
-             'crypto_gains_nonoperating', 'Crypto Asset Gains/Losses', 7050, 'monetary'),
-            
-            # Crypto/Digital Asset Gains/Losses (operating)
-            # Nota: patrón excluyendo "nonoperating" con negative lookbehind
-            (r'crypto.*asset.*gain.*loss(?!.*nonoperating).*operating|digital.*asset.*gain.*loss|crypto.*impairment', 
-             'crypto_gains_operating', 'Crypto Asset Gains/Losses (Operating)', 8100, 'monetary'),
-            
             # IMPORTANTE: Nonoperating ANTES de Operating
+            # Campos como CryptoAssetGainLoss se clasifican automáticamente por la sección
             (r'^nonoperating|^other.*income|^other.*expense|other_nonoperating', 
              'other_income', 'Other Income/Expense', 7000, 'monetary'),
             
@@ -1571,8 +1563,7 @@ class SECXBRLFinancialsService:
         'sga_expenses':      {'section': 'Operating Expenses', 'order': 311, 'indent': 1, 'is_subtotal': False},
         'ga_expenses':       {'section': 'Operating Expenses', 'order': 312, 'indent': 1, 'is_subtotal': False},
         'stock_compensation':{'section': 'Operating Expenses', 'order': 320, 'indent': 1, 'is_subtotal': False},
-        'crypto_gains_operating': {'section': 'Operating Expenses', 'order': 330, 'indent': 1, 'is_subtotal': False},
-        'restructuring_charges': {'section': 'Operating Expenses', 'order': 340, 'indent': 1, 'is_subtotal': False},
+        'restructuring_charges': {'section': 'Operating Expenses', 'order': 330, 'indent': 1, 'is_subtotal': False},
         'operating_expenses':{'section': 'Operating Expenses', 'order': 390, 'indent': 0, 'is_subtotal': True},
         
         # === SECCIÓN: OPERATING INCOME ===
@@ -1586,7 +1577,6 @@ class SECXBRLFinancialsService:
         'interest_income':   {'section': 'Non-Operating',     'order': 500, 'indent': 1, 'is_subtotal': False},
         'interest_expense':  {'section': 'Non-Operating',     'order': 510, 'indent': 1, 'is_subtotal': False},
         'other_income':      {'section': 'Non-Operating',     'order': 520, 'indent': 1, 'is_subtotal': False},
-        'crypto_gains_nonoperating': {'section': 'Non-Operating', 'order': 525, 'indent': 1, 'is_subtotal': False},
         'foreign_currency_transaction_gain_loss_before_tax': {'section': 'Non-Operating', 'order': 530, 'indent': 1, 'is_subtotal': False},
         
         # === SECCIÓN: EARNINGS ===
@@ -1678,9 +1668,7 @@ class SECXBRLFinancialsService:
         'interest_income', 'interest_expense', 'other_income',
         'depreciation', 'depreciation_expense',
         'shares_basic', 'shares_diluted',
-        'stock_compensation',
-        # Campos especiales (crypto, restructuring)
-        'restructuring_charges', 'crypto_gains_operating', 'crypto_gains_nonoperating',
+        'stock_compensation', 'restructuring_charges',
         # Nuevos campos calculados
         'gross_margin', 'operating_margin', 'net_margin', 'ebitda_margin',
         'revenue_yoy', 'net_income_yoy', 'eps_yoy',
@@ -1706,13 +1694,16 @@ class SECXBRLFinancialsService:
     def _filter_low_value_fields(
         self, 
         fields: List[Dict[str, Any]], 
-        threshold_ratio: float = 0.3
+        threshold_ratio: float = 0.3,
+        min_significant_value: float = 10_000_000  # $10M umbral para valores únicos importantes
     ) -> List[Dict[str, Any]]:
         """
         Filtrar campos con pocos datos o valores mayormente cero.
         threshold_ratio: mínimo ratio de valores no-nulos/no-cero requerido
+        min_significant_value: si un campo tiene al menos un valor > este umbral, mantenerlo
         
         Campos clave (revenue, cost_of_revenue, etc.) NUNCA se filtran.
+        Campos con valores muy grandes (>$10M) se mantienen aunque aparezcan en pocos períodos.
         """
         filtered = []
         
@@ -1730,8 +1721,12 @@ class SECXBRLFinancialsService:
             # Contar valores significativos (no null y no cero)
             significant = sum(1 for v in values if v is not None and abs(v) > 0.01)
             
-            # Mantener si tiene suficientes valores significativos
-            if total > 0 and significant / total >= threshold_ratio:
+            # NUEVO: Si hay al menos un valor muy grande, mantenerlo
+            # Esto captura campos como CryptoGains que solo tienen datos en algunos años
+            has_large_value = any(v is not None and abs(v) >= min_significant_value for v in values)
+            
+            # Mantener si tiene suficientes valores significativos O si tiene un valor grande
+            if has_large_value or (total > 0 and significant / total >= threshold_ratio):
                 filtered.append(field)
         
         return filtered
@@ -1808,13 +1803,22 @@ class SECXBRLFinancialsService:
             fields = self._extract_all_fields_from_section(xbrl, section_name, fiscal_year)
             
             for field_key, field_data in fields.items():
-                # Clasificar por concepto del campo (método principal)
-                # Usar el original_name para clasificar
-                original_name = field_data[1] if isinstance(field_data, tuple) else field_key
-                concept_category = self._classify_concept_category(original_name)
+                # ENFOQUE PROFESIONAL: Priorizar la clasificación de SEC-API (sección)
+                # SEC-API ya clasifica correctamente los campos por statement
+                # Solo usar concept_category como override para campos ambiguos
                 
-                # Si no hay categoría por concepto, usar la de la sección
-                category = concept_category or section_category
+                # Si la sección es definitiva (statements principales), usarla
+                is_primary_statement = any(x in section_name.lower() for x in [
+                    'statementsof', 'balancesheets', 'consolidatedstatements'
+                ])
+                
+                if is_primary_statement and section_category:
+                    category = section_category
+                else:
+                    # Fallback: clasificar por concepto del campo
+                    original_name = field_data[1] if isinstance(field_data, tuple) else field_key
+                    concept_category = self._classify_concept_category(original_name)
+                    category = concept_category or section_category
                 
                 if category == "income":
                     # No sobrescribir si ya existe con mayor importancia
