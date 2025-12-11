@@ -7,13 +7,15 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',         // Páginas de login
   '/sign-up(.*)',         // Páginas de registro
   '/api/public(.*)',      // APIs públicas (si las hay)
+  '/icon',                // Favicon dinámico
+  '/apple-icon',          // Apple touch icon
 ])
 
 export default clerkMiddleware(async (auth, req) => {
   // Si NO es ruta pública, verificar autenticación
   if (!isPublicRoute(req)) {
     const { userId } = await auth()
-    
+
     // Si no está autenticado, redirigir a la landing page
     if (!userId) {
       const landingUrl = new URL('/', req.url)

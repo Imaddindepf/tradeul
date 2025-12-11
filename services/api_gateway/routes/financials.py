@@ -1,13 +1,15 @@
 """
-Financial Analysis Router
+Financial Analysis Router - HYBRID ARCHITECTURE
 
 Endpoint para obtener datos financieros completos de un ticker:
 - Income Statement (anual y trimestral)
 - Balance Sheet (anual y trimestral)
 - Cash Flow Statement (anual y trimestral)
 
-Fuente de datos: SEC-API XBRL (datos oficiales con campos específicos de industria)
-Industry/Sector: FMP Profile (solo para clasificación)
+ARQUITECTURA HÍBRIDA:
+- SEC-API XBRL: Datos rápidos, pre-procesados (fuente principal)
+- edgartools: Datos detallados, segmentos, geografía (enriquecimiento opcional)
+- FMP Profile: Industry/Sector (solo para clasificación)
 """
 
 import json
@@ -20,6 +22,7 @@ from shared.utils.logger import get_logger
 from shared.models.financials import FinancialData
 from services.fmp_financials import FMPFinancialsService
 from services.sec_xbrl_financials import SECXBRLFinancialsService
+from services.edgartools_service import get_edgartools_service, EdgarToolsService
 from http_clients import TickerMetadataClient
 
 logger = get_logger(__name__)
@@ -31,6 +34,7 @@ _redis_client: Optional[RedisClient] = None
 _fmp_service: Optional[FMPFinancialsService] = None
 _sec_xbrl_service: Optional[SECXBRLFinancialsService] = None
 _ticker_metadata_client: Optional[TickerMetadataClient] = None
+_edgartools_service: Optional[EdgarToolsService] = None
 
 
 def set_ticker_metadata_client(client: TickerMetadataClient):
@@ -270,4 +274,149 @@ async def precache_ticker(
             
     except Exception as e:
         logger.error("precache_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# EDGARTOOLS ENDPOINTS - Datos detallados (segmentos, geografía)
+# ============================================================================
+
+@router.get("/{symbol}/segments")
+async def get_segment_breakdown(
+    symbol: str,
+    years: int = Query(3, ge=1, le=10, description="Number of years to include")
+):
+    """
+    Obtiene desgloses por segmento de negocio y geografía via edgartools.
+    
+    Este endpoint proporciona datos que SEC-API no incluye:
+    - Revenue por segmento (ej: Google Services, Cloud, Other Bets)
+    - Revenue por geografía (ej: US, EMEA, APAC)
+    - Operating Income por segmento
+    - Otros desgloses dimensionales XBRL
+    
+    Nota: Este endpoint es más lento que /financials/{symbol} porque
+    parsea el XBRL completo directamente desde SEC EDGAR.
+    Los datos se cachean en memoria por 24 horas.
+    """
+    symbol = symbol.upper()
+    
+    try:
+        service = get_edgartools_service()
+        
+        # Obtener datos de segmentos
+        data = await service.get_segment_data(symbol, years)
+        
+        if not data:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No segment data found for {symbol}. The company may not report segment breakdowns."
+            )
+        
+        return {
+            "symbol": symbol,
+            "source": "edgartools",
+            "filing_date": data.get("filing_date"),
+            "segments": data.get("segments", {}),
+            "geography": data.get("geography", {}),
+            "note": "Data extracted from XBRL dimensional data"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("segments_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error fetching segment data: {str(e)}")
+
+
+@router.get("/{symbol}/structure")
+async def get_statement_structure(
+    symbol: str,
+    statement: str = Query("income", description="income, balance, or cash")
+):
+    """
+    Obtiene la estructura jerárquica completa de un financial statement.
+    
+    Útil para:
+    - Ver la jerarquía padre/hijo de los campos
+    - Identificar qué campos son subtotales
+    - Obtener los labels FASB oficiales
+    
+    Este endpoint usa edgartools para parsear el XBRL completo.
+    """
+    symbol = symbol.upper()
+    
+    if statement not in ["income", "balance", "cash"]:
+        raise HTTPException(status_code=400, detail="statement must be: income, balance, or cash")
+    
+    try:
+        service = get_edgartools_service()
+        
+        structure = await service.get_full_statement_structure(symbol, statement)
+        
+        if not structure:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No structure found for {symbol} {statement} statement"
+            )
+        
+        return {
+            "symbol": symbol,
+            "statement": statement,
+            "source": "edgartools",
+            "structure": structure,
+            "note": "Hierarchical structure from XBRL presentation linkbase"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("structure_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error fetching structure: {str(e)}")
+
+
+@router.post("/edgartools/download")
+async def trigger_edgar_download():
+    """
+    Trigger descarga de datos EDGAR para acelerar consultas futuras.
+    
+    Este endpoint debe llamarse como job nocturno (cron) para mantener
+    el local storage de edgartools actualizado.
+    
+    Requiere acceso admin.
+    """
+    try:
+        service = get_edgartools_service()
+        success = await service.download_edgar_data()
+        
+        if success:
+            return {"status": "success", "message": "EDGAR data download completed"}
+        else:
+            return {"status": "failed", "message": "Download failed - check logs"}
+            
+    except Exception as e:
+        logger.error("edgar_download_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/edgartools/cache")
+async def clear_edgartools_cache(
+    symbol: Optional[str] = Query(None, description="Symbol to clear, or None for all")
+):
+    """
+    Limpiar cache de edgartools.
+    
+    Útil cuando se sabe que hay nuevos filings disponibles.
+    """
+    try:
+        service = get_edgartools_service()
+        service.clear_cache(symbol)
+        
+        return {
+            "status": "success",
+            "cleared": symbol or "all"
+        }
+        
+    except Exception as e:
+        logger.error("cache_clear_error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
