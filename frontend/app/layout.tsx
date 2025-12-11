@@ -1,8 +1,8 @@
 import './globals.css';
 import type { Metadata } from 'next';
-import { 
-  Outfit, 
-  JetBrains_Mono, 
+import {
+  Outfit,
+  JetBrains_Mono,
   Oxygen_Mono,
   IBM_Plex_Mono,
   Fira_Code
@@ -12,34 +12,34 @@ import { ClientThemeProvider } from '@/components/settings/ClientThemeProvider';
 import { I18nProvider } from '@/components/providers/I18nProvider';
 
 // UI Font
-const outfit = Outfit({ 
+const outfit = Outfit({
   subsets: ['latin'],
   variable: '--font-outfit',
   display: 'swap',
 });
 
 // Monospace Fonts for Trading Data (User selectable)
-const jetbrainsMono = JetBrains_Mono({ 
+const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-jetbrains-mono',
   display: 'swap',
 });
 
-const oxygenMono = Oxygen_Mono({ 
+const oxygenMono = Oxygen_Mono({
   weight: '400',
   subsets: ['latin'],
   variable: '--font-oxygen-mono',
   display: 'swap',
 });
 
-const ibmPlexMono = IBM_Plex_Mono({ 
+const ibmPlexMono = IBM_Plex_Mono({
   weight: ['400', '500', '600'],
   subsets: ['latin'],
   variable: '--font-ibm-plex-mono',
   display: 'swap',
 });
 
-const firaCode = Fira_Code({ 
+const firaCode = Fira_Code({
   subsets: ['latin'],
   variable: '--font-fira-code',
   display: 'swap',
@@ -48,6 +48,13 @@ const firaCode = Fira_Code({
 export const metadata: Metadata = {
   title: 'Tradeul — Real-Time Market Intelligence',
   description: 'Professional trading platform with real-time market data, dilution tracking, and intelligent scanning.',
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icon', type: 'image/png', sizes: '32x32' },
+    ],
+    apple: '/apple-icon',
+  },
 };
 
 export default function RootLayout({
