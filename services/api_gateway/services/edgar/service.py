@@ -30,7 +30,7 @@ from .models import (
     CorrectionResult,
 )
 from .cache import EdgarCache, get_edgar_cache
-from .extractors import IncomeStatementExtractor
+from .extractors import IncomeStatementExtractor, SegmentsExtractor
 from .corrections import DataCorrector
 
 logger = get_logger(__name__)
@@ -51,6 +51,7 @@ class EdgarService:
         self._cache = get_edgar_cache(redis_client)
         self._executor = ThreadPoolExecutor(max_workers=2)
         self._income_extractor = IncomeStatementExtractor()
+        self._segments_extractor = SegmentsExtractor()
         self._corrector = DataCorrector()
         self._company_cache: Dict[str, CompanyInfo] = {}
     
@@ -133,6 +134,36 @@ class EdgarService:
             result[key] = aligned
         
         return result
+    
+    # =========================================================================
+    # Segments API
+    # =========================================================================
+    
+    async def get_segments(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtener datos de segmentos y geografía.
+        
+        Args:
+            symbol: Ticker
+            
+        Returns:
+            {
+                "symbol": "GOOGL",
+                "filing_date": "2025-02-05",
+                "segments": {"revenue": {...}, "operating_income": {...}},
+                "geography": {"revenue": {...}},
+                "products": {"revenue": {...}}
+            }
+        """
+        symbol = symbol.upper()
+        
+        # Ejecutar en thread pool
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._segments_extractor.extract,
+            symbol
+        )
     
     # =========================================================================
     # Corrections API

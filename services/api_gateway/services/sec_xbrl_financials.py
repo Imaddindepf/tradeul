@@ -2934,21 +2934,20 @@ class SECXBRLFinancialsService:
         Los datos se alinean automáticamente con los períodos de SEC-API.
         """
         try:
-            from services.xbrl_enricher import get_xbrl_enricher
+            from services.edgar import get_edgar_service
             
-            enricher = get_xbrl_enricher()
-            enrichment_data = await enricher.get_enrichment_fields(ticker, periods)
+            service = get_edgar_service()
+            enrichment_data = await service.get_enrichment_values(ticker, periods)
             
             if not enrichment_data:
                 return income_fields
             
-            # Crear set de keys existentes
-            # Si tenemos revenue_corrected de edgartools, verificar si hay inconsistencias
+            # Si tenemos revenue_total de edgartools, verificar inconsistencias
             # SEC-API a veces extrae Product Revenue en lugar del Revenue total
-            if 'revenue_corrected' in enrichment_data:
+            if 'revenue_total' in enrichment_data:
                 revenue_field = next((f for f in income_fields if f['key'] == 'revenue'), None)
                 if revenue_field:
-                    corrected_values = enrichment_data['revenue_corrected']
+                    corrected_values = enrichment_data['revenue_total']
                     original_values = revenue_field.get('values', [])
                     corrected = False
                     for i in range(len(original_values)):
@@ -2960,7 +2959,8 @@ class SECXBRLFinancialsService:
                                 corrected = True
                     if corrected:
                         revenue_field['corrected'] = True
-                        logger.info(f"[{ticker}] Revenue values corrected from edgartools")
+                        logger.info(f"[{ticker}] Revenue corrected from edgartools")
+            
             existing_keys = {f['key'] for f in income_fields}
             
             # Estructura para cada campo de enriquecimiento
@@ -2972,7 +2972,6 @@ class SECXBRLFinancialsService:
                     'is_subtotal': False,
                     'label': 'Investment & Other Income',
                     'data_type': 'monetary',
-                    'importance': 9400,
                 },
                 'products_revenue': {
                     'section': 'Revenue', 
@@ -2981,7 +2980,6 @@ class SECXBRLFinancialsService:
                     'is_subtotal': False,
                     'label': 'Products Revenue',
                     'data_type': 'monetary',
-                    'importance': 9350,
                 },
                 'services_revenue': {
                     'section': 'Revenue',
@@ -2990,17 +2988,22 @@ class SECXBRLFinancialsService:
                     'is_subtotal': False,
                     'label': 'Services Revenue',
                     'data_type': 'monetary',
-                    'importance': 9300,
+                },
+                'premiums': {
+                    'section': 'Revenue',
+                    'order': 104,
+                    'indent': 1,
+                    'is_subtotal': False,
+                    'label': 'Premiums',
+                    'data_type': 'monetary',
                 },
             }
             
             added = []
             for key, values in enrichment_data.items():
-                # Solo añadir si no existe ya
-                if key in existing_keys:
+                if key in existing_keys or key == 'revenue_total':
                     continue
                 
-                # Solo añadir si tiene datos
                 if not any(v is not None and v != 0 for v in values):
                     continue
                 
@@ -3013,7 +3016,6 @@ class SECXBRLFinancialsService:
                     'label': structure['label'],
                     'values': values,
                     'data_type': structure['data_type'],
-                    'importance': structure['importance'],
                     'section': structure['section'],
                     'order': structure['order'],
                     'indent': structure['indent'],
