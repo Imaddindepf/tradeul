@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { formatCurrency } from '../utils/formatters';
 
 // ============================================================================
-// TYPES - Nuevo formato simbiótico
+// TYPES - Formato profesional institucional
 // ============================================================================
 
 interface ConsolidatedField {
@@ -14,7 +14,13 @@ interface ConsolidatedField {
     importance: number;
     source_fields?: string[];
     data_type?: string;
-    balance?: 'debit' | 'credit' | null;  // debit = outflow (rojo), credit = inflow
+    balance?: 'debit' | 'credit' | null;
+    calculated?: boolean;
+    // Nuevos campos de estructura
+    section?: string;
+    display_order?: number;
+    indent_level?: number;
+    is_subtotal?: boolean;
 }
 
 interface SymbioticTableProps {
@@ -29,40 +35,73 @@ interface SymbioticTableProps {
 // UTILITIES
 // ============================================================================
 
-const formatValue = (value: number | null | undefined, currency: string = 'USD'): string => {
+const formatValue = (
+    value: number | null | undefined, 
+    dataType?: string,
+    currency: string = 'USD'
+): string => {
     if (value === undefined || value === null) return '—';
+    
+    // Formatear según el tipo de dato
+    if (dataType === 'percent') {
+        return `${(value * 100).toFixed(1)}%`;
+    }
+    if (dataType === 'perShare') {
+        return `$${value.toFixed(2)}`;
+    }
+    if (dataType === 'shares') {
+        // Mostrar en billones (B)
+        if (Math.abs(value) >= 1e9) {
+            return `${(value / 1e9).toFixed(2)}B`;
+        }
+        if (Math.abs(value) >= 1e6) {
+            return `${(value / 1e6).toFixed(1)}M`;
+        }
+        return value.toLocaleString();
+    }
+    
     return formatCurrency(value, currency);
 };
 
-const formatYoY = (current: number | null, previous: number | null): string => {
-    if (current == null || previous == null || previous === 0) return '—';
-    const change = ((current - previous) / Math.abs(previous)) * 100;
-    if (!isFinite(change) || isNaN(change)) return '—';
-    const sign = change > 0 ? '+' : '';
-    return `${sign}${change.toFixed(1)}%`;
+// Agrupar campos por sección
+const groupBySection = (fields: ConsolidatedField[]): Map<string, ConsolidatedField[]> => {
+    const groups = new Map<string, ConsolidatedField[]>();
+    
+    fields.forEach(field => {
+        const section = field.section || 'Other';
+        if (!groups.has(section)) {
+            groups.set(section, []);
+        }
+        groups.get(section)!.push(field);
+    });
+    
+    return groups;
 };
 
-const formatMargin = (value: number | null, revenue: number | null): string => {
-    if (value == null || revenue == null || revenue === 0) return '—';
-    const margin = (value / revenue) * 100;
-    return `${margin.toFixed(1)}%`;
-};
-
-// Detectar métricas clave por nombre
-const isKeyMetric = (key: string): boolean => {
-    const keyPatterns = ['revenue', 'gross_profit', 'operating_income', 'net_income',
-        'total_assets', 'total_liabilities', 'equity',
-        'operating_activities', 'cash_flow'];
-    return keyPatterns.some(p => key.includes(p));
-};
-
-// Detectar métricas que necesitan margen
-const needsMargin = (key: string): boolean => {
-    return ['gross_profit', 'operating_income', 'net_income', 'profit'].some(p => key.includes(p));
+// Orden de secciones para Income Statement
+const SECTION_ORDER: Record<string, number> = {
+    'Revenue': 1,
+    'Cost & Gross Profit': 2,
+    'Operating Expenses': 3,
+    'Operating Income': 4,
+    'Non-Operating': 5,
+    'Earnings': 6,
+    'Per Share Data': 7,
+    // Balance Sheet
+    'Current Assets': 1,
+    'Non-Current Assets': 2,
+    'Current Liabilities': 3,
+    'Non-Current Liabilities': 4,
+    'Equity': 5,
+    // Cash Flow
+    'Operating Activities': 1,
+    'Investing Activities': 2,
+    'Financing Activities': 3,
+    'Other': 99,
 };
 
 // ============================================================================
-// COMPONENT - Diseño compacto profesional
+// COMPONENT - Diseño institucional profesional
 // ============================================================================
 
 export function SymbioticTable({ fields, periods, category, currency, onMetricClick }: SymbioticTableProps) {
@@ -70,9 +109,15 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
         return <div className="p-4 text-center text-slate-400 text-xs">No data available</div>;
     }
 
-    // Obtener valores de revenue para calcular márgenes
-    const revenueField = fields.find(f => f.key.includes('revenue') || f.key.includes('sales'));
-    const revenueValues = revenueField?.values || [];
+    // Agrupar campos por sección
+    const groupedFields = useMemo(() => {
+        const groups = groupBySection(fields);
+        // Ordenar secciones
+        const sortedSections = Array.from(groups.keys()).sort(
+            (a, b) => (SECTION_ORDER[a] || 99) - (SECTION_ORDER[b] || 99)
+        );
+        return { groups, sortedSections };
+    }, [fields]);
 
     const handleRowClick = (field: ConsolidatedField) => {
         if (onMetricClick) {
@@ -82,78 +127,117 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
 
     return (
         <div className="overflow-x-auto">
-            <table className="w-full text-[10px] border-collapse">
-                <thead className="sticky top-0 z-10 bg-white">
-                    <tr className="border-b border-slate-200">
-                        <th className="text-left p-1.5 font-medium text-slate-600 min-w-[120px]">
+            <table className="w-full text-[11px] border-collapse">
+                {/* Header */}
+                <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-50 border-b-2 border-slate-200">
+                        <th className="text-left p-2 font-semibold text-slate-700 min-w-[180px] bg-slate-50">
                             Metric
                         </th>
                         {periods.map((period, idx) => (
-                            <th key={idx} className="text-right p-1.5 font-medium text-slate-600 min-w-[70px]">
+                            <th 
+                                key={idx} 
+                                className="text-right p-2 font-semibold text-slate-700 min-w-[85px] bg-slate-50"
+                            >
                                 {period.startsWith('Q') ? period : `FY${period}`}
                             </th>
                         ))}
                     </tr>
                 </thead>
+                
                 <tbody className="text-slate-700">
-                    {fields.map((field) => {
-                        const isKey = isKeyMetric(field.key);
-                        const showMargin = category === 'income' && needsMargin(field.key);
-
+                    {groupedFields.sortedSections.map((section, sectionIdx) => {
+                        const sectionFields = groupedFields.groups.get(section) || [];
+                        
+                        // No mostrar sección "Other" si está vacía o tiene solo campos de baja importancia
+                        if (section === 'Other' && sectionFields.every(f => (f.importance || 0) < 100)) {
+                            return null;
+                        }
+                        
                         return (
-                            <React.Fragment key={field.key}>
-                                {/* Main row */}
-                                <tr
-                                    className="hover:bg-slate-50 cursor-pointer border-b border-slate-100"
-                                    onClick={() => handleRowClick(field)}
-                                >
-                                    <td className={`p-1.5 ${isKey ? 'font-medium text-slate-800' : 'text-slate-600 pl-3'}`}>
-                                        {field.label}
+                            <React.Fragment key={section}>
+                                {/* Section Header */}
+                                <tr className="bg-slate-100/50">
+                                    <td 
+                                        colSpan={periods.length + 1}
+                                        className="px-2 py-1.5 font-semibold text-[10px] uppercase tracking-wider text-slate-500 border-t border-slate-200"
+                                    >
+                                        {section}
                                     </td>
-                                    {field.values.map((value, idx) => {
-                                        // Determinar color:
-                                        // - debit (outflow/gasto): rojo
-                                        // - credit con valor negativo: rojo
-                                        // - credit con valor positivo: normal
-                                        const isDebit = field.balance === 'debit';
-                                        const isNegative = value != null && value < 0;
-                                        const showRed = isDebit || isNegative;
-
-                                        return (
-                                            <td
-                                                key={idx}
-                                                className={`text-right p-1.5 tabular-nums
-                                                    ${showRed ? 'text-red-600' : ''}`}
-                                            >
-                                                {formatValue(value, currency)}
-                                            </td>
-                                        );
-                                    })}
                                 </tr>
-
-                                {/* YoY row for key metrics */}
-                                {isKey && (
-                                    <tr className="border-b border-slate-50">
-                                        <td className="p-1 pl-4 text-[9px] text-slate-400">% YoY</td>
-                                        {field.values.map((value, idx) => (
-                                            <td key={idx} className="text-right p-1 text-[9px] text-slate-500">
-                                                {formatYoY(value, field.values[idx + 1])}
+                                
+                                {/* Section Fields */}
+                                {sectionFields.map((field) => {
+                                    const indent = field.indent_level || 0;
+                                    const isSubtotal = field.is_subtotal || false;
+                                    const isPercentOrYoy = field.data_type === 'percent' || 
+                                                          field.key.includes('_yoy') || 
+                                                          field.key.includes('_margin');
+                                    
+                                    // Determinar estilo de la fila
+                                    const rowClass = isSubtotal 
+                                        ? 'bg-slate-50/80 border-t border-slate-200' 
+                                        : isPercentOrYoy
+                                            ? 'bg-white'
+                                            : 'bg-white hover:bg-blue-50/30';
+                                    
+                                    return (
+                                        <tr
+                                            key={field.key}
+                                            className={`${rowClass} cursor-pointer border-b border-slate-100 transition-colors`}
+                                            onClick={() => handleRowClick(field)}
+                                        >
+                                            {/* Label con indentación */}
+                                            <td 
+                                                className={`p-2 ${
+                                                    isSubtotal 
+                                                        ? 'font-semibold text-slate-800' 
+                                                        : isPercentOrYoy
+                                                            ? 'text-slate-400 text-[10px] italic'
+                                                            : 'text-slate-600'
+                                                }`}
+                                                style={{ paddingLeft: `${8 + indent * 16}px` }}
+                                            >
+                                                {isPercentOrYoy && !isSubtotal && (
+                                                    <span className="text-slate-300 mr-1">└</span>
+                                                )}
+                                                {field.label}
                                             </td>
-                                        ))}
-                                    </tr>
-                                )}
-
-                                {/* Margin row */}
-                                {showMargin && (
-                                    <tr className="border-b border-slate-50">
-                                        <td className="p-1 pl-4 text-[9px] text-slate-400">% Margin</td>
-                                        {field.values.map((value, idx) => (
-                                            <td key={idx} className="text-right p-1 text-[9px] text-slate-500">
-                                                {formatMargin(value, revenueValues[idx])}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                )}
+                                            
+                                            {/* Values */}
+                                            {field.values.map((value, idx) => {
+                                                // Determinar color
+                                                const isDebit = field.balance === 'debit';
+                                                const isNegative = value != null && value < 0;
+                                                const isPositivePercent = field.data_type === 'percent' && 
+                                                                         value != null && value > 0 &&
+                                                                         field.key.includes('_yoy');
+                                                const isNegativePercent = field.data_type === 'percent' && 
+                                                                         value != null && value < 0;
+                                                
+                                                let textColor = '';
+                                                if (isDebit || isNegative) {
+                                                    textColor = 'text-red-600';
+                                                } else if (isPositivePercent) {
+                                                    textColor = 'text-emerald-600';
+                                                } else if (isNegativePercent) {
+                                                    textColor = 'text-red-500';
+                                                }
+                                                
+                                                return (
+                                                    <td
+                                                        key={idx}
+                                                        className={`text-right p-2 tabular-nums ${textColor} ${
+                                                            isSubtotal ? 'font-semibold' : ''
+                                                        } ${isPercentOrYoy ? 'text-[10px]' : ''}`}
+                                                    >
+                                                        {formatValue(value, field.data_type, currency)}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    );
+                                })}
                             </React.Fragment>
                         );
                     })}

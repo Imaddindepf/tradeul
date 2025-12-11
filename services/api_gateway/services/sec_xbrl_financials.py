@@ -1493,7 +1493,165 @@ class SECXBRLFinancialsService:
         
         return income_fields
     
-    # Campos clave que NUNCA se filtran (siempre se muestran si existen)
+    def _add_structure_metadata(
+        self,
+        fields: List[Dict],
+        statement_type: str  # 'income', 'balance', 'cashflow'
+    ) -> List[Dict]:
+        """
+        Añadir metadata de estructura jerárquica a los campos para renderizado profesional.
+        
+        Añade: section, display_order, indent_level, is_subtotal
+        """
+        if statement_type == 'income':
+            structure = self.INCOME_STATEMENT_STRUCTURE
+        elif statement_type == 'balance':
+            structure = self.BALANCE_SHEET_STRUCTURE
+        elif statement_type == 'cashflow':
+            structure = self.CASH_FLOW_STRUCTURE
+        else:
+            return fields
+        
+        enriched = []
+        for field in fields:
+            key = field.get('key', '')
+            field_copy = field.copy()
+            
+            if key in structure:
+                meta = structure[key]
+                field_copy['section'] = meta['section']
+                field_copy['display_order'] = meta['order']
+                field_copy['indent_level'] = meta['indent']
+                field_copy['is_subtotal'] = meta['is_subtotal']
+            else:
+                # Campos no mapeados van al final, en sección "Other"
+                field_copy['section'] = 'Other'
+                field_copy['display_order'] = 9000
+                field_copy['indent_level'] = 0
+                field_copy['is_subtotal'] = False
+            
+            enriched.append(field_copy)
+        
+        # Ordenar por display_order
+        enriched.sort(key=lambda x: x.get('display_order', 9999))
+        
+        return enriched
+    
+    # =========================================================================
+    # ESTRUCTURA JERÁRQUICA DEL INCOME STATEMENT (estilo institucional)
+    # Cada campo tiene: (orden, nivel_indentación, es_subtotal)
+    # =========================================================================
+    INCOME_STATEMENT_STRUCTURE = {
+        # === SECCIÓN: REVENUE ===
+        'revenue':           {'section': 'Revenue',           'order': 100, 'indent': 0, 'is_subtotal': False},
+        'revenue_yoy':       {'section': 'Revenue',           'order': 101, 'indent': 1, 'is_subtotal': False},
+        
+        # === SECCIÓN: COST & GROSS PROFIT ===
+        'cost_of_revenue':   {'section': 'Cost & Gross Profit', 'order': 200, 'indent': 0, 'is_subtotal': False},
+        'gross_profit':      {'section': 'Cost & Gross Profit', 'order': 210, 'indent': 0, 'is_subtotal': True},
+        'gross_margin':      {'section': 'Cost & Gross Profit', 'order': 211, 'indent': 1, 'is_subtotal': False},
+        
+        # === SECCIÓN: OPERATING EXPENSES ===
+        'rd_expenses':       {'section': 'Operating Expenses', 'order': 300, 'indent': 1, 'is_subtotal': False},
+        'sales_marketing':   {'section': 'Operating Expenses', 'order': 310, 'indent': 1, 'is_subtotal': False},
+        'sga_expenses':      {'section': 'Operating Expenses', 'order': 311, 'indent': 1, 'is_subtotal': False},
+        'ga_expenses':       {'section': 'Operating Expenses', 'order': 312, 'indent': 1, 'is_subtotal': False},
+        'stock_compensation':{'section': 'Operating Expenses', 'order': 320, 'indent': 1, 'is_subtotal': False},
+        'operating_expenses':{'section': 'Operating Expenses', 'order': 390, 'indent': 0, 'is_subtotal': True},
+        
+        # === SECCIÓN: OPERATING INCOME ===
+        'operating_income':  {'section': 'Operating Income',  'order': 400, 'indent': 0, 'is_subtotal': True},
+        'operating_margin':  {'section': 'Operating Income',  'order': 401, 'indent': 1, 'is_subtotal': False},
+        'depreciation':      {'section': 'Operating Income',  'order': 410, 'indent': 1, 'is_subtotal': False},
+        'ebitda':            {'section': 'Operating Income',  'order': 420, 'indent': 0, 'is_subtotal': True},
+        'ebitda_margin':     {'section': 'Operating Income',  'order': 421, 'indent': 1, 'is_subtotal': False},
+        
+        # === SECCIÓN: NON-OPERATING ===
+        'interest_income':   {'section': 'Non-Operating',     'order': 500, 'indent': 1, 'is_subtotal': False},
+        'interest_expense':  {'section': 'Non-Operating',     'order': 510, 'indent': 1, 'is_subtotal': False},
+        'other_income':      {'section': 'Non-Operating',     'order': 520, 'indent': 1, 'is_subtotal': False},
+        'foreign_currency_transaction_gain_loss_before_tax': {'section': 'Non-Operating', 'order': 530, 'indent': 1, 'is_subtotal': False},
+        
+        # === SECCIÓN: EARNINGS ===
+        'income_before_tax': {'section': 'Earnings',          'order': 600, 'indent': 0, 'is_subtotal': True},
+        'income_tax':        {'section': 'Earnings',          'order': 610, 'indent': 1, 'is_subtotal': False},
+        'net_income':        {'section': 'Earnings',          'order': 620, 'indent': 0, 'is_subtotal': True},
+        'net_margin':        {'section': 'Earnings',          'order': 621, 'indent': 1, 'is_subtotal': False},
+        'net_income_yoy':    {'section': 'Earnings',          'order': 622, 'indent': 1, 'is_subtotal': False},
+        
+        # === SECCIÓN: PER SHARE DATA ===
+        'eps_basic':         {'section': 'Per Share Data',    'order': 700, 'indent': 0, 'is_subtotal': False},
+        'eps_diluted':       {'section': 'Per Share Data',    'order': 710, 'indent': 0, 'is_subtotal': False},
+        'eps_yoy':           {'section': 'Per Share Data',    'order': 711, 'indent': 1, 'is_subtotal': False},
+        'shares_basic':      {'section': 'Per Share Data',    'order': 720, 'indent': 0, 'is_subtotal': False},
+        'shares_diluted':    {'section': 'Per Share Data',    'order': 730, 'indent': 0, 'is_subtotal': False},
+        'dividend_per_share':{'section': 'Per Share Data',    'order': 740, 'indent': 0, 'is_subtotal': False},
+    }
+    
+    # =========================================================================
+    # ESTRUCTURA JERÁRQUICA DEL BALANCE SHEET
+    # =========================================================================
+    BALANCE_SHEET_STRUCTURE = {
+        # === SECCIÓN: ASSETS ===
+        'cash':              {'section': 'Current Assets',    'order': 100, 'indent': 1, 'is_subtotal': False},
+        'st_investments':    {'section': 'Current Assets',    'order': 110, 'indent': 1, 'is_subtotal': False},
+        'receivables':       {'section': 'Current Assets',    'order': 120, 'indent': 1, 'is_subtotal': False},
+        'inventory':         {'section': 'Current Assets',    'order': 130, 'indent': 1, 'is_subtotal': False},
+        'prepaid':           {'section': 'Current Assets',    'order': 140, 'indent': 1, 'is_subtotal': False},
+        'current_assets':    {'section': 'Current Assets',    'order': 190, 'indent': 0, 'is_subtotal': True},
+        
+        'ppe':               {'section': 'Non-Current Assets','order': 200, 'indent': 1, 'is_subtotal': False},
+        'goodwill':          {'section': 'Non-Current Assets','order': 210, 'indent': 1, 'is_subtotal': False},
+        'intangibles':       {'section': 'Non-Current Assets','order': 220, 'indent': 1, 'is_subtotal': False},
+        'lt_investments':    {'section': 'Non-Current Assets','order': 230, 'indent': 1, 'is_subtotal': False},
+        'total_assets':      {'section': 'Non-Current Assets','order': 290, 'indent': 0, 'is_subtotal': True},
+        
+        # === SECCIÓN: LIABILITIES ===
+        'accounts_payable':  {'section': 'Current Liabilities','order': 300, 'indent': 1, 'is_subtotal': False},
+        'accrued_liabilities':{'section': 'Current Liabilities','order': 310, 'indent': 1, 'is_subtotal': False},
+        'deferred_revenue':  {'section': 'Current Liabilities','order': 320, 'indent': 1, 'is_subtotal': False},
+        'st_debt':           {'section': 'Current Liabilities','order': 330, 'indent': 1, 'is_subtotal': False},
+        'current_liabilities':{'section': 'Current Liabilities','order': 390, 'indent': 0, 'is_subtotal': True},
+        
+        'lt_debt':           {'section': 'Non-Current Liabilities','order': 400, 'indent': 1, 'is_subtotal': False},
+        'lease_liability':   {'section': 'Non-Current Liabilities','order': 410, 'indent': 1, 'is_subtotal': False},
+        'total_liabilities': {'section': 'Non-Current Liabilities','order': 490, 'indent': 0, 'is_subtotal': True},
+        
+        # === SECCIÓN: EQUITY ===
+        'common_stock':      {'section': 'Equity',            'order': 500, 'indent': 1, 'is_subtotal': False},
+        'apic':              {'section': 'Equity',            'order': 510, 'indent': 1, 'is_subtotal': False},
+        'retained_earnings': {'section': 'Equity',            'order': 520, 'indent': 1, 'is_subtotal': False},
+        'treasury_stock':    {'section': 'Equity',            'order': 530, 'indent': 1, 'is_subtotal': False},
+        'total_equity':      {'section': 'Equity',            'order': 590, 'indent': 0, 'is_subtotal': True},
+    }
+    
+    # =========================================================================
+    # ESTRUCTURA JERÁRQUICA DEL CASH FLOW STATEMENT
+    # =========================================================================
+    CASH_FLOW_STRUCTURE = {
+        # === SECCIÓN: OPERATING ===
+        'net_income':        {'section': 'Operating Activities','order': 100, 'indent': 1, 'is_subtotal': False},
+        'depreciation':      {'section': 'Operating Activities','order': 110, 'indent': 1, 'is_subtotal': False},
+        'stock_compensation':{'section': 'Operating Activities','order': 120, 'indent': 1, 'is_subtotal': False},
+        'deferred_revenue':  {'section': 'Operating Activities','order': 130, 'indent': 1, 'is_subtotal': False},
+        'operating_cf':      {'section': 'Operating Activities','order': 190, 'indent': 0, 'is_subtotal': True},
+        
+        # === SECCIÓN: INVESTING ===
+        'capex':             {'section': 'Investing Activities','order': 200, 'indent': 1, 'is_subtotal': False},
+        'purchase_investments':{'section': 'Investing Activities','order': 210, 'indent': 1, 'is_subtotal': False},
+        'sale_investments':  {'section': 'Investing Activities','order': 220, 'indent': 1, 'is_subtotal': False},
+        'intangibles':       {'section': 'Investing Activities','order': 230, 'indent': 1, 'is_subtotal': False},
+        'investing_cf':      {'section': 'Investing Activities','order': 290, 'indent': 0, 'is_subtotal': True},
+        
+        # === SECCIÓN: FINANCING ===
+        'dividends_paid':    {'section': 'Financing Activities','order': 300, 'indent': 1, 'is_subtotal': False},
+        'stock_repurchased': {'section': 'Financing Activities','order': 310, 'indent': 1, 'is_subtotal': False},
+        'stock_issued':      {'section': 'Financing Activities','order': 320, 'indent': 1, 'is_subtotal': False},
+        'debt_issued':       {'section': 'Financing Activities','order': 330, 'indent': 1, 'is_subtotal': False},
+        'debt_repaid':       {'section': 'Financing Activities','order': 340, 'indent': 1, 'is_subtotal': False},
+        'financing_cf':      {'section': 'Financing Activities','order': 390, 'indent': 0, 'is_subtotal': True},
+    }
+    
     KEY_FINANCIAL_FIELDS = {
         # === INCOME STATEMENT ===
         'revenue', 'cost_of_revenue', 'gross_profit',
@@ -2152,6 +2310,11 @@ class SECXBRLFinancialsService:
                 from collections import Counter
                 fiscal_year_end_month = Counter(months).most_common(1)[0][0]
         
+        # 8. Enriquecer campos con estructura jerárquica
+        income_structured = self._add_structure_metadata(income_filtered, 'income')
+        balance_structured = self._add_structure_metadata(balance_filtered, 'balance')
+        cashflow_structured = self._add_structure_metadata(cashflow_filtered, 'cashflow')
+        
         return {
             "symbol": ticker,
             "currency": "USD",
@@ -2162,9 +2325,9 @@ class SECXBRLFinancialsService:
             "periods": fiscal_years,
             "period_end_dates": period_end_dates,  # Fechas exactas de cierre de cada período
             "fiscal_year_end_month": fiscal_year_end_month,  # Mes típico de cierre (1-12)
-            "income_statement": income_filtered,
-            "balance_sheet": balance_filtered,
-            "cash_flow": cashflow_filtered,
+            "income_statement": income_structured,
+            "balance_sheet": balance_structured,
+            "cash_flow": cashflow_structured,
             "processing_time_seconds": round(total_time, 2),
             "last_updated": datetime.utcnow().isoformat()
         }
