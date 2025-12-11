@@ -428,7 +428,8 @@ class SECXBRLFinancialsService:
              'revenue', 'Revenue', 10000, 'monetary'),
             
             # Cost of Revenue / Cost of Sales (US GAAP + IFRS)
-            (r'cost.*revenue|cost.*goods.*sold|cost.*sales|^cost_of_sales$', 
+            # Incluye InformationTechnologyAndDataProcessing (crypto/fintech companies)
+            (r'cost.*revenue|cost.*goods.*sold|cost.*sales|^cost_of_sales$|information.*technology.*data.*processing', 
              'cost_of_revenue', 'Cost of Revenue', 9500, 'monetary'),
             
             # Gross Profit
@@ -454,6 +455,19 @@ class SECXBRLFinancialsService:
             # Operating Expenses
             (r'operating_expenses|costs.*expenses|total.*operating.*cost', 
              'operating_expenses', 'Operating Expenses', 8500, 'monetary'),
+            
+            # Restructuring Charges
+            (r'restructuring.*charge|restructuring.*cost|merger.*restructur', 
+             'restructuring_charges', 'Restructuring Charges', 8200, 'monetary'),
+            
+            # Crypto/Digital Asset Gains/Losses (non-operating) - ANTES del operating
+            (r'crypto.*asset.*gain.*loss.*nonoperating', 
+             'crypto_gains_nonoperating', 'Crypto Asset Gains/Losses', 7050, 'monetary'),
+            
+            # Crypto/Digital Asset Gains/Losses (operating)
+            # Nota: patrón excluyendo "nonoperating" con negative lookbehind
+            (r'crypto.*asset.*gain.*loss(?!.*nonoperating).*operating|digital.*asset.*gain.*loss|crypto.*impairment', 
+             'crypto_gains_operating', 'Crypto Asset Gains/Losses (Operating)', 8100, 'monetary'),
             
             # IMPORTANTE: Nonoperating ANTES de Operating
             (r'^nonoperating|^other.*income|^other.*expense|other_nonoperating', 
@@ -1557,6 +1571,8 @@ class SECXBRLFinancialsService:
         'sga_expenses':      {'section': 'Operating Expenses', 'order': 311, 'indent': 1, 'is_subtotal': False},
         'ga_expenses':       {'section': 'Operating Expenses', 'order': 312, 'indent': 1, 'is_subtotal': False},
         'stock_compensation':{'section': 'Operating Expenses', 'order': 320, 'indent': 1, 'is_subtotal': False},
+        'crypto_gains_operating': {'section': 'Operating Expenses', 'order': 330, 'indent': 1, 'is_subtotal': False},
+        'restructuring_charges': {'section': 'Operating Expenses', 'order': 340, 'indent': 1, 'is_subtotal': False},
         'operating_expenses':{'section': 'Operating Expenses', 'order': 390, 'indent': 0, 'is_subtotal': True},
         
         # === SECCIÓN: OPERATING INCOME ===
@@ -1570,6 +1586,7 @@ class SECXBRLFinancialsService:
         'interest_income':   {'section': 'Non-Operating',     'order': 500, 'indent': 1, 'is_subtotal': False},
         'interest_expense':  {'section': 'Non-Operating',     'order': 510, 'indent': 1, 'is_subtotal': False},
         'other_income':      {'section': 'Non-Operating',     'order': 520, 'indent': 1, 'is_subtotal': False},
+        'crypto_gains_nonoperating': {'section': 'Non-Operating', 'order': 525, 'indent': 1, 'is_subtotal': False},
         'foreign_currency_transaction_gain_loss_before_tax': {'section': 'Non-Operating', 'order': 530, 'indent': 1, 'is_subtotal': False},
         
         # === SECCIÓN: EARNINGS ===
@@ -1662,6 +1679,8 @@ class SECXBRLFinancialsService:
         'depreciation', 'depreciation_expense',
         'shares_basic', 'shares_diluted',
         'stock_compensation',
+        # Campos especiales (crypto, restructuring)
+        'restructuring_charges', 'crypto_gains_operating', 'crypto_gains_nonoperating',
         # Nuevos campos calculados
         'gross_margin', 'operating_margin', 'net_margin', 'ebitda_margin',
         'revenue_yoy', 'net_income_yoy', 'eps_yoy',
