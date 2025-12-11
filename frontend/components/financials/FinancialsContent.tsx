@@ -5,6 +5,7 @@ import { RefreshCw, AlertTriangle, Copy, Check } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { SymbioticTable } from './tables/SymbioticTable';
+import { SegmentsTable } from './tables/SegmentsTable';
 import { FinancialMetricChart, type MetricDataPoint } from './FinancialMetricChart';
 import { type FinancialChartData } from '@/lib/window-injector';
 
@@ -38,7 +39,7 @@ interface SymbioticFinancialData {
     cache_age_seconds?: number;
 }
 
-type TabType = 'income' | 'balance' | 'cashflow';
+type TabType = 'income' | 'balance' | 'cashflow' | 'segments';
 type PeriodFilter = 'annual' | 'quarterly';
 
 // ============================================================================
@@ -110,13 +111,13 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
         <div className="px-3 py-2 bg-slate-50 border-b border-slate-100">
             <div className="relative h-3 mb-1">
                 {periods.map((period, idx) => (
-        <span
+                    <span
                         key={idx}
                         className="absolute text-[9px] text-slate-500 font-medium transform -translate-x-1/2"
                         style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
-        >
+                    >
                         '{period.slice(-2)}
-        </span>
+                    </span>
                 ))}
             </div>
             <div
@@ -130,7 +131,7 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
                             ${idx >= startIndex && idx <= endIndex ? 'bg-blue-500' : 'bg-slate-300'}`}
                         style={{ left: `${(idx / (periods.length - 1)) * 100}%` }}
                     />
-            ))}
+                ))}
                 <div
                     className="absolute h-full bg-blue-500 rounded-full cursor-grab"
                     style={{ left: `${startPercent}%`, width: `${endPercent - startPercent}%` }}
@@ -146,12 +147,12 @@ function PeriodRangeSlider({ periods, startIndex, endIndex, onChange }: PeriodRa
                     style={{ left: `${endPercent}%` }}
                     onMouseDown={(e) => handleMouseDown(e, 'end')}
                 />
-        </div>
+            </div>
             <div className="flex items-center justify-between mt-1 text-[9px] text-slate-500">
                 <span className="font-medium text-blue-600">{periods[startIndex]?.startsWith('Q') ? periods[startIndex] : `FY${periods[startIndex]}`}</span>
                 <span>{endIndex - startIndex + 1} of {periods.length} periods</span>
                 <span className="font-medium text-blue-600">{periods[endIndex]?.startsWith('Q') ? periods[endIndex] : `FY${periods[endIndex]}`}</span>
-        </div>
+            </div>
         </div>
     );
 }
@@ -332,7 +333,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
 
     // Error state
     if (error && !data) {
-    return (
+        return (
             <div className="flex flex-col h-full">
                 <div className="flex items-center gap-2 p-2 border-b border-slate-200 bg-slate-50">
                     <TickerSearch
@@ -376,7 +377,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                     >
                         <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
                     </button>
-                    )}
+                )}
             </div>
 
             {!data ? (
@@ -427,6 +428,7 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                             { id: 'income' as const, label: 'Income Statement' },
                             { id: 'balance' as const, label: 'Balance Sheet' },
                             { id: 'cashflow' as const, label: 'Cash Flow' },
+                            { id: 'segments' as const, label: 'Segments' },
                         ].map((tab) => (
                             <button
                                 key={tab.id}
@@ -482,6 +484,9 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
                                 currency={data.currency}
                                 onMetricClick={handleMetricClick}
                             />
+                        )}
+                        {activeTab === 'segments' && data?.symbol && (
+                            <SegmentsTable symbol={data.symbol} />
                         )}
                     </div>
                 </div>

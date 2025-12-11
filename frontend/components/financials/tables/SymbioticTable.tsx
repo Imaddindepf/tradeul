@@ -19,6 +19,7 @@ interface ConsolidatedField {
     display_order?: number;
     indent_level?: number;
     is_subtotal?: boolean;
+    is_industry_specific?: boolean;  // Campo específico de industria
 }
 
 interface SymbioticTableProps {
@@ -110,9 +111,11 @@ const groupBySection = (fields: ConsolidatedField[]): Map<string, ConsolidatedFi
     return groups;
 };
 
-// Orden de secciones - TIKR style
+// Orden de secciones - TIKR style + Industry-specific sections
 const SECTION_ORDER: Record<string, number> = {
-    // Income Statement
+    // ============================================
+    // INCOME STATEMENT - Standard
+    // ============================================
     'Revenue': 1,
     'Cost & Gross Profit': 2,
     'Operating Expenses': 3,
@@ -120,22 +123,67 @@ const SECTION_ORDER: Record<string, number> = {
     'Non-Operating': 5,
     'Earnings': 6,
     'Per Share Data': 7,
-    // Balance Sheet
+    
+    // ============================================
+    // INCOME STATEMENT - Insurance Industry
+    // ============================================
+    'Insurance Revenue': 1,      // Premiums, etc.
+    'Insurance Costs': 2,        // Benefits, Claims
+    
+    // ============================================
+    // INCOME STATEMENT - Banking Industry  
+    // ============================================
+    'Net Interest Income': 1,    // Interest income - expense
+    'Credit Provisions': 2,      // Loan loss provisions
+    'Non-Interest Income': 3,    // Fees, trading, etc.
+    'Non-Interest Expense': 4,   // Operating costs
+    
+    // ============================================
+    // INCOME STATEMENT - Real Estate Industry
+    // ============================================
+    'Rental Revenue': 1,
+    'Property Expenses': 2,
+    'FFO': 5,                    // Funds from Operations
+    
+    // ============================================
+    // BALANCE SHEET - Standard
+    // ============================================
     'Current Assets': 1,
     'Non-Current Assets': 2,
     'Current Liabilities': 3,
     'Non-Current Liabilities': 4,
     'Equity': 5,
-    // Cash Flow
+    
+    // ============================================
+    // BALANCE SHEET - Industry Specific
+    // ============================================
+    'Insurance Assets': 1,
+    'Insurance Liabilities': 3,
+    'Banking Assets': 1,
+    'Banking Liabilities': 3,
+    
+    // ============================================
+    // CASH FLOW - Standard
+    // ============================================
     'Operating Activities': 1,
     'Investing Activities': 2,
     'Financing Activities': 3,
-    // Ocultar Other
+    'Free Cash Flow': 4,
+    
+    // Hidden
     'Other': 999,
 };
 
 // Secciones a ocultar (campos técnicos no útiles para análisis)
 const HIDDEN_SECTIONS = ['Other'];
+
+// Secciones específicas de industria (para highlighting)
+const INDUSTRY_SECTIONS = new Set([
+    'Insurance Revenue', 'Insurance Costs', 'Insurance Assets', 'Insurance Liabilities',
+    'Net Interest Income', 'Credit Provisions', 'Non-Interest Income', 'Non-Interest Expense',
+    'Banking Assets', 'Banking Liabilities',
+    'Rental Revenue', 'Property Expenses', 'FFO',
+]);
 
 // ============================================================================
 // COMPONENT - Diseño institucional profesional (estilo TIKR)
@@ -196,7 +244,7 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                                 <tr>
                                     <td colSpan={periods.length + 1} className="h-3 bg-white"></td>
                                 </tr>
-                                <tr className="bg-slate-50 border-y border-slate-200">
+                                <tr className="border-y border-slate-200 bg-slate-50">
                                     <td 
                                         colSpan={periods.length + 1}
                                         className="py-2 px-3 font-bold text-[11px] uppercase tracking-wide text-slate-600"

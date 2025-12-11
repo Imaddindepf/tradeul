@@ -160,23 +160,29 @@ async def get_financials(
         if not raw_data or not raw_data.get("income_statement"):
             raise HTTPException(status_code=404, detail=f"No financial data found for {symbol}")
         
-        # Añadir industry/sector de FMP profile
-        industry = None
+        # Añadir industry/sector de FMP profile (para display)
+        industry_display = None
         sector = None
         if _fmp_service:
             try:
                 profile = await _fmp_service.get_profile(symbol)
                 if profile:
-                    industry = profile.get("industry")
+                    industry_display = profile.get("industry")
                     sector = profile.get("sector")
             except Exception as e:
                 logger.debug("fmp_profile_error", symbol=symbol, error=str(e))
+        
+        # Usar nuestro mapeo de industria (SIC-based) para estructura de campos
+        # industry_code es para lógica interna (insurance, banking, etc.)
+        # industry es para display (Medical - Healthcare Plans, etc.)
+        industry_code = raw_data.get("industry")  # Nuestro mapeo SIC
         
         # Construir respuesta con formato simbiótico
         response_data = {
             "symbol": raw_data["symbol"],
             "currency": raw_data.get("currency", "USD"),
-            "industry": industry,
+            "industry": industry_display or industry_code,  # Display name
+            "industry_code": industry_code,  # Código interno (insurance, banking, etc.)
             "sector": sector,
             "source": "sec-api-xbrl",
             "symbiotic": True,
@@ -321,3 +327,125 @@ async def clear_segment_cache(symbol: str):
     service = get_edgartools_service()
     service.clear_cache(symbol.upper())
     return {"status": "cleared", "symbol": symbol.upper()}
+
+
+@router.get("/{symbol}/company-info")
+async def get_company_info(symbol: str):
+    """
+    Obtener información de la empresa incluyendo industria.
+    
+    Returns:
+        {
+            "symbol": "UNH",
+            "name": "UNITEDHEALTH GROUP INC",
+            "sic": 6324,
+            "industry": "insurance",
+            "profile": {...}  # Campos específicos de la industria
+        }
+    """
+    symbol = symbol.upper()
+    
+    try:
+        service = get_edgartools_service()
+        data = await service.get_company_info(symbol)
+        
+        if not data:
+            # Fallback si edgartools falla
+            return {
+                "symbol": symbol,
+                "name": None,
+                "sic": None,
+                "industry": None,
+                "profile": None,
+            }
+        
+        # Añadir perfil de industria si existe
+        if data.get("industry"):
+            # Perfiles de industria con campos específicos
+            INDUSTRY_PROFILES = {
+                'insurance': {
+                    'income_fields': ['premiums_earned_net', 'policyholder_benefits_and_claims_incurred_net', 
+                                     'medical_costs', 'operating_income', 'net_income'],
+                    'key_metrics': ['medical_loss_ratio', 'combined_ratio', 'return_on_equity'],
+                },
+                'banking': {
+                    'income_fields': ['interest_income_expense_net', 'provision_for_loan_losses',
+                                     'noninterest_income', 'noninterest_expense', 'net_income'],
+                    'key_metrics': ['net_interest_margin', 'efficiency_ratio', 'return_on_assets'],
+                },
+                'technology': {
+                    'income_fields': ['revenue', 'gross_profit', 'rd_expenses', 
+                                     'operating_income', 'ebitda', 'net_income'],
+                    'key_metrics': ['gross_margin', 'operating_margin', 'rd_as_percent_of_revenue'],
+                },
+                'retail': {
+                    'income_fields': ['revenue', 'gross_profit', 'sga_expenses',
+                                     'operating_income', 'net_income'],
+                    'key_metrics': ['gross_margin', 'operating_margin', 'inventory_turnover'],
+                },
+                'healthcare': {
+                    'income_fields': ['revenue', 'gross_profit', 'rd_expenses',
+                                     'operating_income', 'net_income'],
+                    'key_metrics': ['gross_margin', 'rd_as_percent_of_revenue'],
+                },
+            }
+            
+            profile = INDUSTRY_PROFILES.get(data["industry"])
+            if profile:
+                data["profile"] = profile
+        
+        return data
+        
+    except Exception as e:
+        logger.error("company_info_error", symbol=symbol, error=str(e))
+        return {
+            "symbol": symbol,
+            "name": None,
+            "sic": None,
+            "industry": None,
+            "profile": None,
+            "error": str(e),
+        }
+
+
+# ============================================================================
+# XBRL ENRICHER - Campos adicionales que SEC-API no extrae
+# ============================================================================
+
+@router.get("/{symbol}/income-details")
+async def get_income_details(
+    symbol: str,
+    years: int = Query(5, ge=1, le=10, description="Años a extraer")
+):
+    """
+    Obtener income statement completo con todos los componentes de revenue.
+    
+    Usa edgartools para extraer campos que SEC-API no proporciona:
+    - Investment income
+    - Contract revenue (products/services)  
+    - Componentes detallados de costos
+    
+    Nota: Este endpoint es más lento (~5-10s) porque parsea el XBRL completo.
+    Los datos se cachean por 24 horas.
+    """
+    symbol = symbol.upper()
+    
+    try:
+        from services.xbrl_enricher import get_xbrl_enricher
+        
+        enricher = get_xbrl_enricher()
+        data = await enricher.get_income_statement_details(symbol, years)
+        
+        if not data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No detailed income data for {symbol}"
+            )
+        
+        return data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("income_details_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))

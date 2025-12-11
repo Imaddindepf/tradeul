@@ -6,6 +6,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChatStore, selectActiveChannel, selectActiveGroup, selectOnlineCount } from '@/stores/useChatStore';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
+import { useChatTabNotification } from '@/hooks/useChatTabNotification';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ChatInvites } from './ChatInvites';
@@ -26,7 +27,7 @@ interface ConfirmModalProps {
 
 function ConfirmModal({ isOpen, title, message, confirmText = 'Confirmar', cancelText = 'Cancelar', variant = 'danger', onConfirm, onCancel }: ConfirmModalProps) {
   if (!isOpen) return null;
-  
+
   return (
     <AnimatePresence>
       <motion.div
@@ -38,7 +39,7 @@ function ConfirmModal({ isOpen, title, message, confirmText = 'Confirmar', cance
       >
         {/* Backdrop */}
         <div className="absolute inset-0 bg-black/40" />
-        
+
         {/* Modal */}
         <motion.div
           initial={{ scale: 0.95, opacity: 0 }}
@@ -60,7 +61,7 @@ function ConfirmModal({ isOpen, title, message, confirmText = 'Confirmar', cance
               <p className="text-[10px] text-muted-foreground leading-relaxed">{message}</p>
             </div>
           </div>
-          
+
           <div className="flex justify-end gap-1.5">
             <button
               onClick={onCancel}
@@ -112,25 +113,26 @@ export function ChatContent() {
     isOpen: boolean;
     type: 'leave' | 'delete' | null;
   }>({ isOpen: false, type: null });
-  
+
   const { getToken, isSignedIn, userId } = useAuth();
   const { user } = useUser();
-  
-  const { 
+
+  const {
     isConnected,
-    channels, 
-    groups, 
-    activeTarget, 
-    setActiveTarget, 
-    setChannels, 
-    setGroups 
+    channels,
+    groups,
+    activeTarget,
+    setActiveTarget,
+    setChannels,
+    setGroups
   } = useChatStore();
-  
+
   const activeChannel = useChatStore(selectActiveChannel);
   const activeGroup = useChatStore(selectActiveGroup);
   const onlineCount = useChatStore(selectOnlineCount);
-  
+
   useChatWebSocket();
+  useChatTabNotification();
 
   // Fetch channels and groups
   useEffect(() => {
@@ -141,7 +143,7 @@ export function ChatContent() {
 
         const [channelsRes, groupsRes] = await Promise.all([
           fetch(`${CHAT_API_URL}/api/chat/channels`),
-          token 
+          token
             ? fetch(`${CHAT_API_URL}/api/chat/groups`, { headers: { Authorization: `Bearer ${token}` } })
             : Promise.resolve({ ok: false } as Response),
         ]);
@@ -187,7 +189,7 @@ export function ChatContent() {
         if (response.ok) {
           const data = await response.json();
           // Filter out already selected members
-          const filtered = data.filter((u: UserResult) => 
+          const filtered = data.filter((u: UserResult) =>
             !selectedMembers.some(m => m.id === u.id)
           );
           setUserResults(filtered);
@@ -217,7 +219,7 @@ export function ChatContent() {
   // Create group
   const handleCreateGroup = async () => {
     if (selectedMembers.length === 0 || creating) return;
-    
+
     setCreating(true);
     try {
       const token = await getToken();
@@ -251,7 +253,7 @@ export function ChatContent() {
   // Leave group (remove self from members)
   const handleLeaveGroup = async () => {
     if (!activeGroup || actionLoading) return;
-    
+
     setActionLoading(true);
     try {
       const token = await getToken();
@@ -279,7 +281,7 @@ export function ChatContent() {
   // Delete group (owner only)
   const handleDeleteGroup = async () => {
     if (!activeGroup || actionLoading) return;
-    
+
     setActionLoading(true);
     try {
       const token = await getToken();
@@ -323,14 +325,14 @@ export function ChatContent() {
         {/* DMs / Groups Section */}
         <div className="p-1.5 border-b border-border">
           <div className="flex items-center justify-between px-1 mb-1">
-            <button 
+            <button
               onClick={() => setExpandedDMs(!expandedDMs)}
               className="flex items-center gap-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground"
             >
               {expandedDMs ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
               DMs / Groups
             </button>
-            <button 
+            <button
               onClick={() => setShowCreateGroup(true)}
               className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
               title="New conversation"
@@ -338,7 +340,7 @@ export function ChatContent() {
               <Plus className="w-3 h-3" />
             </button>
           </div>
-          
+
           {expandedDMs && groups.length > 0 && (
             <div className="space-y-px">
               {groups.map((group) => (
@@ -348,7 +350,7 @@ export function ChatContent() {
                   className={cn(
                     "w-full flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors text-left",
                     activeTarget?.type === 'group' && activeTarget.id === group.id
-                      ? "bg-primary text-white" 
+                      ? "bg-primary text-white"
                       : "hover:bg-muted text-foreground"
                   )}
                 >
@@ -362,14 +364,14 @@ export function ChatContent() {
 
         {/* Public Channels */}
         <div className="p-1.5 flex-1 overflow-y-auto">
-          <button 
+          <button
             onClick={() => setExpandedChannels(!expandedChannels)}
             className="flex items-center gap-0.5 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 px-1 hover:text-foreground"
           >
             {expandedChannels ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
             Public Channels
           </button>
-          
+
           {expandedChannels && (
             <div className="space-y-px">
               {channels.map((channel) => (
@@ -379,7 +381,7 @@ export function ChatContent() {
                   className={cn(
                     "w-full flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors text-left",
                     activeTarget?.type === 'channel' && activeTarget.id === channel.id
-                      ? "bg-primary text-white" 
+                      ? "bg-primary text-white"
                       : "hover:bg-muted text-foreground"
                   )}
                 >
@@ -406,9 +408,9 @@ export function ChatContent() {
       {/* Main Area - Chat, Create Group, or Manage Group */}
       {showManagePanel && activeGroup ? (
         <div className="flex-1 flex flex-col min-w-0 p-3">
-          <GroupManagePanel 
-            group={activeGroup} 
-            onClose={() => setShowManagePanel(false)} 
+          <GroupManagePanel
+            group={activeGroup}
+            onClose={() => setShowManagePanel(false)}
           />
         </div>
       ) : showCreateGroup ? (
@@ -416,7 +418,7 @@ export function ChatContent() {
           {/* Header */}
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium">Start a conversation</h2>
-            <button 
+            <button
               onClick={() => {
                 setShowCreateGroup(false);
                 setGroupName('');
@@ -545,7 +547,7 @@ export function ChatContent() {
               <span className="w-1.5 h-1.5 rounded-full bg-success" />
               {onlineCount}
             </div>
-            
+
             {/* Group menu */}
             {isGroup && (
               <div className="relative">
@@ -555,12 +557,12 @@ export function ChatContent() {
                 >
                   <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
-                
+
                 {showGroupMenu && (
                   <>
-                    <div 
-                      className="fixed inset-0 z-10" 
-                      onClick={() => setShowGroupMenu(false)} 
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowGroupMenu(false)}
                     />
                     <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded shadow-lg z-20 py-1 min-w-[140px]">
                       {/* Manage group - owner and admins */}

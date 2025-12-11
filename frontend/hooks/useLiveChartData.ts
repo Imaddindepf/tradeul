@@ -231,24 +231,26 @@ export function useLiveChartData(
         if (!lastBar) return;
 
         // Construir nueva barra desde aggregate
+        // v = volumen del aggregate (ese segundo), NO av (acumulado del día)
         const newBar: ChartBar = {
           time: barTime,
           open: aggData.o,
           high: aggData.h,
           low: aggData.l,
           close: aggData.c,
-          volume: aggData.v,
+          volume: aggData.v,  // Volumen de este aggregate
         };
 
         if (barTime === lastBar.time) {
           // MISMO período → actualizar última barra (merge OHLCV)
+          // SUMAR volúmenes de cada aggregate del mismo período
           const updatedBar: ChartBar = {
             time: barTime,
             open: lastBar.open,
             high: Math.max(lastBar.high, newBar.high),
             low: Math.min(lastBar.low, newBar.low),
             close: newBar.close,
-            volume: newBar.volume,
+            volume: lastBar.volume + aggData.v,  // SUMAR volumen del nuevo aggregate
           };
 
           // Actualizar ref (sin re-render)
@@ -263,6 +265,7 @@ export function useLiveChartData(
 
         } else if (barTime > lastBar.time) {
           // NUEVO período → crear nueva barra
+          // Los gaps son normales (halts, sin actividad) - no crear barras falsas
           lastBarRef.current = newBar;
 
           // Notificar al chart via callback imperativo

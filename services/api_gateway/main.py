@@ -1536,10 +1536,10 @@ async def get_ipo_prospectus(
 #
 
 CHART_INTERVALS = {
-    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 300, "bars_per_page": 500},
-    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 600, "bars_per_page": 500},
-    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 900, "bars_per_page": 500},
-    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 1800, "bars_per_page": 500},
+    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 60, "bars_per_page": 500},   # 1 min cache para datos frescos
+    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 180, "bars_per_page": 500},  # 3 min cache
+    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 600, "bars_per_page": 500}, # 10 min cache
+    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 1200, "bars_per_page": 500},# 20 min cache
     "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 3600, "bars_per_page": 500},
     "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 7200, "bars_per_page": 500},
     "1day": {"source": "fmp", "cache_ttl": 86400, "bars_per_page": 1000},  # FMP para daily

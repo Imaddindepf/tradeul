@@ -1502,25 +1502,316 @@ class SECXBRLFinancialsService:
                     'calculated': True
                 })
         
+        # =========================================================================
+        # 4. FREE CASH FLOW (FCF) - Muy importante, TIKR lo tiene
+        # FCF = Operating Cash Flow - CapEx
+        # CapEx en XBRL puede estar como positivo o negativo dependiendo del filing
+        # =========================================================================
+        operating_cf = cashflow_map.get('operating_cf', {}).get('values', [])
+        
+        # CapEx puede estar en diferentes campos según la empresa
+        # Buscamos el campo con mayor valor absoluto (el CapEx real)
+        capex = []
+        capex_candidates = ['ppe', 'capex', 'payments_property_plant', 'capital_expenditures']
+        
+        for field_name in capex_candidates:
+            if field_name in cashflow_map:
+                vals = cashflow_map[field_name].get('values', [])
+                if vals:
+                    # Verificar si tiene valores significativos (> $1B)
+                    max_val = max((abs(v) for v in vals if v is not None), default=0)
+                    if max_val > 1e9:
+                        capex = vals
+                        break
+        
+        if operating_cf and capex:
+            fcf_values = []
+            for i in range(num_periods):
+                ocf = operating_cf[i] if i < len(operating_cf) else None
+                cap = capex[i] if i < len(capex) else None
+                if ocf is not None and cap is not None:
+                    # CapEx suele ser negativo, FCF = OCF - |CapEx|
+                    fcf_values.append(ocf - abs(cap))
+                else:
+                    fcf_values.append(None)
+            
+            if any(v is not None for v in fcf_values):
+                # Añadir FCF a cash flow
+                cashflow_fields.append({
+                    'key': 'free_cash_flow',
+                    'label': 'Free Cash Flow',
+                    'values': fcf_values,
+                    'importance': 9500,
+                    'data_type': 'monetary',
+                    'source_fields': ['operating_cf', 'capex'],
+                    'calculated': True
+                })
+                
+                # FCF Margin % (FCF / Revenue)
+                if revenue:
+                    fcf_margin = []
+                    for i in range(num_periods):
+                        fcf = fcf_values[i] if i < len(fcf_values) else None
+                        rev = revenue[i] if i < len(revenue) else None
+                        if fcf is not None and rev is not None and rev != 0:
+                            fcf_margin.append(round(fcf / rev, 4))
+                        else:
+                            fcf_margin.append(None)
+                    
+                    if any(v is not None for v in fcf_margin):
+                        cashflow_fields.append({
+                            'key': 'fcf_margin',
+                            'label': 'FCF Margin %',
+                            'values': fcf_margin,
+                            'importance': 9400,
+                            'data_type': 'percent',
+                            'source_fields': ['free_cash_flow', 'revenue'],
+                            'calculated': True
+                        })
+                
+                # FCF per Share
+                shares_diluted = income_map.get('shares_diluted', {}).get('values', [])
+                if shares_diluted:
+                    fcf_per_share = []
+                    for i in range(num_periods):
+                        fcf = fcf_values[i] if i < len(fcf_values) else None
+                        shares = shares_diluted[i] if i < len(shares_diluted) else None
+                        if fcf is not None and shares is not None and shares > 0:
+                            fcf_per_share.append(round(fcf / shares, 2))
+                        else:
+                            fcf_per_share.append(None)
+                    
+                    if any(v is not None for v in fcf_per_share):
+                        cashflow_fields.append({
+                            'key': 'fcf_per_share',
+                            'label': 'FCF per Share',
+                            'values': fcf_per_share,
+                            'importance': 9300,
+                            'data_type': 'perShare',
+                            'source_fields': ['free_cash_flow', 'shares_diluted'],
+                            'calculated': True
+                        })
+        
         return income_fields
+    
+    def _add_balance_metrics(
+        self,
+        balance_fields: List[Dict],
+        income_fields: List[Dict],
+        num_periods: int
+    ) -> List[Dict]:
+        """
+        Añadir métricas calculadas de balance como TIKR:
+        1. Net Debt = Total Debt - Cash
+        2. Book Value per Share = Total Equity / Shares
+        3. Tangible Book Value = Equity - Goodwill - Intangibles
+        """
+        balance_map = {f['key']: f for f in balance_fields}
+        income_map = {f['key']: f for f in income_fields}
+        
+        # =========================================================================
+        # 0. VALIDAR/CORREGIR TOTAL EQUITY
+        # A veces SEC-API devuelve Total Equity = Total Assets (error)
+        # Corrección: Total Equity = Total Assets - Total Liabilities
+        # =========================================================================
+        total_assets = balance_map.get('total_assets', {}).get('values', [])
+        total_liabilities = balance_map.get('total_liabilities', {}).get('values', [])
+        total_equity = balance_map.get('total_equity', {}).get('values', [])
+        
+        # Verificar si Total Equity parece incorrecto (igual a Total Assets)
+        if total_equity and total_assets and total_liabilities:
+            corrected = False
+            for i in range(min(len(total_equity), len(total_assets), len(total_liabilities))):
+                eq = total_equity[i]
+                assets = total_assets[i]
+                liab = total_liabilities[i]
+                # Si equity == assets (claramente incorrecto), recalcular
+                if eq is not None and assets is not None and liab is not None:
+                    if abs(eq - assets) / assets < 0.01:  # Equity igual a Assets (error)
+                        total_equity[i] = assets - liab
+                        corrected = True
+            
+            # Actualizar el campo en balance_fields si se corrigió
+            if corrected and 'total_equity' in balance_map:
+                balance_map['total_equity']['values'] = total_equity
+                balance_map['total_equity']['corrected'] = True
+        
+        # Obtener valores base
+        cash = balance_map.get('cash', {}).get('values', [])
+        st_investments = balance_map.get('st_investments', {}).get('values', [])
+        st_debt = balance_map.get('st_debt', {}).get('values', [])
+        lt_debt = balance_map.get('lt_debt', {}).get('values', [])
+        goodwill = balance_map.get('goodwill', {}).get('values', [])
+        intangibles = balance_map.get('intangibles', {}).get('values', [])
+        shares_basic = income_map.get('shares_basic', {}).get('values', [])
+        
+        # =========================================================================
+        # 1. TOTAL DEBT (si no existe)
+        # =========================================================================
+        total_debt_values = balance_map.get('total_debt', {}).get('values', [])
+        if not total_debt_values and (st_debt or lt_debt):
+            total_debt_values = []
+            for i in range(num_periods):
+                st = st_debt[i] if i < len(st_debt) and st_debt[i] is not None else 0
+                lt = lt_debt[i] if i < len(lt_debt) and lt_debt[i] is not None else 0
+                total_debt_values.append(st + lt if (st or lt) else None)
+            
+            if any(v is not None for v in total_debt_values):
+                balance_fields.append({
+                    'key': 'total_debt',
+                    'label': 'Total Debt',
+                    'values': total_debt_values,
+                    'importance': 3500,
+                    'data_type': 'monetary',
+                    'source_fields': ['st_debt', 'lt_debt'],
+                    'calculated': True
+                })
+        
+        # =========================================================================
+        # 2. NET DEBT = Total Debt - Cash - Short-term Investments
+        # Negativo significa la empresa tiene más cash que deuda (bueno)
+        # =========================================================================
+        if total_debt_values and cash:
+            net_debt_values = []
+            for i in range(num_periods):
+                debt = total_debt_values[i] if i < len(total_debt_values) else None
+                c = cash[i] if i < len(cash) else 0
+                st_inv = st_investments[i] if st_investments and i < len(st_investments) else 0
+                
+                if debt is not None:
+                    net_debt_values.append(debt - (c or 0) - (st_inv or 0))
+                else:
+                    net_debt_values.append(None)
+            
+            if any(v is not None for v in net_debt_values):
+                balance_fields.append({
+                    'key': 'net_debt',
+                    'label': 'Net Debt',
+                    'values': net_debt_values,
+                    'importance': 3400,
+                    'data_type': 'monetary',
+                    'source_fields': ['total_debt', 'cash', 'st_investments'],
+                    'calculated': True
+                })
+        
+        # =========================================================================
+        # 3. BOOK VALUE PER SHARE = Total Equity / Shares
+        # =========================================================================
+        if total_equity and shares_basic:
+            bvps_values = []
+            for i in range(num_periods):
+                equity = total_equity[i] if i < len(total_equity) else None
+                shares = shares_basic[i] if i < len(shares_basic) else None
+                
+                if equity is not None and shares is not None and shares > 0:
+                    bvps_values.append(round(equity / shares, 2))
+                else:
+                    bvps_values.append(None)
+            
+            if any(v is not None for v in bvps_values):
+                balance_fields.append({
+                    'key': 'book_value_per_share',
+                    'label': 'Book Value / Share',
+                    'values': bvps_values,
+                    'importance': 3300,
+                    'data_type': 'perShare',
+                    'source_fields': ['total_equity', 'shares_basic'],
+                    'calculated': True
+                })
+        
+        # =========================================================================
+        # 4. TANGIBLE BOOK VALUE = Equity - Goodwill - Intangibles
+        # =========================================================================
+        if total_equity:
+            tbv_values = []
+            for i in range(num_periods):
+                equity = total_equity[i] if i < len(total_equity) else None
+                gw = goodwill[i] if goodwill and i < len(goodwill) else 0
+                intang = intangibles[i] if intangibles and i < len(intangibles) else 0
+                
+                if equity is not None:
+                    tbv_values.append(equity - (gw or 0) - (intang or 0))
+                else:
+                    tbv_values.append(None)
+            
+            if any(v is not None for v in tbv_values):
+                balance_fields.append({
+                    'key': 'tangible_book_value',
+                    'label': 'Tangible Book Value',
+                    'values': tbv_values,
+                    'importance': 3200,
+                    'data_type': 'monetary',
+                    'source_fields': ['total_equity', 'goodwill', 'intangibles'],
+                    'calculated': True
+                })
+                
+                # Tangible Book Value per Share
+                if shares_basic:
+                    tbvps_values = []
+                    for i in range(num_periods):
+                        tbv = tbv_values[i] if i < len(tbv_values) else None
+                        shares = shares_basic[i] if i < len(shares_basic) else None
+                        
+                        if tbv is not None and shares is not None and shares > 0:
+                            tbvps_values.append(round(tbv / shares, 2))
+                        else:
+                            tbvps_values.append(None)
+                    
+                    if any(v is not None for v in tbvps_values):
+                        balance_fields.append({
+                            'key': 'tangible_book_value_per_share',
+                            'label': 'Tangible Book Value / Share',
+                            'values': tbvps_values,
+                            'importance': 3100,
+                            'data_type': 'perShare',
+                            'source_fields': ['tangible_book_value', 'shares_basic'],
+                            'calculated': True
+                        })
+        
+        return balance_fields
+    
+    # Labels personalizados para campos XBRL
+    CUSTOM_LABELS = {
+        # Cash Flow - más claros
+        'ppe': 'Capital Expenditures',
+        'operating_cf': 'Cash from Operations',
+        'investing_cf': 'Cash from Investing',
+        'financing_cf': 'Cash from Financing',
+        'free_cash_flow': 'Free Cash Flow',
+        'fcf_margin': 'FCF Margin %',
+        'fcf_per_share': 'FCF per Share',
+        'debt_and_equity_securities_gain_loss': '(Gain) Loss on Investments',
+        'deferred_income_taxes_and_tax_credits': 'Deferred Taxes',
+        'increase_decrease_in_income_taxes': 'Change in Income Taxes',
+        'increase_decrease_in_other_operating_assets': 'Change in Other Assets',
+        'payments_to_acquire_marketable_securities': 'Purchase of Securities',
+        'proceeds_from_sale_and_maturity_of_marketable_securities': 'Sale of Securities',
+        # Balance - más claros
+        'book_value_per_share': 'Book Value per Share',
+        'tangible_book_value': 'Tangible Book Value',
+        'tangible_book_value_per_share': 'Tangible Book Value per Share',
+    }
     
     def _add_structure_metadata(
         self,
         fields: List[Dict],
-        statement_type: str  # 'income', 'balance', 'cashflow'
+        statement_type: str,  # 'income', 'balance', 'cashflow'
+        industry: Optional[str] = None  # 'insurance', 'banking', 'technology', etc.
     ) -> List[Dict]:
         """
         Añadir metadata de estructura jerárquica a los campos para renderizado profesional.
         
-        Añade: section, display_order, indent_level, is_subtotal
+        Añade: section, display_order, indent_level, is_subtotal, is_industry_specific
+        
+        Args:
+            fields: Lista de campos a enriquecer
+            statement_type: Tipo de estado financiero
+            industry: Industria de la empresa (para campos específicos)
         """
-        if statement_type == 'income':
-            structure = self.INCOME_STATEMENT_STRUCTURE
-        elif statement_type == 'balance':
-            structure = self.BALANCE_SHEET_STRUCTURE
-        elif statement_type == 'cashflow':
-            structure = self.CASH_FLOW_STRUCTURE
-        else:
+        # Obtener estructura combinada (base + industria específica)
+        structure = self._get_industry_structure(industry, statement_type)
+        
+        if not structure:
             return fields
         
         enriched = []
@@ -1528,18 +1819,36 @@ class SECXBRLFinancialsService:
             key = field.get('key', '')
             field_copy = field.copy()
             
+            # Aplicar label personalizado si existe
+            if key in self.CUSTOM_LABELS:
+                field_copy['label'] = self.CUSTOM_LABELS[key]
+            
             if key in structure:
                 meta = structure[key]
                 field_copy['section'] = meta['section']
                 field_copy['display_order'] = meta['order']
                 field_copy['indent_level'] = meta['indent']
                 field_copy['is_subtotal'] = meta['is_subtotal']
+                
+                # Aplicar label de industria si existe
+                if 'label' in meta:
+                    field_copy['label'] = meta['label']
+                
+                # Marcar si es campo específico de industria
+                industry_specific_sections = [
+                    'Insurance Revenue', 'Insurance Costs', 'Insurance Assets', 'Insurance Liabilities',
+                    'Net Interest Income', 'Credit Provisions', 'Non-Interest Income', 'Non-Interest Expense',
+                    'Banking Assets', 'Banking Liabilities',
+                    'Rental Revenue', 'Property Expenses', 'FFO',
+                ]
+                field_copy['is_industry_specific'] = meta['section'] in industry_specific_sections
             else:
                 # Campos no mapeados van al final, en sección "Other"
                 field_copy['section'] = 'Other'
                 field_copy['display_order'] = 9000
                 field_copy['indent_level'] = 0
                 field_copy['is_subtotal'] = False
+                field_copy['is_industry_specific'] = False
             
             enriched.append(field_copy)
         
@@ -1636,33 +1945,64 @@ class SECXBRLFinancialsService:
         'retained_earnings': {'section': 'Equity',            'order': 520, 'indent': 1, 'is_subtotal': False},
         'treasury_stock':    {'section': 'Equity',            'order': 530, 'indent': 1, 'is_subtotal': False},
         'total_equity':      {'section': 'Equity',            'order': 590, 'indent': 0, 'is_subtotal': True},
+        
+        # === SECCIÓN: KEY METRICS (Métricas calculadas) ===
+        'total_debt':        {'section': 'Key Metrics',       'order': 600, 'indent': 0, 'is_subtotal': True},
+        'net_debt':          {'section': 'Key Metrics',       'order': 610, 'indent': 1, 'is_subtotal': False},
+        'book_value_per_share':{'section': 'Key Metrics',     'order': 620, 'indent': 0, 'is_subtotal': False},
+        'tangible_book_value':{'section': 'Key Metrics',      'order': 630, 'indent': 0, 'is_subtotal': False},
+        'tangible_book_value_per_share':{'section': 'Key Metrics','order': 631, 'indent': 1, 'is_subtotal': False},
     }
     
     # =========================================================================
     # ESTRUCTURA JERÁRQUICA DEL CASH FLOW STATEMENT
     # =========================================================================
     CASH_FLOW_STRUCTURE = {
-        # === SECCIÓN: OPERATING ===
+        # === SECCIÓN: OPERATING ACTIVITIES ===
         'net_income':        {'section': 'Operating Activities','order': 100, 'indent': 1, 'is_subtotal': False},
         'depreciation':      {'section': 'Operating Activities','order': 110, 'indent': 1, 'is_subtotal': False},
+        'amortization':      {'section': 'Operating Activities','order': 111, 'indent': 1, 'is_subtotal': False},
         'stock_compensation':{'section': 'Operating Activities','order': 120, 'indent': 1, 'is_subtotal': False},
-        'deferred_revenue':  {'section': 'Operating Activities','order': 130, 'indent': 1, 'is_subtotal': False},
+        'debt_and_equity_securities_gain_loss':{'section': 'Operating Activities','order': 125, 'indent': 1, 'is_subtotal': False},
+        'deferred_income_taxes_and_tax_credits':{'section': 'Operating Activities','order': 130, 'indent': 1, 'is_subtotal': False},
+        'other_noncash_income_expense':{'section': 'Operating Activities','order': 135, 'indent': 1, 'is_subtotal': False},
+        # Working Capital Changes
+        'receivables':       {'section': 'Operating Activities','order': 140, 'indent': 1, 'is_subtotal': False},
+        'accounts_payable':  {'section': 'Operating Activities','order': 145, 'indent': 1, 'is_subtotal': False},
+        'accrued_liabilities':{'section': 'Operating Activities','order': 146, 'indent': 1, 'is_subtotal': False},
+        'deferred_revenue':  {'section': 'Operating Activities','order': 150, 'indent': 1, 'is_subtotal': False},
+        'increase_decrease_in_income_taxes':{'section': 'Operating Activities','order': 155, 'indent': 1, 'is_subtotal': False},
+        'increase_decrease_in_other_operating_assets':{'section': 'Operating Activities','order': 160, 'indent': 1, 'is_subtotal': False},
+        'other_income':      {'section': 'Operating Activities','order': 165, 'indent': 1, 'is_subtotal': False},
         'operating_cf':      {'section': 'Operating Activities','order': 190, 'indent': 0, 'is_subtotal': True},
         
-        # === SECCIÓN: INVESTING ===
-        'capex':             {'section': 'Investing Activities','order': 200, 'indent': 1, 'is_subtotal': False},
-        'purchase_investments':{'section': 'Investing Activities','order': 210, 'indent': 1, 'is_subtotal': False},
-        'sale_investments':  {'section': 'Investing Activities','order': 220, 'indent': 1, 'is_subtotal': False},
+        # === SECCIÓN: INVESTING ACTIVITIES ===
+        'ppe':               {'section': 'Investing Activities','order': 200, 'indent': 1, 'is_subtotal': False},  # Capital Expenditures
+        'capex':             {'section': 'Investing Activities','order': 201, 'indent': 1, 'is_subtotal': False},
+        'payments_to_acquire_marketable_securities':{'section': 'Investing Activities','order': 210, 'indent': 1, 'is_subtotal': False},
+        'proceeds_from_sale_and_maturity_of_marketable_securities':{'section': 'Investing Activities','order': 215, 'indent': 1, 'is_subtotal': False},
+        'purchase_investments':{'section': 'Investing Activities','order': 220, 'indent': 1, 'is_subtotal': False},
+        'sale_investments':  {'section': 'Investing Activities','order': 225, 'indent': 1, 'is_subtotal': False},
         'intangibles':       {'section': 'Investing Activities','order': 230, 'indent': 1, 'is_subtotal': False},
         'investing_cf':      {'section': 'Investing Activities','order': 290, 'indent': 0, 'is_subtotal': True},
         
-        # === SECCIÓN: FINANCING ===
-        'dividends_paid':    {'section': 'Financing Activities','order': 300, 'indent': 1, 'is_subtotal': False},
-        'stock_repurchased': {'section': 'Financing Activities','order': 310, 'indent': 1, 'is_subtotal': False},
-        'stock_issued':      {'section': 'Financing Activities','order': 320, 'indent': 1, 'is_subtotal': False},
-        'debt_issued':       {'section': 'Financing Activities','order': 330, 'indent': 1, 'is_subtotal': False},
-        'debt_repaid':       {'section': 'Financing Activities','order': 340, 'indent': 1, 'is_subtotal': False},
+        # === SECCIÓN: FINANCING ACTIVITIES ===
+        'debt_issued':       {'section': 'Financing Activities','order': 300, 'indent': 1, 'is_subtotal': False},
+        'debt_repaid':       {'section': 'Financing Activities','order': 310, 'indent': 1, 'is_subtotal': False},
+        'stock_repurchased': {'section': 'Financing Activities','order': 320, 'indent': 1, 'is_subtotal': False},
+        'dividends_paid':    {'section': 'Financing Activities','order': 330, 'indent': 1, 'is_subtotal': False},
+        'stock_issued':      {'section': 'Financing Activities','order': 340, 'indent': 1, 'is_subtotal': False},
+        'operating_lease_payments':{'section': 'Financing Activities','order': 350, 'indent': 1, 'is_subtotal': False},
+        'finance_lease_principal_payments':{'section': 'Financing Activities','order': 355, 'indent': 1, 'is_subtotal': False},
         'financing_cf':      {'section': 'Financing Activities','order': 390, 'indent': 0, 'is_subtotal': True},
+        
+        # === SECCIÓN: SUMMARY ===
+        'cash':              {'section': 'Summary',            'order': 395, 'indent': 1, 'is_subtotal': False},  # Net Change in Cash
+        
+        # === SECCIÓN: FREE CASH FLOW (Métricas calculadas) ===
+        'free_cash_flow':    {'section': 'Free Cash Flow',    'order': 400, 'indent': 0, 'is_subtotal': True},
+        'fcf_margin':        {'section': 'Free Cash Flow',    'order': 410, 'indent': 1, 'is_subtotal': False},
+        'fcf_per_share':     {'section': 'Free Cash Flow',    'order': 420, 'indent': 1, 'is_subtotal': False},
     }
     
     KEY_FINANCIAL_FIELDS = {
@@ -2318,6 +2658,13 @@ class SECXBRLFinancialsService:
             len(fiscal_years)
         )
         
+        # 5.6 Añadir métricas de balance (Net Debt, Book Value/Share)
+        balance_consolidated = self._add_balance_metrics(
+            balance_consolidated,
+            income_consolidated,
+            len(fiscal_years)
+        )
+        
         # 6. Filtrar campos con pocos datos
         income_filtered = self._filter_low_value_fields(income_consolidated)
         balance_filtered = self._filter_low_value_fields(balance_consolidated)
@@ -2339,11 +2686,17 @@ class SECXBRLFinancialsService:
                 from collections import Counter
                 fiscal_year_end_month = Counter(months).most_common(1)[0][0]
         
-        # 8. Enriquecer campos con estructura jerárquica
-        income_structured = self._add_structure_metadata(income_filtered, 'income')
-        balance_structured = self._add_structure_metadata(balance_filtered, 'balance')
-        cashflow_structured = self._add_structure_metadata(cashflow_filtered, 'cashflow')
+        # 8. Detectar industria para estructura específica
+        industry = await self._detect_industry(ticker)
         
+        # 9. Enriquecer campos con estructura jerárquica (incluyendo industria)
+        income_structured = self._add_structure_metadata(income_filtered, 'income', industry)
+        balance_structured = self._add_structure_metadata(balance_filtered, 'balance', industry)
+        cashflow_structured = self._add_structure_metadata(cashflow_filtered, 'cashflow', industry)
+        
+        
+        # 10. Enriquecer income statement con campos adicionales de edgartools
+        income_structured = await self._enrich_income_statement(income_structured, ticker, fiscal_years)
         return {
             "symbol": ticker,
             "currency": "USD",
@@ -2354,6 +2707,7 @@ class SECXBRLFinancialsService:
             "periods": fiscal_years,
             "period_end_dates": period_end_dates,  # Fechas exactas de cierre de cada período
             "fiscal_year_end_month": fiscal_year_end_month,  # Mes típico de cierre (1-12)
+            "industry": industry,  # Industria detectada via SIC code
             "income_statement": income_structured,
             "balance_sheet": balance_structured,
             "cash_flow": cashflow_structured,
@@ -2375,3 +2729,304 @@ class SECXBRLFinancialsService:
             "cash_flow": [],
             "last_updated": datetime.utcnow().isoformat()
         }
+
+    # =========================================================================
+    # ESTRUCTURAS POR INDUSTRIA (complementan las estructuras base)
+    # Campos específicos de cada industria que normalmente irían a "Other"
+    # =========================================================================
+    
+    INDUSTRY_INCOME_STRUCTURES = {
+        'insurance': {
+            # Revenue components - DENTRO de la sección Revenue, indentados
+            'premiums_earned_net':    {'section': 'Revenue', 'order': 102, 'indent': 1, 'is_subtotal': False, 'label': 'Premiums Earned, Net'},
+            'premiums_written_gross': {'section': 'Revenue', 'order': 103, 'indent': 2, 'is_subtotal': False, 'label': 'Gross Premiums Written'},
+            'premiums_written_net':   {'section': 'Revenue', 'order': 104, 'indent': 2, 'is_subtotal': False, 'label': 'Net Premiums Written'},
+            'fee_income':             {'section': 'Revenue', 'order': 105, 'indent': 1, 'is_subtotal': False, 'label': 'Service Revenue / Fees'},
+            'product_revenue':        {'section': 'Revenue', 'order': 106, 'indent': 1, 'is_subtotal': False, 'label': 'Product Revenue'},
+            'investment_income':      {'section': 'Revenue', 'order': 107, 'indent': 1, 'is_subtotal': False, 'label': 'Investment Income'},
+            # Costos específicos - DENTRO de Cost & Gross Profit
+            'policyholder_benefits_and_claims_incurred_net': {'section': 'Cost & Gross Profit', 'order': 201, 'indent': 1, 'is_subtotal': False, 'label': 'Policyholder Benefits & Claims'},
+            'policyholder_benefits':  {'section': 'Cost & Gross Profit', 'order': 202, 'indent': 1, 'is_subtotal': False, 'label': 'Policyholder Benefits'},
+            'medical_costs':          {'section': 'Cost & Gross Profit', 'order': 203, 'indent': 2, 'is_subtotal': False, 'label': 'Medical Costs'},
+            'policyholder_dividends': {'section': 'Cost & Gross Profit', 'order': 204, 'indent': 2, 'is_subtotal': False, 'label': 'Policyholder Dividends'},
+            'policy_acquisition_costs':{'section': 'Cost & Gross Profit', 'order': 205, 'indent': 2, 'is_subtotal': False, 'label': 'Policy Acquisition Costs'},
+            'insurance_expenses':     {'section': 'Cost & Gross Profit', 'order': 206, 'indent': 2, 'is_subtotal': False, 'label': 'Insurance Expenses'},
+        },
+        'banking': {
+            # Interest Income/Expense - DENTRO de Revenue
+            'interest_income':        {'section': 'Revenue', 'order': 102, 'indent': 1, 'is_subtotal': False, 'label': 'Interest Income'},
+            'interest_and_fee_income':{'section': 'Revenue', 'order': 103, 'indent': 2, 'is_subtotal': False, 'label': 'Interest & Fee Income'},
+            'interest_expense':       {'section': 'Revenue', 'order': 104, 'indent': 1, 'is_subtotal': False, 'label': 'Interest Expense'},
+            'net_interest_income':    {'section': 'Revenue', 'order': 105, 'indent': 1, 'is_subtotal': True, 'label': 'Net Interest Income'},
+            # Provisions - DENTRO de Cost & Gross Profit
+            'provision_for_loan_losses': {'section': 'Cost & Gross Profit', 'order': 201, 'indent': 1, 'is_subtotal': False, 'label': 'Provision for Loan Losses'},
+            'credit_loss_expense':    {'section': 'Cost & Gross Profit', 'order': 202, 'indent': 2, 'is_subtotal': False, 'label': 'Credit Loss Expense'},
+            # Non-Interest Income - DENTRO de Revenue
+            'noninterest_income':     {'section': 'Revenue', 'order': 106, 'indent': 1, 'is_subtotal': True, 'label': 'Non-Interest Income'},
+            'fee_and_commission':     {'section': 'Revenue', 'order': 107, 'indent': 2, 'is_subtotal': False, 'label': 'Fees & Commissions'},
+            'trading_revenue':        {'section': 'Revenue', 'order': 108, 'indent': 2, 'is_subtotal': False, 'label': 'Trading Revenue'},
+            'investment_banking':     {'section': 'Revenue', 'order': 109, 'indent': 2, 'is_subtotal': False, 'label': 'Investment Banking'},
+            # Non-Interest Expense - DENTRO de Operating Expenses
+            'noninterest_expense':    {'section': 'Operating Expenses', 'order': 301, 'indent': 1, 'is_subtotal': True, 'label': 'Non-Interest Expense'},
+            'compensation_expense':   {'section': 'Operating Expenses', 'order': 302, 'indent': 2, 'is_subtotal': False, 'label': 'Compensation & Benefits'},
+        },
+        'real_estate': {
+            # Revenue - DENTRO de Revenue
+            'rental_revenue':         {'section': 'Revenue', 'order': 102, 'indent': 1, 'is_subtotal': False, 'label': 'Rental Revenue'},
+            'tenant_reimbursements':  {'section': 'Revenue', 'order': 103, 'indent': 2, 'is_subtotal': False, 'label': 'Tenant Reimbursements'},
+            'property_sales':         {'section': 'Revenue', 'order': 104, 'indent': 1, 'is_subtotal': False, 'label': 'Property Sales'},
+            # Expenses - DENTRO de Operating Expenses
+            'property_expenses':      {'section': 'Operating Expenses', 'order': 301, 'indent': 1, 'is_subtotal': False, 'label': 'Property Operating Expenses'},
+            'depreciation_real_estate':{'section': 'Operating Expenses', 'order': 302, 'indent': 2, 'is_subtotal': False, 'label': 'Real Estate Depreciation'},
+            # FFO - DENTRO de Earnings (métrica importante para REITs)
+            'funds_from_operations':  {'section': 'Earnings', 'order': 625, 'indent': 0, 'is_subtotal': True, 'label': 'Funds From Operations (FFO)'},
+            'affo':                   {'section': 'Earnings', 'order': 626, 'indent': 1, 'is_subtotal': False, 'label': 'Adjusted FFO'},
+        },
+    }
+    
+    INDUSTRY_BALANCE_STRUCTURES = {
+        'insurance': {
+            # DENTRO de Non-Current Assets
+            'investments':            {'section': 'Non-Current Assets', 'order': 201, 'indent': 1, 'is_subtotal': False, 'label': 'Total Investments'},
+            'reinsurance_recoverables':{'section': 'Non-Current Assets', 'order': 202, 'indent': 2, 'is_subtotal': False, 'label': 'Reinsurance Recoverables'},
+            'deferred_acquisition_costs':{'section': 'Non-Current Assets', 'order': 203, 'indent': 2, 'is_subtotal': False, 'label': 'Deferred Acquisition Costs'},
+            # DENTRO de Non-Current Liabilities
+            'policy_liabilities':     {'section': 'Non-Current Liabilities', 'order': 401, 'indent': 1, 'is_subtotal': False, 'label': 'Policy Liabilities'},
+            'unearned_premiums':      {'section': 'Non-Current Liabilities', 'order': 402, 'indent': 2, 'is_subtotal': False, 'label': 'Unearned Premiums'},
+            'claims_payable':         {'section': 'Non-Current Liabilities', 'order': 403, 'indent': 2, 'is_subtotal': False, 'label': 'Claims & Benefits Payable'},
+        },
+        'banking': {
+            # DENTRO de Non-Current Assets
+            'loans_net':              {'section': 'Non-Current Assets', 'order': 201, 'indent': 1, 'is_subtotal': False, 'label': 'Loans & Leases, Net'},
+            'allowance_loan_losses':  {'section': 'Non-Current Assets', 'order': 202, 'indent': 2, 'is_subtotal': False, 'label': 'Allowance for Loan Losses'},
+            'securities_available':   {'section': 'Non-Current Assets', 'order': 203, 'indent': 1, 'is_subtotal': False, 'label': 'Securities Available for Sale'},
+            'securities_held':        {'section': 'Non-Current Assets', 'order': 204, 'indent': 1, 'is_subtotal': False, 'label': 'Securities Held to Maturity'},
+            # DENTRO de Current Liabilities
+            'deposits':               {'section': 'Current Liabilities', 'order': 301, 'indent': 1, 'is_subtotal': False, 'label': 'Total Deposits'},
+            'federal_funds':          {'section': 'Current Liabilities', 'order': 302, 'indent': 2, 'is_subtotal': False, 'label': 'Federal Funds Purchased'},
+        },
+    }
+    
+    INDUSTRY_CASHFLOW_STRUCTURES = {
+        'insurance': {
+            'premiums_collected':     {'section': 'Operating Activities', 'order': 100, 'indent': 1, 'is_subtotal': False, 'label': 'Premiums Collected'},
+            'claims_paid':            {'section': 'Operating Activities', 'order': 105, 'indent': 1, 'is_subtotal': False, 'label': 'Claims & Benefits Paid'},
+        },
+        'banking': {
+            'loans_originated':       {'section': 'Investing Activities', 'order': 200, 'indent': 1, 'is_subtotal': False, 'label': 'Loans Originated/Purchased'},
+            'deposits_change':        {'section': 'Financing Activities', 'order': 300, 'indent': 1, 'is_subtotal': False, 'label': 'Change in Deposits'},
+        },
+    }
+    
+    def _get_industry_structure(self, industry: Optional[str], statement_type: str) -> Dict:
+        """Obtener estructura combinada: base + industria específica."""
+        # Estructura base
+        if statement_type == 'income':
+            base = self.INCOME_STATEMENT_STRUCTURE.copy()
+            industry_struct = self.INDUSTRY_INCOME_STRUCTURES.get(industry, {})
+        elif statement_type == 'balance':
+            base = self.BALANCE_SHEET_STRUCTURE.copy()
+            industry_struct = self.INDUSTRY_BALANCE_STRUCTURES.get(industry, {})
+        elif statement_type == 'cashflow':
+            base = self.CASH_FLOW_STRUCTURE.copy()
+            industry_struct = self.INDUSTRY_CASHFLOW_STRUCTURES.get(industry, {})
+        else:
+            return {}
+        
+        # Combinar: industria tiene prioridad sobre base
+        base.update(industry_struct)
+        return base
+
+    # Cache de industrias para evitar llamadas repetidas
+    _industry_cache: Dict[str, Optional[str]] = {}
+    
+    async def _detect_industry(self, ticker: str) -> Optional[str]:
+        """
+        Detectar industria de una empresa via SIC code.
+        
+        Usa edgartools para obtener el SIC code y lo mapea a una industria.
+        El resultado se cachea en memoria.
+        
+        Returns:
+            'insurance', 'banking', 'technology', 'retail', 'healthcare', 'real_estate', o None
+        """
+        # Check cache
+        if ticker in self._industry_cache:
+            return self._industry_cache[ticker]
+        
+        try:
+            import edgar
+            edgar.set_identity("Tradeul API api@tradeul.com")
+            
+            company = edgar.Company(ticker)
+            sic = int(company.sic) if company.sic else None
+            
+            if not sic:
+                self._industry_cache[ticker] = None
+                return None
+            
+            # Mapeo SIC -> industria
+            SIC_TO_INDUSTRY = {
+                # Insurance (6300-6411)
+                6311: 'insurance', 6321: 'insurance', 6324: 'insurance',
+                6331: 'insurance', 6351: 'insurance', 6361: 'insurance',
+                6399: 'insurance', 6411: 'insurance',
+                
+                # Banking (6000-6282)
+                6020: 'banking', 6021: 'banking', 6022: 'banking',
+                6029: 'banking', 6035: 'banking', 6036: 'banking',
+                6099: 'banking', 6141: 'banking', 6153: 'banking',
+                6159: 'banking', 6162: 'banking', 6172: 'banking',
+                6199: 'banking', 6211: 'banking', 6221: 'banking', 6282: 'banking',
+                
+                # Real Estate (6500-6798)
+                6500: 'real_estate', 6510: 'real_estate', 6512: 'real_estate',
+                6513: 'real_estate', 6531: 'real_estate', 6798: 'real_estate',
+                
+                # Technology (3570-3579, 7370-7379)
+                3571: 'technology', 3572: 'technology', 3575: 'technology',
+                3576: 'technology', 3577: 'technology', 3674: 'technology',
+                3679: 'technology',
+                7370: 'technology', 7371: 'technology', 7372: 'technology',
+                7373: 'technology', 7374: 'technology', 7375: 'technology',
+                
+                # Retail (5200-5990)
+                5200: 'retail', 5311: 'retail', 5331: 'retail',
+                5399: 'retail', 5411: 'retail', 5600: 'retail',
+                5700: 'retail', 5912: 'retail', 5961: 'retail', 5990: 'retail',
+                
+                # Healthcare (2833-2836, 3841-3851, 8000-8090)
+                2833: 'healthcare', 2834: 'healthcare', 2835: 'healthcare', 2836: 'healthcare',
+                3841: 'healthcare', 3842: 'healthcare', 3845: 'healthcare', 3851: 'healthcare',
+                8000: 'healthcare', 8011: 'healthcare', 8050: 'healthcare',
+                8060: 'healthcare', 8071: 'healthcare', 8082: 'healthcare',
+            }
+            
+            industry = SIC_TO_INDUSTRY.get(sic)
+            self._industry_cache[ticker] = industry
+            
+            if industry:
+                logger.info(f"[{ticker}] Industry detected: {industry} (SIC: {sic})")
+            
+            return industry
+            
+        except Exception as e:
+            logger.warning(f"[{ticker}] Could not detect industry: {e}")
+            self._industry_cache[ticker] = None
+            return None
+
+    # =========================================================================
+    # XBRL ENRICHER INTEGRATION - Campos adicionales via edgartools
+    # =========================================================================
+    
+    async def _enrich_income_statement(
+        self, 
+        income_fields: List[Dict], 
+        ticker: str,
+        periods: List[str]
+    ) -> List[Dict]:
+        """
+        Enriquecer income statement con campos adicionales de edgartools.
+        
+        SEC-API no extrae todos los componentes de revenue (investment income,
+        products/services revenue, etc.). Usamos edgartools para complementar.
+        
+        Solo añade campos que NO están ya presentes en los datos de SEC-API.
+        """
+        try:
+            from services.xbrl_enricher import get_xbrl_enricher
+            
+            enricher = get_xbrl_enricher()
+            additional = await enricher.get_income_statement_details(ticker, len(periods))
+            
+            if not additional or 'fields' not in additional:
+                return income_fields
+            
+            # Crear set de keys existentes
+            existing_keys = {f['key'] for f in income_fields}
+            
+            # Keys que queremos añadir si no están
+            ENRICHMENT_KEYS = {
+                'investment_income',    # Investment & Other Income
+                'products_revenue',     # Products Revenue  
+                'services_revenue',     # Services Revenue
+            }
+            
+            # Mapeo de keys a nuestra estructura
+            ENRICHMENT_STRUCTURE = {
+                'investment_income': {
+                    'section': 'Revenue',
+                    'order': 105,
+                    'indent': 1,
+                    'is_subtotal': False,
+                    'label': 'Investment & Other Income',
+                    'data_type': 'monetary',
+                    'importance': 9400,
+                },
+                'products_revenue': {
+                    'section': 'Revenue', 
+                    'order': 106,
+                    'indent': 1,
+                    'is_subtotal': False,
+                    'label': 'Products Revenue',
+                    'data_type': 'monetary',
+                    'importance': 9350,
+                },
+                'services_revenue': {
+                    'section': 'Revenue',
+                    'order': 107, 
+                    'indent': 1,
+                    'is_subtotal': False,
+                    'label': 'Services Revenue',
+                    'data_type': 'monetary',
+                    'importance': 9300,
+                },
+            }
+            
+            added = []
+            for field in additional['fields']:
+                key = field.get('key')
+                
+                # Solo añadir si es un key que queremos y no existe
+                if key in ENRICHMENT_KEYS and key not in existing_keys:
+                    # Alinear valores con nuestros períodos
+                    enricher_periods = additional.get('periods', [])
+                    aligned_values = []
+                    
+                    for our_period in periods:
+                        value = None
+                        for i, enr_period in enumerate(enricher_periods):
+                            if enr_period == our_period:
+                                values = field.get('values', [])
+                                if i < len(values):
+                                    value = values[i]
+                                break
+                        aligned_values.append(value)
+                    
+                    # Solo añadir si tiene datos
+                    if any(v is not None and v != 0 for v in aligned_values):
+                        structure = ENRICHMENT_STRUCTURE.get(key, {})
+                        income_fields.append({
+                            'key': key,
+                            'label': structure.get('label', field.get('label')),
+                            'values': aligned_values,
+                            'data_type': structure.get('data_type', 'monetary'),
+                            'importance': structure.get('importance', 1000),
+                            'section': structure.get('section', 'Revenue'),
+                            'order': structure.get('order', 100),
+                            'indent': structure.get('indent', 1),
+                            'is_subtotal': structure.get('is_subtotal', False),
+                            'source': 'edgartools',
+                        })
+                        added.append(key)
+            
+            if added:
+                logger.info(f"[{ticker}] Enriched income statement with: {added}")
+                # Re-ordenar por order
+                income_fields.sort(key=lambda x: x.get('order', 9999))
+            
+            return income_fields
+            
+        except Exception as e:
+            logger.warning(f"[{ticker}] Could not enrich income statement: {e}")
+            return income_fields

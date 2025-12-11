@@ -427,14 +427,15 @@ class ATRCalculator:
         self,
         symbols: List[str]
     ) -> Dict[str, Optional[Dict[str, float]]]:
-        """Obtiene ATR de múltiples símbolos de caché usando HASH (batch optimizado)"""
+        """Obtiene ATR de múltiples símbolos de caché usando HASH o claves individuales"""
         if not self.redis or not symbols:
             return {}
         
+        results = {}
+        
         try:
-            # Leer batch desde HASH: HMGET atr:daily {symbol1} {symbol2} ...
+            # 1. Primero intentar leer desde HASH: HMGET atr:daily {symbol1} {symbol2} ...
             values = await self.redis.hmget(self.cache_key, symbols)
-            results = {}
             
             # Obtener último día de trading UNA vez (no por cada símbolo)
             last_trading = await get_last_trading_date(self.redis)
@@ -442,12 +443,12 @@ class ATRCalculator:
             for symbol, value in zip(symbols, values):
                 if value:
                     try:
-                        # ✅ Verificar que el ATR sea del último día de trading
+                        # Verificar que el ATR sea del último día de trading
                         updated_date = value.get('updated')
                         if updated_date:
                             cached_date = date.fromisoformat(updated_date)
                             if cached_date < last_trading:
-                                continue  # ATR es anterior al último día de trading
+                                continue
                         
                         results[symbol] = {
                             'atr': float(value.get('atr', 0)),
@@ -455,6 +456,31 @@ class ATRCalculator:
                         }
                     except (ValueError, TypeError, KeyError):
                         pass
+            
+            # 2. Fallback: leer claves individuales para símbolos que no están en HASH
+            missing_symbols = [s for s in symbols if s not in results]
+            
+            if missing_symbols:
+                # Usar MGET para obtener múltiples claves de una vez
+                individual_keys = [f"atr:{s}" for s in missing_symbols]
+                try:
+                    # Acceder al cliente de redis directamente para MGET
+                    individual_values = await self.redis.client.mget(individual_keys)
+                    
+                    for symbol, value in zip(missing_symbols, individual_values):
+                        if value:
+                            try:
+                                # Las claves individuales solo tienen el valor ATR numérico (string)
+                                atr_value = float(value.decode() if isinstance(value, bytes) else value)
+                                if atr_value > 0:
+                                    results[symbol] = {
+                                        'atr': atr_value,
+                                        'atr_percent': None  # Se calculará con el precio actual
+                                    }
+                            except (ValueError, TypeError):
+                                pass
+                except Exception as e:
+                    logger.error("mget_individual_atr_error", error=str(e))
             
             return results
             

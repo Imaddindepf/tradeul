@@ -234,13 +234,13 @@ function ChartNewsPopup({ ticker, articles }: { ticker: string; articles: NewsAr
 // Component
 // ============================================================================
 
-function TradingChartComponent({ 
-    ticker: initialTicker = 'AAPL', 
-    exchange, 
+function TradingChartComponent({
+    ticker: initialTicker = 'AAPL',
+    exchange,
     onTickerChange,
     minimal = false,
     onOpenChart,
-    onOpenNews 
+    onOpenNews
 }: TradingChartProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
@@ -543,7 +543,15 @@ function TradingChartComponent({
         ema26SeriesRef.current = ema26Series;
 
         // Crosshair move handler for tooltip
+        // IMPORTANTE: Verificar param.point para evitar loop infinito
+        // setMarkers() dispara crosshairMove internamente pero sin point
         chart.subscribeCrosshairMove((param) => {
+            // Solo procesar si hay un punto real del cursor (no eventos programáticos)
+            if (!param.point) {
+                // Sin punto = evento programático de setMarkers, no actualizar estado
+                return;
+            }
+
             if (!param.time || !param.seriesData) {
                 setHoveredBar(null);
                 return;
