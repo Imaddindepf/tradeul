@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Globe, Briefcase, Package } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+
+// API URL from environment
+const API_URL = process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'http://localhost:8000';
 
 // ============================================================================
-// Types
+// TYPES
 // ============================================================================
 
 interface SegmentData {
@@ -35,168 +37,64 @@ interface SegmentsTableProps {
 }
 
 // ============================================================================
-// Helpers
+// UTILITIES - Mismo formato que SymbioticTable
 // ============================================================================
 
-function formatValue(value: number | undefined): string {
+const formatValue = (value: number | undefined): string => {
   if (value === undefined || value === null) return '—';
-  
+
   const absValue = Math.abs(value);
-  const isNegative = value < 0;
-  
   let formatted: string;
+
   if (absValue >= 1e9) {
-    formatted = `$${(absValue / 1e9).toFixed(1)}B`;
+    formatted = `$${(absValue / 1e9).toFixed(2)}B`;
   } else if (absValue >= 1e6) {
-    formatted = `$${(absValue / 1e6).toFixed(0)}M`;
+    formatted = `$${(absValue / 1e6).toFixed(2)}M`;
+  } else if (absValue >= 1e3) {
+    formatted = `$${(absValue / 1e3).toFixed(2)}K`;
   } else {
     formatted = `$${absValue.toFixed(0)}`;
   }
-  
-  return isNegative ? `(${formatted})` : formatted;
-}
 
-function calculateYoY(current: number | undefined, previous: number | undefined): string | null {
+  // Negativos entre paréntesis (estilo TIKR/contable)
+  if (value < 0) {
+    return `(${formatted.substring(1)})`;
+  }
+
+  return formatted;
+};
+
+const calculateYoY = (current: number | undefined, previous: number | undefined): number | null => {
   if (!current || !previous || previous === 0) return null;
-  const change = ((current - previous) / Math.abs(previous)) * 100;
-  return `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
-}
+  return (current - previous) / Math.abs(previous);
+};
+
+const formatPercent = (value: number | null): string => {
+  if (value === null) return '—';
+  const pct = value * 100;
+  if (pct < 0) {
+    return `(${Math.abs(pct).toFixed(1)}%)`;
+  }
+  return `${pct.toFixed(1)}%`;
+};
 
 // ============================================================================
-// Segment Row Component
-// ============================================================================
-
-interface SegmentRowProps {
-  name: string;
-  data: { [year: string]: number };
-  years: string[];
-  showOperatingIncome?: { [year: string]: number };
-}
-
-function SegmentRow({ name, data, years, showOperatingIncome }: SegmentRowProps) {
-  const latestYear = years[0];
-  const previousYear = years[1];
-  const yoy = calculateYoY(data[latestYear], data[previousYear]);
-  
-  return (
-    <>
-      <tr className="hover:bg-slate-800/30 transition-colors">
-        <td className="py-2 px-3 text-slate-200 font-medium">
-          {name}
-        </td>
-        {years.map(year => (
-          <td key={year} className="py-2 px-3 text-right font-mono text-slate-300">
-            {formatValue(data[year])}
-          </td>
-        ))}
-        <td className="py-2 px-3 text-right">
-          {yoy && (
-            <span className={`font-mono text-sm ${
-              yoy.startsWith('+') ? 'text-emerald-400' : 'text-red-400'
-            }`}>
-              {yoy}
-            </span>
-          )}
-        </td>
-      </tr>
-      {showOperatingIncome && (
-        <tr className="hover:bg-slate-800/30 transition-colors">
-          <td className="py-1 px-3 pl-6 text-slate-400 text-sm">
-            └ Operating Income
-          </td>
-          {years.map(year => (
-            <td key={year} className="py-1 px-3 text-right font-mono text-sm text-slate-400">
-              {formatValue(showOperatingIncome[year])}
-            </td>
-          ))}
-          <td className="py-1 px-3"></td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-// ============================================================================
-// Section Component
-// ============================================================================
-
-interface SectionProps {
-  title: string;
-  icon: React.ReactNode;
-  data: SegmentData;
-  operatingIncomeData?: SegmentData;
-  years: string[];
-}
-
-function Section({ title, icon, data, operatingIncomeData, years }: SectionProps) {
-  const segments = Object.keys(data);
-  
-  if (segments.length === 0) return null;
-  
-  // Ordenar por valor del año más reciente (descendente)
-  const sortedSegments = segments.sort((a, b) => {
-    const aVal = data[a][years[0]] || 0;
-    const bVal = data[b][years[0]] || 0;
-    return bVal - aVal;
-  });
-  
-  return (
-    <div className="mb-6">
-      <div className="flex items-center gap-2 mb-3 px-3">
-        <span className="text-slate-400">{icon}</span>
-        <h3 className="text-lg font-semibold text-slate-200">{title}</h3>
-        <span className="text-xs text-slate-500 bg-slate-800 px-2 py-0.5 rounded">
-          {segments.length} segments
-        </span>
-      </div>
-      
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-700">
-              <th className="py-2 px-3 text-left text-slate-400 font-medium">Segment</th>
-              {years.map(year => (
-                <th key={year} className="py-2 px-3 text-right text-slate-400 font-medium min-w-[100px]">
-                  {year}
-                </th>
-              ))}
-              <th className="py-2 px-3 text-right text-slate-400 font-medium w-20">YoY</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedSegments.map(segment => (
-              <SegmentRow
-                key={segment}
-                name={segment}
-                data={data[segment]}
-                years={years}
-                showOperatingIncome={operatingIncomeData?.[segment]}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// Main Component
+// COMPONENT
 // ============================================================================
 
 export function SegmentsTable({ symbol }: SegmentsTableProps) {
   const [data, setData] = useState<SegmentsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   useEffect(() => {
     async function fetchSegments() {
       setLoading(true);
       setError(null);
-      
+
       try {
-        const response = await fetch(`/api/v1/financials/${symbol}/segments`);
-        
+        const response = await fetch(`${API_URL}/api/v1/financials/${symbol}/segments`);
+
         if (!response.ok) {
           if (response.status === 404) {
             setError('No segment data available for this company');
@@ -205,7 +103,7 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
           }
           return;
         }
-        
+
         const result = await response.json();
         setData(result);
       } catch (err) {
@@ -214,99 +112,177 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
         setLoading(false);
       }
     }
-    
+
     if (symbol) {
       fetchSegments();
     }
   }, [symbol]);
-  
+
+  // Calcular años disponibles
+  const years = useMemo(() => {
+    if (!data) return [];
+
+    const allYears = new Set<string>();
+    Object.values(data.segments.revenue || {}).forEach(segment => {
+      Object.keys(segment).forEach(year => allYears.add(year));
+    });
+    Object.values(data.geography.revenue || {}).forEach(segment => {
+      Object.keys(segment).forEach(year => allYears.add(year));
+    });
+
+    return Array.from(allYears).sort((a, b) => parseInt(b) - parseInt(a));
+  }, [data]);
+
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-        <span className="ml-3 text-slate-400">Loading segment data...</span>
-      </div>
-    );
+    return <div className="p-4 text-center text-slate-400 text-xs">Loading segment data...</div>;
   }
-  
+
   if (error) {
-    return (
-      <div className="text-center py-12 text-slate-400">
-        <Globe className="w-12 h-12 mx-auto mb-3 opacity-50" />
-        <p>{error}</p>
-      </div>
-    );
+    return <div className="p-4 text-center text-slate-400 text-xs">{error}</div>;
   }
-  
+
   if (!data) return null;
-  
-  // Obtener años disponibles (ordenados descendente)
-  const allYears = new Set<string>();
-  Object.values(data.segments.revenue).forEach(segment => {
-    Object.keys(segment).forEach(year => allYears.add(year));
-  });
-  Object.values(data.geography.revenue).forEach(segment => {
-    Object.keys(segment).forEach(year => allYears.add(year));
-  });
-  
-  const years = Array.from(allYears).sort((a, b) => parseInt(b) - parseInt(a));
-  
-  const hasSegments = Object.keys(data.segments.revenue).length > 0;
-  const hasGeography = Object.keys(data.geography.revenue).length > 0;
-  const hasProducts = data.products && Object.keys(data.products.revenue).length > 0;
-  
+
+  const hasSegments = Object.keys(data.segments?.revenue || {}).length > 0;
+  const hasGeography = Object.keys(data.geography?.revenue || {}).length > 0;
+  const hasProducts = data.products && Object.keys(data.products.revenue || {}).length > 0;
+
+  if (!hasSegments && !hasGeography && !hasProducts) {
+    return <div className="p-4 text-center text-slate-400 text-xs">No segment data available</div>;
+  }
+
+  // Renderizar una sección de segmentos
+  const renderSection = (
+    title: string,
+    revenueData: SegmentData,
+    operatingIncomeData?: SegmentData
+  ) => {
+    const segments = Object.keys(revenueData);
+    if (segments.length === 0) return null;
+
+    // Ordenar por valor del año más reciente (descendente)
+    const sortedSegments = [...segments].sort((a, b) => {
+      const aVal = revenueData[a][years[0]] || 0;
+      const bVal = revenueData[b][years[0]] || 0;
+      return bVal - aVal;
+    });
+
+    return (
+      <React.Fragment key={title}>
+        {/* Section Header */}
+        <tr>
+          <td colSpan={years.length + 2} className="h-3 bg-white"></td>
+        </tr>
+        <tr className="border-y border-slate-200 bg-slate-50">
+          <td
+            colSpan={years.length + 2}
+            className="py-2 px-3 font-bold text-[11px] uppercase tracking-wide text-slate-600"
+          >
+            {title}
+          </td>
+        </tr>
+
+        {/* Segment Rows */}
+        {sortedSegments.map(segmentName => {
+          const segmentData = revenueData[segmentName];
+          const yoy = calculateYoY(segmentData[years[0]], segmentData[years[1]]);
+
+          return (
+            <React.Fragment key={segmentName}>
+              {/* Revenue row */}
+              <tr className="border-b border-slate-100 bg-white hover:bg-blue-50/40 transition-colors">
+                <td className="py-1.5 px-3 text-slate-600">
+                  {segmentName}
+                </td>
+                {years.map(year => (
+                  <td key={year} className="text-right py-1.5 px-3 tabular-nums text-slate-700">
+                    {formatValue(segmentData[year])}
+                  </td>
+                ))}
+                <td className={`text-right py-1.5 px-3 tabular-nums text-[10px] ${yoy !== null && yoy > 0 ? 'text-emerald-600' :
+                    yoy !== null && yoy < 0 ? 'text-red-500' : 'text-slate-400'
+                  }`}>
+                  {formatPercent(yoy)}
+                </td>
+              </tr>
+
+              {/* Operating Income sub-row (if available) */}
+              {operatingIncomeData?.[segmentName] && (
+                <tr className="border-b border-slate-100 bg-white">
+                  <td className="py-1 px-3 text-slate-400 text-[10px]" style={{ paddingLeft: '32px' }}>
+                    <span className="text-slate-300 mr-1.5">└</span>
+                    Operating Income
+                  </td>
+                  {years.map(year => {
+                    const val = operatingIncomeData[segmentName][year];
+                    const isNegative = val != null && val < 0;
+                    return (
+                      <td key={year} className={`text-right py-1 px-3 tabular-nums text-[10px] ${isNegative ? 'text-red-600' : 'text-slate-400'
+                        }`}>
+                        {formatValue(val)}
+                      </td>
+                    );
+                  })}
+                  <td className="py-1 px-3"></td>
+                </tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </React.Fragment>
+    );
+  };
+
   return (
-    <div className="bg-slate-900/50 rounded-lg border border-slate-800 p-4">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-        <div>
-          <h2 className="text-xl font-bold text-white">Segment Breakdown</h2>
-          <p className="text-sm text-slate-500">
-            Filing: {data.filing_date} • Period: {data.period_end}
-          </p>
-        </div>
-        <div className="text-xs text-slate-600 bg-slate-800/50 px-2 py-1 rounded">
-          Source: SEC EDGAR (XBRL)
-        </div>
-      </div>
-      
-      {/* Business Segments */}
-      {hasSegments && (
-        <Section
-          title="Business Segments"
-          icon={<Briefcase className="w-5 h-5" />}
-          data={data.segments.revenue}
-          operatingIncomeData={data.segments.operating_income}
-          years={years}
-        />
-      )}
-      
-      {/* Geography */}
-      {hasGeography && (
-        <Section
-          title="Geographic Revenue"
-          icon={<Globe className="w-5 h-5" />}
-          data={data.geography.revenue}
-          years={years}
-        />
-      )}
-      
-      {/* Products (if available) */}
-      {hasProducts && data.products && (
-        <Section
-          title="Products & Services"
-          icon={<Package className="w-5 h-5" />}
-          data={data.products.revenue}
-          years={years}
-        />
-      )}
-      
-      {!hasSegments && !hasGeography && !hasProducts && (
-        <div className="text-center py-8 text-slate-400">
-          No segment breakdown available for {symbol}
-        </div>
-      )}
+    <div className="overflow-x-auto bg-white">
+      <table className="w-full text-[11px] border-collapse">
+        {/* Header */}
+        <thead className="sticky top-0 z-10">
+          <tr className="bg-slate-100 border-b-2 border-slate-300">
+            <th className="text-left py-2.5 px-3 font-semibold text-slate-700 min-w-[200px] bg-slate-100">
+              Segment
+            </th>
+            {years.map(year => (
+              <th
+                key={year}
+                className="text-right py-2.5 px-3 font-semibold text-slate-700 min-w-[90px] bg-slate-100"
+              >
+                FY{year}
+              </th>
+            ))}
+            <th className="text-right py-2.5 px-3 font-semibold text-slate-700 min-w-[70px] bg-slate-100">
+              YoY
+            </th>
+          </tr>
+        </thead>
+
+        <tbody className="text-slate-700">
+          {/* Business Segments */}
+          {hasSegments && renderSection(
+            'Business Segments',
+            data.segments.revenue,
+            data.segments.operating_income
+          )}
+
+          {/* Geographic Revenue */}
+          {hasGeography && renderSection(
+            'Geographic Revenue',
+            data.geography.revenue,
+            data.geography.operating_income
+          )}
+
+          {/* Products & Services */}
+          {hasProducts && data.products && renderSection(
+            'Products & Services',
+            data.products.revenue
+          )}
+
+          {/* Espaciado final */}
+          <tr>
+            <td colSpan={years.length + 2} className="h-4 bg-white"></td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
-

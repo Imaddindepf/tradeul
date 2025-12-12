@@ -453,6 +453,66 @@ class BenzingaNewsClient(InternalServiceClient):
         return response.json()
 
 
+class FinancialsClient(InternalServiceClient):
+    """
+    Cliente para financials service.
+    
+    Extracción de datos financieros XBRL via microservicio separado.
+    """
+    
+    def __init__(self, host: str = "financials", port: int = 8020, timeout: float = 60.0):
+        super().__init__(
+            service_name="financials",
+            base_url=f"http://{host}:{port}",
+            timeout=timeout  # Financials puede tardar más
+        )
+    
+    async def get_financials(
+        self,
+        symbol: str,
+        period: str = "annual",
+        limit: int = 10,
+        refresh: bool = False
+    ) -> Dict[str, Any]:
+        """Obtiene datos financieros completos"""
+        response = await self.get(
+            f"/api/v1/financials/{symbol}",
+            params={"period": period, "limit": limit, "refresh": str(refresh).lower()}
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def get_segments(self, symbol: str) -> Dict[str, Any]:
+        """Obtiene datos de segmentos y geografía"""
+        response = await self.get(f"/api/v1/financials/{symbol}/segments")
+        response.raise_for_status()
+        return response.json()
+    
+    async def get_income_details(self, symbol: str, years: int = 10) -> Dict[str, Any]:
+        """Obtiene detalles del income statement"""
+        response = await self.get(
+            f"/api/v1/financials/{symbol}/income-details",
+            params={"years": years}
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def clear_cache(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Limpia cache de financials"""
+        params = {"symbol": symbol} if symbol else {}
+        response = await self.post("/api/v1/financials/cache/clear", json=params)
+        response.raise_for_status()
+        return response.json()
+    
+    async def health_check(self) -> bool:
+        """Verifica si el servicio está activo"""
+        try:
+            response = await self.get("/health")
+            return response.status_code == 200
+        except Exception:
+            return False
+
+
 # ============================================================================
 # Gestor de Clientes HTTP
 # ============================================================================
@@ -473,6 +533,7 @@ class HTTPClientManager:
         self.market_session: Optional[MarketSessionClient] = None
         self.ticker_metadata: Optional[TickerMetadataClient] = None
         self.benzinga_news: Optional[BenzingaNewsClient] = None
+        self.financials: Optional[FinancialsClient] = None
         self._initialized = False
     
     async def initialize(
@@ -501,6 +562,7 @@ class HTTPClientManager:
         self.market_session = MarketSessionClient()
         self.ticker_metadata = TickerMetadataClient()
         self.benzinga_news = BenzingaNewsClient()
+        self.financials = FinancialsClient()
         
         self._initialized = True
         logger.info("http_client_manager_initialized")
@@ -515,6 +577,7 @@ class HTTPClientManager:
             self.market_session,
             self.ticker_metadata,
             self.benzinga_news,
+            self.financials,
         ]
         
         for client in clients:

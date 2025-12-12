@@ -33,7 +33,7 @@ from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client
-from routes.financials import router as financials_router, set_redis_client as set_financials_redis, set_fmp_api_key, set_sec_api_key, set_ticker_metadata_client
+from routes.financials import router as financials_router
 from routes.proxy import router as proxy_router
 from routes.realtime import router as realtime_router, set_redis_client as set_realtime_redis
 from routers.watchlist_router import router as watchlist_router
@@ -79,26 +79,9 @@ async def lifespan(app: FastAPI):
     set_user_filters_timescale_client(timescale_client)  # Para user_filters
     logger.info("timescale_connected")
     
-    # Configurar router de financials con Redis, FMP y SEC-API XBRL
-    set_financials_redis(redis_client)
-    set_fmp_api_key(settings.FMP_API_KEY)
-    
-    # SEC-API XBRL (fuente principal para financials)
-    sec_api_key = settings.SEC_API_IO_KEY
-    polygon_api_key = settings.POLYGON_API_KEY
-    if sec_api_key:
-        set_sec_api_key(sec_api_key, polygon_api_key)
-        logger.info("financials_router_configured_sec_xbrl", key_prefix=sec_api_key[:8], splits_enabled=bool(polygon_api_key))
-    else:
-        logger.warning("SEC_API_IO not configured, using FMP only")
-    
-    # TickerMetadataClient para obtener CIK (evita mezclar datos de tickers reutilizados)
-    from http_clients import TickerMetadataClient
-    ticker_metadata_client = TickerMetadataClient()
-    set_ticker_metadata_client(ticker_metadata_client)
-    logger.info("financials_ticker_metadata_configured")
-    
-    logger.info("financials_router_configured")
+    # Router de financials ahora es un microservicio separado
+    # Se accede via http_clients.financials (FinancialsClient)
+    logger.info("financials_microservice_ready")
     
     # Configurar router de realtime con Redis
     set_realtime_redis(redis_client)
@@ -1536,12 +1519,12 @@ async def get_ipo_prospectus(
 #
 
 CHART_INTERVALS = {
-    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 60, "bars_per_page": 500},   # 1 min cache para datos frescos
-    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 180, "bars_per_page": 500},  # 3 min cache
-    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 600, "bars_per_page": 500}, # 10 min cache
-    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 1200, "bars_per_page": 500},# 20 min cache
-    "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 3600, "bars_per_page": 500},
-    "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 7200, "bars_per_page": 500},
+    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 30, "bars_per_page": 500},   # 30s cache - datos muy frescos
+    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 120, "bars_per_page": 500},  # 2 min cache
+    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 300, "bars_per_page": 500}, # 5 min cache
+    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 600, "bars_per_page": 500}, # 10 min cache
+    "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 1800, "bars_per_page": 500},   # 30 min cache
+    "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 3600, "bars_per_page": 500},   # 1h cache
     "1day": {"source": "fmp", "cache_ttl": 86400, "bars_per_page": 1000},  # FMP para daily
 }
 

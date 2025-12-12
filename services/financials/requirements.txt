@@ -1,0 +1,24 @@
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# HTTP Client
+httpx==0.28.1
+
+# Data Processing
+pydantic==2.6.0
+pandas>=2.0.0
+pyarrow>=14.0.0
+
+# Redis
+redis[hiredis]==5.0.1
+
+# Logging
+structlog==24.1.0
+
+# Edgar tools (SEC XBRL parsing)
+edgartools>=2.0.0
+
+# For proper handling of throttled requests
+httpxthrottlecache>=0.1.0
+

@@ -378,11 +378,11 @@ services:
     container_name: tradeul_api_gateway
     env_file:
       - .env
-    volumes:
-      - ./edgar_cache:/opt/tradeul/edgar_cache  # Local storage para edgartools
     depends_on:
       redis:
         condition: service_healthy
+      financials:
+        condition: service_started
     restart: unless-stopped
     networks:
       - tradeul_network
@@ -393,6 +393,44 @@ services:
         limits:
           cpus: "1"
           memory: 1G
+        reservations:
+          memory: 512M
+
+  # =============================================
+  # FINANCIALS SERVICE
+  # =============================================
+
+  financials:
+    build:
+      context: .
+      dockerfile: services/financials/Dockerfile
+    container_name: tradeul_financials
+    env_file:
+      - .env
+    environment:
+      - FINANCIALS_PORT=8020
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./edgar_cache:/app/edgar_cache  # Local storage para edgartools
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8020:8020"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 2G
         reservations:
           memory: 512M
 

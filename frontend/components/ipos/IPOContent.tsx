@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, AlertTriangle, TrendingUp, Clock, CheckCircle, XCircle, HelpCircle, Rocket, FileText, ExternalLink, Loader2 } from 'lucide-react';
+import { RefreshCw, AlertTriangle, TrendingUp, Clock, CheckCircle, XCircle, HelpCircle, Rocket, FileText, ExternalLink, Loader2, ArrowLeft, Users, Building2, Scale, ClipboardList } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -109,7 +109,10 @@ export function IPOContent() {
   const [cached, setCached] = useState(false);
   const [loadingProspectus, setLoadingProspectus] = useState<string | null>(null);
   const [prospectusData, setProspectusData] = useState<any>(null);
-  const [showProspectusModal, setShowProspectusModal] = useState(false);
+
+  // View state: 'list' or 'detail' (inline, no modal)
+  const [view, setView] = useState<'list' | 'detail'>('list');
+  const [selectedIPO, setSelectedIPO] = useState<{ ticker: string; issuerName: string; ipoStatus: string } | null>(null);
 
   // Fetch IPO prospectus (S-1, 424B4) structured data from SEC-API.io
   const openProspectus = useCallback(async (ticker: string, ipoStatus: string, issuerName: string) => {
@@ -125,9 +128,10 @@ export function IPOContent() {
       }
       const data = await response.json();
 
-      // Always show modal - it will display message for pending IPOs without filings
-      setProspectusData({ ticker, issuerName, ipoStatus, ...data });
-      setShowProspectusModal(true);
+      // Show inline detail view (no modal)
+      setSelectedIPO({ ticker, issuerName, ipoStatus });
+      setProspectusData(data);
+      setView('detail');
     } catch (err) {
       console.error('Error fetching prospectus:', err);
       // Fallback: open SEC EDGAR search by company name
@@ -187,6 +191,209 @@ export function IPOContent() {
     { id: 'history', label: `Listed (${statusCounts.history || 0})` },
     { id: 'all', label: `All (${ipos.length})` },
   ];
+
+  // Detail view (inline, no modal)
+  if (view === 'detail' && selectedIPO) {
+    const handleBack = () => {
+      setView('list');
+      setSelectedIPO(null);
+      setProspectusData(null);
+    };
+
+    const structuredData = prospectusData?.structured_data;
+    const filings = prospectusData?.filings || [];
+
+    return (
+      <div className="h-full flex flex-col bg-white">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-2 py-1.5 border-b border-slate-200">
+          <button onClick={handleBack} className="p-1 hover:bg-slate-100 rounded transition-colors">
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-600" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-mono font-semibold text-sm">{selectedIPO.ticker}</span>
+              <span className="text-[9px] px-1 py-0.5 rounded bg-slate-100 text-slate-600">
+                {STATUS_CONFIG[selectedIPO.ipoStatus]?.label || selectedIPO.ipoStatus}
+              </span>
+            </div>
+            <p className="text-[10px] text-slate-500 truncate">{selectedIPO.issuerName}</p>
+          </div>
+          <a
+            href={`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(selectedIPO.issuerName)}&type=S-1&dateb=&owner=include&count=40`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-100 rounded transition-colors"
+          >
+            SEC EDGAR <ExternalLink className="w-2.5 h-2.5" />
+          </a>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-2 space-y-3">
+          {structuredData ? (
+            <>
+              {/* Filing Info */}
+              <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                <span className="font-mono font-semibold text-slate-700">{structuredData.form_type}</span>
+                <span>Filed: {formatDate(structuredData.filed_at)}</span>
+                {structuredData.filing_url && (
+                  <a href={structuredData.filing_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline">
+                    View <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </div>
+
+              {/* Offering Price */}
+              {structuredData.public_offering_price && (
+                <div className="border border-slate-200 rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                    <TrendingUp className="w-3 h-3" /> Offering Price
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div>
+                      <span className="text-slate-500">Per Share</span>
+                      <span className="ml-2 font-mono font-semibold">
+                        {structuredData.public_offering_price.perShareText || formatPrice(structuredData.public_offering_price.perShare)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Total</span>
+                      <span className="ml-2 font-mono font-semibold">
+                        {structuredData.public_offering_price.totalText || formatSize(structuredData.public_offering_price.total)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Securities */}
+              {structuredData.securities?.length > 0 && (
+                <div className="border border-slate-200 rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                    <ClipboardList className="w-3 h-3" /> Securities ({structuredData.securities.length})
+                  </div>
+                  <div className="space-y-0.5 text-[10px] text-slate-600">
+                    {structuredData.securities.map((sec: any, i: number) => (
+                      <div key={i}>{sec.name}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Underwriters */}
+              {structuredData.underwriters?.length > 0 && (
+                <div className="border border-slate-200 rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                    <Building2 className="w-3 h-3" /> Underwriters ({structuredData.underwriters.length})
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {structuredData.underwriters.slice(0, 10).map((uw: any, i: number) => (
+                      <span key={i} className={`px-1.5 py-0.5 rounded text-[9px] ${i === 0 ? 'bg-slate-200 font-medium' : 'bg-slate-100'} text-slate-700`}>
+                        {uw.name}
+                      </span>
+                    ))}
+                    {structuredData.underwriters.length > 10 && (
+                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px]">+{structuredData.underwriters.length - 10}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Management */}
+              {structuredData.management?.length > 0 && (
+                <div className="border border-slate-200 rounded p-2">
+                  <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-medium text-slate-700">
+                    <Users className="w-3 h-3" /> Management ({structuredData.management.length})
+                  </div>
+                  <div className="space-y-1 text-[10px]">
+                    {structuredData.management.slice(0, 6).map((m: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="font-medium text-slate-700">{m.name}</span>
+                        {m.age && <span className="text-slate-400">({m.age})</span>}
+                        <span className="text-slate-500 truncate">{m.position}</span>
+                      </div>
+                    ))}
+                    {structuredData.management.length > 6 && <div className="text-slate-400">+{structuredData.management.length - 6} more</div>}
+                  </div>
+                </div>
+              )}
+
+              {/* Employees */}
+              {structuredData.employees?.total && (
+                <div className="border border-slate-200 rounded p-2 flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500">Employees</span>
+                  <span className="font-mono font-semibold text-sm">{structuredData.employees.total.toLocaleString()}</span>
+                </div>
+              )}
+
+              {/* Law Firms & Auditors */}
+              <div className="grid grid-cols-2 gap-2">
+                {structuredData.law_firms?.length > 0 && (
+                  <div className="border border-slate-200 rounded p-2">
+                    <div className="flex items-center gap-1.5 mb-1 text-[10px] font-medium text-slate-700">
+                      <Scale className="w-3 h-3" /> Law Firms
+                    </div>
+                    <div className="space-y-0.5 text-[9px] text-slate-600">
+                      {structuredData.law_firms.slice(0, 3).map((lf: any, i: number) => <div key={i} className="truncate">{lf.name}</div>)}
+                    </div>
+                  </div>
+                )}
+                {structuredData.auditors?.length > 0 && (
+                  <div className="border border-slate-200 rounded p-2">
+                    <div className="flex items-center gap-1.5 mb-1 text-[10px] font-medium text-slate-700">
+                      <ClipboardList className="w-3 h-3" /> Auditors
+                    </div>
+                    <div className="space-y-0.5 text-[9px] text-slate-600">
+                      {structuredData.auditors.map((a: any, i: number) => <div key={i} className="truncate">{a.name}</div>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-6">
+              {selectedIPO.ipoStatus === 'pending' || selectedIPO.ipoStatus === 'rumor' ? (
+                <>
+                  <Clock className="w-6 h-6 mx-auto mb-2 text-slate-400" />
+                  <p className="text-[11px] font-medium text-slate-700 mb-1">S-1 Not Yet Filed</p>
+                  <p className="text-[10px] text-slate-500 max-w-xs mx-auto">
+                    {prospectusData?.message || "The S-1 Registration Statement has not yet been filed with the SEC."}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-slate-400" />
+                  <p className="text-[11px] text-slate-500">{prospectusData?.message || "No SEC filings found."}</p>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* All Filings */}
+          {filings.length > 0 && (
+            <div className="border-t border-slate-200 pt-2">
+              <div className="text-[10px] font-medium text-slate-700 mb-1.5">All Filings ({filings.length})</div>
+              <div className="space-y-1">
+                {filings.map((f: any, i: number) => (
+                  <a key={i} href={f.filing_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between px-2 py-1 bg-slate-50 rounded hover:bg-slate-100 transition-colors text-[10px]">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-semibold text-slate-700">{f.form_type}</span>
+                      <span className="text-slate-500">{formatDate(f.filed_at)}</span>
+                    </div>
+                    <ExternalLink className="w-2.5 h-2.5 text-slate-400" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-2 py-0.5 border-t border-slate-200 text-[8px] text-slate-400">SEC-API.io</div>
+      </div>
+    );
+  }
 
   if (loading && ipos.length === 0) {
     return (
@@ -335,248 +542,9 @@ export function IPOContent() {
 
       {/* Footer */}
       <div className="px-2 py-0.5 bg-slate-50 border-t border-slate-200 text-[8px] text-slate-400 flex justify-between">
-        <span>Polygon.io • Updated daily</span>
-        <span>{filteredIPOs.length} of {ipos.length} IPOs</span>
+        <span>Polygon.io</span>
+        <span>{filteredIPOs.length} of {ipos.length}</span>
       </div>
-
-      {/* Prospectus Modal */}
-      {showProspectusModal && prospectusData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowProspectusModal(false)}>
-          <div
-            className="bg-white rounded-lg shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden m-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                <div>
-                  <h3 className="font-bold text-lg">{prospectusData.ticker} Prospectus</h3>
-                  <p className="text-blue-100 text-xs">{prospectusData.structured_data?.entity_name}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowProspectusModal(false)}
-                className="p-1 hover:bg-white/20 rounded transition-colors"
-              >
-                <XCircle className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="overflow-auto max-h-[calc(80vh-120px)] p-4 space-y-4">
-              {prospectusData.structured_data ? (
-                <>
-                  {/* Form Info */}
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded font-semibold">
-                      {prospectusData.structured_data.form_type}
-                    </span>
-                    <span className="text-slate-500">
-                      Filed: {formatDate(prospectusData.structured_data.filed_at)}
-                    </span>
-                    {prospectusData.structured_data.filing_url && (
-                      <a
-                        href={prospectusData.structured_data.filing_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-blue-600 hover:underline"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        View Filing
-                      </a>
-                    )}
-                  </div>
-
-                  {/* Pricing Info */}
-                  {prospectusData.structured_data.public_offering_price && (
-                    <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-200">
-                      <h4 className="font-semibold text-emerald-800 text-sm mb-2">💰 Offering Price</h4>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="text-slate-500">Per Share:</span>
-                          <span className="ml-2 font-mono font-bold text-emerald-700">
-                            {prospectusData.structured_data.public_offering_price.perShareText || formatPrice(prospectusData.structured_data.public_offering_price.perShare)}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Total:</span>
-                          <span className="ml-2 font-mono font-bold text-emerald-700">
-                            {prospectusData.structured_data.public_offering_price.totalText || formatSize(prospectusData.structured_data.public_offering_price.total)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Securities */}
-                  {prospectusData.structured_data.securities?.length > 0 && (
-                    <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                      <h4 className="font-semibold text-slate-700 text-sm mb-2">📊 Securities Offered</h4>
-                      <ul className="text-sm space-y-1">
-                        {prospectusData.structured_data.securities.map((sec: any, i: number) => (
-                          <li key={i} className="text-slate-600">{sec.name}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {/* Underwriters */}
-                  {prospectusData.structured_data.underwriters?.length > 0 && (
-                    <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
-                      <h4 className="font-semibold text-amber-800 text-sm mb-2">🏦 Underwriters ({prospectusData.structured_data.underwriters.length})</h4>
-                      <div className="flex flex-wrap gap-1">
-                        {prospectusData.structured_data.underwriters.slice(0, 8).map((uw: any, i: number) => (
-                          <span key={i} className={`px-2 py-0.5 rounded text-xs ${i === 0 ? 'bg-amber-200 text-amber-800 font-semibold' : 'bg-amber-100 text-amber-700'}`}>
-                            {uw.name}
-                          </span>
-                        ))}
-                        {prospectusData.structured_data.underwriters.length > 8 && (
-                          <span className="px-2 py-0.5 bg-amber-100 text-amber-600 rounded text-xs">
-                            +{prospectusData.structured_data.underwriters.length - 8} more
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Management */}
-                  {prospectusData.structured_data.management?.length > 0 && (
-                    <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-                      <h4 className="font-semibold text-purple-800 text-sm mb-2">👥 Management Team</h4>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        {prospectusData.structured_data.management.slice(0, 6).map((m: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2">
-                            <span className="font-medium text-purple-700">{m.name}</span>
-                            {m.age && <span className="text-purple-400">({m.age})</span>}
-                            <span className="text-purple-500 truncate">{m.position}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Employees */}
-                  {prospectusData.structured_data.employees?.total && (
-                    <div className="bg-cyan-50 rounded-lg p-3 border border-cyan-200">
-                      <h4 className="font-semibold text-cyan-800 text-sm mb-1">👷 Employees</h4>
-                      <span className="font-mono text-lg font-bold text-cyan-700">
-                        {prospectusData.structured_data.employees.total.toLocaleString()}
-                      </span>
-                      {prospectusData.structured_data.employees.asOfDate && (
-                        <span className="text-cyan-500 text-xs ml-2">
-                          as of {formatDate(prospectusData.structured_data.employees.asOfDate)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Law Firms & Auditors */}
-                  <div className="grid grid-cols-2 gap-3">
-                    {prospectusData.structured_data.law_firms?.length > 0 && (
-                      <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                        <h4 className="font-semibold text-slate-700 text-xs mb-1">⚖️ Law Firms</h4>
-                        <div className="space-y-0.5">
-                          {prospectusData.structured_data.law_firms.slice(0, 3).map((lf: any, i: number) => (
-                            <div key={i} className="text-[10px] text-slate-600">{lf.name}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {prospectusData.structured_data.auditors?.length > 0 && (
-                      <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                        <h4 className="font-semibold text-slate-700 text-xs mb-1">📋 Auditors</h4>
-                        <div className="space-y-0.5">
-                          {prospectusData.structured_data.auditors.map((a: any, i: number) => (
-                            <div key={i} className="text-[10px] text-slate-600">{a.name}</div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div className="text-center py-8">
-                  {prospectusData.ipoStatus === 'pending' || prospectusData.ipoStatus === 'rumor' ? (
-                    <>
-                      <Clock className="w-10 h-10 mx-auto mb-3 text-amber-500" />
-                      <h4 className="font-semibold text-slate-700 mb-2">S-1 Not Yet Filed</h4>
-                      <p className="text-slate-500 text-sm max-w-md mx-auto">
-                        {prospectusData.message || "The S-1 Registration Statement has not yet been filed with the SEC. This is normal for pending IPOs."}
-                      </p>
-                      <p className="text-slate-400 text-xs mt-2">
-                        The S-1 is typically filed a few weeks before the expected listing date.
-                      </p>
-                      <a
-                        href={`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(prospectusData.issuerName || prospectusData.ticker)}&type=S-1&dateb=&owner=include&count=40`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                        Search SEC EDGAR
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-500" />
-                      <p className="text-slate-500">{prospectusData.message || "No SEC filings found for this ticker."}</p>
-                      <a
-                        href={`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(prospectusData.issuerName || prospectusData.ticker)}&type=S-1&dateb=&owner=include&count=40`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 mt-3 text-blue-600 hover:underline text-sm"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        Search on SEC EDGAR
-                      </a>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* All Filings List */}
-              {prospectusData.filings?.length > 0 && (
-                <div className="border-t border-slate-200 pt-3 mt-3">
-                  <h4 className="font-semibold text-slate-700 text-sm mb-2">📁 All Filings ({prospectusData.filings.length})</h4>
-                  <div className="space-y-1">
-                    {prospectusData.filings.map((f: any, i: number) => (
-                      <a
-                        key={i}
-                        href={f.filing_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-between px-2 py-1 bg-slate-50 rounded hover:bg-blue-50 transition-colors text-xs"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-semibold text-blue-600">{f.form_type}</span>
-                          <span className="text-slate-500">{formatDate(f.filed_at)}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-slate-400">
-                          {f.has_pricing && <span className="text-emerald-500">💰</span>}
-                          {f.underwriters_count > 0 && <span>🏦{f.underwriters_count}</span>}
-                          <ExternalLink className="w-3 h-3" />
-                        </div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 flex justify-between items-center">
-              <span className="text-[10px] text-slate-400">SEC-API.io • Cached 7 days</span>
-              <button
-                onClick={() => setShowProspectusModal(false)}
-                className="px-3 py-1 bg-slate-200 hover:bg-slate-300 rounded text-sm transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

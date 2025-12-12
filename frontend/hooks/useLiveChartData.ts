@@ -264,8 +264,36 @@ export function useLiveChartData(
           setIsLive(true);
 
         } else if (barTime > lastBar.time) {
-          // NUEVO período → crear nueva barra
-          // Los gaps son normales (halts, sin actividad) - no crear barras falsas
+          // NUEVO período → verificar si hay gap entre históricos y tiempo real
+          const gapBars = Math.floor((barTime - lastBar.time) / intervalSecs) - 1;
+
+          // Si hay gap pequeño (< 10 barras), rellenar con interpolación
+          // Esto conecta los datos históricos con el tiempo real
+          if (gapBars > 0 && gapBars <= 10) {
+            const startPrice = lastBar.close;
+            const endPrice = newBar.open;
+            const priceStep = (endPrice - startPrice) / (gapBars + 1);
+
+            for (let i = 1; i <= gapBars; i++) {
+              const fillBarTime = lastBar.time + (i * intervalSecs);
+              const interpolatedPrice = startPrice + (priceStep * i);
+
+              const fillBar: ChartBar = {
+                time: fillBarTime,
+                open: interpolatedPrice,
+                high: interpolatedPrice,
+                low: interpolatedPrice,
+                close: interpolatedPrice,
+                volume: 0,  // Sin volumen (gap)
+              };
+
+              if (updateHandlerRef.current) {
+                updateHandlerRef.current(fillBar, true);
+              }
+            }
+          }
+
+          // Crear la nueva barra actual
           lastBarRef.current = newBar;
 
           // Notificar al chart via callback imperativo
