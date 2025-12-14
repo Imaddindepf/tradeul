@@ -515,28 +515,29 @@ class XBRLExtractor:
         ]
     
     def _find_best_value(self, consolidated: List, fiscal_year: str) -> Optional[float]:
-        """Encontrar el mejor valor para un año fiscal."""
-        best_value = None
-        best_date = ""
+        """
+        Encontrar el mejor valor para un año fiscal.
         
+        IMPORTANTE: NO usa fallback. Si no encuentra un valor para el año exacto,
+        retorna None. Esto evita el bug donde datos de años recientes se duplican
+        en años anteriores cuando SEC-API no incluye datos históricos.
+        """
+        fiscal_year_str = str(fiscal_year)[:4]
+        
+        # Buscar coincidencia exacta del año fiscal
         for item in consolidated:
             period = item.get("period", {})
             end_date = period.get("endDate") or period.get("instant", "")
             
-            if end_date and end_date[:4] == str(fiscal_year)[:4]:
+            if end_date and end_date[:4] == fiscal_year_str:
                 try:
                     return float(item["value"])
                 except (ValueError, TypeError):
                     continue
-            
-            if end_date > best_date:
-                try:
-                    best_value = float(item["value"])
-                    best_date = end_date
-                except (ValueError, TypeError):
-                    continue
         
-        return best_value
+        # NO usar fallback - retornar None si no hay coincidencia exacta
+        # Los datos correctos vendrán del 10-K correspondiente a ese año
+        return None
     
     def consolidate_fields(
         self,

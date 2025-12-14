@@ -481,6 +481,13 @@ class FinancialCalculator:
         balance_map = {f['key']: f for f in balance_fields}
         income_map = {f['key']: f for f in income_fields}
         
+        # Corregir campos problemáticos antes de calcular métricas
+        self._normalize_cash_field(balance_fields, balance_map, num_periods)
+        self._normalize_total_liabilities(balance_fields, balance_map, num_periods)
+        
+        # Reconstruir el mapa después de las correcciones
+        balance_map = {f['key']: f for f in balance_fields}
+        
         # Corregir Total Equity si es incorrecto
         self._correct_total_equity(balance_map, num_periods)
         
@@ -1005,6 +1012,103 @@ class FinancialCalculator:
             total.append(st + lt if (st or lt) else None)
         
         return total if any(v is not None for v in total) else None
+    
+    def _normalize_cash_field(
+        self,
+        balance_fields: List[Dict],
+        balance_map: Dict,
+        num_periods: int
+    ) -> None:
+        """
+        Normalizar el campo Cash usando cash_ending si es más preciso.
+        
+        El tag CashAndCashEquivalentsAtCarryingValue a veces se mapea a cash_ending
+        (del Cash Flow) en lugar de cash (del Balance Sheet). Esta función corrige
+        eso usando el valor correcto.
+        """
+        cash_field = balance_map.get('cash')
+        cash_ending_field = balance_map.get('cash_ending')
+        
+        if not cash_field or not cash_ending_field:
+            return
+        
+        cash_values = cash_field.get('values', [])
+        cash_ending_values = cash_ending_field.get('values', [])
+        
+        if not cash_values or not cash_ending_values:
+            return
+        
+        # Verificar si cash_ending tiene valores significativamente mayores
+        # (indica que cash usa un tag incorrecto como 'Cash' simple)
+        should_replace = False
+        for i in range(min(len(cash_values), len(cash_ending_values))):
+            c = cash_values[i]
+            ce = cash_ending_values[i]
+            if c is not None and ce is not None and ce > 0:
+                # Si cash_ending es más del 50% mayor que cash, usar cash_ending
+                if ce > c * 1.5:
+                    should_replace = True
+                    break
+        
+        if should_replace:
+            logger.info("Normalizing cash field: using cash_ending values (more accurate)")
+            # Actualizar el campo cash con los valores de cash_ending
+            cash_field['values'] = cash_ending_values.copy()
+            cash_field['source_fields'] = cash_ending_field.get('source_fields', [])
+            cash_field['normalized'] = True
+    
+    def _normalize_total_liabilities(
+        self,
+        balance_fields: List[Dict],
+        balance_map: Dict,
+        num_periods: int
+    ) -> None:
+        """
+        Corregir total_liabilities si usa LiabilitiesAndStockholdersEquity (= Total Assets).
+        
+        El cálculo correcto es: Total Liabilities = Total Assets - Total Equity
+        """
+        total_liabilities_field = balance_map.get('total_liabilities')
+        total_assets_field = balance_map.get('total_assets')
+        total_equity_field = balance_map.get('total_equity')
+        
+        if not total_liabilities_field or not total_assets_field or not total_equity_field:
+            return
+        
+        liab_values = total_liabilities_field.get('values', [])
+        assets_values = total_assets_field.get('values', [])
+        equity_values = total_equity_field.get('values', [])
+        
+        if not liab_values or not assets_values or not equity_values:
+            return
+        
+        # Verificar si total_liabilities == total_assets (indica uso del tag incorrecto)
+        should_recalculate = False
+        for i in range(min(len(liab_values), len(assets_values))):
+            liab = liab_values[i]
+            assets = assets_values[i]
+            if liab is not None and assets is not None and assets > 0:
+                # Si son iguales (o muy cercanos), recalcular
+                if abs(liab - assets) / assets < 0.01:
+                    should_recalculate = True
+                    break
+        
+        if should_recalculate:
+            logger.info("Recalculating total_liabilities: Assets - Equity")
+            new_liab = []
+            for i in range(num_periods):
+                assets = assets_values[i] if i < len(assets_values) else None
+                equity = equity_values[i] if i < len(equity_values) else None
+                
+                if assets is not None and equity is not None:
+                    new_liab.append(assets - equity)
+                else:
+                    new_liab.append(None)
+            
+            total_liabilities_field['values'] = new_liab
+            total_liabilities_field['source_fields'] = ['total_assets', 'total_equity']
+            total_liabilities_field['calculated'] = True
+            total_liabilities_field['normalized'] = True
     
     def _correct_total_equity(
         self,

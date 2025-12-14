@@ -504,7 +504,13 @@ class SECXBRLService:
         return fiscal_years, period_end_dates, income_data, balance_data, cashflow_data
     
     def _process_annual_results(self, xbrl_results: List, filings: List, ticker: str) -> Tuple:
-        """Procesar resultados annual."""
+        """
+        Procesar resultados annual.
+        
+        IMPORTANTE: Combina datos de múltiples 10-Ks a nivel de CAMPO, no de año.
+        Esto permite que si un 10-K no tiene un campo específico para un año,
+        se use el dato del 10-K que sí lo tiene.
+        """
         all_years_data = {}
         FORM_PRIORITY = {"10-K": 1, "20-F": 2, "S-1": 3, "S-1/A": 3}
         
@@ -522,30 +528,70 @@ class SECXBRLService:
                 priority = FORM_PRIORITY.get(ft, 99)
                 
                 if year not in all_years_data:
-                    all_years_data[year] = (end_date, income, balance, cashflow, ft, priority)
+                    # Primera vez que vemos este año
+                    all_years_data[year] = {
+                        'end_date': end_date,
+                        'income': income,
+                        'balance': balance,
+                        'cashflow': cashflow,
+                        'form_type': ft,
+                        'priority': priority
+                    }
                 else:
-                    existing_priority = all_years_data[year][5]
+                    # Año ya existe - combinar a nivel de campo
+                    existing = all_years_data[year]
+                    existing_priority = existing['priority']
+                    
+                    # Si el nuevo filing tiene mayor prioridad, reemplazar todo
                     if priority < existing_priority:
-                        all_years_data[year] = (end_date, income, balance, cashflow, ft, priority)
+                        all_years_data[year] = {
+                            'end_date': end_date,
+                            'income': income,
+                            'balance': balance,
+                            'cashflow': cashflow,
+                            'form_type': ft,
+                            'priority': priority
+                        }
+                    else:
+                        # Misma prioridad: combinar campos faltantes (None)
+                        # Esto permite que datos de 10-Ks anteriores llenen campos
+                        # que el 10-K más reciente no tiene para ese año
+                        self._merge_fields(existing['income'], income)
+                        self._merge_fields(existing['balance'], balance)
+                        self._merge_fields(existing['cashflow'], cashflow)
         
         fiscal_years, period_end_dates = [], []
         income_data, balance_data, cashflow_data = [], [], []
         
         for year in sorted(all_years_data.keys(), reverse=True):
-            end_date, income, balance, cashflow, ft, _ = all_years_data[year]
+            year_info = all_years_data[year]
             fiscal_years.append(year)
-            period_end_dates.append(end_date)
-            income_data.append(income)
-            balance_data.append(balance)
-            cashflow_data.append(cashflow)
+            period_end_dates.append(year_info['end_date'])
+            income_data.append(year_info['income'])
+            balance_data.append(year_info['balance'])
+            cashflow_data.append(year_info['cashflow'])
         
         sources_used = {}
         for year in all_years_data:
-            ft = all_years_data[year][4]
+            ft = all_years_data[year]['form_type']
             sources_used[ft] = sources_used.get(ft, 0) + 1
         logger.info(f"[{ticker}] Year sources: {sources_used}")
         
         return fiscal_years, period_end_dates, income_data, balance_data, cashflow_data
+    
+    def _merge_fields(self, existing: Dict, new: Dict) -> None:
+        """
+        Combinar campos de dos diccionarios.
+        Solo agrega campos que están en 'new' pero no en 'existing' (o son None).
+        """
+        if not new:
+            return
+        for key, value in new.items():
+            if key not in existing:
+                existing[key] = value
+            elif existing[key] is None and value is not None:
+                # El campo existe pero es None, usar el nuevo valor
+                existing[key] = value
     
     def _extract_all_annual_periods(self, xbrl: Dict, form_type: str) -> List:
         """Extraer TODOS los años anuales de un XBRL."""
