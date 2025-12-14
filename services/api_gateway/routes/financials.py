@@ -133,7 +133,22 @@ async def get_segment_breakdown(symbol: str):
     try:
         data = await client.get_segments(symbol)
         
-        if not data or not data.get('segments'):
+        # Verificar si hay ALGÚN dato (segments, geography O products)
+        if not data:
+            return {
+                "symbol": symbol,
+                "segments": {},
+                "geography": {},
+                "products": {},
+            }
+        
+        has_data = (
+            data.get('segments', {}).get('revenue') or 
+            data.get('geography', {}).get('revenue') or 
+            data.get('products', {}).get('revenue')
+        )
+        
+        if not has_data:
             return {
                 "symbol": symbol,
                 "segments": {},

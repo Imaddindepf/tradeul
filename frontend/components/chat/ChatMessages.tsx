@@ -52,7 +52,8 @@ export function ChatMessages() {
     if (!activeTarget) return;
 
     const key = getTargetKey(activeTarget);
-    if (messages[key]?.length > 0) return;
+    // Ya se cargaron o intentaron cargar mensajes (array existe, aunque esté vacío)
+    if (messages[key] !== undefined) return;
 
     const loadMessages = async () => {
       setLoadingMessages(true);

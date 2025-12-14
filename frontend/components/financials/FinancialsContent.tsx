@@ -253,7 +253,6 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
         if (!data || !data.periods) return { income: [], balance: [], cashflow: [], periods: [] };
 
         const periods = data.periods || [];
-        console.log('[DEBUG] data.periods:', periods);
         const slicedPeriods = periods.slice(rangeStart, rangeEnd + 1);
 
         const sliceValues = (fields: ConsolidatedField[] | undefined) => {

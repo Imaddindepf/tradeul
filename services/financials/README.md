@@ -70,8 +70,18 @@ services/financials/
 │   │   ├── service.py          # Orquestador principal
 │   │   ├── extractors.py       # Extracción y normalización XBRL
 │   │   ├── calculators.py      # Métricas calculadas
-│   │   ├── structures.py       # Jerarquía de display
+│   │   ├── structures.py       # Jerarquía de display (141 campos)
 │   │   └── splits.py           # Ajuste por stock splits
+│   │
+│   ├── mapping/                # 🧠 MAPPING ENGINE
+│   │   ├── __init__.py
+│   │   ├── adapter.py          # ⭐ Interfaz principal (XBRLMapper)
+│   │   ├── schema.py           # ⭐ Schema + Tier 1 mappings (~250)
+│   │   ├── sec_tier2.py        # ⭐ Tier 2 auto-mappings (~3,298)
+│   │   ├── engine.py           # Regex patterns + FASB labels
+│   │   ├── database.py         # (Futuro) PostgreSQL repository
+│   │   ├── llm_classifier.py   # (Futuro) Grok LLM classifier
+│   │   └── README.md           # Documentación del sistema
 │   │
 │   ├── edgar/                  # 🟢 ENRIQUECIMIENTO (edgartools)
 │   │   ├── __init__.py
@@ -353,52 +363,134 @@ Limpia cache de un símbolo.
 
 ---
 
-## 🔮 Próximos Pasos (TODO)
+## ✅ Mapping Engine (IMPLEMENTADO)
 
-### Sistema de Mapeo Inteligente
+### Sistema de Mapeo por Tiers
+
+El sistema utiliza una **arquitectura de Tiers** para clasificar ~45,000 tags XBRL únicos:
 
 ```
-Pipeline propuesto:
-┌─────────────────┐
-│  FASE 0: CACHE  │ ← PostgreSQL: mapeos ya conocidos (~90% hit después de warmup)
-└────────┬────────┘
-         │ miss
-         ▼
-┌─────────────────┐
-│  FASE 1: REGEX  │ ← 62 patterns actuales (~65% cobertura)
-└────────┬────────┘
-         │ miss
-         ▼
-┌─────────────────┐
-│  FASE 2: FASB   │ ← 10,732 labels estándar (~25% adicional)
-└────────┬────────┘
-         │ miss
-         ▼
-┌─────────────────┐
-│  FASE 3: LLM    │ ← Solo ~10% restante, async, save to DB
-└─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                   PIPELINE DE MAPPING                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  TIER 1: Manual (~250 mappings)            confidence = 1.0     │
+│  ════════════════════════════════════════════════════════════   │
+│  • schema.py → XBRL_TO_CANONICAL                                │
+│  • Verificados contra TIKR/Bloomberg                            │
+│  • Incluye: revenue, net_income, leases (ASC 842), etc.         │
+│                                                                  │
+│  TIER 2: SEC Dataset Auto (~3,298 mappings) confidence = 0.85   │
+│  ════════════════════════════════════════════════════════════   │
+│  • sec_tier2.py → SEC_TIER2_MAPPINGS                            │
+│  • Generados de SEC Financial Statement Data Sets               │
+│  • Script: scripts/parse_sec_dataset.py                         │
+│                                                                  │
+│  TIER 3: Regex Patterns (~60 patterns)     confidence = 0.7     │
+│  ════════════════════════════════════════════════════════════   │
+│  • engine.py → REGEX_PATTERNS                                   │
+│  • Patrones genéricos: .*Revenue.* → revenue                    │
+│                                                                  │
+│  TIER 4: FASB Labels (~10,732 labels)      confidence = 0.6     │
+│  ════════════════════════════════════════════════════════════   │
+│  • engine.py → FASB_LABELS                                      │
+│  • Lookup por tag name en taxonomía US-GAAP                     │
+│                                                                  │
+│  TIER 5: Fallback                          confidence = 0.0     │
+│  ════════════════════════════════════════════════════════════   │
+│  • adapter.py → _generate_fallback()                            │
+│  • Normaliza CamelCase → snake_case, importance = 50            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Schema propuesto:**
-```sql
-CREATE TABLE canonical_fields (
-    id SERIAL PRIMARY KEY,
-    key VARCHAR(100) UNIQUE,
-    label VARCHAR(200),
-    category VARCHAR(50),
-    section VARCHAR(100),
-    display_order INT,
-    data_type VARCHAR(20)
-);
+### 📈 Cobertura Actual
 
-CREATE TABLE xbrl_mappings (
-    id SERIAL PRIMARY KEY,
-    xbrl_concept VARCHAR(500) UNIQUE,
-    canonical_key VARCHAR(100),
-    source VARCHAR(20),  -- 'regex', 'fasb', 'llm', 'manual'
-    confidence FLOAT,
-    verified BOOLEAN DEFAULT FALSE
-);
+| Ticker | Total Fields | Mapped | **Coverage** |
+|--------|--------------|--------|--------------|
+| COST   | 147          | 141    | **95.9%**    |
+| AAPL   | 140          | 130    | **92.9%**    |
+| GOOGL  | 203          | 183    | **90.1%**    |
+
+### 📁 Estructura del Módulo
+
+```
+services/mapping/
+├── __init__.py          # Exports públicos
+├── adapter.py           # ⭐ Interfaz principal (XBRLMapper)
+├── schema.py            # ⭐ Campos canónicos + mappings Tier 1
+├── sec_tier2.py         # ⭐ Mappings auto-generados Tier 2 (3,298)
+├── engine.py            # Regex patterns + FASB labels
+├── database.py          # (Futuro) Persistencia en PostgreSQL
+├── llm_classifier.py    # (Futuro) Clasificador con LLM
+└── README.md            # Documentación detallada
+```
+
+### 🔧 Uso
+
+```python
+# En extractors.py (automático)
+from services.mapping.adapter import XBRLMapper
+
+mapper = XBRLMapper()
+key, label, importance, dtype = mapper.detect_concept("OperatingLeaseCost")
+# → ('operating_lease_cost', 'Operating Lease Cost', 6850, 'monetary')
+```
+
+### ➕ Añadir Nuevo Mapping
+
+1. Edita `schema.py`:
+```python
+XBRL_TO_CANONICAL = {
+    # ...existing...
+    "NewXBRLTag": "canonical_key",
+}
+```
+
+2. Si es campo nuevo, añade al schema:
+```python
+INCOME_STATEMENT_SCHEMA = [
+    # ...existing...
+    CanonicalField("canonical_key", "Label", "Section", order, importance=8000),
+]
+```
+
+3. Rebuild:
+```bash
+docker compose build financials && docker compose up -d financials --force-recreate
+```
+
+4. Limpia cache Redis:
+```bash
+docker exec tradeul_redis redis-cli -a "PASSWORD" KEYS "financials:*" | \
+  xargs docker exec -i tradeul_redis redis-cli -a "PASSWORD" DEL
+```
+
+### 🔄 Actualizar Tier 2 (Trimestral)
+
+```bash
+# 1. Descargar de https://www.sec.gov/dera/data/financial-statement-data-sets
+# 2. Parsear
+python3 scripts/parse_sec_dataset.py /path/to/2024q4/ /tmp/output/
+# 3. Copiar
+cp /tmp/output/tier2_python.py services/mapping/sec_tier2.py
+# 4. Rebuild
+```
+
+Ver documentación completa en: `services/mapping/README.md`
+
+### Inicializar Base de Datos
+
+```bash
+cd services/financials
+python -m services.mapping.seed
+```
+
+### Test del Sistema
+
+```bash
+cd services/financials/services/mapping
+python test_mapping.py
 ```
 
 ---
@@ -444,9 +536,9 @@ financials:
 5. Estructura jerárquica tipo TIKR
 
 ### Lo que NECESITA mejora:
-1. **Mapeo XBRL → Canonical**: Actualmente basado en regex, necesita sistema con DB + LLM
-2. **Campos faltantes**: Algunos campos específicos de industria no se extraen
-3. **Desglose de "Other Income"**: TIKR desglosa, nosotros agregamos
+1. ✅ ~~**Mapeo XBRL → Canonical**~~: **IMPLEMENTADO** - Sistema multi-etapa con DB + LLM
+2. **Campos faltantes**: Algunos campos específicos de industria no se extraen (pero ahora con 141 campos canónicos es más completo)
+3. ✅ **Desglose de "Other Income"**: Ahora incluye equity_method_income, foreign_exchange_gain_loss, etc.
 4. **Quarterly data**: Funciona pero menos probado que annual
 
 ### Archivos clave para modificar:

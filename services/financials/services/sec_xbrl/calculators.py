@@ -26,6 +26,142 @@ class FinancialCalculator:
     - Métricas de balance
     """
     
+    @staticmethod
+    def _deduplicate_fields(fields: List[Dict]) -> List[Dict]:
+        """
+        Remove duplicate fields, keeping the one with more data.
+        Prefers extracted (non-calculated) over calculated fields.
+        Also removes overlapping fields (e.g., interest_income if interest_investment_income exists).
+        """
+        seen = {}
+        for field in fields:
+            key = field.get('key')
+            if key in seen:
+                existing = seen[key]
+                # Count non-null values
+                existing_count = sum(1 for v in existing.get('values', []) if v is not None)
+                new_count = sum(1 for v in field.get('values', []) if v is not None)
+                
+                # Prefer non-calculated over calculated if same data count
+                existing_calculated = existing.get('calculated', False)
+                new_calculated = field.get('calculated', False)
+                
+                # Keep new if: more data, OR same data but new is not calculated and existing is
+                if new_count > existing_count or (new_count == existing_count and not new_calculated and existing_calculated):
+                    seen[key] = field
+            else:
+                seen[key] = field
+        
+        # Remove overlapping fields to avoid double-counting
+        # If we have interest_investment_income, remove interest_income (it's included)
+        if 'interest_investment_income' in seen and 'interest_income' in seen:
+            del seen['interest_income']
+        
+        # If we have interest_and_other_income, also remove interest_income
+        if 'interest_and_other_income' in seen and 'interest_income' in seen:
+            del seen['interest_income']
+        
+        return list(seen.values())
+    
+    @staticmethod
+    def adjust_revenue_presentation(fields: List[Dict], industry: str) -> List[Dict]:
+        """
+        Adjust revenue presentation to avoid double-counting interest income.
+        
+        For companies where Revenue includes Interest Income (fintech, banking, crypto):
+        1. Calculate Operating Revenue = Total Revenue - Interest Income
+        2. Move Interest Income to Revenue section (not Non-Operating)
+        3. This makes math work from top to bottom
+        
+        Returns modified fields list.
+        """
+        field_map = {f['key']: f for f in fields}
+        
+        revenue = field_map.get('revenue')
+        interest_inv = field_map.get('interest_investment_income')
+        
+        # Only adjust if we have both and interest is significant (>5% of revenue)
+        if not revenue or not interest_inv:
+            return fields
+        
+        rev_vals = revenue.get('values', [])
+        int_vals = interest_inv.get('values', [])
+        
+        if not rev_vals or not int_vals or not rev_vals[0] or not int_vals[0]:
+            return fields
+        
+        # Check if interest income is significant relative to revenue
+        ratio = abs(int_vals[0]) / abs(rev_vals[0]) if rev_vals[0] != 0 else 0
+        if ratio < 0.03:  # Less than 3% - not significant, keep as-is
+            return fields
+        
+        # Calculate Operating Revenue = Total Revenue - Interest Income
+        num_periods = len(rev_vals)
+        operating_rev = []
+        for i in range(num_periods):
+            rv = rev_vals[i] if i < len(rev_vals) else None
+            iv = int_vals[i] if i < len(int_vals) else None
+            if rv is not None and iv is not None:
+                operating_rev.append(rv - iv)
+            elif rv is not None:
+                operating_rev.append(rv)
+            else:
+                operating_rev.append(None)
+        
+        # Create new fields list with adjusted structure
+        new_fields = []
+        
+        for f in fields:
+            key = f.get('key')
+            
+            if key == 'revenue':
+                # First add Operating Revenue (before Total Revenue)
+                new_fields.append({
+                    'key': 'operating_revenue',
+                    'label': 'Operating Revenue',
+                    'values': operating_rev,
+                    'importance': 10100,  # Higher than revenue
+                    'data_type': 'monetary',
+                    'source_fields': ['revenue', 'interest_investment_income'],
+                    'calculated': True,
+                    'section': 'Revenue',
+                    'display_order': 90,  # Before Total Revenue
+                    'indent_level': 0,
+                    'is_subtotal': False,
+                    'is_industry_specific': False
+                })
+                
+                # Then add Interest Income in Revenue section
+                new_fields.append({
+                    'key': 'interest_income_revenue',
+                    'label': 'Interest & Investment Income',
+                    'values': int_vals,
+                    'importance': 10050,
+                    'data_type': 'monetary',
+                    'source_fields': interest_inv.get('source_fields', []),
+                    'section': 'Revenue',
+                    'display_order': 95,
+                    'indent_level': 0,
+                    'is_subtotal': False,
+                    'is_industry_specific': False
+                })
+                
+                # Rename revenue to Total Revenue
+                new_f = f.copy()
+                new_f['label'] = 'Total Revenue'
+                new_f['display_order'] = 100
+                new_f['is_subtotal'] = True
+                new_fields.append(new_f)
+                
+            elif key == 'interest_investment_income':
+                # Skip - already added to Revenue section
+                continue
+                
+            else:
+                new_fields.append(f)
+        
+        return new_fields
+    
     def add_income_metrics(
         self,
         income_fields: List[Dict],
@@ -37,6 +173,42 @@ class FinancialCalculator:
         """
         income_map = {f['key']: f for f in income_fields}
         cashflow_map = {f['key']: f for f in cashflow_fields}
+        
+        # FIX: Stock compensation puede tener valores incorrectos (ratios de impuestos)
+        # Si los valores son muy pequeños (<1000), usar el valor del Cash Flow
+        income_sbc = income_map.get('stock_compensation', {}).get('values', [])
+        cashflow_sbc = cashflow_map.get('stock_compensation', {}).get('values', [])
+        
+        if cashflow_sbc:
+            # Verificar si income_sbc tiene valores incorrectos (ratios < 1 o muy pequeños)
+            income_sbc_seems_wrong = all(
+                v is None or (isinstance(v, (int, float)) and abs(v) < 1000)
+                for v in income_sbc[:num_periods]
+            ) if income_sbc else True
+            
+            if income_sbc_seems_wrong:
+                # Usar valores del Cash Flow
+                for f in income_fields:
+                    if f.get('key') == 'stock_compensation':
+                        f['values'] = cashflow_sbc[:num_periods]
+                        f['source_fields'] = ['ShareBasedCompensation (from Cash Flow)']
+                        f['calculated'] = True
+                        income_map['stock_compensation'] = f
+                        break
+                else:
+                    # Si no existe en income, agregar desde cash flow
+                    if any(v is not None for v in cashflow_sbc[:num_periods]):
+                        new_field = {
+                            'key': 'stock_compensation',
+                            'label': 'Stock-Based Compensation',
+                            'values': cashflow_sbc[:num_periods],
+                            'importance': 8400,
+                            'data_type': 'monetary',
+                            'source_fields': ['ShareBasedCompensation (from Cash Flow)'],
+                            'calculated': True
+                        }
+                        income_fields.append(new_field)
+                        income_map['stock_compensation'] = new_field
         
         revenue = income_map.get('revenue', {}).get('values', [])
         cost_of_revenue = income_map.get('cost_of_revenue', {}).get('values', [])
@@ -73,6 +245,87 @@ class FinancialCalculator:
                 # Actualizar el mapa
                 income_map['gross_profit'] = {'values': gross_profit}
         
+        # 0.45. AJUSTAR TOTAL OPERATING EXPENSES (excluir COGS)
+        # TIKR y otros calculan: Total OpEx = Raw OpEx - COGS
+        # Porque COGS se muestra arriba de Gross Profit, no en OpEx
+        total_op_exp_raw = income_map.get('total_operating_expenses', {}).get('values', [])
+        cogs = income_map.get('cost_of_revenue', {}).get('values', [])
+        
+        if total_op_exp_raw and cogs:
+            adjusted_opex = []
+            for i in range(num_periods):
+                opex_v = total_op_exp_raw[i] if i < len(total_op_exp_raw) and total_op_exp_raw[i] else None
+                cogs_v = cogs[i] if i < len(cogs) and cogs[i] else 0
+                if opex_v is not None:
+                    # Restar COGS del Total Operating Expenses
+                    adjusted_opex.append(opex_v - abs(cogs_v))
+                else:
+                    adjusted_opex.append(None)
+            
+            # Actualizar el campo total_operating_expenses
+            for f in income_fields:
+                if f.get('key') == 'total_operating_expenses':
+                    f['values'] = adjusted_opex
+                    f['source_fields'] = f.get('source_fields', []) + ['(adjusted: - cost_of_revenue)']
+                    f['calculated'] = True
+                    income_map['total_operating_expenses'] = {'values': adjusted_opex}
+                    break
+        
+        total_op_exp = income_map.get('total_operating_expenses', {}).get('values', [])
+        
+        # 0.5. CALCULAR OPERATING INCOME si no existe
+        # Operating Income = Revenue - Total Operating Expenses
+        if not operating_income and revenue and total_op_exp:
+            operating_income = []
+            for i in range(num_periods):
+                rev = revenue[i] if i < len(revenue) else None
+                opex = total_op_exp[i] if i < len(total_op_exp) else None
+                if rev is not None and opex is not None:
+                    # Operating Expenses suele ser positivo en XBRL
+                    operating_income.append(rev - abs(opex))
+                else:
+                    operating_income.append(None)
+            
+            if any(v is not None for v in operating_income):
+                income_fields.append({
+                    'key': 'operating_income',
+                    'label': 'Operating Income',
+                    'values': operating_income,
+                    'importance': 8000,
+                    'data_type': 'monetary',
+                    'source_fields': ['revenue', 'total_operating_expenses'],
+                    'calculated': True
+                })
+                income_map['operating_income'] = {'values': operating_income}
+        
+        # 0.6. CALCULAR REVENUE BEFORE PROVISION (para Banking/Brokerage)
+        # Solo si hay net_interest_income (indica que es financial)
+        net_interest = income_map.get('net_interest_income', {}).get('values', [])
+        provision = income_map.get('provision_bad_debts', {}).get('values', []) or \
+                   income_map.get('provision_for_loan_losses', {}).get('values', [])
+        
+        if net_interest and revenue and not income_map.get('revenue_before_provision'):
+            rev_before_prov = []
+            for i in range(num_periods):
+                rev = revenue[i] if i < len(revenue) else None
+                prov = provision[i] if provision and i < len(provision) else 0
+                if rev is not None:
+                    # Revenue Before Provision = Total Revenue (provision se resta después)
+                    rev_before_prov.append(rev)
+                else:
+                    rev_before_prov.append(None)
+            
+            if any(v is not None for v in rev_before_prov):
+                income_fields.append({
+                    'key': 'revenue_before_provision',
+                    'label': 'Revenues Before Provision',
+                    'values': rev_before_prov,
+                    'importance': 9200,
+                    'data_type': 'monetary',
+                    'source_fields': ['revenue'],
+                    'calculated': True
+                })
+        
         # 1. MÁRGENES
         self._add_margin(income_fields, 'gross_margin', 'Gross Margin %', 
                         gross_profit, revenue, num_periods, 9350)
@@ -90,6 +343,10 @@ class FinancialCalculator:
         self._add_yoy(income_fields, 'revenue_yoy', 'Revenue % YoY',
                      revenue, num_periods, 9900)
         
+        # Net Interest Income YoY (para banking)
+        self._add_yoy(income_fields, 'net_interest_income_yoy', '% Change YoY',
+                     net_interest, num_periods, 9050)
+        
         self._add_yoy(income_fields, 'gross_profit_yoy', 'Gross Profit % YoY',
                      gross_profit, num_periods, 9350)
         
@@ -106,7 +363,19 @@ class FinancialCalculator:
         # 3. DIVIDEND PER SHARE
         self._add_dps(income_fields, dividends_paid, shares_basic, num_periods)
         
-        return income_fields
+        # 4. EBT EXCL. UNUSUAL ITEMS (para banking especialmente)
+        self._add_ebt_calculations(income_fields, income_map, num_periods)
+        
+        # 5. EARNINGS FROM CONTINUING OPERATIONS
+        self._add_earnings_continuing(income_fields, income_map, num_periods)
+        
+        # 6. PAYOUT RATIO
+        self._add_payout_ratio(income_fields, income_map, dividends_paid, num_periods)
+        
+        # 7. DEDUPLICATE
+        deduplicated = self._deduplicate_fields(income_fields)
+        
+        return deduplicated
     
     def add_cashflow_metrics(
         self,
@@ -198,7 +467,7 @@ class FinancialCalculator:
                     'calculated': True
                 })
         
-        return cashflow_fields
+        return self._deduplicate_fields(cashflow_fields)
     
     def add_balance_metrics(
         self,
@@ -334,7 +603,7 @@ class FinancialCalculator:
                             'calculated': True
                         })
         
-        return balance_fields
+        return self._deduplicate_fields(balance_fields)
     
     def recalculate_ebitda(
         self, 
@@ -404,11 +673,63 @@ class FinancialCalculator:
                 'calculated': True
             })
         
-        return income_fields
+        # Add EBITDA YoY
+        if any(v is not None for v in ebitda_values):
+            ebitda_yoy = self._calculate_yoy(ebitda_values, num_periods)
+            if any(v is not None for v in ebitda_yoy):
+                income_fields.append({
+                    'key': 'ebitda_yoy',
+                    'label': 'EBITDA % YoY',
+                    'values': ebitda_yoy,
+                    'importance': 4550,
+                    'data_type': 'percent',
+                    'source_fields': ['ebitda'],
+                    'calculated': True
+                })
+        
+        # Add EBITDAR (EBITDA + Rent)
+        rent_field = income_map.get('rent_expense') or cashflow_map.get('rent_expense')
+        if rent_field:
+            rent_values = rent_field.get('values', [])
+            ebitdar_values = []
+            for i in range(num_periods):
+                eb = ebitda_values[i] if i < len(ebitda_values) else None
+                rent = abs(rent_values[i]) if i < len(rent_values) and rent_values[i] else 0
+                if eb is not None:
+                    ebitdar_values.append(eb + rent)
+                else:
+                    ebitdar_values.append(None)
+            
+            if any(v is not None for v in ebitdar_values):
+                income_fields.append({
+                    'key': 'ebitdar',
+                    'label': 'EBITDAR',
+                    'values': ebitdar_values,
+                    'importance': 4500,
+                    'source_fields': ['ebitda', 'rent_expense'],
+                    'calculated': True
+                })
+        
+        return self._deduplicate_fields(income_fields)
     
     # =========================================================================
     # HELPER METHODS
     # =========================================================================
+    
+    @staticmethod
+    def _calculate_yoy(values: List, num_periods: int) -> List:
+        """Calculate Year-over-Year change as percentage."""
+        yoy = [None]  # First period has no YoY
+        for i in range(1, num_periods):
+            curr = values[i] if i < len(values) else None
+            prev = values[i-1] if i-1 < len(values) else None
+            
+            if curr is not None and prev is not None and prev != 0:
+                yoy.append((curr - prev) / abs(prev))
+            else:
+                yoy.append(None)
+        
+        return yoy
     
     def _add_margin(
         self,
@@ -502,6 +823,150 @@ class FinancialCalculator:
                 'values': dps,
                 'importance': 4750,
                 'data_type': 'perShare',
+                'calculated': True
+            })
+    
+    def _add_ebt_calculations(
+        self,
+        fields: List[Dict],
+        income_map: Dict,
+        num_periods: int
+    ) -> None:
+        """
+        Calcular EBT Excl. Unusual Items.
+        EBT Excl. = Operating Income + Other Non-Operating
+        (antes de items inusuales como legal settlements, restructuring, etc.)
+        """
+        operating_income = income_map.get('operating_income', {}).get('values', [])
+        income_before_tax = income_map.get('income_before_tax', {}).get('values', [])
+        
+        # Si ya existe EBT excl, no calcular
+        if income_map.get('ebt_excl_unusual', {}).get('values'):
+            return
+        
+        # Items inusuales que se restan de EBT
+        unusual_keys = [
+            'legal_settlements', 'restructuring_charges', 'asset_writedown',
+            'merger_restructuring', 'other_unusual_items', 
+            'business_combination_integration_related_costs'
+        ]
+        
+        # Sumar todos los items inusuales
+        unusual_total = [0] * num_periods
+        for key in unusual_keys:
+            vals = income_map.get(key, {}).get('values', [])
+            if vals:
+                for i in range(min(num_periods, len(vals))):
+                    if vals[i] is not None:
+                        unusual_total[i] += vals[i]
+        
+        # Si tenemos income_before_tax, calcular EBT excl = EBT + |unusual_items|
+        # TIKR siempre muestra EBT Excl. incluso si no hay unusual items (en ese caso EBT Excl = EBT Incl)
+        if income_before_tax:
+            ebt_excl = []
+            has_unusual = any(u != 0 for u in unusual_total)
+            
+            for i in range(num_periods):
+                ebt = income_before_tax[i] if i < len(income_before_tax) else None
+                unusual = unusual_total[i] if i < len(unusual_total) else 0
+                
+                if ebt is not None:
+                    # Items inusuales negativos reducen EBT, así que sumamos su abs para "excluirlos"
+                    # Si no hay unusual items, EBT Excl = EBT Incl
+                    ebt_excl.append(ebt + abs(unusual))
+                else:
+                    ebt_excl.append(None)
+            
+            if any(v is not None for v in ebt_excl):
+                fields.append({
+                    'key': 'ebt_excl_unusual',
+                    'label': 'EBT Excl. Unusual Items',
+                    'values': ebt_excl,
+                    'importance': 6100,
+                    'data_type': 'monetary',
+                    'source_fields': ['income_before_tax'] + (unusual_keys if has_unusual else []),
+                    'calculated': True
+                })
+    
+    def _add_earnings_continuing(
+        self,
+        fields: List[Dict],
+        income_map: Dict,
+        num_periods: int
+    ) -> None:
+        """
+        Calcular Earnings From Continuing Operations.
+        = Income Before Tax - Income Tax
+        """
+        # Si ya existe, no calcular
+        if income_map.get('income_continuing_ops', {}).get('values'):
+            return
+        
+        income_before_tax = income_map.get('income_before_tax', {}).get('values', [])
+        income_tax = income_map.get('income_tax', {}).get('values', [])
+        
+        if not income_before_tax or not income_tax:
+            return
+        
+        earnings_cont = []
+        for i in range(num_periods):
+            ebt = income_before_tax[i] if i < len(income_before_tax) else None
+            tax = income_tax[i] if i < len(income_tax) else None
+            
+            if ebt is not None and tax is not None:
+                # Tax puede ser negativo (beneficio) o positivo (gasto)
+                # Si tax es positivo, es gasto y se resta
+                # Si tax es negativo, es beneficio
+                earnings_cont.append(ebt - abs(tax))
+            else:
+                earnings_cont.append(None)
+        
+        if any(v is not None for v in earnings_cont):
+            fields.append({
+                'key': 'income_continuing_ops',
+                'label': 'Earnings From Continuing Operations',
+                'values': earnings_cont,
+                'importance': 5700,
+                'data_type': 'monetary',
+                'source_fields': ['income_before_tax', 'income_tax'],
+                'calculated': True
+            })
+    
+    def _add_payout_ratio(
+        self,
+        fields: List[Dict],
+        income_map: Dict,
+        dividends_paid: List,
+        num_periods: int
+    ) -> None:
+        """
+        Calcular Payout Ratio %.
+        = Dividends Paid / Net Income to Common
+        """
+        net_income_common = income_map.get('net_income_to_common', {}).get('values', [])
+        
+        if not dividends_paid or not net_income_common:
+            return
+        
+        payout = []
+        for i in range(num_periods):
+            div = dividends_paid[i] if i < len(dividends_paid) else None
+            net = net_income_common[i] if i < len(net_income_common) else None
+            
+            if div is not None and net is not None and net > 0:
+                # Dividends pagados suelen ser negativos en CF
+                payout.append(round(abs(div) / net, 4))
+            else:
+                payout.append(None)
+        
+        if any(v is not None for v in payout):
+            fields.append({
+                'key': 'payout_ratio',
+                'label': 'Payout Ratio %',
+                'values': payout,
+                'importance': 4700,
+                'data_type': 'percent',
+                'source_fields': ['dividends_paid', 'net_income_to_common'],
                 'calculated': True
             })
     

@@ -159,12 +159,12 @@ class SegmentsExtractor:
             else:
                 continue
             
-            # Guardar (en billones)
+            # Guardar valor en dólares (el frontend formatea)
             if name not in result[category]:
                 result[category][name] = {}
             
             current = result[category][name].get(year, 0)
-            new_val = round(value / 1e9, 2)
+            new_val = round(value, 2)  # Mantener en dólares para consistencia
             if abs(new_val) > abs(current):
                 result[category][name][year] = new_val
         

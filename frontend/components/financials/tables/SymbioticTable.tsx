@@ -1,6 +1,9 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+
+// Display unit type for toggle
+type DisplayUnit = 'thousands' | 'millions' | 'billions';
 
 // ============================================================================
 // TYPES - Formato profesional institucional (estilo TIKR/Bloomberg)
@@ -38,11 +41,13 @@ interface SymbioticTableProps {
  * Formatear valor monetario al estilo profesional
  * - Negativos entre paréntesis: (28.16B) en lugar de -$28.16B
  * - Billones con B, Millones con M
+ * - displayUnit: 'auto' (default), 'millions', 'billions'
  */
 const formatValue = (
     value: number | null | undefined, 
     dataType?: string,
-    isDebitField?: boolean
+    isDebitField?: boolean,
+    displayUnit: DisplayUnit = 'auto'
 ): string => {
     if (value === undefined || value === null) return '—';
     
@@ -78,19 +83,21 @@ const formatValue = (
     const absValue = Math.abs(value);
     let formatted: string;
     
-    if (absValue >= 1e9) {
-        formatted = `$${(absValue / 1e9).toFixed(2)}B`;
-    } else if (absValue >= 1e6) {
-        formatted = `$${(absValue / 1e6).toFixed(2)}M`;
-    } else if (absValue >= 1e3) {
-        formatted = `$${(absValue / 1e3).toFixed(2)}K`;
+    // Forzar unidad de visualización
+    if (displayUnit === 'thousands') {
+        // Mostrar todo en miles (K)
+        formatted = `${(absValue / 1e3).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    } else if (displayUnit === 'millions') {
+        // Mostrar todo en millones (MM)
+        formatted = `${(absValue / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     } else {
-        formatted = `$${absValue.toFixed(0)}`;
+        // Billions (B)
+        formatted = `${(absValue / 1e9).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     
     // Negativos entre paréntesis (estilo TIKR/contable)
     if (value < 0) {
-        return `(${formatted.substring(1)})`;  // Quitar $ y poner paréntesis
+        return `(${formatted})`;
     }
     
     return formatted;
@@ -190,6 +197,9 @@ const INDUSTRY_SECTIONS = new Set([
 // ============================================================================
 
 export function SymbioticTable({ fields, periods, category, currency, onMetricClick }: SymbioticTableProps) {
+    // Estado para controlar la unidad de visualización (K/MM/B)
+    const [displayUnit, setDisplayUnit] = useState<DisplayUnit>('millions');
+
     if (!fields || fields.length === 0 || !periods || periods.length === 0) {
         return <div className="p-4 text-center text-slate-400 text-xs">No data available</div>;
     }
@@ -214,8 +224,62 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
         }
     };
 
+    // Obtener rango de fechas de los períodos
+    const dateRange = useMemo(() => {
+        if (!periods || periods.length === 0) return { from: '', to: '' };
+        const sorted = [...periods].sort();
+        return { from: sorted[sorted.length - 1], to: sorted[0] };
+    }, [periods]);
+
+    // Label de unidad para el texto informativo
+    const unitText = displayUnit === 'thousands' ? 'Thousands' : displayUnit === 'millions' ? 'Millions' : 'Billions';
+
     return (
         <div className="overflow-x-auto bg-white">
+            {/* Header con toggle de unidad */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50">
+                {/* Texto informativo */}
+                <span className="text-[10px] text-slate-500">
+                    * Annual Financials in {unitText} of {currency} from {dateRange.from} to {dateRange.to}
+                </span>
+                
+                {/* Toggle K | MM | B */}
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500">Display Units</span>
+                    <div className="flex rounded border border-slate-300 overflow-hidden">
+                        <button
+                            onClick={() => setDisplayUnit('thousands')}
+                            className={`px-3 py-1 text-[10px] font-medium transition-colors ${
+                                displayUnit === 'thousands'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-white text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            K
+                        </button>
+                        <button
+                            onClick={() => setDisplayUnit('millions')}
+                            className={`px-3 py-1 text-[10px] font-medium border-x border-slate-300 transition-colors ${
+                                displayUnit === 'millions'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-white text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            MM
+                        </button>
+                        <button
+                            onClick={() => setDisplayUnit('billions')}
+                            className={`px-3 py-1 text-[10px] font-medium transition-colors ${
+                                displayUnit === 'billions'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-white text-slate-600 hover:bg-slate-100'
+                            }`}
+                        >
+                            B
+                        </button>
+                    </div>
+                </div>
+            </div>
             <table className="w-full text-[11px] border-collapse">
                 {/* Header */}
                 <thead className="sticky top-0 z-10">
@@ -318,7 +382,7 @@ export function SymbioticTable({ fields, periods, category, currency, onMetricCl
                                                             ${isPercentOrYoy ? 'text-[10px]' : ''}
                                                         `}
                                                     >
-                                                        {formatValue(value, field.data_type, isDebit)}
+                                                        {formatValue(value, field.data_type, isDebit, displayUnit)}
                                                     </td>
                                                 );
                                             })}

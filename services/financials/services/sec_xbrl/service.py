@@ -162,8 +162,12 @@ class SECXBRLService:
         balance_filtered = self.extractor.filter_low_value_fields(balance_consolidated)
         cashflow_filtered = self.extractor.filter_low_value_fields(cashflow_consolidated)
         
-        # 9. Detectar industria
-        industry = await self._detect_industry(ticker)
+        # 9. Detectar industria (100% data-driven - analiza los datos financieros)
+        financial_preview = {"income_statement": income_filtered}
+        industry = await self._detect_industry(ticker, financial_preview)
+        
+        # 9.1 Ajustar presentación de Revenue (evitar doble conteo de Interest Income)
+        income_filtered = self.calculator.adjust_revenue_presentation(income_filtered, industry)
         
         # 10. Añadir estructura jerárquica
         income_structured = self._add_structure_metadata(income_filtered, 'income', industry)
@@ -753,52 +757,42 @@ class SECXBRLService:
         
         return enriched
     
-    async def _detect_industry(self, ticker: str) -> Optional[str]:
-        """Detectar industria via SIC code."""
+    async def _detect_industry(self, ticker: str, financial_data: Optional[Dict] = None) -> Optional[str]:
+        """
+        Detectar industria usando el sistema multi-tier profesional.
+        
+        Tiers:
+        1. Company Overrides (curated) - Prioridad MÁXIMA
+        2. Data-Driven Detection - Análisis de estructura financiera
+        3. SIC Code Mapping - Mapeo estándar
+        4. Default (standard) - Estructura GAAP estándar
+        """
         if ticker in self._industry_cache:
             return self._industry_cache[ticker]
         
         try:
-            import edgar
-            edgar.set_identity("Tradeul API api@tradeul.com")
+            # Importar el detector profesional
+            from services.industry.detector import detect_industry
             
-            company = edgar.Company(ticker)
-            sic = int(company.sic) if company.sic else None
+            # Obtener SIC code
+            sic = None
+            try:
+                import edgar
+                edgar.set_identity("Tradeul API api@tradeul.com")
+                company = edgar.Company(ticker)
+                sic = int(company.sic) if company.sic else None
+            except Exception as e:
+                logger.warning(f"[{ticker}] Could not get SIC code: {e}")
+            pass
             
-            if not sic:
-                self._industry_cache[ticker] = None
-                return None
+            # Detectar usando el sistema multi-tier
+            industry = detect_industry(
+                ticker=ticker,
+                sic_code=sic,
+                financial_data=financial_data
+            )
             
-            SIC_TO_INDUSTRY = {
-                6311: 'insurance', 6321: 'insurance', 6324: 'insurance',
-                6331: 'insurance', 6351: 'insurance', 6361: 'insurance',
-                6399: 'insurance', 6411: 'insurance',
-                6020: 'banking', 6021: 'banking', 6022: 'banking',
-                6029: 'banking', 6035: 'banking', 6036: 'banking',
-                6099: 'banking', 6141: 'banking', 6153: 'banking',
-                6159: 'banking', 6162: 'banking', 6172: 'banking',
-                6199: 'banking', 6211: 'banking', 6221: 'banking', 6282: 'banking',
-                6500: 'real_estate', 6510: 'real_estate', 6512: 'real_estate',
-                6513: 'real_estate', 6531: 'real_estate', 6798: 'real_estate',
-                3571: 'technology', 3572: 'technology', 3575: 'technology',
-                3576: 'technology', 3577: 'technology', 3674: 'technology',
-                3679: 'technology', 7370: 'technology', 7371: 'technology',
-                7372: 'technology', 7373: 'technology', 7374: 'technology', 7375: 'technology',
-                5200: 'retail', 5311: 'retail', 5331: 'retail',
-                5399: 'retail', 5411: 'retail', 5600: 'retail',
-                5700: 'retail', 5912: 'retail', 5961: 'retail', 5990: 'retail',
-                2833: 'healthcare', 2834: 'healthcare', 2835: 'healthcare', 2836: 'healthcare',
-                3841: 'healthcare', 3842: 'healthcare', 3845: 'healthcare', 3851: 'healthcare',
-                8000: 'healthcare', 8011: 'healthcare', 8050: 'healthcare',
-                8060: 'healthcare', 8071: 'healthcare', 8082: 'healthcare',
-            }
-            
-            industry = SIC_TO_INDUSTRY.get(sic)
             self._industry_cache[ticker] = industry
-            
-            if industry:
-                logger.info(f"[{ticker}] Industry: {industry} (SIC: {sic})")
-            
             return industry
             
         except Exception as e:

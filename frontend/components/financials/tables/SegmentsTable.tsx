@@ -118,17 +118,28 @@ export function SegmentsTable({ symbol }: SegmentsTableProps) {
     }
   }, [symbol]);
 
-  // Calcular años disponibles
+  // Calcular años disponibles (incluye segments, geography Y products)
   const years = useMemo(() => {
     if (!data) return [];
 
     const allYears = new Set<string>();
-    Object.values(data.segments.revenue || {}).forEach(segment => {
+    
+    // Segments
+    Object.values(data.segments?.revenue || {}).forEach(segment => {
       Object.keys(segment).forEach(year => allYears.add(year));
     });
-    Object.values(data.geography.revenue || {}).forEach(segment => {
+    
+    // Geography
+    Object.values(data.geography?.revenue || {}).forEach(segment => {
       Object.keys(segment).forEach(year => allYears.add(year));
     });
+    
+    // Products (fix: también incluir products para empresas que solo tienen esto)
+    if (data.products?.revenue) {
+      Object.values(data.products.revenue).forEach(product => {
+        Object.keys(product).forEach(year => allYears.add(year));
+      });
+    }
 
     return Array.from(allYears).sort((a, b) => parseInt(b) - parseInt(a));
   }, [data]);

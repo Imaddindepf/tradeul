@@ -2,6 +2,13 @@
 SEC XBRL Extractors - Extracción y normalización de datos XBRL.
 
 Procesa datos JSON de SEC-API y los normaliza semánticamente.
+
+Utiliza el Mapping Engine multi-etapa:
+1. Cache (PostgreSQL) - Mapeos ya conocidos
+2. XBRL_TO_CANONICAL - Diccionario directo
+3. Regex Patterns - Patrones compilados
+4. FASB Labels - 10,732 etiquetas US-GAAP
+5. LLM (opcional) - Grok para conceptos desconocidos
 """
 
 import re
@@ -9,6 +16,13 @@ from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime
 
 from shared.utils.logger import get_logger
+
+# Importar el nuevo sistema de mapping
+try:
+    from services.mapping.adapter import XBRLMapper, get_mapper
+    MAPPING_ENGINE_AVAILABLE = True
+except ImportError:
+    MAPPING_ENGINE_AVAILABLE = False
 
 logger = get_logger(__name__)
 
@@ -18,7 +32,24 @@ class XBRLExtractor:
     Extractor de datos XBRL.
     
     Procesa JSON de SEC-API y normaliza los campos semánticamente.
+    Utiliza el Mapping Engine multi-etapa para clasificación inteligente.
     """
+    
+    def __init__(self, use_mapping_engine: bool = True, use_llm: bool = False):
+        """
+        Inicializar extractor.
+        
+        Args:
+            use_mapping_engine: Usar el nuevo Mapping Engine (recomendado)
+            use_llm: Habilitar LLM para conceptos desconocidos
+        """
+        self._mapper = None
+        if use_mapping_engine and MAPPING_ENGINE_AVAILABLE:
+            try:
+                self._mapper = get_mapper(use_engine=True, use_llm=use_llm)
+                logger.info("XBRLExtractor: Mapping Engine enabled")
+            except Exception as e:
+                logger.warning(f"XBRLExtractor: Mapping Engine unavailable ({e})")
     
     # Secciones a IGNORAR completamente
     SKIP_SECTIONS = {
@@ -59,25 +90,62 @@ class XBRLExtractor:
     
     # Campos clave que siempre se mantienen
     KEY_FINANCIAL_FIELDS = {
-        # Income
-        'revenue', 'cost_of_revenue', 'gross_profit', 'operating_income', 
-        'operating_expenses', 'sga_expenses', 'rd_expenses', 'sales_marketing',
-        'net_income', 'income_before_tax', 'income_tax', 'ebitda',
-        'eps_basic', 'eps_diluted', 'interest_income', 'interest_expense',
-        'depreciation', 'shares_basic', 'shares_diluted',
-        'gross_margin', 'operating_margin', 'net_margin', 'ebitda_margin',
-        'revenue_yoy', 'net_income_yoy', 'eps_yoy', 'dividend_per_share',
-        'gross_profit_yoy', 'operating_income_yoy',
+        # === Income Statement ===
+        # Revenue
+        'revenue', 'product_revenue', 'service_revenue', 'subscription_revenue', 'membership_fees',
+        # Cost & Gross
+        'cost_of_revenue', 'cost_of_goods_sold', 'cost_of_services', 'gross_profit',
+        'gross_margin', 'gross_profit_yoy',
+        # Operating Expenses
+        'rd_expenses', 'sga_expenses', 'sales_marketing', 'ga_expenses',
+        'fulfillment_expense', 'pre_opening_costs', 'stock_compensation',
+        'depreciation_amortization', 'restructuring_charges', 'total_operating_expenses',
+        # Operating Income
+        'operating_income', 'operating_margin', 'operating_income_yoy',
+        # EBITDA
+        'ebitda', 'ebitda_margin', 'ebitda_yoy', 'ebitdar',
         # Non-Operating
-        'investment_income', 'other_income', 'gain_loss_securities', 
-        'gain_loss_business', 'impairment_charges', 'unusual_items',
-        # Balance
-        'total_assets', 'current_assets', 'cash', 'receivables', 'inventory',
-        'ppe', 'goodwill', 'intangibles', 'total_liabilities', 'current_liabilities',
-        'accounts_payable', 'st_debt', 'lt_debt', 'total_equity', 'retained_earnings',
-        # Cash Flow
-        'operating_cf', 'investing_cf', 'financing_cf', 'capex', 'dividends_paid',
-        'stock_repurchased', 'debt_issued', 'debt_repaid',
+        'interest_expense', 'interest_income', 'interest_and_other_income',
+        'investment_income', 'equity_method_income', 'foreign_exchange_gain_loss',
+        'gain_loss_securities', 'gain_loss_sale_assets', 'impairment_charges',
+        'other_nonoperating', 'total_nonoperating',
+        # Earnings
+        'ebt_excl_unusual', 'unusual_items', 'income_before_tax',
+        'income_tax', 'effective_tax_rate', 'income_continuing_ops', 'income_discontinued_ops',
+        'minority_interest', 'net_income', 'net_income_to_common',
+        'net_margin', 'net_income_yoy',
+        # Per Share
+        'eps_basic', 'eps_diluted', 'eps_yoy', 'shares_basic', 'shares_diluted',
+        'dividend_per_share', 'special_dividend', 'payout_ratio',
+        # Deprecated but kept for compatibility
+        'operating_expenses', 'other_income', 'depreciation', 'gain_loss_business',
+        
+        # === Balance Sheet ===
+        'cash', 'restricted_cash', 'st_investments', 'receivables', 'inventory',
+        'prepaid', 'other_current_assets', 'current_assets',
+        'ppe_gross', 'accumulated_depreciation', 'ppe', 'goodwill', 'intangibles',
+        'lt_investments', 'deferred_tax_assets', 'operating_lease_rou',
+        'other_noncurrent_assets', 'total_assets',
+        'accounts_payable', 'accrued_liabilities', 'deferred_revenue', 'st_debt',
+        'current_portion_lt_debt', 'income_tax_payable', 'operating_lease_liability_current',
+        'other_current_liabilities', 'current_liabilities',
+        'lt_debt', 'operating_lease_liability', 'deferred_tax_liabilities',
+        'pension_liability', 'other_noncurrent_liabilities', 'total_liabilities',
+        'preferred_stock', 'common_stock', 'apic', 'retained_earnings',
+        'treasury_stock', 'accumulated_oci', 'noncontrolling_interest', 'total_equity',
+        'total_debt', 'net_debt', 'working_capital', 'book_value_per_share',
+        'tangible_book_value', 'tangible_book_value_per_share',
+        
+        # === Cash Flow ===
+        'cf_net_income', 'depreciation', 'stock_compensation_cf', 'deferred_taxes',
+        'gain_loss_investments', 'impairment_cf', 'change_receivables', 'change_inventory',
+        'change_payables', 'change_deferred_revenue', 'other_operating_cf', 'operating_cf',
+        'capex', 'acquisitions', 'purchase_investments', 'sale_investments',
+        'other_investing_cf', 'investing_cf',
+        'debt_issued', 'debt_repaid', 'stock_issued', 'stock_repurchased',
+        'dividends_paid', 'other_financing_cf', 'financing_cf',
+        'fx_effect', 'net_change_cash', 'cash_beginning', 'cash_ending',
+        'free_cash_flow', 'fcf_margin', 'fcf_per_share', 'fcf_yoy',
     }
     
     # Patrones de detección de conceptos financieros
@@ -257,11 +325,33 @@ class XBRLExtractor:
         
         return None
     
-    def detect_concept(self, field_name: str) -> Tuple[str, str, int, str]:
+    def detect_concept(self, field_name: str, statement_type: str = "income") -> Tuple[str, str, int, str]:
         """
         Detectar el concepto financiero de un campo XBRL.
         
+        Utiliza el Mapping Engine multi-etapa si está disponible:
+        1. Cache (PostgreSQL)
+        2. XBRL_TO_CANONICAL directo
+        3. Regex patterns
+        4. FASB labels
+        5. LLM (si habilitado)
+        
         Returns: (canonical_key, display_label, importance_score, data_type)
+        """
+        # Usar el nuevo Mapping Engine si está disponible
+        if MAPPING_ENGINE_AVAILABLE and hasattr(self, '_mapper'):
+            try:
+                return self._mapper.detect_concept(field_name, statement_type)
+            except Exception as e:
+                logger.debug(f"Mapping engine failed for {field_name}: {e}")
+        
+        # Fallback al método original
+        return self._detect_concept_legacy(field_name)
+    
+    def _detect_concept_legacy(self, field_name: str) -> Tuple[str, str, int, str]:
+        """
+        Método legacy de detección de concepto.
+        Usado como fallback si el Mapping Engine no está disponible.
         """
         name = self._camel_to_snake(field_name).lower()
         
@@ -310,6 +400,12 @@ class XBRLExtractor:
             if 'incometax' in name_lower:
                 return False
             if 'supplemental' in name_lower:
+                return False
+            # Allow Revenue Details sections (for InterestAndOtherIncome)
+            if 'revenueschedule' in name_lower or 'revenuedetails' in name_lower:
+                return False
+            # Allow Other Income/Expense Details
+            if 'otherincomeexpense' in name_lower and 'details' in name_lower:
                 return False
             return True
         
@@ -457,7 +553,12 @@ class XBRLExtractor:
                 if self._should_skip_field(normalized_name):
                     continue
                 
-                canonical_key, label, importance, data_type = self.detect_concept(normalized_name)
+                # Pasar el nombre original (CamelCase) para mapeo directo XBRL
+                canonical_key, label, importance, data_type = self.detect_concept(original)
+                
+                # Skip campos marcados para exclusión (ej: _skip_shares, _skip_balance_sheet)
+                if canonical_key.startswith('_skip'):
+                    continue
                 
                 if canonical_key not in concept_groups:
                     concept_groups[canonical_key] = {
@@ -476,9 +577,15 @@ class XBRLExtractor:
                     concept_groups[canonical_key]['sources'].append(original)
         
         consolidated_fields = []
+        seen_keys = set()
         
         for concept_key, group in concept_groups.items():
             if any(v is not None for v in group['values']):
+                # Skip duplicates (keep first occurrence which has highest importance due to consolidation order)
+                if group['key'] in seen_keys:
+                    continue
+                seen_keys.add(group['key'])
+                
                 field_data = {
                     'key': group['key'],
                     'label': group['label'],
