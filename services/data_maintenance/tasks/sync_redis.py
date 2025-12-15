@@ -193,7 +193,7 @@ class SyncRedisTask:
             
             for row in rows:
                 try:
-                    key = f"metadata:ticker:{row['symbol']}"  # ✅ Formato estandarizado
+                    redis_key = f"metadata:ticker:{row['symbol']}"  # ✅ Formato estandarizado
                     
                     # Convertir row a dict y manejar campos especiales
                     data = dict(row)
@@ -212,9 +212,9 @@ class SyncRedisTask:
 
                     # Convertir objetos Decimal a float para JSON serialization
                     from decimal import Decimal
-                    for key, value in data.items():
+                    for field_key, value in data.items():
                         if isinstance(value, Decimal):
-                            data[key] = float(value)
+                            data[field_key] = float(value)
 
                     # Eliminar campos None
                     data = {k: v for k, v in data.items() if v is not None}
@@ -222,7 +222,7 @@ class SyncRedisTask:
                     # Verificar que JSON es serializable
                     json_str = json.dumps(data)
                     
-                    pipeline.set(key, json_str)  # SIN TTL - persiste siempre
+                    pipeline.set(redis_key, json_str)  # SIN TTL - persiste siempre
                     synced_count += 1
                 
                 except Exception as e:

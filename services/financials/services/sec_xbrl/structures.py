@@ -16,16 +16,18 @@ from typing import Dict, Optional
 
 INCOME_STATEMENT_STRUCTURE = {
     # === REVENUE (100-199) ===
-    # Para empresas donde Revenue incluye Interest Income (fintech, banking, crypto):
+    # Para empresas standard (tech, retail, etc.): Solo mostrar Revenue total
+    # EXCEPCIÓN: Finance Division se muestra porque es estructuralmente diferente (como CAT, GE)
     'operating_revenue':    {'section': 'Revenue',              'order': 90,  'indent': 0, 'is_subtotal': False},
     'interest_income_revenue': {'section': 'Revenue',           'order': 95,  'indent': 0, 'is_subtotal': False},
     'other_revenue':        {'section': 'Revenue',              'order': 98,  'indent': 0, 'is_subtotal': False},
-    'revenue':              {'section': 'Revenue',              'order': 100, 'indent': 0, 'is_subtotal': True},
+    'revenue':              {'section': 'Revenue',              'order': 100, 'indent': 0, 'is_subtotal': True, 'label': 'Revenues'},
     'revenue_yoy':          {'section': 'Revenue',              'order': 101, 'indent': 1, 'is_subtotal': False},
-    'product_revenue':      {'section': 'Revenue',              'order': 110, 'indent': 1, 'is_subtotal': False},
-    'service_revenue':      {'section': 'Revenue',              'order': 111, 'indent': 1, 'is_subtotal': False},
-    'subscription_revenue': {'section': 'Revenue',              'order': 112, 'indent': 1, 'is_subtotal': False},
-    'membership_fees':      {'section': 'Revenue',              'order': 113, 'indent': 1, 'is_subtotal': False},
+    # Finance Division (CAT, GE, etc.) - SE MUESTRA porque es negocio estructuralmente diferente
+    'finance_division_revenue': {'section': 'Revenue',          'order': 105, 'indent': 0, 'is_subtotal': False, 'label': 'Finance Div. Revenue'},
+    'total_revenue':        {'section': 'Revenue',              'order': 110, 'indent': 0, 'is_subtotal': True, 'label': 'Total Revenues'},
+    # NOTA: Segmentos de producto/servicio (cloud, services, products) NO se muestran en estándar
+    # TIKR solo muestra estos en banking/fintech donde son estructurales, no en tech
     
     # === COST & GROSS PROFIT (200-299) ===
     'cost_of_revenue':      {'section': 'Cost & Gross Profit',  'order': 200, 'indent': 0, 'is_subtotal': False},
@@ -36,10 +38,11 @@ INCOME_STATEMENT_STRUCTURE = {
     'gross_margin':         {'section': 'Cost & Gross Profit',  'order': 212, 'indent': 1, 'is_subtotal': False},
     
     # === OPERATING EXPENSES (300-399) ===
-    'rd_expenses':          {'section': 'Operating Expenses',   'order': 300, 'indent': 1, 'is_subtotal': False},
-    'sga_expenses':         {'section': 'Operating Expenses',   'order': 310, 'indent': 1, 'is_subtotal': False},
-    'sales_marketing':      {'section': 'Operating Expenses',   'order': 320, 'indent': 1, 'is_subtotal': False},
-    'ga_expenses':          {'section': 'Operating Expenses',   'order': 325, 'indent': 1, 'is_subtotal': False},
+    'sga_expenses':         {'section': 'Operating Expenses',   'order': 300, 'indent': 1, 'is_subtotal': False, 'label': 'Selling, General & Admin'},
+    'rd_expenses':          {'section': 'Operating Expenses',   'order': 310, 'indent': 1, 'is_subtotal': False, 'label': 'R&D Expenses'},
+    'amortization_intangibles': {'section': 'Operating Expenses', 'order': 315, 'indent': 1, 'is_subtotal': False, 'label': 'Amortization of Intangibles'},
+    'sales_marketing':      {'section': 'Operating Expenses',   'order': 320, 'indent': 2, 'is_subtotal': False, 'label': 'Sales & Marketing'},
+    'ga_expenses':          {'section': 'Operating Expenses',   'order': 325, 'indent': 2, 'is_subtotal': False, 'label': 'G&A Expenses'},
     'fulfillment_expense':  {'section': 'Operating Expenses',   'order': 330, 'indent': 1, 'is_subtotal': False},
     'pre_opening_costs':    {'section': 'Operating Expenses',   'order': 335, 'indent': 1, 'is_subtotal': False},
     # SBC and D&A are non-cash items shown in EBITDA section (already embedded in SG&A/R&D per GAAP)
@@ -123,72 +126,98 @@ INCOME_STATEMENT_STRUCTURE = {
 # =============================================================================
 
 BALANCE_SHEET_STRUCTURE = {
-    # === CURRENT ASSETS (100-199) ===
-    'cash':                 {'section': 'Current Assets',       'order': 100, 'indent': 1, 'is_subtotal': False},
-    'restricted_cash':      {'section': 'Current Assets',       'order': 105, 'indent': 1, 'is_subtotal': False},
-    'st_investments':       {'section': 'Current Assets',       'order': 110, 'indent': 1, 'is_subtotal': False},
-    'receivables':          {'section': 'Current Assets',       'order': 120, 'indent': 1, 'is_subtotal': False},
-    'inventory':            {'section': 'Current Assets',       'order': 130, 'indent': 1, 'is_subtotal': False},
-    'prepaid':              {'section': 'Current Assets',       'order': 140, 'indent': 1, 'is_subtotal': False},
-    'other_current_assets': {'section': 'Current Assets',       'order': 180, 'indent': 1, 'is_subtotal': False},
-    'current_assets':       {'section': 'Current Assets',       'order': 190, 'indent': 0, 'is_subtotal': True},
+    # ==========================================================================
+    # CURRENT ASSETS (100-199) - Orden TIKR: suma hacia Total Current Assets
+    # ==========================================================================
+    'cash':                     {'section': 'Current Assets', 'order': 100, 'indent': 1, 'is_subtotal': False, 'label': 'Cash & Equivalents'},
+    'restricted_cash':          {'section': 'Current Assets', 'order': 102, 'indent': 1, 'is_subtotal': False, 'label': 'Restricted Cash'},
+    'st_investments':           {'section': 'Current Assets', 'order': 104, 'indent': 1, 'is_subtotal': False, 'label': 'Short-term Investments'},
+    'total_cash_st_investments':{'section': 'Current Assets', 'order': 106, 'indent': 0, 'is_subtotal': True, 'label': 'Total Cash & Short-Term Investments'},
+    'receivables':              {'section': 'Current Assets', 'order': 110, 'indent': 1, 'is_subtotal': False, 'label': 'Accounts Receivable'},
+    'other_receivables':        {'section': 'Current Assets', 'order': 112, 'indent': 1, 'is_subtotal': False, 'label': 'Other Receivables'},
+    'total_receivables':        {'section': 'Current Assets', 'order': 114, 'indent': 0, 'is_subtotal': True, 'label': 'Total Receivables'},
+    'inventory':                {'section': 'Current Assets', 'order': 120, 'indent': 1, 'is_subtotal': False, 'label': 'Inventory'},
+    'prepaid':                  {'section': 'Current Assets', 'order': 130, 'indent': 1, 'is_subtotal': False, 'label': 'Prepaid Expenses'},
+    'deferred_tax_assets_current': {'section': 'Current Assets', 'order': 140, 'indent': 1, 'is_subtotal': False, 'label': 'Deferred Tax Assets Current'},
+    'other_current_assets':     {'section': 'Current Assets', 'order': 180, 'indent': 1, 'is_subtotal': False, 'label': 'Other Current Assets'},
+    'current_assets':           {'section': 'Current Assets', 'order': 190, 'indent': 0, 'is_subtotal': True, 'label': 'Total Current Assets'},
     
-    # === NON-CURRENT ASSETS (200-299) ===
-    'ppe_gross':            {'section': 'Non-Current Assets',   'order': 200, 'indent': 1, 'is_subtotal': False},
-    'accumulated_depreciation': {'section': 'Non-Current Assets', 'order': 205, 'indent': 2, 'is_subtotal': False},
-    'ppe':                  {'section': 'Non-Current Assets',   'order': 210, 'indent': 1, 'is_subtotal': False},
-    'goodwill':             {'section': 'Non-Current Assets',   'order': 220, 'indent': 1, 'is_subtotal': False},
-    'intangibles':          {'section': 'Non-Current Assets',   'order': 230, 'indent': 1, 'is_subtotal': False},
-    'lt_investments':       {'section': 'Non-Current Assets',   'order': 240, 'indent': 1, 'is_subtotal': False},
-    'deferred_tax_assets':  {'section': 'Non-Current Assets',   'order': 250, 'indent': 1, 'is_subtotal': False},
-    'rou_assets':           {'section': 'Non-Current Assets',   'order': 255, 'indent': 1, 'is_subtotal': False, 'label': 'Right-of-Use Assets'},
-    'operating_lease_rou':  {'section': 'Non-Current Assets',   'order': 260, 'indent': 2, 'is_subtotal': False, 'label': 'Operating Lease ROU'},
-    'finance_lease_rou':    {'section': 'Non-Current Assets',   'order': 265, 'indent': 2, 'is_subtotal': False, 'label': 'Finance Lease ROU'},
-    'other_noncurrent_assets': {'section': 'Non-Current Assets', 'order': 280, 'indent': 1, 'is_subtotal': False},
-    'total_assets':         {'section': 'Non-Current Assets',   'order': 290, 'indent': 0, 'is_subtotal': True},
+    # ==========================================================================
+    # NON-CURRENT ASSETS (200-299) - PPE Gross - Accumulated Depreciation = Net PPE
+    # ==========================================================================
+    'ppe_gross':                {'section': 'Non-Current Assets', 'order': 200, 'indent': 1, 'is_subtotal': False, 'label': 'PP&E Gross'},
+    'accumulated_depreciation': {'section': 'Non-Current Assets', 'order': 202, 'indent': 1, 'is_subtotal': False, 'label': 'Accumulated Depreciation'},
+    'ppe':                      {'section': 'Non-Current Assets', 'order': 204, 'indent': 0, 'is_subtotal': True, 'label': 'Net Property Plant And Equipment'},
+    'land':                     {'section': 'Non-Current Assets', 'order': 206, 'indent': 2, 'is_subtotal': False, 'label': 'Land'},
+    'construction_in_progress': {'section': 'Non-Current Assets', 'order': 208, 'indent': 2, 'is_subtotal': False, 'label': 'Construction In Progress'},
+    'lt_investments':           {'section': 'Non-Current Assets', 'order': 220, 'indent': 1, 'is_subtotal': False, 'label': 'Long-term Investments'},
+    'goodwill':                 {'section': 'Non-Current Assets', 'order': 230, 'indent': 1, 'is_subtotal': False, 'label': 'Goodwill'},
+    'intangibles':              {'section': 'Non-Current Assets', 'order': 240, 'indent': 1, 'is_subtotal': False, 'label': 'Intangible Assets'},
+    'deferred_tax_assets':      {'section': 'Non-Current Assets', 'order': 250, 'indent': 1, 'is_subtotal': False, 'label': 'Deferred Tax Assets'},
+    'rou_assets':               {'section': 'Non-Current Assets', 'order': 260, 'indent': 1, 'is_subtotal': False, 'label': 'Right-of-Use Assets'},
+    'operating_lease_rou':      {'section': 'Non-Current Assets', 'order': 262, 'indent': 2, 'is_subtotal': False, 'label': 'Operating Lease ROU'},
+    'finance_lease_rou':        {'section': 'Non-Current Assets', 'order': 264, 'indent': 2, 'is_subtotal': False, 'label': 'Finance Lease ROU'},
+    'other_noncurrent_assets':  {'section': 'Non-Current Assets', 'order': 280, 'indent': 1, 'is_subtotal': False, 'label': 'Other Non-Current Assets'},
+    'total_assets':             {'section': 'Non-Current Assets', 'order': 290, 'indent': 0, 'is_subtotal': True, 'label': 'Total Assets'},
     
-    # === CURRENT LIABILITIES (300-399) ===
-    'accounts_payable':     {'section': 'Current Liabilities',  'order': 300, 'indent': 1, 'is_subtotal': False},
-    'accrued_liabilities':  {'section': 'Current Liabilities',  'order': 310, 'indent': 1, 'is_subtotal': False},
-    'deferred_revenue':     {'section': 'Current Liabilities',  'order': 320, 'indent': 1, 'is_subtotal': False},
-    'st_debt':              {'section': 'Current Liabilities',  'order': 330, 'indent': 1, 'is_subtotal': False},
-    'current_portion_lt_debt': {'section': 'Current Liabilities', 'order': 335, 'indent': 2, 'is_subtotal': False},
-    'income_tax_payable':   {'section': 'Current Liabilities',  'order': 340, 'indent': 1, 'is_subtotal': False},
-    'operating_lease_liability_current': {'section': 'Current Liabilities', 'order': 350, 'indent': 1, 'is_subtotal': False},
-    'other_current_liabilities': {'section': 'Current Liabilities', 'order': 380, 'indent': 1, 'is_subtotal': False},
-    'current_liabilities':  {'section': 'Current Liabilities',  'order': 390, 'indent': 0, 'is_subtotal': True},
+    # ==========================================================================
+    # CURRENT LIABILITIES (300-399) - Orden TIKR: suma hacia Total Current Liabilities
+    # ==========================================================================
+    'accounts_payable':         {'section': 'Current Liabilities', 'order': 300, 'indent': 1, 'is_subtotal': False, 'label': 'Accounts Payable'},
+    'accrued_liabilities':      {'section': 'Current Liabilities', 'order': 310, 'indent': 1, 'is_subtotal': False, 'label': 'Accrued Expenses'},
+    'st_debt':                  {'section': 'Current Liabilities', 'order': 320, 'indent': 1, 'is_subtotal': False, 'label': 'Short-term Borrowings'},
+    'current_portion_lt_debt':  {'section': 'Current Liabilities', 'order': 325, 'indent': 1, 'is_subtotal': False, 'label': 'Current Portion of Long-Term Debt'},
+    'current_portion_capital_lease': {'section': 'Current Liabilities', 'order': 330, 'indent': 1, 'is_subtotal': False, 'label': 'Current Portion of Capital Lease Obligations'},
+    'deferred_revenue':         {'section': 'Current Liabilities', 'order': 340, 'indent': 1, 'is_subtotal': False, 'label': 'Unearned Revenue Current'},
+    'income_tax_payable':       {'section': 'Current Liabilities', 'order': 350, 'indent': 1, 'is_subtotal': False, 'label': 'Income Tax Payable'},
+    'operating_lease_liability_current': {'section': 'Current Liabilities', 'order': 360, 'indent': 1, 'is_subtotal': False, 'label': 'Operating Lease Liability Current'},
+    'other_current_liabilities':{'section': 'Current Liabilities', 'order': 380, 'indent': 1, 'is_subtotal': False, 'label': 'Other Current Liabilities'},
+    'current_liabilities':      {'section': 'Current Liabilities', 'order': 390, 'indent': 0, 'is_subtotal': True, 'label': 'Total Current Liabilities'},
     
-    # === NON-CURRENT LIABILITIES (400-499) ===
-    'lt_debt':              {'section': 'Non-Current Liabilities', 'order': 400, 'indent': 1, 'is_subtotal': False},
-    'lease_liabilities':    {'section': 'Non-Current Liabilities', 'order': 405, 'indent': 1, 'is_subtotal': False, 'label': 'Total Lease Liabilities'},
-    'operating_lease_liability': {'section': 'Non-Current Liabilities', 'order': 410, 'indent': 2, 'is_subtotal': False},
-    'finance_lease_liability': {'section': 'Non-Current Liabilities', 'order': 415, 'indent': 2, 'is_subtotal': False, 'label': 'Finance Lease Liability'},
-    'lease_liabilities_noncurrent': {'section': 'Non-Current Liabilities', 'order': 416, 'indent': 2, 'is_subtotal': False, 'label': 'Lease Liabilities (Non-Current)'},
-    'finance_lease_liability_noncurrent': {'section': 'Non-Current Liabilities', 'order': 417, 'indent': 2, 'is_subtotal': False, 'label': 'Finance Lease (Non-Current)'},
-    'deferred_tax_liabilities': {'section': 'Non-Current Liabilities', 'order': 420, 'indent': 1, 'is_subtotal': False},
-    'pension_liability':    {'section': 'Non-Current Liabilities', 'order': 430, 'indent': 1, 'is_subtotal': False},
-    'other_noncurrent_liabilities': {'section': 'Non-Current Liabilities', 'order': 480, 'indent': 1, 'is_subtotal': False},
-    'total_liabilities':    {'section': 'Non-Current Liabilities', 'order': 490, 'indent': 0, 'is_subtotal': True},
-    # Legacy
-    'lease_liability':      {'section': 'Non-Current Liabilities', 'order': 411, 'indent': 1, 'is_subtotal': False},
+    # ==========================================================================
+    # NON-CURRENT LIABILITIES (400-499) - suma hacia Total Liabilities
+    # ==========================================================================
+    'lt_debt':                  {'section': 'Non-Current Liabilities', 'order': 400, 'indent': 1, 'is_subtotal': False, 'label': 'Long-Term Debt'},
+    'capital_leases':           {'section': 'Non-Current Liabilities', 'order': 410, 'indent': 1, 'is_subtotal': False, 'label': 'Capital Leases'},
+    'finance_lease_liability':  {'section': 'Non-Current Liabilities', 'order': 412, 'indent': 2, 'is_subtotal': False, 'label': 'Finance Lease Liability'},
+    'finance_lease_liability_noncurrent': {'section': 'Non-Current Liabilities', 'order': 414, 'indent': 2, 'is_subtotal': False, 'label': 'Finance Lease (Non-Current)'},
+    'deferred_revenue_noncurrent': {'section': 'Non-Current Liabilities', 'order': 420, 'indent': 1, 'is_subtotal': False, 'label': 'Unearned Revenue Non Current'},
+    'operating_lease_liability':{'section': 'Non-Current Liabilities', 'order': 430, 'indent': 1, 'is_subtotal': False, 'label': 'Operating Lease Liability'},
+    'deferred_tax_liabilities': {'section': 'Non-Current Liabilities', 'order': 440, 'indent': 1, 'is_subtotal': False, 'label': 'Deferred Tax Liability Non Current'},
+    'pension_liability':        {'section': 'Non-Current Liabilities', 'order': 450, 'indent': 1, 'is_subtotal': False, 'label': 'Pension Liability'},
+    'other_noncurrent_liabilities': {'section': 'Non-Current Liabilities', 'order': 480, 'indent': 1, 'is_subtotal': False, 'label': 'Other Non Current Liabilities'},
+    'total_liabilities':        {'section': 'Non-Current Liabilities', 'order': 490, 'indent': 0, 'is_subtotal': True, 'label': 'Total Liabilities'},
+    # Legacy aliases
+    'lease_liabilities':        {'section': 'Non-Current Liabilities', 'order': 411, 'indent': 1, 'is_subtotal': False, 'label': 'Total Lease Liabilities'},
+    'lease_liabilities_noncurrent': {'section': 'Non-Current Liabilities', 'order': 415, 'indent': 2, 'is_subtotal': False, 'label': 'Lease Liabilities (Non-Current)'},
+    'lease_liability':          {'section': 'Non-Current Liabilities', 'order': 416, 'indent': 1, 'is_subtotal': False, 'label': 'Lease Liability'},
     
-    # === EQUITY (500-599) ===
-    'preferred_stock':      {'section': 'Equity',               'order': 500, 'indent': 1, 'is_subtotal': False},
-    'common_stock':         {'section': 'Equity',               'order': 510, 'indent': 1, 'is_subtotal': False},
-    'apic':                 {'section': 'Equity',               'order': 520, 'indent': 1, 'is_subtotal': False},
-    'retained_earnings':    {'section': 'Equity',               'order': 530, 'indent': 1, 'is_subtotal': False},
-    'treasury_stock':       {'section': 'Equity',               'order': 540, 'indent': 1, 'is_subtotal': False},
-    'accumulated_oci':      {'section': 'Equity',               'order': 550, 'indent': 1, 'is_subtotal': False},
-    'noncontrolling_interest': {'section': 'Equity',            'order': 560, 'indent': 1, 'is_subtotal': False},
-    'total_equity':         {'section': 'Equity',               'order': 590, 'indent': 0, 'is_subtotal': True},
+    # ==========================================================================
+    # EQUITY (500-599) - suma hacia Total Equity, luego Total Liabilities & Equity
+    # ==========================================================================
+    'preferred_stock':          {'section': 'Equity', 'order': 500, 'indent': 1, 'is_subtotal': False, 'label': 'Preferred Stock'},
+    'common_stock':             {'section': 'Equity', 'order': 510, 'indent': 1, 'is_subtotal': False, 'label': 'Common Stock'},
+    'apic':                     {'section': 'Equity', 'order': 520, 'indent': 1, 'is_subtotal': False, 'label': 'Additional Paid In Capital'},
+    'retained_earnings':        {'section': 'Equity', 'order': 530, 'indent': 1, 'is_subtotal': False, 'label': 'Retained Earnings'},
+    'treasury_stock':           {'section': 'Equity', 'order': 540, 'indent': 1, 'is_subtotal': False, 'label': 'Treasury Stock'},
+    'accumulated_oci':          {'section': 'Equity', 'order': 550, 'indent': 1, 'is_subtotal': False, 'label': 'Comprehensive Income and Other'},
+    'total_common_equity':      {'section': 'Equity', 'order': 580, 'indent': 0, 'is_subtotal': True, 'label': 'Total Common Equity'},
+    'noncontrolling_interest':  {'section': 'Equity', 'order': 585, 'indent': 1, 'is_subtotal': False, 'label': 'Noncontrolling Interest'},
+    'total_equity':             {'section': 'Equity', 'order': 590, 'indent': 0, 'is_subtotal': True, 'label': 'Total Equity'},
+    'total_liabilities_equity': {'section': 'Equity', 'order': 595, 'indent': 0, 'is_subtotal': True, 'label': 'Total Liabilities And Equity'},
     
-    # === KEY METRICS (600-699) ===
-    'total_debt':           {'section': 'Key Metrics',          'order': 600, 'indent': 0, 'is_subtotal': True},
-    'net_debt':             {'section': 'Key Metrics',          'order': 610, 'indent': 1, 'is_subtotal': False},
-    'working_capital':      {'section': 'Key Metrics',          'order': 620, 'indent': 0, 'is_subtotal': False},
-    'book_value_per_share': {'section': 'Key Metrics',          'order': 630, 'indent': 0, 'is_subtotal': False},
-    'tangible_book_value':  {'section': 'Key Metrics',          'order': 640, 'indent': 0, 'is_subtotal': False},
-    'tangible_book_value_per_share': {'section': 'Key Metrics', 'order': 641, 'indent': 1, 'is_subtotal': False},
+    # ==========================================================================
+    # SUPPLEMENTARY DATA (600-699) - Métricas calculadas al estilo TIKR
+    # ==========================================================================
+    'shares_outstanding':       {'section': 'Supplementary Data', 'order': 600, 'indent': 0, 'is_subtotal': False, 'label': 'Total Shares Out. on Filing Date'},
+    'book_value_per_share':     {'section': 'Supplementary Data', 'order': 610, 'indent': 0, 'is_subtotal': False, 'label': 'Book Value / Share'},
+    'tangible_book_value':      {'section': 'Supplementary Data', 'order': 620, 'indent': 0, 'is_subtotal': False, 'label': 'Tangible Book Value'},
+    'tangible_book_value_per_share': {'section': 'Supplementary Data', 'order': 625, 'indent': 1, 'is_subtotal': False, 'label': 'Tangible Book Value / Share'},
+    'total_debt':               {'section': 'Supplementary Data', 'order': 630, 'indent': 0, 'is_subtotal': True, 'label': 'Total Debt'},
+    'net_debt':                 {'section': 'Supplementary Data', 'order': 640, 'indent': 1, 'is_subtotal': False, 'label': 'Net Debt'},
+    'working_capital':          {'section': 'Supplementary Data', 'order': 650, 'indent': 0, 'is_subtotal': False, 'label': 'Working Capital'},
+    'equity_method_investments':{'section': 'Supplementary Data', 'order': 660, 'indent': 0, 'is_subtotal': False, 'label': 'Equity Method Investments'},
+    'full_time_employees':      {'section': 'Supplementary Data', 'order': 690, 'indent': 0, 'is_subtotal': False, 'label': 'Full Time Employees'},
 }
 
 

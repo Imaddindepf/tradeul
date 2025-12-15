@@ -299,6 +299,43 @@ async def get_news_live(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/v1/news/fill-cache")
+async def fill_cache(
+    limit: int = QueryParam(2000, ge=100, le=5000, description="Number of news to fetch (max 5000)")
+):
+    """
+    Fill the news cache with the latest N news from Polygon API.
+    
+    This is the simplest way to populate the cache after a Redis flush.
+    It fetches the latest news sorted by published date and adds them
+    to both the latest cache and per-ticker caches.
+    
+    - **limit**: Number of news articles to fetch (default 2000, max 5000)
+    
+    Example: POST /api/v1/news/fill-cache?limit=2000
+    """
+    try:
+        if not stream_manager:
+            raise HTTPException(status_code=503, detail="Stream manager not available")
+        
+        logger.info("fill_cache_requested", limit=limit)
+        
+        # Fetch directly from Polygon
+        result = await stream_manager.fill_cache(limit=limit)
+        
+        return {
+            "status": "OK" if result.get("success") else "ERROR",
+            "limit_requested": limit,
+            **result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("fill_cache_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================
 # MAIN
 # =============================================

@@ -29,9 +29,8 @@ class FinancialCalculator:
     @staticmethod
     def _deduplicate_fields(fields: List[Dict]) -> List[Dict]:
         """
-        Remove duplicate fields, keeping the one with more data.
-        Prefers extracted (non-calculated) over calculated fields.
-        Also removes overlapping fields (e.g., interest_income if interest_investment_income exists).
+        Remove duplicate fields, keeping the one with MORE valid data.
+        For calculated fields that have data vs extracted fields with no data, prefer calculated.
         """
         seen = {}
         for field in fields:
@@ -42,13 +41,16 @@ class FinancialCalculator:
                 existing_count = sum(1 for v in existing.get('values', []) if v is not None)
                 new_count = sum(1 for v in field.get('values', []) if v is not None)
                 
-                # Prefer non-calculated over calculated if same data count
-                existing_calculated = existing.get('calculated', False)
-                new_calculated = field.get('calculated', False)
-                
-                # Keep new if: more data, OR same data but new is not calculated and existing is
-                if new_count > existing_count or (new_count == existing_count and not new_calculated and existing_calculated):
+                # ALWAYS prefer the one with MORE data
+                # If same count, prefer calculated=True (it was computed for a reason)
+                if new_count > existing_count:
+                    logger.debug(f"Deduplicate: replacing {key} (existing={existing_count} values) with new ({new_count} values)")
                     seen[key] = field
+                elif new_count == existing_count and new_count > 0:
+                    # Same count with data - prefer calculated (more recent/accurate)
+                    if field.get('calculated', False) and not existing.get('calculated', False):
+                        logger.debug(f"Deduplicate: replacing {key} with calculated version")
+                        seen[key] = field
             else:
                 seen[key] = field
         
@@ -60,6 +62,16 @@ class FinancialCalculator:
         # If we have interest_and_other_income, also remove interest_income
         if 'interest_and_other_income' in seen and 'interest_income' in seen:
             del seen['interest_income']
+        
+        # If we have sga_expenses (combined), remove sales_marketing and ga_expenses
+        # to avoid showing both the total and its components (like TIKR does)
+        if 'sga_expenses' in seen:
+            sga_has_data = any(v is not None for v in seen['sga_expenses'].get('values', []))
+            if sga_has_data:
+                if 'sales_marketing' in seen:
+                    del seen['sales_marketing']
+                if 'ga_expenses' in seen:
+                    del seen['ga_expenses']
         
         return list(seen.values())
     
@@ -219,31 +231,92 @@ class FinancialCalculator:
         shares_basic = income_map.get('shares_basic', {}).get('values', [])
         dividends_paid = cashflow_map.get('dividends_paid', {}).get('values', [])
         
-        # 0. CALCULAR GROSS PROFIT si no existe
+        # -1. CALCULAR COST OF REVENUE si no existe
+        # Algunas empresas (ej: ORCL) reportan COGS desglosado por segmento
+        if not cost_of_revenue or not any(v is not None for v in cost_of_revenue):
+            cogs_components = [
+                income_map.get('cloud_services_and_license_support_expenses', {}).get('values', []),
+                income_map.get('hardware_expenses', {}).get('values', []),
+                income_map.get('services_expense', {}).get('values', []),
+                income_map.get('cost_of_services', {}).get('values', []),
+                income_map.get('cost_of_goods_sold', {}).get('values', []),
+            ]
+            
+            # Verificar si hay componentes válidos
+            has_components = any(
+                any(v is not None for v in comp) 
+                for comp in cogs_components if comp
+            )
+            
+            if has_components:
+                cost_of_revenue = []
+                for i in range(num_periods):
+                    total = 0
+                    has_value = False
+                    for comp in cogs_components:
+                        if comp and i < len(comp) and comp[i] is not None:
+                            total += abs(comp[i])  # COGS típicamente positivo
+                            has_value = True
+                    cost_of_revenue.append(total if has_value else None)
+                
+                if any(v is not None for v in cost_of_revenue):
+                    income_fields.append({
+                        'key': 'cost_of_revenue',
+                        'label': 'Cost of Revenue',
+                        'values': cost_of_revenue,
+                        'importance': 9500,
+                        'data_type': 'monetary',
+                        'source_fields': ['cloud_services_and_license_support_expenses', 'hardware_expenses', 'services_expense'],
+                        'calculated': True
+                    })
+                    income_map['cost_of_revenue'] = {'values': cost_of_revenue}
+        
+        # 0. CALCULAR/COMPLETAR GROSS PROFIT
         # Gross Profit = Revenue - Cost of Revenue
-        if not gross_profit and revenue and cost_of_revenue:
-            gross_profit = []
+        # Re-leer cost_of_revenue del mapa en caso de que se haya calculado arriba
+        cost_of_revenue = income_map.get('cost_of_revenue', {}).get('values', [])
+        cost_of_revenue_has_values = cost_of_revenue and any(v is not None for v in cost_of_revenue)
+        
+        # Calcular Gross Profit POR PERÍODO (no todo o nada)
+        # Algunas empresas dejan de reportar GrossProfit en años recientes
+        if revenue and cost_of_revenue_has_values:
+            calculated_gp = []
+            needs_update = False
+            
             for i in range(num_periods):
+                existing_gp = gross_profit[i] if gross_profit and i < len(gross_profit) else None
                 rev = revenue[i] if i < len(revenue) else None
                 cogs = cost_of_revenue[i] if i < len(cost_of_revenue) else None
-                if rev is not None and cogs is not None:
-                    # COGS puede ser negativo en XBRL (gasto), así que usamos abs
-                    gross_profit.append(rev - abs(cogs))
+                
+                if existing_gp is not None:
+                    # Usar valor existente del XBRL
+                    calculated_gp.append(existing_gp)
+                elif rev is not None and cogs is not None:
+                    # Calcular: Revenue - COGS
+                    calculated_gp.append(rev - abs(cogs))
+                    needs_update = True
                 else:
-                    gross_profit.append(None)
+                    calculated_gp.append(None)
             
-            if any(v is not None for v in gross_profit):
-                income_fields.append({
-                    'key': 'gross_profit',
-                    'label': 'Gross Profit',
-                    'values': gross_profit,
-                    'importance': 9400,
-                    'data_type': 'monetary',
-                    'source_fields': ['revenue', 'cost_of_revenue'],
-                    'calculated': True
-                })
-                # Actualizar el mapa
-                income_map['gross_profit'] = {'values': gross_profit}
+            if needs_update and any(v is not None for v in calculated_gp):
+                # Actualizar o agregar el campo gross_profit
+                gp_field = next((f for f in income_fields if f['key'] == 'gross_profit'), None)
+                if gp_field:
+                    gp_field['values'] = calculated_gp
+                    gp_field['calculated'] = True
+                    gp_field['source_fields'] = ['revenue', 'cost_of_revenue', 'GrossProfit']
+                else:
+                    income_fields.append({
+                        'key': 'gross_profit',
+                        'label': 'Gross Profit',
+                        'values': calculated_gp,
+                        'importance': 9400,
+                        'data_type': 'monetary',
+                        'source_fields': ['revenue', 'cost_of_revenue'],
+                        'calculated': True
+                    })
+                income_map['gross_profit'] = {'values': calculated_gp}
+                gross_profit = calculated_gp  # Actualizar variable local para uso posterior
         
         # 0.45. AJUSTAR TOTAL OPERATING EXPENSES (excluir COGS)
         # TIKR y otros calculan: Total OpEx = Raw OpEx - COGS
@@ -325,6 +398,101 @@ class FinancialCalculator:
                     'source_fields': ['revenue'],
                     'calculated': True
                 })
+        
+        # 0.9. CALCULAR SG&A COMBINADO si no existe
+        # SG&A = Sales & Marketing + G&A
+        sga = income_map.get('sga_expenses', {}).get('values', [])
+        sales_marketing = income_map.get('sales_marketing', {}).get('values', [])
+        ga_expenses = income_map.get('ga_expenses', {}).get('values', [])
+        
+        if (not sga or not any(v is not None for v in sga)) and sales_marketing and ga_expenses:
+            calculated_sga = []
+            for i in range(num_periods):
+                sm = sales_marketing[i] if i < len(sales_marketing) and sales_marketing[i] else 0
+                ga = ga_expenses[i] if i < len(ga_expenses) and ga_expenses[i] else 0
+                if sm or ga:
+                    calculated_sga.append(sm + ga)
+                else:
+                    calculated_sga.append(None)
+            
+            if any(v is not None for v in calculated_sga):
+                income_fields.append({
+                    'key': 'sga_expenses',
+                    'label': 'Selling, General & Admin',
+                    'values': calculated_sga,
+                    'importance': 8750,
+                    'data_type': 'monetary',
+                    'source_fields': ['sales_marketing', 'ga_expenses'],
+                    'calculated': True
+                })
+                income_map['sga_expenses'] = {'values': calculated_sga}
+                
+                # Marcar sales_marketing y ga_expenses para eliminación
+                # (evitar mostrar breakdown cuando SG&A combinado existe)
+                for f in income_fields:
+                    if f['key'] in ('sales_marketing', 'ga_expenses'):
+                        f['_hide_when_sga_exists'] = True
+        
+        # 0.95. RECLASIFICAR AMORTIZATION OF INTANGIBLES
+        # El tag AmortizationOfIntangibleAssets se mapea a 'intangibles' pero debe estar en OpEx
+        intangibles_field = next((f for f in income_fields if f['key'] == 'intangibles'), None)
+        if intangibles_field and any(v is not None for v in intangibles_field.get('values', [])):
+            # Crear nuevo campo con nombre correcto
+            if not any(f['key'] == 'amortization_intangibles' for f in income_fields):
+                amort_int_values = intangibles_field['values'].copy()
+                income_fields.append({
+                    'key': 'amortization_intangibles',
+                    'label': 'Amortization of Intangibles',
+                    'values': amort_int_values,
+                    'importance': 8650,
+                    'data_type': 'monetary',
+                    'source_fields': intangibles_field.get('source_fields', ['AmortizationOfIntangibleAssets']),
+                    'calculated': True
+                })
+                # También agregar al income_map para que esté disponible en cálculo de EBITDA
+                income_map['amortization_intangibles'] = {'values': amort_int_values}
+        
+        # 0.96. RECALCULAR TOTAL OPERATING EXPENSES como suma de componentes (como TIKR)
+        # Total OpEx = SG&A + R&D + Amort + Other
+        # Esto es más preciso que usar el tag CostsAndExpenses que puede incluir más cosas
+        sga_vals = income_map.get('sga_expenses', {}).get('values', [])
+        rd_vals = income_map.get('rd_expenses', {}).get('values', [])
+        amort_vals = income_map.get('amortization_intangibles', {}).get('values', [])
+        other_opex = income_map.get('other_operating_expenses', {}).get('values', [])
+        
+        # Si tenemos los componentes principales, recalcular Total OpEx
+        if sga_vals and rd_vals:
+            calculated_total = []
+            for i in range(num_periods):
+                s = abs(sga_vals[i]) if i < len(sga_vals) and sga_vals[i] else 0
+                r = abs(rd_vals[i]) if i < len(rd_vals) and rd_vals[i] else 0
+                a = abs(amort_vals[i]) if i < len(amort_vals) and amort_vals[i] else 0
+                o = abs(other_opex[i]) if i < len(other_opex) and other_opex[i] else 0
+                
+                if s or r:  # Al menos uno debe existir
+                    calculated_total.append(s + r + a + o)
+                else:
+                    calculated_total.append(None)
+            
+            if any(v is not None for v in calculated_total):
+                # Actualizar el campo existente o crear uno nuevo
+                for f in income_fields:
+                    if f['key'] == 'total_operating_expenses':
+                        f['values'] = calculated_total
+                        f['calculated'] = True
+                        f['source_fields'] = ['sga_expenses', 'rd_expenses', 'amortization_intangibles', 'other_operating_expenses']
+                        break
+                else:
+                    income_fields.append({
+                        'key': 'total_operating_expenses',
+                        'label': 'Total Operating Expenses',
+                        'values': calculated_total,
+                        'importance': 8500,
+                        'data_type': 'monetary',
+                        'source_fields': ['sga_expenses', 'rd_expenses', 'amortization_intangibles'],
+                        'calculated': True
+                    })
+                income_map['total_operating_expenses'] = {'values': calculated_total}
         
         # 1. MÁRGENES
         self._add_margin(income_fields, 'gross_margin', 'Gross Margin %', 
@@ -496,15 +664,139 @@ class FinancialCalculator:
         total_liabilities = balance_map.get('total_liabilities', {}).get('values', [])
         total_equity = balance_map.get('total_equity', {}).get('values', [])
         cash = balance_map.get('cash', {}).get('values', [])
+        restricted_cash = balance_map.get('restricted_cash', {}).get('values', [])
         st_investments = balance_map.get('st_investments', {}).get('values', [])
+        receivables = balance_map.get('receivables', {}).get('values', [])
+        other_receivables = balance_map.get('other_receivables', {}).get('values', [])
         st_debt = balance_map.get('st_debt', {}).get('values', [])
         lt_debt = balance_map.get('lt_debt', {}).get('values', [])
+        capital_leases = balance_map.get('capital_leases', {}).get('values', [])
+        current_portion_capital_lease = balance_map.get('current_portion_capital_lease', {}).get('values', [])
         goodwill = balance_map.get('goodwill', {}).get('values', [])
         intangibles = balance_map.get('intangibles', {}).get('values', [])
+        noncontrolling_interest = balance_map.get('noncontrolling_interest', {}).get('values', [])
         shares_basic = income_map.get('shares_basic', {}).get('values', [])
         
-        # 1. Total Debt
-        total_debt = self._calc_total_debt(st_debt, lt_debt, num_periods)
+        # === TIKR-STYLE CALCULATED SUBTOTALS ===
+        
+        # Total Cash & Short-Term Investments
+        if cash or st_investments:
+            total_cash_st = []
+            for i in range(num_periods):
+                c = cash[i] if cash and i < len(cash) else 0
+                rc = restricted_cash[i] if restricted_cash and i < len(restricted_cash) else 0
+                st = st_investments[i] if st_investments and i < len(st_investments) else 0
+                
+                val = (c or 0) + (rc or 0) + (st or 0)
+                total_cash_st.append(val if val > 0 else None)
+            
+            if any(v is not None for v in total_cash_st):
+                balance_fields.append({
+                    'key': 'total_cash_st_investments',
+                    'label': 'Total Cash & Short-Term Investments',
+                    'values': total_cash_st,
+                    'importance': 9350,
+                    'data_type': 'monetary',
+                    'source_fields': ['cash', 'restricted_cash', 'st_investments'],
+                    'calculated': True
+                })
+        
+        # Total Receivables
+        if receivables:
+            total_recv = []
+            for i in range(num_periods):
+                r = receivables[i] if i < len(receivables) else 0
+                other = other_receivables[i] if other_receivables and i < len(other_receivables) else 0
+                
+                val = (r or 0) + (other or 0)
+                total_recv.append(val if val > 0 else None)
+            
+            if any(v is not None for v in total_recv):
+                balance_fields.append({
+                    'key': 'total_receivables',
+                    'label': 'Total Receivables',
+                    'values': total_recv,
+                    'importance': 9180,
+                    'data_type': 'monetary',
+                    'source_fields': ['receivables', 'other_receivables'],
+                    'calculated': True
+                })
+        
+        # Total Common Equity (Total Equity - Noncontrolling Interest)
+        if total_equity:
+            common_equity = []
+            for i in range(num_periods):
+                eq = total_equity[i] if i < len(total_equity) else None
+                nci = noncontrolling_interest[i] if noncontrolling_interest and i < len(noncontrolling_interest) else 0
+                
+                if eq is not None:
+                    common_equity.append(eq - (nci or 0))
+                else:
+                    common_equity.append(None)
+            
+            if any(v is not None for v in common_equity):
+                balance_fields.append({
+                    'key': 'total_common_equity',
+                    'label': 'Total Common Equity',
+                    'values': common_equity,
+                    'importance': 6000,
+                    'data_type': 'monetary',
+                    'source_fields': ['total_equity', 'noncontrolling_interest'],
+                    'calculated': True
+                })
+        
+        # Si no tenemos total_liabilities, calcularlo como total_assets - total_equity
+        total_liabilities_calc = total_liabilities if total_liabilities and any(v is not None for v in total_liabilities) else None
+        if not total_liabilities_calc and total_assets and total_equity:
+            total_liabilities_calc = []
+            for i in range(num_periods):
+                assets = total_assets[i] if i < len(total_assets) else None
+                eq = total_equity[i] if i < len(total_equity) else None
+                
+                if assets is not None and eq is not None:
+                    total_liabilities_calc.append(assets - eq)
+                else:
+                    total_liabilities_calc.append(None)
+            
+            if any(v is not None for v in total_liabilities_calc) and 'total_liabilities' not in balance_map:
+                balance_fields.append({
+                    'key': 'total_liabilities',
+                    'label': 'Total Liabilities',
+                    'values': total_liabilities_calc,
+                    'importance': 7700,
+                    'data_type': 'monetary',
+                    'source_fields': ['total_assets', 'total_equity'],
+                    'calculated': True
+                })
+        
+        # Total Liabilities And Equity (usar calculado si no existe)
+        total_liab_for_le = total_liabilities_calc if total_liabilities_calc else total_liabilities
+        if total_liab_for_le and total_equity:
+            total_le = []
+            for i in range(num_periods):
+                liab = total_liab_for_le[i] if i < len(total_liab_for_le) else None
+                eq = total_equity[i] if i < len(total_equity) else None
+                
+                if liab is not None and eq is not None:
+                    total_le.append(liab + eq)
+                else:
+                    total_le.append(None)
+            
+            if any(v is not None for v in total_le) and 'total_liabilities_equity' not in balance_map:
+                balance_fields.append({
+                    'key': 'total_liabilities_equity',
+                    'label': 'Total Liabilities And Equity',
+                    'values': total_le,
+                    'importance': 6700,
+                    'data_type': 'monetary',
+                    'source_fields': ['total_liabilities', 'total_equity'],
+                    'calculated': True
+                })
+        
+        # 1. Total Debt (including Capital Leases)
+        total_debt = self._calc_total_debt(
+            st_debt, lt_debt, capital_leases, current_portion_capital_lease, num_periods
+        )
         if total_debt and 'total_debt' not in balance_map:
             balance_fields.append({
                 'key': 'total_debt',
@@ -653,30 +945,47 @@ class FinancialCalculator:
                         da_values[i] = da_field['values'][i]
                         da_source_found = f"{source_type}:{field_key}"
         
-        # EBITDA = Operating Income + |D&A|
+        # EBITDA = Operating Income + |D&A| + Amortization of Intangibles
+        # (Algunas empresas como ORCL reportan amortización de intangibles por separado)
+        amort_intangibles_field = income_map.get('amortization_intangibles')
+        amort_intangibles = amort_intangibles_field.get('values', []) if amort_intangibles_field else []
+        
+        # También buscar en 'intangibles' si 'amortization_intangibles' no existe
+        if not amort_intangibles or not any(v is not None and v != 0 for v in amort_intangibles):
+            intangibles_field = income_map.get('intangibles')
+            if intangibles_field:
+                amort_intangibles = intangibles_field.get('values', [])
+        
         ebitda_values = []
+        ebitda_sources = ['operating_income']
+        
         for i in range(num_periods):
             oi = op_income[i] if i < len(op_income) else None
             da = abs(da_values[i]) if da_values[i] else 0
+            amort = abs(amort_intangibles[i]) if i < len(amort_intangibles) and amort_intangibles[i] else 0
             
             if oi is not None:
-                ebitda_values.append(oi + da)
+                ebitda_values.append(oi + da + amort)
             else:
                 ebitda_values.append(None)
+        
+        if da_source_found:
+            ebitda_sources.append(da_source_found)
+        if any(v is not None and v != 0 for v in amort_intangibles):
+            ebitda_sources.append('amortization_intangibles')
         
         # Actualizar o añadir EBITDA
         if 'ebitda' in income_map:
             income_map['ebitda']['values'] = ebitda_values
             income_map['ebitda']['calculated'] = True
-            if da_source_found:
-                income_map['ebitda']['source_fields'] = ['operating_income', da_source_found]
+            income_map['ebitda']['source_fields'] = ebitda_sources
         else:
             income_fields.append({
                 'key': 'ebitda',
                 'label': 'EBITDA',
                 'values': ebitda_values,
                 'importance': 4600,
-                'source_fields': ['operating_income', da_source_found or 'depreciation'],
+                'source_fields': ebitda_sources,
                 'calculated': True
             })
         
@@ -999,17 +1308,26 @@ class FinancialCalculator:
         self,
         st_debt: List,
         lt_debt: List,
-        num_periods: int
+        capital_leases: List = None,
+        current_portion_capital_lease: List = None,
+        num_periods: int = 0
     ) -> Optional[List]:
-        """Calcular Total Debt."""
-        if not st_debt and not lt_debt:
+        """
+        Calcular Total Debt incluyendo Capital Leases.
+        Total Debt = ST Debt + LT Debt + Capital Leases (current + noncurrent)
+        """
+        if not st_debt and not lt_debt and not capital_leases:
             return None
         
         total = []
         for i in range(num_periods):
             st = st_debt[i] if st_debt and i < len(st_debt) and st_debt[i] is not None else 0
             lt = lt_debt[i] if lt_debt and i < len(lt_debt) and lt_debt[i] is not None else 0
-            total.append(st + lt if (st or lt) else None)
+            cl = capital_leases[i] if capital_leases and i < len(capital_leases) and capital_leases[i] is not None else 0
+            cl_curr = current_portion_capital_lease[i] if current_portion_capital_lease and i < len(current_portion_capital_lease) and current_portion_capital_lease[i] is not None else 0
+            
+            debt = st + lt + cl + cl_curr
+            total.append(debt if debt > 0 else None)
         
         return total if any(v is not None for v in total) else None
     

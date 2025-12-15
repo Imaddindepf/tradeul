@@ -173,7 +173,8 @@ REGEX_PATTERNS: List[Tuple[re.Pattern, str, str, int]] = [
      'inventory', 'Inventory', 9100),
     (re.compile(r'prepaid.*expense|prepaid.*asset', re.I),
      'prepaid', 'Prepaid Expenses', 9000),
-    (re.compile(r'assets.*current$|current.*assets.*total', re.I),
+    # More specific regex to avoid matching tags like OtherRestrictedAssetsCurrent
+    (re.compile(r'^assets?current$|^current.*assets$|^total.*current.*assets$', re.I),
      'current_assets', 'Total Current Assets', 9500),
     (re.compile(r'property.*plant.*equipment.*net|ppe.*net', re.I),
      'ppe', 'PP&E Net', 8500),

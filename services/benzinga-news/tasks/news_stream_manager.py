@@ -485,4 +485,102 @@ class BenzingaNewsStreamManager:
             stats["catalyst_engine"] = await self.catalyst_engine.get_stats()
         
         return stats
+    
+    async def fill_cache(self, limit: int = 2000) -> Dict[str, Any]:
+        """
+        Llena el cache con las últimas N noticias de Polygon.
+        
+        Método simple y directo: un solo request con limit alto.
+        
+        Args:
+            limit: Número de noticias a obtener (max 5000)
+            
+        Returns:
+            Stats del fill
+        """
+        logger.info("fill_cache_starting", limit=limit)
+        
+        stats = {
+            "total_fetched": 0,
+            "new_articles": 0,
+            "duplicates_skipped": 0,
+            "errors": 0,
+            "date_range": {}
+        }
+        
+        try:
+            # Un solo fetch con limit alto
+            articles = await self.news_client.fetch_latest_news(limit=limit)
+            stats["total_fetched"] = len(articles)
+            
+            if articles:
+                stats["date_range"] = {
+                    "newest": articles[0].published if articles else None,
+                    "oldest": articles[-1].published if articles else None
+                }
+            
+            logger.info(
+                "fill_cache_fetched",
+                count=len(articles),
+                newest=stats["date_range"].get("newest"),
+                oldest=stats["date_range"].get("oldest")
+            )
+            
+            # Procesar todos (sin publicar al stream)
+            for i, article in enumerate(articles):
+                try:
+                    processed = await self._process_article_silent(article)
+                    if processed:
+                        stats["new_articles"] += 1
+                    else:
+                        stats["duplicates_skipped"] += 1
+                    
+                    # Log progreso cada 500
+                    if (i + 1) % 500 == 0:
+                        logger.info(
+                            "fill_cache_progress",
+                            processed=i + 1,
+                            total=len(articles),
+                            new=stats["new_articles"]
+                        )
+                except Exception as e:
+                    stats["errors"] += 1
+                    logger.error("fill_cache_article_error", error=str(e))
+            
+            logger.info("fill_cache_completed", **stats)
+            return {"success": True, **stats}
+            
+        except Exception as e:
+            logger.error("fill_cache_error", error=str(e))
+            stats["errors"] += 1
+            return {"success": False, "error": str(e), **stats}
+    
+    async def _process_article_silent(self, article: BenzingaArticle) -> bool:
+        """
+        Procesa artículo sin publicar al stream (para fill/backfill).
+        """
+        try:
+            article_id = str(article.benzinga_id)
+            
+            # 1. Deduplicación
+            is_duplicate = await self._is_duplicate(article_id)
+            if is_duplicate:
+                return False
+            
+            # 2. Marcar como procesado
+            await self._mark_as_processed(article_id)
+            
+            # 3. Guardar en cache latest
+            await self._cache_in_latest(article)
+            
+            # 4. Guardar en cache por ticker
+            for ticker in article.tickers or []:
+                await self._cache_by_ticker(ticker, article)
+            
+            # NO publicar al stream
+            return True
+            
+        except Exception as e:
+            logger.error("process_article_silent_error", error=str(e))
+            return False
 

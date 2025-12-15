@@ -61,6 +61,7 @@ INCOME_STATEMENT_SCHEMA: List[CanonicalField] = [
     CanonicalField("service_revenue", "Service Revenue", "Revenue", 111, indent=1, importance=9000),
     CanonicalField("subscription_revenue", "Subscription Revenue", "Revenue", 112, indent=1, importance=8500),
     CanonicalField("membership_fees", "Membership Fees", "Revenue", 113, indent=1, importance=8500),
+    CanonicalField("finance_division_revenue", "Finance Div. Revenue", "Revenue", 115, indent=1, importance=9000),
     
     # === FINANCIALS/BROKERAGE REVENUE (120-149) ===
     CanonicalField("interest_and_dividend_income", "Interest & Dividend Income", "Revenue", 120, indent=1, importance=9200),
@@ -198,8 +199,9 @@ BALANCE_SHEET_SCHEMA: List[CanonicalField] = [
     CanonicalField("cash", "Cash & Equivalents", "Current Assets", 100, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9500),
     CanonicalField("restricted_cash", "Restricted Cash", "Current Assets", 105, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9400),
     CanonicalField("st_investments", "Short-term Investments", "Current Assets", 110, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9300),
+    CanonicalField("total_cash_st_investments", "Total Cash & Short-Term Investments", "Current Assets", 111, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, calculated=True, importance=9350),
     
-    # === FINANCIALS/BROKERAGE ASSETS (111-119) ===
+    # === FINANCIALS/BROKERAGE ASSETS (112-119) ===
     CanonicalField("securities_segregated", "Cash & Securities Segregated", "Current Assets", 111, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9250),
     CanonicalField("securities_owned", "Securities Owned", "Current Assets", 112, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9200),
     CanonicalField("securities_borrowed", "Securities Borrowed", "Current Assets", 113, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9150),
@@ -213,15 +215,20 @@ BALANCE_SHEET_SCHEMA: List[CanonicalField] = [
     CanonicalField("allowance_loan_losses", "Allowance for Loan Losses", "Current Assets", 119, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=9000),
     
     CanonicalField("receivables", "Accounts Receivable", "Current Assets", 120, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9200),
+    CanonicalField("other_receivables", "Other Receivables", "Current Assets", 122, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9150),
+    CanonicalField("total_receivables", "Total Receivables", "Current Assets", 124, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, calculated=True, importance=9180),
     CanonicalField("inventory", "Inventory", "Current Assets", 130, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9100),
     CanonicalField("prepaid", "Prepaid Expenses", "Current Assets", 140, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=9000),
+    CanonicalField("deferred_tax_assets_current", "Deferred Tax Assets Current", "Current Assets", 145, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=8900),
     CanonicalField("other_current_assets", "Other Current Assets", "Current Assets", 180, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=8500),
     CanonicalField("current_assets", "Total Current Assets", "Current Assets", 190, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, importance=9500),
     
     # === NON-CURRENT ASSETS (200-299) ===
     CanonicalField("ppe_gross", "PP&E Gross", "Non-Current Assets", 200, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=8500),
     CanonicalField("accumulated_depreciation", "Accumulated Depreciation", "Non-Current Assets", 205, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=8400),
-    CanonicalField("ppe", "PP&E Net", "Non-Current Assets", 210, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=8500),
+    CanonicalField("ppe", "Net Property Plant And Equipment", "Non-Current Assets", 210, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, importance=8500),
+    CanonicalField("land", "Land", "Non-Current Assets", 212, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=8450),
+    CanonicalField("construction_in_progress", "Construction In Progress", "Non-Current Assets", 214, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=8430),
     CanonicalField("goodwill", "Goodwill", "Non-Current Assets", 220, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=8400),
     CanonicalField("intangibles", "Intangible Assets", "Non-Current Assets", 230, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=8300),
     CanonicalField("lt_investments", "Long-term Investments", "Non-Current Assets", 240, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=8200),
@@ -238,7 +245,8 @@ BALANCE_SHEET_SCHEMA: List[CanonicalField] = [
     CanonicalField("accrued_liabilities", "Accrued Liabilities", "Current Liabilities", 310, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7400),
     CanonicalField("deferred_revenue", "Deferred Revenue", "Current Liabilities", 320, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7300),
     CanonicalField("st_debt", "Short-term Debt", "Current Liabilities", 330, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7200),
-    CanonicalField("current_portion_lt_debt", "Current Portion of LT Debt", "Current Liabilities", 335, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=7150),
+    CanonicalField("current_portion_lt_debt", "Current Portion of Long-Term Debt", "Current Liabilities", 335, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7150),
+    CanonicalField("current_portion_capital_lease", "Current Portion of Capital Lease Obligations", "Current Liabilities", 337, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7140),
     CanonicalField("income_tax_payable", "Income Taxes Payable", "Current Liabilities", 340, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7100),
     CanonicalField("operating_lease_liability_current", "Operating Lease Liability (Current)", "Current Liabilities", 350, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7000),
     CanonicalField("broker_payables", "Payables to Brokers/Dealers", "Current Liabilities", 375, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6900),
@@ -257,7 +265,8 @@ BALANCE_SHEET_SCHEMA: List[CanonicalField] = [
     CanonicalField("current_liabilities", "Total Current Liabilities", "Current Liabilities", 390, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, importance=7600),
     
     # === NON-CURRENT LIABILITIES (400-499) ===
-    CanonicalField("lt_debt", "Long-term Debt", "Non-Current Liabilities", 400, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7000),
+    CanonicalField("lt_debt", "Long-Term Debt", "Non-Current Liabilities", 400, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=7000),
+    CanonicalField("capital_leases", "Capital Leases", "Non-Current Liabilities", 402, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6980),
     CanonicalField("lease_liabilities", "Total Lease Liabilities", "Non-Current Liabilities", 405, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6950),
     CanonicalField("operating_lease_liability", "Operating Lease Liability", "Non-Current Liabilities", 410, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=6900),
     CanonicalField("finance_lease_liability", "Finance Lease Liability", "Non-Current Liabilities", 415, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=6850),
@@ -265,7 +274,8 @@ BALANCE_SHEET_SCHEMA: List[CanonicalField] = [
     CanonicalField("lease_liabilities_noncurrent", "Lease Liabilities (Non-Current)", "Non-Current Liabilities", 416, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=6840),
     CanonicalField("finance_lease_liability_current", "Finance Lease (Current)", "Current Liabilities", 352, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=6930),
     CanonicalField("finance_lease_liability_noncurrent", "Finance Lease (Non-Current)", "Non-Current Liabilities", 417, DataType.MONETARY, StatementType.BALANCE, indent=2, importance=6830),
-    CanonicalField("deferred_tax_liabilities", "Deferred Tax Liabilities", "Non-Current Liabilities", 420, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6800),
+    CanonicalField("deferred_revenue_noncurrent", "Unearned Revenue Non Current", "Non-Current Liabilities", 418, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6810),
+    CanonicalField("deferred_tax_liabilities", "Deferred Tax Liability Non Current", "Non-Current Liabilities", 420, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6800),
     CanonicalField("pension_liability", "Pension & Postretirement", "Non-Current Liabilities", 430, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6700),
     CanonicalField("other_noncurrent_liabilities", "Other Non-Current Liabilities", "Non-Current Liabilities", 480, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6500),
     CanonicalField("total_liabilities", "Total Liabilities", "Non-Current Liabilities", 490, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, importance=7700),
@@ -277,16 +287,21 @@ BALANCE_SHEET_SCHEMA: List[CanonicalField] = [
     CanonicalField("retained_earnings", "Retained Earnings", "Equity", 530, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6500),
     CanonicalField("treasury_stock", "Treasury Stock", "Equity", 540, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6100),
     CanonicalField("accumulated_oci", "Accumulated OCI", "Equity", 550, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=6000),
+    CanonicalField("total_common_equity", "Total Common Equity", "Equity", 555, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, calculated=True, importance=6000),
     CanonicalField("noncontrolling_interest", "Noncontrolling Interest", "Equity", 560, DataType.MONETARY, StatementType.BALANCE, indent=1, importance=5900),
     CanonicalField("total_equity", "Total Equity", "Equity", 590, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, importance=6600),
+    CanonicalField("total_liabilities_equity", "Total Liabilities And Equity", "Equity", 595, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, calculated=True, importance=6700),
     
-    # === KEY METRICS (600-699) ===
-    CanonicalField("total_debt", "Total Debt", "Key Metrics", 600, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, calculated=True, importance=3500),
-    CanonicalField("net_debt", "Net Debt", "Key Metrics", 610, DataType.MONETARY, StatementType.BALANCE, indent=1, calculated=True, importance=3400),
-    CanonicalField("working_capital", "Working Capital", "Key Metrics", 620, DataType.MONETARY, StatementType.BALANCE, calculated=True, importance=3300),
-    CanonicalField("book_value_per_share", "Book Value per Share", "Key Metrics", 630, DataType.PER_SHARE, StatementType.BALANCE, calculated=True, importance=3200),
-    CanonicalField("tangible_book_value", "Tangible Book Value", "Key Metrics", 640, DataType.MONETARY, StatementType.BALANCE, calculated=True, importance=3100),
-    CanonicalField("tangible_book_value_per_share", "Tangible BV per Share", "Key Metrics", 641, DataType.PER_SHARE, StatementType.BALANCE, indent=1, calculated=True, importance=3000),
+    # === SUPPLEMENTARY DATA (600-699) - Métricas estilo TIKR ===
+    CanonicalField("shares_outstanding", "Total Shares Out. on Filing Date", "Supplementary Data", 600, DataType.SHARES, StatementType.BALANCE, importance=3600),
+    CanonicalField("book_value_per_share", "Book Value / Share", "Supplementary Data", 610, DataType.PER_SHARE, StatementType.BALANCE, calculated=True, importance=3500),
+    CanonicalField("tangible_book_value", "Tangible Book Value", "Supplementary Data", 620, DataType.MONETARY, StatementType.BALANCE, calculated=True, importance=3400),
+    CanonicalField("tangible_book_value_per_share", "Tangible Book Value / Share", "Supplementary Data", 625, DataType.PER_SHARE, StatementType.BALANCE, indent=1, calculated=True, importance=3350),
+    CanonicalField("total_debt", "Total Debt", "Supplementary Data", 630, DataType.MONETARY, StatementType.BALANCE, is_subtotal=True, calculated=True, importance=3300),
+    CanonicalField("net_debt", "Net Debt", "Supplementary Data", 640, DataType.MONETARY, StatementType.BALANCE, indent=1, calculated=True, importance=3200),
+    CanonicalField("working_capital", "Working Capital", "Supplementary Data", 650, DataType.MONETARY, StatementType.BALANCE, calculated=True, importance=3100),
+    CanonicalField("equity_method_investments", "Equity Method Investments", "Supplementary Data", 660, DataType.MONETARY, StatementType.BALANCE, importance=3000),
+    CanonicalField("full_time_employees", "Full Time Employees", "Supplementary Data", 690, DataType.SHARES, StatementType.BALANCE, importance=2500),
 ]
 
 
@@ -387,6 +402,19 @@ XBRL_TO_CANONICAL: Dict[str, str] = {
     "RevenueFromContractWithCustomerIncludingAssessedTax": "revenue",
     "SalesRevenueNet": "revenue",
     "NetSales": "revenue",
+    
+    # Product Revenue (Hardware)
+    "HardwareRevenues": "product_revenue",
+    "HardwareProductsRevenues": "product_revenue",
+    "ProductRevenue": "product_revenue",
+    "SalesRevenueGoodsNet": "product_revenue",
+    
+    # Finance Division Revenue (CAT, GE, etc.)
+    "FinancialProductsRevenues": "finance_division_revenue",
+    "FinancialProductsSegmentRevenues": "finance_division_revenue",
+    "FinanceServiceRevenue": "finance_division_revenue",
+    "FinancingRevenue": "finance_division_revenue",
+    "FinancialServicesRevenue": "finance_division_revenue",
     
     # === FINANCIALS/BROKERAGE REVENUE ===
     "InterestAndDividendIncomeOperating": "interest_and_dividend_income",
@@ -572,6 +600,8 @@ XBRL_TO_CANONICAL: Dict[str, str] = {
     "ShortTermInvestments": "st_investments",
     "AccountsReceivableNetCurrent": "receivables",
     "ReceivablesNetCurrent": "receivables",
+    "OtherReceivablesNetCurrent": "other_receivables",
+    "NontradeReceivablesCurrent": "other_receivables",
     "InventoryNet": "inventory",
     "PrepaidExpenseAndOtherAssetsCurrent": "prepaid",
     "OtherAssetsCurrent": "other_current_assets",
@@ -580,6 +610,9 @@ XBRL_TO_CANONICAL: Dict[str, str] = {
     "PropertyPlantAndEquipmentGross": "ppe_gross",
     "AccumulatedDepreciationDepletionAndAmortizationPropertyPlantAndEquipment": "accumulated_depreciation",
     "PropertyPlantAndEquipmentNet": "ppe",
+    "Land": "land",
+    "ConstructionInProgressGross": "construction_in_progress",
+    "DeferredTaxAssetsNetCurrent": "deferred_tax_assets_current",
     "Goodwill": "goodwill",
     "IntangibleAssetsNetExcludingGoodwill": "intangibles",
     "LongTermInvestments": "lt_investments",
@@ -610,13 +643,19 @@ XBRL_TO_CANONICAL: Dict[str, str] = {
     "DeferredRevenueCurrent": "deferred_revenue",
     "ShortTermBorrowings": "st_debt",
     "LongTermDebtCurrent": "current_portion_lt_debt",
+    "CapitalLeaseObligationsCurrent": "current_portion_capital_lease",
+    "FinanceLeaseLiabilityCurrent": "current_portion_capital_lease",
     "OperatingLeaseLiabilityCurrent": "operating_lease_liability_current",
     "OtherLiabilitiesCurrent": "other_current_liabilities",
     "LiabilitiesCurrent": "current_liabilities",
     
     "LongTermDebtNoncurrent": "lt_debt",
     "LongTermDebt": "lt_debt",
+    "CapitalLeaseObligationsNoncurrent": "capital_leases",
+    "FinanceLeaseLiabilityNoncurrent": "capital_leases",
     "OperatingLeaseLiabilityNoncurrent": "operating_lease_liability",
+    "DeferredRevenueNoncurrent": "deferred_revenue_noncurrent",
+    "ContractWithCustomerLiabilityNoncurrent": "deferred_revenue_noncurrent",
     "DeferredTaxLiabilitiesNet": "deferred_tax_liabilities",
     "PensionAndOtherPostretirementBenefitPlansLiabilitiesNoncurrent": "pension_liability",
     "OtherLiabilitiesNoncurrent": "other_noncurrent_liabilities",
@@ -630,6 +669,13 @@ XBRL_TO_CANONICAL: Dict[str, str] = {
     "AccumulatedOtherComprehensiveIncomeLossNetOfTax": "accumulated_oci",
     "MinorityInterest": "noncontrolling_interest",
     "StockholdersEquity": "total_equity",
+    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest": "total_equity",
+    "LiabilitiesAndStockholdersEquity": "total_liabilities_equity",
+    "CommonStockSharesOutstanding": "shares_outstanding",
+    "EntityCommonStockSharesOutstanding": "shares_outstanding",
+    "EquityMethodInvestments": "equity_method_investments",
+    "EntityNumberOfEmployees": "full_time_employees",
+    "NumberOfEmployees": "full_time_employees",
     
     # === CASH FLOW - Operating Activities ===
     "NetCashProvidedByUsedInOperatingActivities": "operating_cf",

@@ -116,12 +116,13 @@ class SECXBRLService:
         # 3. Procesar resultados
         income_data, balance_data, cashflow_data = [], [], []
         fiscal_years, period_end_dates = [], []
+        raw_xbrl_latest = None  # Para extraer segmentos
         
         if is_quarterly:
             fiscal_years, period_end_dates, income_data, balance_data, cashflow_data = \
                 self._process_quarterly_results(xbrl_results)
         else:
-            fiscal_years, period_end_dates, income_data, balance_data, cashflow_data = \
+            fiscal_years, period_end_dates, income_data, balance_data, cashflow_data, raw_xbrl_latest = \
                 self._process_annual_results(xbrl_results, filings, ticker)
         
         if not fiscal_years:
@@ -134,6 +135,22 @@ class SECXBRLService:
         income_consolidated = self.extractor.consolidate_fields(income_data, fiscal_years)
         balance_consolidated = self.extractor.consolidate_fields(balance_data, fiscal_years)
         cashflow_consolidated = self.extractor.consolidate_fields(cashflow_data, fiscal_years)
+        
+        # 4.1 Extraer segmentos especiales (Finance Division para CAT, GE, etc.)
+        if raw_xbrl_latest:
+            finance_div = self.extractor.extract_finance_division_revenue(raw_xbrl_latest, fiscal_years)
+            if finance_div:
+                # Solo agregar si tiene valores significativos
+                has_data = any(v is not None for v in finance_div.get('values', []))
+                if has_data:
+                    # Reemplazar cualquier campo finance_division_revenue existente
+                    # porque el de segmentos es más preciso que el de XBRL directo
+                    income_consolidated = [
+                        f for f in income_consolidated 
+                        if f.get('key') != 'finance_division_revenue'
+                    ]
+                    income_consolidated.append(finance_div)
+                    logger.info(f"[{ticker}] Extracted Finance Division Revenue from segments")
         
         # 5. Recalcular EBITDA
         income_consolidated = self.calculator.recalculate_ebitda(
@@ -176,6 +193,29 @@ class SECXBRLService:
         
         # 11. Enriquecer con edgartools
         income_structured = await self._enrich_income_statement(income_structured, ticker, fiscal_years)
+        
+        # 12. Filtrar segmentos de revenue para industrias "standard" (como TIKR)
+        # TIKR solo muestra breakdown de revenue para:
+        # - Banking/fintech (Interest Income, Non-Interest Income)
+        # - Empresas con Finance Division (CAT, GE, etc.)
+        # NO muestra breakdown de producto/servicio para tech puro (ORCL Cloud, AAPL Products)
+        if industry in (None, 'standard'):
+            # Segmentos de producto/servicio que NO se muestran (son informativos, no estructurales)
+            product_service_segments = {
+                'services_revenue', 'service_revenue', 'product_revenue', 'products_revenue',
+                'cloud_services_and_license_support_revenue', 'cloud_license_and_on_premise_license_revenue',
+                'cloud_revenues', 'license_revenue', 'licenses_revenue', 'maintenance_revenue',
+                'hardware_revenues', 'subscription_revenue', 'advertising_revenue', 'membership_fees',
+            }
+            # Segmentos que SÍ se muestran (divisiones financieras, son estructuralmente diferentes)
+            keep_segments = {
+                'finance_division_revenue', 'financial_products_revenue', 'financing_revenue',
+                'insurance_revenue', 'leasing_revenue',
+            }
+            income_structured = [
+                f for f in income_structured 
+                if f.get('key') not in product_service_segments or f.get('key') in keep_segments
+            ]
         
         total_time = asyncio.get_event_loop().time() - start_time
         logger.info(f"[{ticker}] Total: {total_time:.2f}s")
@@ -510,9 +550,16 @@ class SECXBRLService:
         IMPORTANTE: Combina datos de múltiples 10-Ks a nivel de CAMPO, no de año.
         Esto permite que si un 10-K no tiene un campo específico para un año,
         se use el dato del 10-K que sí lo tiene.
+        
+        Returns:
+            Tuple de (fiscal_years, period_end_dates, income_data, balance_data, cashflow_data, raw_xbrl)
+            donde raw_xbrl es el XBRL más reciente para extraer segmentos
         """
         all_years_data = {}
         FORM_PRIORITY = {"10-K": 1, "20-F": 2, "S-1": 3, "S-1/A": 3}
+        
+        # Guardar el XBRL más reciente para extraer segmentos
+        raw_xbrl_latest = None
         
         for i, result in enumerate(xbrl_results):
             if result is None or isinstance(result, Exception):
@@ -520,6 +567,10 @@ class SECXBRLService:
             
             fiscal_year, filed_at, period_end, xbrl = result
             form_type = filings[i].get("formType", "10-K") if i < len(filings) else "10-K"
+            
+            # Guardar el primer XBRL válido (más reciente) para segmentos
+            if raw_xbrl_latest is None:
+                raw_xbrl_latest = xbrl
             
             all_periods = self._extract_all_annual_periods(xbrl, form_type)
             
@@ -577,7 +628,7 @@ class SECXBRLService:
             sources_used[ft] = sources_used.get(ft, 0) + 1
         logger.info(f"[{ticker}] Year sources: {sources_used}")
         
-        return fiscal_years, period_end_dates, income_data, balance_data, cashflow_data
+        return fiscal_years, period_end_dates, income_data, balance_data, cashflow_data, raw_xbrl_latest
     
     def _merge_fields(self, existing: Dict, new: Dict) -> None:
         """
@@ -598,7 +649,17 @@ class SECXBRLService:
         from datetime import datetime
         
         annual_periods = {}
-        income_sections = ["StatementsOfIncome", "StatementsOfOperations", "StatementsOfComprehensiveIncome"]
+        
+        # Buscar secciones de income statement (nombres varían por empresa)
+        income_sections = [
+            name for name in xbrl.keys()
+            if any(kw in name.lower() for kw in ['income', 'operations', 'results', 'earnings'])
+            and 'note' not in name.lower() and 'table' not in name.lower()
+        ]
+        
+        # Fallback a nombres estándar si no encontramos nada
+        if not income_sections:
+            income_sections = ["StatementsOfIncome", "StatementsOfOperations", "StatementsOfComprehensiveIncome"]
         
         for section in income_sections:
             section_data = xbrl.get(section, {})
@@ -829,7 +890,6 @@ class SECXBRLService:
                 sic = int(company.sic) if company.sic else None
             except Exception as e:
                 logger.warning(f"[{ticker}] Could not get SIC code: {e}")
-            pass
             
             # Detectar usando el sistema multi-tier
             industry = detect_industry(

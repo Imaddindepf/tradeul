@@ -121,20 +121,30 @@ class XBRLExtractor:
         'operating_expenses', 'other_income', 'depreciation', 'gain_loss_business',
         
         # === Balance Sheet ===
-        'cash', 'restricted_cash', 'st_investments', 'receivables', 'inventory',
-        'prepaid', 'other_current_assets', 'current_assets',
-        'ppe_gross', 'accumulated_depreciation', 'ppe', 'goodwill', 'intangibles',
-        'lt_investments', 'deferred_tax_assets', 'operating_lease_rou',
+        # Current Assets (TIKR order)
+        'cash', 'restricted_cash', 'st_investments', 'total_cash_st_investments',
+        'receivables', 'other_receivables', 'total_receivables',
+        'inventory', 'prepaid', 'deferred_tax_assets_current', 'other_current_assets', 'current_assets',
+        # Non-Current Assets
+        'ppe_gross', 'accumulated_depreciation', 'ppe', 'land', 'construction_in_progress',
+        'lt_investments', 'goodwill', 'intangibles', 'deferred_tax_assets',
+        'rou_assets', 'operating_lease_rou', 'finance_lease_rou',
         'other_noncurrent_assets', 'total_assets',
-        'accounts_payable', 'accrued_liabilities', 'deferred_revenue', 'st_debt',
-        'current_portion_lt_debt', 'income_tax_payable', 'operating_lease_liability_current',
-        'other_current_liabilities', 'current_liabilities',
-        'lt_debt', 'operating_lease_liability', 'deferred_tax_liabilities',
+        # Current Liabilities
+        'accounts_payable', 'accrued_liabilities', 'st_debt', 'current_portion_lt_debt',
+        'current_portion_capital_lease', 'deferred_revenue', 'income_tax_payable',
+        'operating_lease_liability_current', 'other_current_liabilities', 'current_liabilities',
+        # Non-Current Liabilities
+        'lt_debt', 'capital_leases', 'finance_lease_liability', 'deferred_revenue_noncurrent',
+        'operating_lease_liability', 'deferred_tax_liabilities',
         'pension_liability', 'other_noncurrent_liabilities', 'total_liabilities',
+        # Equity
         'preferred_stock', 'common_stock', 'apic', 'retained_earnings',
-        'treasury_stock', 'accumulated_oci', 'noncontrolling_interest', 'total_equity',
-        'total_debt', 'net_debt', 'working_capital', 'book_value_per_share',
-        'tangible_book_value', 'tangible_book_value_per_share',
+        'treasury_stock', 'accumulated_oci', 'total_common_equity',
+        'noncontrolling_interest', 'total_equity', 'total_liabilities_equity',
+        # Supplementary Data
+        'shares_outstanding', 'book_value_per_share', 'tangible_book_value', 'tangible_book_value_per_share',
+        'total_debt', 'net_debt', 'working_capital', 'equity_method_investments', 'full_time_employees',
         
         # === Cash Flow ===
         'cf_net_income', 'depreciation', 'stock_compensation_cf', 'deferred_taxes',
@@ -514,6 +524,99 @@ class XBRLExtractor:
             for d, v in period_values.items()
         ]
     
+    def extract_finance_division_revenue(
+        self, 
+        xbrl_data: Dict, 
+        fiscal_years: List[str]
+    ) -> Optional[Dict]:
+        """
+        Extraer ingresos del segmento Finance Division (CAT, GE, etc.).
+        
+        Busca en secciones de segmentos el tag de Financial Products.
+        Retorna un dict con la estructura de campo o None si no existe.
+        """
+        # Buscar secciones de segmentos de revenue
+        segment_sections = [
+            name for name in xbrl_data.keys() 
+            if 'segment' in name.lower() and ('revenue' in name.lower() or 'disaggregation' in name.lower())
+        ]
+        
+        logger.debug(f"Segment sections found: {segment_sections}")
+        
+        if not segment_sections:
+            return None
+        
+        finance_values = {}
+        
+        for section_name in segment_sections:
+            section = xbrl_data.get(section_name, {})
+            
+            # Buscar tag Revenues
+            revenues = section.get('Revenues', [])
+            if not revenues:
+                continue
+            
+            for item in revenues:
+                if not isinstance(item, dict) or item.get('value') is None:
+                    continue
+                
+                # Buscar segmento Financial Products
+                segment = item.get('segment', {})
+                
+                # El segmento puede ser dict simple o lista de dicts
+                segment_str = str(segment).lower()
+                
+                is_finance_segment = (
+                    'financialproduct' in segment_str or
+                    'financialservices' in segment_str or
+                    'catfinancial' in segment_str
+                )
+                
+                # Evitar valores de inter-segment elimination (negativos)
+                if 'intersegmentelimination' in segment_str:
+                    continue
+                
+                if is_finance_segment:
+                    period = item.get('period', {})
+                    end_date = period.get('endDate', '')
+                    year = end_date[:4] if end_date else ''
+                    
+                    if year:
+                        try:
+                            val = float(item['value'])
+                            # Evitar valores muy pequeños (related party, etc.)
+                            if abs(val) > 1e9:  # >1B para ser significativo
+                                # Tomar el valor del segmento más limpio (sin eliminaciones)
+                                if year not in finance_values or abs(val) > abs(finance_values[year]):
+                                    finance_values[year] = val
+                        except (ValueError, TypeError):
+                            continue
+        
+        if not finance_values:
+            return None
+        
+        logger.debug(f"Finance Division values by year: {finance_values}")
+        
+        # Construir valores para los años fiscales
+        values = []
+        for fy in fiscal_years:
+            year = str(fy)[:4]
+            values.append(finance_values.get(year))
+        
+        # Solo retornar si tenemos datos válidos
+        if not any(v is not None for v in values):
+            return None
+        
+        return {
+            'key': 'finance_division_revenue',
+            'label': 'Finance Div. Revenue',
+            'values': values,
+            'importance': 9000,
+            'data_type': 'monetary',
+            'source_fields': ['Revenues:FinancialProductsSegmentMember'],
+            'calculated': False
+        }
+    
     def _find_best_value(self, consolidated: List, fiscal_year: str) -> Optional[float]:
         """
         Encontrar el mejor valor para un año fiscal.
@@ -534,10 +637,19 @@ class XBRLExtractor:
                     return float(item["value"])
                 except (ValueError, TypeError):
                     continue
-        
+            
         # NO usar fallback - retornar None si no hay coincidencia exacta
         # Los datos correctos vendrán del 10-K correspondiente a ese año
         return None
+    
+    # Campos donde preferimos el valor más grande (totales)
+    PREFER_LARGER_VALUE_FIELDS = {
+        'revenue', 'cost_of_revenue', 'gross_profit', 'total_operating_expenses',
+        'operating_income', 'net_income', 'ebitda', 'income_before_tax',
+        'total_assets', 'total_liabilities', 'total_equity', 'current_assets',
+        'current_liabilities', 'total_debt', 'operating_cf', 'investing_cf',
+        'financing_cf', 'free_cash_flow'
+    }
     
     def consolidate_fields(
         self,
@@ -546,6 +658,7 @@ class XBRLExtractor:
     ) -> List[Dict[str, Any]]:
         """
         Consolidar campos semánticamente relacionados.
+        Para campos de tipo "total", preferimos el valor más grande.
         """
         concept_groups: Dict[str, Dict] = {}
         
@@ -571,8 +684,18 @@ class XBRLExtractor:
                         'sources': []
                     }
                 
-                if concept_groups[canonical_key]['values'][period_idx] is None:
-                    concept_groups[canonical_key]['values'][period_idx] = value
+                current_value = concept_groups[canonical_key]['values'][period_idx]
+                
+                # Para campos de tipo "total", preferir el valor más grande (absoluto)
+                if canonical_key in self.PREFER_LARGER_VALUE_FIELDS:
+                    if current_value is None:
+                        concept_groups[canonical_key]['values'][period_idx] = value
+                    elif value is not None and abs(value) > abs(current_value):
+                        concept_groups[canonical_key]['values'][period_idx] = value
+                else:
+                    # Comportamiento original: primer valor encontrado
+                    if current_value is None:
+                        concept_groups[canonical_key]['values'][period_idx] = value
                 
                 if original not in concept_groups[canonical_key]['sources']:
                     concept_groups[canonical_key]['sources'].append(original)
