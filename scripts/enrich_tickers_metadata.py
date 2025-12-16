@@ -73,7 +73,7 @@ class TickerEnricher:
             await self.db_pool.close()
     
     async def get_symbols_to_enrich(self, limit: Optional[int] = 500, symbol: Optional[str] = None) -> List[str]:
-        """Obtener símbolos que necesitan enriquecimiento"""
+        """Obtener símbolos que necesitan enriquecimiento (incluye company_name y exchange)"""
         async with self.db_pool.acquire() as conn:
             if symbol:
                 # Símbolo específico
@@ -84,12 +84,15 @@ class TickerEnricher:
                 return [row['symbol']] if row else []
             
             # Buscar símbolos que necesitan enriquecimiento
+            # INCLUYE company_name y exchange como campos a verificar
             query = """
                 SELECT symbol
                 FROM tickers_unified
                 WHERE is_actively_trading = true
                   AND (
-                    market_cap IS NULL
+                    company_name IS NULL OR company_name = ''
+                    OR exchange IS NULL OR exchange = ''
+                    OR market_cap IS NULL
                     OR sector IS NULL
                     OR shares_outstanding IS NULL
                     OR cik IS NULL
@@ -163,7 +166,9 @@ class TickerEnricher:
         polygon_data = await self.fetch_from_polygon(symbol)
         used_fmp = False
         
-        # 2. Extraer campos de Polygon
+        # 2. Extraer campos de Polygon (INCLUYE company_name y exchange)
+        company_name = polygon_data.get('name') if polygon_data else None
+        exchange = polygon_data.get('primary_exchange') if polygon_data else None
         market_cap = polygon_data.get('market_cap') if polygon_data else None
         shares_outstanding = (
             polygon_data.get('share_class_shares_outstanding') or 
@@ -180,6 +185,8 @@ class TickerEnricher:
         
         # 3. Si faltan campos críticos, usar FMP como fallback
         needs_fmp = (
+            company_name is None or
+            exchange is None or
             market_cap is None or 
             shares_outstanding is None or 
             sector is None or
@@ -191,6 +198,8 @@ class TickerEnricher:
             if fmp_data:
                 used_fmp = True
                 # Completar campos faltantes con FMP
+                company_name = company_name or fmp_data.get('companyName')
+                exchange = exchange or fmp_data.get('exchange')
                 market_cap = market_cap or fmp_data.get('mktCap')
                 shares_outstanding = shares_outstanding or fmp_data.get('sharesOutstanding')
                 float_shares = float_shares or fmp_data.get('sharesOutstanding')
@@ -203,19 +212,21 @@ class TickerEnricher:
                 beta = fmp_data.get('beta')
         
         # 4. Si no tenemos nada útil, saltar
-        if not (market_cap or shares_outstanding or sector or cik):
+        if not (company_name or market_cap or shares_outstanding or sector or cik):
             self.stats["skipped"] += 1
             return False
         
         # 5. Actualizar BD (o simular en dry-run)
         if self.dry_run:
-            print(f"  [DRY-RUN] Actualizaría: mktcap={market_cap}, shares={shares_outstanding}, sector={sector}, cik={cik}")
+            print(f"  [DRY-RUN] Actualizaría: name={company_name}, exchange={exchange}, mktcap={market_cap}, sector={sector}")
             self.stats["enriched"] += 1
             return True
         
         try:
             await self._update_ticker(
                 symbol=symbol,
+                company_name=company_name,
+                exchange=exchange,
                 market_cap=market_cap,
                 float_shares=float_shares,
                 shares_outstanding=shares_outstanding,
@@ -244,6 +255,8 @@ class TickerEnricher:
     async def _update_ticker(
         self,
         symbol: str,
+        company_name: Optional[str],
+        exchange: Optional[str],
         market_cap: Optional[float],
         float_shares: Optional[int],
         shares_outstanding: Optional[int],
@@ -255,19 +268,21 @@ class TickerEnricher:
         total_employees: Optional[int],
         beta: Optional[float]
     ):
-        """Actualizar ticker en tickers_unified"""
+        """Actualizar ticker en tickers_unified (incluye company_name y exchange)"""
         query = """
             UPDATE tickers_unified SET
-                market_cap = COALESCE($2, market_cap),
-                float_shares = COALESCE($3, float_shares),
-                shares_outstanding = COALESCE($4, shares_outstanding),
-                sector = COALESCE($5, sector),
-                industry = COALESCE($6, industry),
-                cik = COALESCE($7, cik),
-                description = COALESCE($8, description),
-                homepage_url = COALESCE($9, homepage_url),
-                total_employees = COALESCE($10, total_employees),
-                beta = COALESCE($11, beta),
+                company_name = COALESCE($2, company_name),
+                exchange = COALESCE($3, exchange),
+                market_cap = COALESCE($4, market_cap),
+                float_shares = COALESCE($5, float_shares),
+                shares_outstanding = COALESCE($6, shares_outstanding),
+                sector = COALESCE($7, sector),
+                industry = COALESCE($8, industry),
+                cik = COALESCE($9, cik),
+                description = COALESCE($10, description),
+                homepage_url = COALESCE($11, homepage_url),
+                total_employees = COALESCE($12, total_employees),
+                beta = COALESCE($13, beta),
                 updated_at = NOW()
             WHERE symbol = $1
         """
@@ -276,6 +291,8 @@ class TickerEnricher:
             await conn.execute(
                 query,
                 symbol,
+                company_name,
+                exchange,
                 int(market_cap) if market_cap else None,
                 int(float_shares) if float_shares else None,
                 int(shares_outstanding) if shares_outstanding else None,

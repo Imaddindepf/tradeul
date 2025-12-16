@@ -566,5 +566,9 @@ class DilutionProfileResponse(BaseModel):
     dilution_analysis: dict
     cached: bool = False
     cache_age_seconds: Optional[int] = None
+    
+    # Company type detection
+    is_spac: Optional[bool] = Field(None, description="True if company is a SPAC")
+    sic_code: Optional[str] = Field(None, description="SIC Code (6770 = Blank Checks/SPAC)")
 
 

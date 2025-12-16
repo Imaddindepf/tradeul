@@ -5,14 +5,15 @@ Maintenance Orchestrator
 Coordina la ejecución de todas las tareas de mantenimiento en orden.
 
 Flujo:
-1. clear_caches      - Limpiar caches de tiempo real
-2. load_ohlc         - Cargar OHLC del día anterior
-3. load_volume_slots - Cargar volume slots del día anterior
-4. calculate_atr     - Calcular ATR para todos los tickers
-5. calculate_rvol    - Calcular RVOL historical averages
-6. enrich_metadata   - Enriquecer metadata de tickers
-7. sync_redis        - Sincronizar Redis con datos frescos
-8. notify_services   - Notificar a otros servicios que hay nuevo día
+1. clear_caches         - Limpiar caches de tiempo real
+2. load_ohlc            - Cargar OHLC del día anterior
+3. load_volume_slots    - Cargar volume slots del día anterior
+4. calculate_atr        - Calcular ATR para todos los tickers
+5. calculate_rvol       - Calcular RVOL historical averages
+6. sync_ticker_universe - Sincronizar universo de tickers con Polygon (nuevos/delistados/nombres)
+7. enrich_metadata      - Enriquecer metadata de tickers (market_cap, sector, company_name)
+8. sync_redis           - Sincronizar Redis con datos frescos
+9. notify_services      - Notificar a otros servicios que hay nuevo día
 
 PRINCIPIOS:
 - Cada tarea es independiente y reporta su éxito/fallo
@@ -79,6 +80,7 @@ class MaintenanceOrchestrator:
             ("load_volume_slots", self._task_load_volume_slots),
             ("calculate_atr", self._task_calculate_atr),
             ("calculate_rvol", self._task_calculate_rvol),
+            ("sync_ticker_universe", self._task_sync_ticker_universe),  # Sincronizar con Polygon (nuevos/delistados)
             ("enrich_metadata", self._task_enrich_metadata),
             ("sync_redis", self._task_sync_redis),
             ("notify_services", self._task_notify_services),
@@ -163,6 +165,7 @@ class MaintenanceOrchestrator:
                 "load_volume_slots": TaskStatus.PENDING,
                 "calculate_atr": TaskStatus.PENDING,
                 "calculate_rvol": TaskStatus.PENDING,
+                "sync_ticker_universe": TaskStatus.PENDING,
                 "enrich_metadata": TaskStatus.PENDING,
                 "sync_redis": TaskStatus.PENDING,
                 "notify_services": TaskStatus.PENDING,
@@ -306,9 +309,28 @@ class MaintenanceOrchestrator:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
+    async def _task_sync_ticker_universe(self, target_date: date) -> Dict:
+        """
+        Tarea 6: Sincronizar universo de tickers con Polygon
+        
+        - Agrega tickers nuevos de Polygon
+        - Desactiva tickers delistados
+        - Actualiza nombres faltantes
+        """
+        try:
+            from tasks.sync_ticker_universe import SyncTickerUniverseTask
+            
+            syncer = SyncTickerUniverseTask(self.redis, self.db)
+            result = await syncer.execute(target_date)
+            
+            return result
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
     async def _task_enrich_metadata(self, target_date: date) -> Dict:
         """
-        Tarea 6: Enriquecer metadata de tickers
+        Tarea 7: Enriquecer metadata de tickers (market_cap, sector, company_name, etc.)
         """
         try:
             from tasks.enrich_metadata import EnrichMetadataTask
@@ -323,7 +345,7 @@ class MaintenanceOrchestrator:
     
     async def _task_sync_redis(self, target_date: date) -> Dict:
         """
-        Tarea 7: Sincronizar Redis con datos frescos
+        Tarea 8: Sincronizar Redis con datos frescos
         """
         try:
             from tasks.sync_redis import SyncRedisTask
@@ -338,7 +360,7 @@ class MaintenanceOrchestrator:
     
     async def _task_notify_services(self, target_date: date) -> Dict:
         """
-        Tarea 8: Notificar a otros servicios que el mantenimiento completó
+        Tarea 9: Notificar a otros servicios que el mantenimiento completó
         """
         try:
             # Publicar evento de mantenimiento completado

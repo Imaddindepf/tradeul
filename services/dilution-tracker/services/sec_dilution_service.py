@@ -3233,12 +3233,12 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
         by_key = {}
         for w in warrants:
             try:
-            key = (
+                key = (
                     self._safe_get_for_key(w, 'issue_date', 'date'),
                     self._safe_get_for_key(w, 'expiration_date', 'date'),
                     self._to_hashable((self._normalize_grok_value(w.get('notes'), 'string') or '')[:60])
-            )
-            by_key.setdefault(key, []).append(w)
+                )
+                by_key.setdefault(key, []).append(w)
             except Exception as e:
                 logger.warning("impute_grouping_error", error=str(e))
                 # Crear key único para no perder el warrant
@@ -3247,28 +3247,28 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
         imputed_count = 0
         for group in by_key.values():
             try:
-            # Si al menos uno tiene exercise_price, propágalo a los que no lo tienen
+                # Si al menos uno tiene exercise_price, propágalo a los que no lo tienen
                 # Normalizar cada precio y filtrar Nones
                 prices = set()
                 for w in group:
                     normalized_price = self._normalize_grok_value(w.get('exercise_price'), 'number')
                     if normalized_price is not None:
                         prices.add(self._to_hashable(normalized_price))
-            
-            if len(prices) == 1:
-                price = list(prices)[0]
-                for w in group:
+                
+                if len(prices) == 1:
+                    price = list(prices)[0]
+                    for w in group:
                         if self._normalize_grok_value(w.get('exercise_price'), 'number') is None:
-                        w['exercise_price'] = price
-                        if 'imputed_fields' not in w:
-                            w['imputed_fields'] = []
-                        w['imputed_fields'].append('exercise_price')
-                        imputed_count += 1
-                        logger.info("exercise_price_imputed",
-                                   ticker=w.get('ticker'),
-                                   outstanding=w.get('outstanding'),
-                                   imputed_price=price,
-                                   issue_date=w.get('issue_date'))
+                            w['exercise_price'] = price
+                            if 'imputed_fields' not in w:
+                                w['imputed_fields'] = []
+                            w['imputed_fields'].append('exercise_price')
+                            imputed_count += 1
+                            logger.info("exercise_price_imputed",
+                                       ticker=w.get('ticker'),
+                                       outstanding=w.get('outstanding'),
+                                       imputed_price=price,
+                                       issue_date=w.get('issue_date'))
             except Exception as e:
                 logger.warning("impute_price_error", error=str(e))
         
@@ -3362,9 +3362,9 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
             if exercise_price is not None:
                 try:
                     if float(exercise_price) <= 0.01:
-                if 'pre-funded' in notes_lower or 'prefunded' in notes_lower:
-                    w['status'] = 'Active'  # Pero son casi como shares comunes
-                    continue
+                        if 'pre-funded' in notes_lower or 'prefunded' in notes_lower:
+                            w['status'] = 'Active'  # Pero son casi como shares comunes
+                            continue
                 except (ValueError, TypeError):
                     pass
             
@@ -3619,11 +3619,11 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                 total_capacity = self._safe_get_for_key(s, 'total_capacity', 'number')
                 
                 key = (filing_date, total_capacity)
-            # Si no tiene filing_date, incluir igual (no descartar datos)
+                # Si no tiene filing_date, incluir igual (no descartar datos)
                 if not filing_date:
-                unique.append(s)
-            elif key not in seen:
-                seen.add(key)
+                    unique.append(s)
+                elif key not in seen:
+                    seen.add(key)
                     unique.append(s)
             except Exception as e:
                 logger.warning("shelf_dedup_error", error=str(e))
@@ -3670,8 +3670,8 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                 key = (offering_type[:30], offering_date, amount or shares)
                 
                 if key not in seen:
-                seen.add(key)
-                unique.append(c)
+                    seen.add(key)
+                    unique.append(c)
             except Exception as e:
                 logger.warning("completed_dedup_error", error=str(e))
                 unique.append(c)
@@ -3697,11 +3697,11 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                 deal_size = final_size or anticipated_size
                 
                 key = (filing_date, deal_size)
-            # Si no tiene s1_filing_date, incluir igual (no descartar datos)
+                # Si no tiene s1_filing_date, incluir igual (no descartar datos)
                 if not filing_date:
-                unique.append(s1)
-            elif key not in seen:
-                seen.add(key)
+                    unique.append(s1)
+                elif key not in seen:
+                    seen.add(key)
                     unique.append(s1)
             except Exception as e:
                 logger.warning("s1_dedup_error", error=str(e))
@@ -3726,49 +3726,49 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                 # Normalizar issue_date para usarlo como key
                 issue_date = self._safe_get_for_key(n, 'issue_date', 'date')
                 
-            if not issue_date:
-                # NO descartar, guardar para incluir al final
-                no_date_notes.append(n)
-                continue
-            
-                # Convertir issue_date a string para usar como key de dict
-                issue_date_key = str(issue_date) if issue_date else None
+                if not issue_date:
+                    # NO descartar, guardar para incluir al final
+                    no_date_notes.append(n)
+                    continue
                 
-                if issue_date_key not in merged_by_date:
-                    merged_by_date[issue_date_key] = n.copy()
-            else:
-                # Merge inteligente: rellenar campos faltantes en base con los del nuevo
+                    # Convertir issue_date a string para usar como key de dict
+                    issue_date_key = str(issue_date) if issue_date else None
+                    
+                    if issue_date_key not in merged_by_date:
+                        merged_by_date[issue_date_key] = n.copy()
+                else:
+                    # Merge inteligente: rellenar campos faltantes en base con los del nuevo
                     base = merged_by_date[issue_date_key]
-                
-                for field in [
-                    'total_principal_amount',
-                    'remaining_principal_amount',
-                    'conversion_price',
-                    'total_shares_when_converted',
-                    'remaining_shares_when_converted',
-                    'maturity_date',
-                    'convertible_date',
-                    'underwriter_agent',
-                    'filing_url'
-                ]:
-                    if base.get(field) is None and n.get(field) is not None:
-                        base[field] = n[field]
-                
-                # Combinar notes de ambas entradas
-                    base_notes = self._normalize_grok_value(base.get('notes'), 'string') or ''
-                    new_notes = self._normalize_grok_value(n.get('notes'), 'string') or ''
-                if base_notes and new_notes and base_notes != new_notes:
-                    # Evitar duplicar texto idéntico
-                    combined = ' / '.join([base_notes, new_notes])
-                    base['notes'] = combined
-                elif new_notes and not base_notes:
-                    base['notes'] = new_notes
-                
-                logger.info("convertible_notes_merged",
-                               issue_date=issue_date_key,
-                           base_principal=base.get('total_principal_amount'),
-                           merged_fields=[k for k in ['maturity_date', 'conversion_price'] 
-                                         if base.get(k) is not None])
+                    
+                    for field in [
+                        'total_principal_amount',
+                        'remaining_principal_amount',
+                        'conversion_price',
+                        'total_shares_when_converted',
+                        'remaining_shares_when_converted',
+                        'maturity_date',
+                        'convertible_date',
+                        'underwriter_agent',
+                        'filing_url'
+                    ]:
+                        if base.get(field) is None and n.get(field) is not None:
+                            base[field] = n[field]
+                    
+                        # Combinar notes de ambas entradas
+                            base_notes = self._normalize_grok_value(base.get('notes'), 'string') or ''
+                            new_notes = self._normalize_grok_value(n.get('notes'), 'string') or ''
+                        if base_notes and new_notes and base_notes != new_notes:
+                            # Evitar duplicar texto idéntico
+                            combined = ' / '.join([base_notes, new_notes])
+                            base['notes'] = combined
+                        elif new_notes and not base_notes:
+                            base['notes'] = new_notes
+                    
+                        logger.info("convertible_notes_merged",
+                                    issue_date=issue_date_key,
+                                base_principal=base.get('total_principal_amount'),
+                                merged_fields=[k for k in ['maturity_date', 'conversion_price'] 
+                                                if base.get(k) is not None])
             except Exception as e:
                 logger.warning("convertible_notes_dedup_error", error=str(e))
                 no_date_notes.append(n)
@@ -3794,9 +3794,9 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                 key = (series, issue_date, amount)
             # Si no tiene series o issue_date, incluir igual (no descartar datos)
                 if not series or not issue_date:
-                unique.append(p)
-            elif key not in seen:
-                seen.add(key)
+                    unique.append(p)
+                elif key not in seen:
+                    seen.add(key)
                     unique.append(p)
             except Exception as e:
                 logger.warning("convertible_preferred_dedup_error", error=str(e))
@@ -3816,13 +3816,13 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
             try:
                 start_date = self._safe_get_for_key(el, 'agreement_start_date', 'date')
                 capacity = self._safe_get_for_key(el, 'total_capacity', 'number')
-                
+                    
                 key = (start_date, capacity)
-            # Si no tiene agreement_start_date, incluir igual (no descartar datos)
+                # Si no tiene agreement_start_date, incluir igual (no descartar datos)
                 if not start_date:
-                unique.append(el)
-            elif key not in seen:
-                seen.add(key)
+                    unique.append(el)
+                if key not in seen:
+                    seen.add(key)
                     unique.append(el)
             except Exception as e:
                 logger.warning("equity_lines_dedup_error", error=str(e))

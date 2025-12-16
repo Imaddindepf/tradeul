@@ -138,34 +138,56 @@ class SECXBRLService:
         
         # 4.1 Extraer segmentos especiales (Finance Division para CAT, GE, etc.)
         if raw_xbrl_latest:
+            # Finance Division Revenue
             finance_div = self.extractor.extract_finance_division_revenue(raw_xbrl_latest, fiscal_years)
             if finance_div:
-                # Solo agregar si tiene valores significativos
                 has_data = any(v is not None for v in finance_div.get('values', []))
                 if has_data:
-                    # Reemplazar cualquier campo finance_division_revenue existente
-                    # porque el de segmentos es más preciso que el de XBRL directo
                     income_consolidated = [
                         f for f in income_consolidated 
                         if f.get('key') != 'finance_division_revenue'
                     ]
                     income_consolidated.append(finance_div)
                     logger.info(f"[{ticker}] Extracted Finance Division Revenue from segments")
+            
+            # Finance Division Operating Expenses + Interest Expense
+            finance_costs = self.extractor.extract_finance_division_costs(raw_xbrl_latest, fiscal_years)
+            if finance_costs:
+                for cost_field in finance_costs:
+                    has_data = any(v is not None for v in cost_field.get('values', []))
+                    if has_data:
+                        # Remover duplicados si existen
+                        income_consolidated = [
+                            f for f in income_consolidated 
+                            if f.get('key') != cost_field.get('key')
+                        ]
+                        income_consolidated.append(cost_field)
+                        logger.info(f"[{ticker}] Extracted {cost_field.get('key')} from segments")
         
-        # 5. Recalcular EBITDA
+        # 5. Detectar industria TEMPRANO (antes de métricas calculadas)
+        # Esto permite que los cálculos como Gross Profit usen fórmulas específicas por industria
+        financial_preview = {"income_statement": income_consolidated}
+        industry = await self._detect_industry(ticker, financial_preview)
+        logger.info(f"[{ticker}] Detected industry: {industry or 'standard'}")
+        
+        # 6. Ajustar presentación de Revenue ANTES de métricas
+        # Para que operating_revenue esté disponible para cálculos
+        income_consolidated = self.calculator.adjust_revenue_presentation(income_consolidated, industry)
+        
+        # 7. Recalcular EBITDA
         income_consolidated = self.calculator.recalculate_ebitda(
             income_consolidated, cashflow_consolidated, num_periods
         )
         
-        # 6. Ajustar por splits
+        # 8. Ajustar por splits
         if splits:
             income_consolidated = self.split_adjuster.adjust_fields(
                 income_consolidated, splits, period_end_dates
             )
         
-        # 7. Añadir métricas calculadas
+        # 9. Añadir métricas calculadas (con contexto de industria para fórmulas correctas)
         income_consolidated = self.calculator.add_income_metrics(
-            income_consolidated, cashflow_consolidated, num_periods
+            income_consolidated, cashflow_consolidated, num_periods, industry=industry
         )
         cashflow_consolidated = self.calculator.add_cashflow_metrics(
             income_consolidated, cashflow_consolidated, num_periods
@@ -174,27 +196,20 @@ class SECXBRLService:
             balance_consolidated, income_consolidated, num_periods
         )
         
-        # 8. Filtrar campos con pocos datos
+        # 10. Filtrar campos con pocos datos
         income_filtered = self.extractor.filter_low_value_fields(income_consolidated)
         balance_filtered = self.extractor.filter_low_value_fields(balance_consolidated)
         cashflow_filtered = self.extractor.filter_low_value_fields(cashflow_consolidated)
         
-        # 9. Detectar industria (100% data-driven - analiza los datos financieros)
-        financial_preview = {"income_statement": income_filtered}
-        industry = await self._detect_industry(ticker, financial_preview)
-        
-        # 9.1 Ajustar presentación de Revenue (evitar doble conteo de Interest Income)
-        income_filtered = self.calculator.adjust_revenue_presentation(income_filtered, industry)
-        
-        # 10. Añadir estructura jerárquica
+        # 11. Añadir estructura jerárquica
         income_structured = self._add_structure_metadata(income_filtered, 'income', industry)
         balance_structured = self._add_structure_metadata(balance_filtered, 'balance', industry)
         cashflow_structured = self._add_structure_metadata(cashflow_filtered, 'cashflow', industry)
         
-        # 11. Enriquecer con edgartools
+        # 12. Enriquecer con edgartools
         income_structured = await self._enrich_income_statement(income_structured, ticker, fiscal_years)
         
-        # 12. Filtrar segmentos de revenue para industrias "standard" (como TIKR)
+        # 13. Filtrar segmentos de revenue para industrias "standard" (como TIKR)
         # TIKR solo muestra breakdown de revenue para:
         # - Banking/fintech (Interest Income, Non-Interest Income)
         # - Empresas con Finance Division (CAT, GE, etc.)

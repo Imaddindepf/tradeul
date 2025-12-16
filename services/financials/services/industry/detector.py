@@ -173,6 +173,36 @@ def detect_from_financial_data(financial_data: Dict) -> IndustryDetectionResult:
             )
     
     # =================================================================
+    # REGLA 5: MANUFACTURING WITH FINANCE DIVISION (CAT, GE, Ford, DE)
+    # Si tiene Finance Division Revenue significativo (>3% de revenue)
+    # Estas empresas requieren fórmula especial de Gross Profit
+    # =================================================================
+    finance_div_revenue = _safe_get_value(field_map, 'finance_division_revenue')
+    finance_div_op_exp = _safe_get_value(field_map, 'finance_div_operating_exp')
+    
+    if finance_div_revenue > 0 and revenue > 0:
+        finance_ratio = finance_div_revenue / revenue
+        if finance_ratio > 0.03:  # >3% de revenue viene de finance division
+            metrics['finance_div_revenue'] = finance_div_revenue
+            metrics['finance_div_ratio'] = finance_ratio
+            return IndustryDetectionResult(
+                industry="manufacturing_finance",
+                confidence=0.90,
+                reason=f"Finance Division revenue is {finance_ratio:.1%} of total revenue (CAT/GE/Ford type)",
+                metrics=metrics
+            )
+    
+    # También detectar si tiene Finance Div Op Exp (puede no tener revenue separado)
+    if finance_div_op_exp > 0:
+        metrics['finance_div_op_exp'] = finance_div_op_exp
+        return IndustryDetectionResult(
+            industry="manufacturing_finance",
+            confidence=0.85,
+            reason="Company has Finance Division operating expenses - manufacturing with captive finance",
+            metrics=metrics
+        )
+    
+    # =================================================================
     # DEFAULT: STANDARD GAAP
     # La mayoría de empresas usan estructura estándar
     # =================================================================

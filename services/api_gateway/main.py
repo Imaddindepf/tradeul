@@ -685,6 +685,23 @@ async def get_ticker_description(
         targets_list = await http_clients.fmp.get_price_targets(symbol)
         targets_data = targets_list[:10] if targets_list else []
         
+        # 6. Detect SPAC status (async, cached for company lifecycle)
+        spac_info = {"is_spac": False, "sic_code": None}
+        try:
+            if http_clients.sec_edgar:
+                spac_result = await http_clients.sec_edgar.detect_spac(
+                    symbol, 
+                    http_clients.sec_api if hasattr(http_clients, 'sec_api') else None
+                )
+                spac_info = {
+                    "is_spac": spac_result.get("is_spac", False),
+                    "sic_code": spac_result.get("sic_code")
+                }
+                if spac_info["is_spac"]:
+                    logger.info("spac_detected", symbol=symbol, confidence=spac_result.get("confidence"))
+        except Exception as e:
+            logger.debug("spac_detection_skipped", symbol=symbol, error=str(e))
+        
         # Build company info
         company = CompanyInfo(
             symbol=symbol,
@@ -693,6 +710,8 @@ async def get_ticker_description(
             exchangeFullName=profile_data.get("exchangeFullName"),
             sector=profile_data.get("sector") or (metadata.get("sector") if metadata else None),
             industry=profile_data.get("industry") or (metadata.get("industry") if metadata else None),
+            is_spac=spac_info.get("is_spac"),
+            sic_code=spac_info.get("sic_code"),
             description=profile_data.get("description") or (metadata.get("description") if metadata else None),
             ceo=profile_data.get("ceo"),
             website=profile_data.get("website") or (metadata.get("homepage_url") if metadata else None),

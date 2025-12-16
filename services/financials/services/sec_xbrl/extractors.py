@@ -572,8 +572,12 @@ class XBRLExtractor:
                     'catfinancial' in segment_str
                 )
                 
-                # Evitar valores de inter-segment elimination (negativos)
+                # Evitar valores de inter-segment elimination
                 if 'intersegmentelimination' in segment_str:
+                    continue
+                
+                # Evitar valores de related party (ventas internas)
+                if 'relatedparty' in segment_str:
                     continue
                 
                 if is_finance_segment:
@@ -584,24 +588,56 @@ class XBRLExtractor:
                     if year:
                         try:
                             val = float(item['value'])
-                            # Evitar valores muy pequeños (related party, etc.)
-                            if abs(val) > 1e9:  # >1B para ser significativo
-                                # Tomar el valor del segmento más limpio (sin eliminaciones)
-                                if year not in finance_values or abs(val) > abs(finance_values[year]):
-                                    finance_values[year] = val
+                            # Evitar valores muy pequeños (< 100M)
+                            if abs(val) < 1e8:
+                                continue
+                            
+                            # =========================================================
+                            # LÓGICA PROFESIONAL: Preferir valor con MENOS dimensiones
+                            # =========================================================
+                            # En XBRL, menos dimensiones = valor más primario/consolidado
+                            # Más dimensiones = desglose (geográfico, por producto, etc.)
+                            #
+                            # Ejemplo CAT 2024:
+                            #   3,446M - 1 dimension (ProductOrServiceAxis) ← PRIMARIO
+                            #   4,053M - 2 dimensions (ConsolidationItemsAxis + Segment)
+                            #   2,702M - 3 dimensions (Consolidation + Geography + Segment)
+                            
+                            if isinstance(segment, list):
+                                num_dimensions = len(segment)
+                            elif isinstance(segment, dict) and segment:
+                                num_dimensions = 1
+                            else:
+                                num_dimensions = 0  # Sin dimensión = valor puro
+                            
+                            if year not in finance_values:
+                                # Primer valor para este año
+                                finance_values[year] = (val, num_dimensions)
+                            else:
+                                existing_val, existing_dims = finance_values[year]
+                                # Preferir el valor con MENOS dimensiones (más primario)
+                                if num_dimensions < existing_dims:
+                                    finance_values[year] = (val, num_dimensions)
+                                    logger.debug(f"Finance Div {year}: {existing_val/1e6:.0f}M ({existing_dims}d) -> {val/1e6:.0f}M ({num_dimensions}d)")
                         except (ValueError, TypeError):
                             continue
         
         if not finance_values:
             return None
         
-        logger.debug(f"Finance Division values by year: {finance_values}")
+        # Extraer solo los valores (descartar flags de prioridad)
+        finance_values_clean = {
+            year: data[0] if isinstance(data, tuple) else data
+            for year, data in finance_values.items()
+        }
+        
+        logger.debug(f"Finance Division values by year: {finance_values_clean}")
         
         # Construir valores para los años fiscales
         values = []
         for fy in fiscal_years:
             year = str(fy)[:4]
-            values.append(finance_values.get(year))
+            values.append(finance_values_clean.get(year))
         
         # Solo retornar si tenemos datos válidos
         if not any(v is not None for v in values):
@@ -616,6 +652,169 @@ class XBRLExtractor:
             'source_fields': ['Revenues:FinancialProductsSegmentMember'],
             'calculated': False
         }
+    
+    def extract_finance_division_costs(
+        self, 
+        xbrl_data: Dict[str, Any], 
+        fiscal_years: List[str]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """
+        Extract Finance Division costs for companies like CAT, GE, Ford.
+        
+        Returns two fields:
+        1. finance_div_operating_exp: Sum of depreciation, lease depreciation, SG&A
+           from Financial Products segment
+        2. interest_expense_finance_div: Interest expense from financing operations
+        
+        These are needed to calculate Gross Profit correctly:
+        Gross Profit = Total Revenue - COGS - Finance Div Op Exp - Interest Exp Finance
+        
+        XBRL Concepts (CAT example):
+        - DepreciationDepletionAndAmortization (Financial Products): 740M
+        - OperatingLeasesIncomeStatementDepreciationExpenseOnPropertySubjectToOrHeldForLease: 722M
+        - SellingGeneralAndAdministrativeResearchAndDevelopment (Financial Products): 771M
+        - FinancingInterestExpense: 1,286M
+        """
+        # Components of Finance Division Operating Expenses
+        OPERATING_EXP_CONCEPTS = [
+            'DepreciationDepletionAndAmortization',
+            'OperatingLeasesIncomeStatementDepreciationExpenseOnPropertySubjectToOrHeldForLease',
+            'SellingGeneralAndAdministrativeResearchAndDevelopment',
+        ]
+        
+        # Interest expense concept
+        INTEREST_EXP_CONCEPT = 'FinancingInterestExpense'
+        
+        # Find segment sections
+        segment_sections = [
+            name for name in xbrl_data.keys() 
+            if isinstance(xbrl_data.get(name), dict)
+        ]
+        
+        # Collect values by year
+        operating_exp_by_year: Dict[str, float] = {}
+        interest_exp_by_year: Dict[str, float] = {}
+        
+        for section_name in segment_sections:
+            section = xbrl_data.get(section_name, {})
+            
+            # Process each concept
+            for concept in OPERATING_EXP_CONCEPTS + [INTEREST_EXP_CONCEPT]:
+                items = section.get(concept, [])
+                if not items:
+                    continue
+                
+                for item in items:
+                    if not isinstance(item, dict) or item.get('value') is None:
+                        continue
+                    
+                    segment = item.get('segment', {})
+                    segment_str = str(segment).lower()
+                    
+                    # Must be Financial Products segment
+                    is_finance_segment = (
+                        'financialproduct' in segment_str or
+                        'financialservices' in segment_str
+                    )
+                    
+                    if not is_finance_segment:
+                        continue
+                    
+                    # Get period info
+                    period = item.get('period', {})
+                    start_date = period.get('startDate', '')
+                    end_date = period.get('endDate', '')
+                    
+                    if not start_date or not end_date:
+                        continue
+                    
+                    year = end_date[:4]
+                    
+                    try:
+                        val = float(item['value'])
+                        
+                        # Count dimensions (prefer fewer = more consolidated)
+                        if isinstance(segment, list):
+                            num_dims = len(segment)
+                        elif isinstance(segment, dict) and segment:
+                            num_dims = 1
+                        else:
+                            num_dims = 0
+                        
+                        if concept == INTEREST_EXP_CONCEPT:
+                            # Interest expense
+                            if year not in interest_exp_by_year:
+                                interest_exp_by_year[year] = (val, num_dims)
+                            elif num_dims < interest_exp_by_year[year][1]:
+                                interest_exp_by_year[year] = (val, num_dims)
+                        else:
+                            # Operating expense component - accumulate
+                            key = f"{year}_{concept}"
+                            if key not in operating_exp_by_year:
+                                operating_exp_by_year[key] = (val, num_dims, concept)
+                            elif num_dims < operating_exp_by_year[key][1]:
+                                operating_exp_by_year[key] = (val, num_dims, concept)
+                    except (ValueError, TypeError):
+                        continue
+        
+        # Aggregate operating expenses by year
+        op_exp_totals: Dict[str, float] = {}
+        for key, (val, _, concept) in operating_exp_by_year.items():
+            year = key.split('_')[0]
+            if year not in op_exp_totals:
+                op_exp_totals[year] = 0
+            op_exp_totals[year] += val
+            logger.debug(f"Finance Div Op Exp {year}: +{val/1e6:.0f}M from {concept}")
+        
+        # Clean interest expense values
+        interest_exp_clean = {
+            year: data[0] for year, data in interest_exp_by_year.items()
+        }
+        
+        # Build result fields
+        results = []
+        
+        # 1. Finance Division Operating Expenses
+        if op_exp_totals:
+            op_exp_values = []
+            for fy in fiscal_years:
+                year = str(fy)[:4]
+                op_exp_values.append(op_exp_totals.get(year))
+            
+            if any(v is not None for v in op_exp_values):
+                results.append({
+                    'key': 'finance_div_operating_exp',
+                    'label': 'Finance Div. Operating Exp.',
+                    'values': op_exp_values,
+                    'importance': 9400,
+                    'data_type': 'monetary',
+                    'source_fields': OPERATING_EXP_CONCEPTS,
+                    'calculated': True,  # Sum of components
+                    'section': 'Cost & Gross Profit',
+                })
+                logger.debug(f"Finance Div Op Exp by year: {op_exp_totals}")
+        
+        # 2. Interest Expense - Finance Division
+        if interest_exp_clean:
+            int_exp_values = []
+            for fy in fiscal_years:
+                year = str(fy)[:4]
+                int_exp_values.append(interest_exp_clean.get(year))
+            
+            if any(v is not None for v in int_exp_values):
+                results.append({
+                    'key': 'interest_expense_finance_div',
+                    'label': 'Interest Expense - Finance Div.',
+                    'values': int_exp_values,
+                    'importance': 9350,
+                    'data_type': 'monetary',
+                    'source_fields': [INTEREST_EXP_CONCEPT],
+                    'calculated': False,
+                    'section': 'Cost & Gross Profit',
+                })
+                logger.debug(f"Interest Exp Finance Div by year: {interest_exp_clean}")
+        
+        return results if results else None
     
     def _find_best_value(self, consolidated: List, fiscal_year: str) -> Optional[float]:
         """

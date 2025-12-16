@@ -17,8 +17,10 @@ from shared.config.settings import settings
 
 from services.api_gateway_client import APIGatewayClient  # Financieros unificados
 from services.sec_13f_holders import SEC13FHoldersService  # SEC-API.io 13F
-from services.fmp_filings import FMPFilingsService
+from services.sec_api_filings import SECAPIFilingsService  # SEC-API.io Filings (principal)
+from services.fmp_filings import FMPFilingsService  # FMP Filings (fallback)
 from services.sec_dilution_service import SECDilutionService
+from services.spac_detector import SPACDetector
 
 from repositories.financial_repository import FinancialRepository
 from repositories.holder_repository import HolderRepository
@@ -47,8 +49,10 @@ class DataAggregator:
         # Inicializar servicios
         self.financials_client = APIGatewayClient()  # Financieros desde API Gateway (unificado)
         self.sec_holders = SEC13FHoldersService()    # SEC-API.io 13F holders
-        self.fmp_filings = FMPFilingsService(settings.FMP_API_KEY)
+        self.sec_filings = SECAPIFilingsService()    # SEC-API.io Filings (principal)
+        self.fmp_filings = FMPFilingsService(settings.FMP_API_KEY)  # FMP Filings (fallback)
         self.sec_dilution = SECDilutionService(db, redis)
+        self.spac_detector = SPACDetector()          # Detector de SPACs
         
         # Inicializar repositories
         self.financial_repo = FinancialRepository(db)
@@ -315,13 +319,13 @@ class DataAggregator:
             if db_holders:
                 latest_date = db_holders[0]['report_date']
                 if latest_date:
-                days_old = (datetime.now().date() - latest_date).days
-                
-                if days_old < 30:
+                    days_old = (datetime.now().date() - latest_date).days
+                    
+                    if days_old < 30:
                         logger.debug("using_db_holders", ticker=ticker, source="SEC-13F")
-                    # Filtrar holders con shares_held = 0
-                    filtered = [h for h in db_holders if h.get('shares_held', 0) > 0]
-                    return filtered
+                        # Filtrar holders con shares_held = 0
+                        filtered = [h for h in db_holders if h.get('shares_held', 0) > 0]
+                        return filtered
             
             # Fetch desde SEC-API.io 13F filings
             logger.info("fetching_holders_from_sec_13f", ticker=ticker)
@@ -364,7 +368,14 @@ class DataAggregator:
             return []
     
     async def _get_or_fetch_filings(self, ticker: str) -> List[Dict]:
-        """Obtener filings (BD o fetch desde FMP)"""
+        """
+        Obtener filings (BD o fetch desde SEC-API.io/FMP)
+        
+        Fuentes (en orden de prioridad):
+        1. BD local (cache de 7 días)
+        2. SEC-API.io (principal - incluye Form 3/4, 13G, etc.)
+        3. FMP (fallback)
+        """
         try:
             # Intentar desde BD
             db_filings = await self.filing_repo.get_by_ticker(ticker, limit=100)
@@ -383,20 +394,29 @@ class DataAggregator:
                 if latest_date is None:
                     logger.warning("filing_date_is_none", ticker=ticker)
                 else:
-                days_old = (datetime.now().date() - latest_date).days
-                
-                if days_old < 7:
+                    days_old = (datetime.now().date() - latest_date).days
+                    
+                    if days_old < 7:
                         logger.debug("using_db_filings", ticker=ticker, count=len(db_filings))
-                    return db_filings
+                        return db_filings
             
-            # Fetch desde FMP
-            logger.info("fetching_filings_from_fmp", ticker=ticker)
+            # 1. Intentar SEC-API.io (fuente principal)
+            logger.info("fetching_filings_from_sec_api", ticker=ticker)
+            sec_filings = await self.sec_filings.get_sec_filings(ticker, limit=100)
+            
+            if sec_filings:
+                # Guardar en BD
+                await self.filing_repo.save_batch(sec_filings)
+                logger.info("sec_api_filings_saved", ticker=ticker, count=len(sec_filings))
+                return await self.filing_repo.get_by_ticker(ticker, limit=100)
+            
+            # 2. Fallback a FMP si SEC-API.io falla
+            logger.info("fetching_filings_from_fmp_fallback", ticker=ticker)
             fmp_filings = await self.fmp_filings.get_sec_filings(ticker, limit=100)
             
             if fmp_filings:
                 # Guardar en BD
                 await self.filing_repo.save_batch(fmp_filings)
-                
                 return await self.filing_repo.get_by_ticker(ticker, limit=100)
             
             return db_filings or []

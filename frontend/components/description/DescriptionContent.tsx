@@ -23,6 +23,8 @@ interface TickerDescription {
     exchangeFullName?: string;
     sector?: string;
     industry?: string;
+    is_spac?: boolean;
+    sic_code?: string;
     description?: string;
     ceo?: string;
     website?: string;
@@ -262,6 +264,9 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-600 text-white rounded">EQ</span>
+                    {company.is_spac && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded">SPAC</span>
+                    )}
                     <span className="text-sm font-semibold text-slate-800 truncate">{company.name}</span>
                   </div>
 

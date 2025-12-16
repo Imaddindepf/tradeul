@@ -146,17 +146,19 @@ class EnrichMetadataTask:
         
         Criterios:
         - Activos (is_actively_trading = true)
-        - Sin market_cap, sin sector, sin shares_outstanding, o sin cik
+        - Sin company_name, sin exchange, sin market_cap, sin sector, sin shares_outstanding, o sin cik
         - Límite alto (15000) para cubrir todo el universo
         """
         try:
-            # Query CORREGIDO - sin aliases inexistentes
+            # Query INCLUYE company_name y exchange
             query = """
                 SELECT symbol
                 FROM tickers_unified
                 WHERE is_actively_trading = true
                   AND (
-                    market_cap IS NULL
+                    company_name IS NULL OR company_name = ''
+                    OR exchange IS NULL OR exchange = ''
+                    OR market_cap IS NULL
                     OR sector IS NULL
                     OR shares_outstanding IS NULL
                     OR cik IS NULL
@@ -191,7 +193,9 @@ class EnrichMetadataTask:
             # 1. Intentar Polygon primero
             polygon_data = await self._fetch_from_polygon(client, symbol)
             
-            # 2. Extraer campos de Polygon
+            # 2. Extraer campos de Polygon (INCLUYE company_name y exchange)
+            company_name = polygon_data.get('name') if polygon_data else None
+            exchange = polygon_data.get('primary_exchange') if polygon_data else None
             market_cap = polygon_data.get('market_cap') if polygon_data else None
             shares_outstanding = (
                 polygon_data.get('share_class_shares_outstanding') or 
@@ -207,6 +211,8 @@ class EnrichMetadataTask:
             
             # 3. Si faltan campos críticos, usar FMP como fallback
             needs_fmp = (
+                company_name is None or
+                exchange is None or
                 market_cap is None or 
                 shares_outstanding is None or 
                 sector is None or
@@ -219,6 +225,8 @@ class EnrichMetadataTask:
                 if fmp_data:
                     used_fmp = True
                     # Completar campos faltantes con FMP
+                    company_name = company_name or fmp_data.get('companyName')
+                    exchange = exchange or fmp_data.get('exchange')
                     market_cap = market_cap or fmp_data.get('mktCap')
                     shares_outstanding = shares_outstanding or fmp_data.get('sharesOutstanding')
                     float_shares = float_shares or fmp_data.get('sharesOutstanding')
@@ -235,9 +243,11 @@ class EnrichMetadataTask:
                 beta = fmp_data.get('beta')
             
             # 5. Actualizar BD
-            if market_cap or shares_outstanding or sector or cik:
+            if company_name or market_cap or shares_outstanding or sector or cik:
                 await self._update_metadata(
                     symbol=symbol,
+                    company_name=company_name,
+                    exchange=exchange,
                     market_cap=market_cap,
                     float_shares=float_shares,
                     shares_outstanding=shares_outstanding,
@@ -253,10 +263,10 @@ class EnrichMetadataTask:
                 logger.debug(
                     "symbol_enriched",
                     symbol=symbol,
+                    has_company_name=company_name is not None,
+                    has_exchange=exchange is not None,
                     has_market_cap=market_cap is not None,
-                    has_shares_outstanding=shares_outstanding is not None,
                     has_sector=sector is not None,
-                    has_cik=cik is not None,
                     used_fmp=used_fmp
                 )
                 
@@ -323,28 +333,32 @@ class EnrichMetadataTask:
     async def _update_metadata(
         self,
         symbol: str,
-        market_cap: Optional[float],
-        float_shares: Optional[int],
-        shares_outstanding: Optional[int],
-        sector: Optional[str],
-        industry: Optional[str],
+        company_name: Optional[str] = None,
+        exchange: Optional[str] = None,
+        market_cap: Optional[float] = None,
+        float_shares: Optional[int] = None,
+        shares_outstanding: Optional[int] = None,
+        sector: Optional[str] = None,
+        industry: Optional[str] = None,
         cik: Optional[str] = None,
         description: Optional[str] = None,
         homepage_url: Optional[str] = None,
         total_employees: Optional[int] = None,
         beta: Optional[float] = None
     ):
-        """Actualizar metadata en tickers_unified"""
-        # Query CORREGIDO - usar tickers_unified en el ON CONFLICT
+        """Actualizar metadata en tickers_unified (incluye company_name y exchange)"""
+        # Query INCLUYE company_name y exchange
         query = """
             INSERT INTO tickers_unified (
-                symbol, market_cap, float_shares, shares_outstanding,
+                symbol, company_name, exchange, market_cap, float_shares, shares_outstanding,
                 sector, industry, cik, description, homepage_url,
                 total_employees, beta, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
             ON CONFLICT (symbol)
             DO UPDATE SET
+                company_name = COALESCE(EXCLUDED.company_name, tickers_unified.company_name),
+                exchange = COALESCE(EXCLUDED.exchange, tickers_unified.exchange),
                 market_cap = COALESCE(EXCLUDED.market_cap, tickers_unified.market_cap),
                 float_shares = COALESCE(EXCLUDED.float_shares, tickers_unified.float_shares),
                 shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, tickers_unified.shares_outstanding),
@@ -362,6 +376,8 @@ class EnrichMetadataTask:
             await self.db.execute(
                 query,
                 symbol, 
+                company_name,
+                exchange,
                 int(market_cap) if market_cap else None,
                 int(float_shares) if float_shares else None,
                 int(shares_outstanding) if shares_outstanding else None,

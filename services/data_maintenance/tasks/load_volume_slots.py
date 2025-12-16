@@ -56,36 +56,91 @@ class LoadVolumeSlotsTask:
             # Obtener últimos 10 días de trading potenciales
             all_trading_days = get_trading_days(10)
             
-            # 🔍 DETECTAR QUÉ DÍAS YA EXISTEN EN LA BD
-            logger.info("detecting_existing_days_in_db")
-            existing_dates_query = """
-                SELECT DISTINCT date 
+            # 🔍 DETECTAR QUÉ DÍAS ESTÁN COMPLETOS (umbral dinámico basado en histórico)
+            COMPLETENESS_THRESHOLD = 0.70  # 70% del promedio histórico
+            MIN_ABSOLUTE_RECORDS = 50000   # Mínimo absoluto para evitar falsos positivos en días sin histórico
+            
+            # Consultar conteo de registros por día
+            records_per_day_query = """
+                SELECT date, COUNT(*) as record_count
                 FROM volume_slots 
                 WHERE date >= $1 
+                GROUP BY date
                 ORDER BY date DESC
             """
             oldest_date = min(all_trading_days)
-            existing_rows = await self.db.fetch(existing_dates_query, oldest_date)
-            existing_dates = {row['date'] for row in existing_rows}
+            day_counts = await self.db.fetch(records_per_day_query, oldest_date)
             
-            # Filtrar solo los días FALTANTES
-            trading_days = [d for d in all_trading_days if d not in existing_dates]
+            # Inicializar umbral con valor mínimo
+            dynamic_threshold = MIN_ABSOLUTE_RECORDS
+            complete_dates = set()
+            incomplete_dates = {}
             
-            if existing_dates:
+            if not day_counts:
+                # Sin datos históricos, cargar todo
+                logger.info("no_historical_data_found", message="Loading all days")
+            else:
+                # Calcular umbral dinámico basado en los mejores días
+                all_counts = [row['record_count'] for row in day_counts]
+                
+                # Usar percentil 75 de los días existentes como referencia (ignora outliers bajos)
+                sorted_counts = sorted(all_counts, reverse=True)
+                top_days = sorted_counts[:max(1, len(sorted_counts) // 2)]  # Top 50% de días
+                avg_complete_day = sum(top_days) / len(top_days) if top_days else 0
+                
+                # Umbral dinámico: 70% del promedio de días buenos
+                dynamic_threshold = max(MIN_ABSOLUTE_RECORDS, int(avg_complete_day * COMPLETENESS_THRESHOLD))
+                
                 logger.info(
-                    "existing_days_found",
-                    existing_count=len(existing_dates),
-                    last_3_dates=sorted([d.isoformat() for d in existing_dates], reverse=True)[:3]
+                    "detecting_complete_days_in_db",
+                    avg_records_top_days=int(avg_complete_day),
+                    dynamic_threshold=dynamic_threshold,
+                    completeness_percent=int(COMPLETENESS_THRESHOLD * 100)
+                )
+                
+                # Separar días completos vs incompletos
+                for row in day_counts:
+                    day = row['date']
+                    count = row['record_count']
+                    if count >= dynamic_threshold:
+                        complete_dates.add(day)
+                    else:
+                        incomplete_dates[day] = count
+            
+            # Log días incompletos que serán recargados
+            if incomplete_dates:
+                logger.warning(
+                    "incomplete_days_found_will_reload",
+                    incomplete_count=len(incomplete_dates),
+                    threshold_used=dynamic_threshold,
+                    details={d.isoformat(): c for d, c in incomplete_dates.items()}
+                )
+                # Eliminar datos parciales antes de recargar
+                for incomplete_day in incomplete_dates.keys():
+                    delete_query = "DELETE FROM volume_slots WHERE date = $1"
+                    await self.db.execute(delete_query, incomplete_day)
+                    logger.info("deleted_incomplete_day", date=incomplete_day.isoformat(), 
+                               records_deleted=incomplete_dates[incomplete_day])
+            
+            # Filtrar solo los días FALTANTES (no completos)
+            trading_days = [d for d in all_trading_days if d not in complete_dates]
+            existing_dates = complete_dates  # Para compatibilidad con código posterior
+            
+            if complete_dates:
+                logger.info(
+                    "complete_days_found",
+                    complete_count=len(complete_dates),
+                    last_3_dates=sorted([d.isoformat() for d in complete_dates], reverse=True)[:3]
                 )
             
             if not trading_days:
-                logger.info("all_days_already_loaded", message="No hay días faltantes")
+                logger.info("all_days_complete", message="Todos los días tienen datos completos")
                 return {
                     "success": True,
-                    "message": "All days already loaded",
+                    "message": "All days already complete",
                     "symbols_processed": 0,
                     "records_inserted": 0,
-                    "days_skipped": len(existing_dates)
+                    "days_complete": len(complete_dates)
                 }
             
             logger.info(

@@ -109,6 +109,10 @@ class CompanyInfo(BaseModel):
     sector: Optional[str] = None
     industry: Optional[str] = None
     
+    # Special company types
+    is_spac: Optional[bool] = Field(None, description="True if company is a SPAC (Special Purpose Acquisition Company)")
+    sic_code: Optional[str] = Field(None, description="SIC Code (6770 = Blank Checks/SPAC)")
+    
     # Description
     description: Optional[str] = None
     ceo: Optional[str] = None

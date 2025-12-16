@@ -15,9 +15,13 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 
 from services.sec_dilution_service import SECDilutionService
+from services.spac_detector import SPACDetector
 from models.sec_dilution_models import DilutionProfileResponse
 
 logger = get_logger(__name__)
+
+# SPAC Detector (singleton)
+spac_detector = SPACDetector()
 
 router = APIRouter(prefix="/api/sec-dilution", tags=["sec-dilution"])
 
@@ -102,11 +106,25 @@ async def get_sec_dilution_profile(
                            filings_excluded=filings_count,
                            include_filings=include_filings)
             
+            # Detect SPAC status
+            is_spac = None
+            sic_code = None
+            try:
+                spac_result = await spac_detector.detect(ticker)
+                is_spac = spac_result.is_spac
+                sic_code = spac_result.company_info.get("sic_code")
+                if is_spac:
+                    logger.info("spac_detected_in_profile", ticker=ticker, confidence=spac_result.confidence)
+            except Exception as e:
+                logger.debug("spac_detection_skipped", ticker=ticker, error=str(e))
+            
             return DilutionProfileResponse(
                 profile=profile,
                 dilution_analysis=dilution_analysis,
                 cached=cached,
-                cache_age_seconds=cache_age
+                cache_age_seconds=cache_age,
+                is_spac=is_spac,
+                sic_code=sic_code
             )
             
         finally:

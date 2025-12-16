@@ -78,37 +78,150 @@ class FinancialCalculator:
     @staticmethod
     def adjust_revenue_presentation(fields: List[Dict], industry: str) -> List[Dict]:
         """
-        Adjust revenue presentation to avoid double-counting interest income.
+        Adjust revenue presentation for proper hierarchical display.
         
-        For companies where Revenue includes Interest Income (fintech, banking, crypto):
-        1. Calculate Operating Revenue = Total Revenue - Interest Income
-        2. Move Interest Income to Revenue section (not Non-Operating)
-        3. This makes math work from top to bottom
+        Handles two cases:
+        1. Finance Division (CAT, GE, etc.) - estructura TIKR:
+           - Revenues (productos/servicios)
+           - Finance Div. Revenues
+           - Total Revenues (subtotal)
+        
+        2. Interest Income (fintech, banking, crypto):
+           - Operating Revenue
+           - Interest & Investment Income
+           - Total Revenue (subtotal)
         
         Returns modified fields list.
         """
         field_map = {f['key']: f for f in fields}
-        
         revenue = field_map.get('revenue')
-        interest_inv = field_map.get('interest_investment_income')
         
-        # Only adjust if we have both and interest is significant (>5% of revenue)
-        if not revenue or not interest_inv:
+        if not revenue:
             return fields
         
         rev_vals = revenue.get('values', [])
+        if not rev_vals or not rev_vals[0]:
+            return fields
+        
+        # =====================================================================
+        # CASE 1: Finance Division (CAT, GE, Ford, etc.)
+        # =====================================================================
+        finance_div = field_map.get('finance_division_revenue')
+        if finance_div:
+            fin_vals = finance_div.get('values', [])
+            if fin_vals and any(v is not None for v in fin_vals):
+                return FinancialCalculator._adjust_for_finance_division(fields, revenue, finance_div)
+        
+        # =====================================================================
+        # CASE 2: Interest Income (fintech, banking, crypto)
+        # =====================================================================
+        interest_inv = field_map.get('interest_investment_income')
+        if interest_inv:
+            int_vals = interest_inv.get('values', [])
+            if int_vals and int_vals[0]:
+                # Check if interest income is significant (>3% of revenue)
+                ratio = abs(int_vals[0]) / abs(rev_vals[0]) if rev_vals[0] != 0 else 0
+                if ratio >= 0.03:
+                    return FinancialCalculator._adjust_for_interest_income(fields, revenue, interest_inv)
+        
+        return fields
+    
+    @staticmethod
+    def _adjust_for_finance_division(fields: List[Dict], revenue: Dict, finance_div: Dict) -> List[Dict]:
+        """
+        Adjust presentation for companies with Finance Division.
+        
+        TIKR Structure:
+        - Revenues (de productos/servicios)    ← Operating Revenue (calculado)
+        - Finance Div. Revenues                ← Extraído de segmentos
+        - Total Revenues                       ← Subtotal (el revenue original del XBRL)
+        """
+        rev_vals = revenue.get('values', [])
+        fin_vals = finance_div.get('values', [])
+        num_periods = len(rev_vals)
+        
+        # Calculate Operating Revenue = Total Revenue - Finance Division
+        operating_rev = []
+        for i in range(num_periods):
+            rv = rev_vals[i] if i < len(rev_vals) else None
+            fv = fin_vals[i] if i < len(fin_vals) else None
+            if rv is not None and fv is not None:
+                operating_rev.append(rv - fv)
+            elif rv is not None:
+                operating_rev.append(rv)
+            else:
+                operating_rev.append(None)
+        
+        new_fields = []
+        finance_div_added = False
+        
+        for f in fields:
+            key = f.get('key')
+            
+            if key == 'revenue':
+                # 1. Operating Revenue (Revenues de productos/servicios)
+                new_fields.append({
+                    'key': 'operating_revenue',
+                    'label': 'Revenues',
+                    'label_tooltip': 'Sales of machinery, engines, products and services',
+                    'values': operating_rev,
+                    'importance': 10100,
+                    'data_type': 'monetary',
+                    'source_fields': ['revenue - finance_division_revenue'],
+                    'calculated': True,
+                    'section': 'Revenue',
+                    'display_order': 90,
+                    'indent_level': 0,
+                    'is_subtotal': False,
+                })
+                
+                # 2. Finance Division Revenue
+                new_fields.append({
+                    'key': 'finance_division_revenue',
+                    'label': 'Finance Div. Revenues',
+                    'values': fin_vals,
+                    'importance': 10050,
+                    'data_type': 'monetary',
+                    'source_fields': finance_div.get('source_fields', []),
+                    'section': 'Revenue',
+                    'display_order': 95,
+                    'indent_level': 0,
+                    'is_subtotal': False,
+                })
+                finance_div_added = True
+                
+                # 3. Total Revenue (subtotal)
+                new_f = f.copy()
+                new_f['key'] = 'total_revenue'
+                new_f['label'] = 'Total Revenues'
+                new_f['display_order'] = 100
+                new_f['is_subtotal'] = True
+                new_fields.append(new_f)
+                
+            elif key == 'finance_division_revenue':
+                # Skip - already added above
+                continue
+                
+            else:
+                new_fields.append(f)
+        
+        return new_fields
+    
+    @staticmethod
+    def _adjust_for_interest_income(fields: List[Dict], revenue: Dict, interest_inv: Dict) -> List[Dict]:
+        """
+        Adjust presentation for companies with significant Interest Income.
+        
+        Structure:
+        - Operating Revenue
+        - Interest & Investment Income
+        - Total Revenue (subtotal)
+        """
+        rev_vals = revenue.get('values', [])
         int_vals = interest_inv.get('values', [])
-        
-        if not rev_vals or not int_vals or not rev_vals[0] or not int_vals[0]:
-            return fields
-        
-        # Check if interest income is significant relative to revenue
-        ratio = abs(int_vals[0]) / abs(rev_vals[0]) if rev_vals[0] != 0 else 0
-        if ratio < 0.03:  # Less than 3% - not significant, keep as-is
-            return fields
+        num_periods = len(rev_vals)
         
         # Calculate Operating Revenue = Total Revenue - Interest Income
-        num_periods = len(rev_vals)
         operating_rev = []
         for i in range(num_periods):
             rv = rev_vals[i] if i < len(rev_vals) else None
@@ -120,30 +233,28 @@ class FinancialCalculator:
             else:
                 operating_rev.append(None)
         
-        # Create new fields list with adjusted structure
         new_fields = []
         
         for f in fields:
             key = f.get('key')
             
             if key == 'revenue':
-                # First add Operating Revenue (before Total Revenue)
+                # 1. Operating Revenue
                 new_fields.append({
                     'key': 'operating_revenue',
                     'label': 'Operating Revenue',
                     'values': operating_rev,
-                    'importance': 10100,  # Higher than revenue
+                    'importance': 10100,
                     'data_type': 'monetary',
                     'source_fields': ['revenue', 'interest_investment_income'],
                     'calculated': True,
                     'section': 'Revenue',
-                    'display_order': 90,  # Before Total Revenue
+                    'display_order': 90,
                     'indent_level': 0,
                     'is_subtotal': False,
-                    'is_industry_specific': False
                 })
                 
-                # Then add Interest Income in Revenue section
+                # 2. Interest Income
                 new_fields.append({
                     'key': 'interest_income_revenue',
                     'label': 'Interest & Investment Income',
@@ -155,11 +266,11 @@ class FinancialCalculator:
                     'display_order': 95,
                     'indent_level': 0,
                     'is_subtotal': False,
-                    'is_industry_specific': False
                 })
                 
-                # Rename revenue to Total Revenue
+                # 3. Total Revenue (subtotal)
                 new_f = f.copy()
+                new_f['key'] = 'total_revenue'
                 new_f['label'] = 'Total Revenue'
                 new_f['display_order'] = 100
                 new_f['is_subtotal'] = True
@@ -178,10 +289,21 @@ class FinancialCalculator:
         self,
         income_fields: List[Dict],
         cashflow_fields: List[Dict],
-        num_periods: int
+        num_periods: int,
+        industry: Optional[str] = None
     ) -> List[Dict]:
         """
         Añadir métricas calculadas al income statement.
+        
+        Args:
+            income_fields: Campos del income statement
+            cashflow_fields: Campos del cash flow (para SBC, etc.)
+            num_periods: Número de períodos
+            industry: Industria detectada (para fórmulas específicas)
+        
+        Industry-specific calculations:
+        - manufacturing_finance: Gross Profit = Revenue - COGS - Finance Div Op Exp - Interest Exp Finance
+        - standard: Gross Profit = Revenue - COGS
         """
         income_map = {f['key']: f for f in income_fields}
         cashflow_map = {f['key']: f for f in cashflow_fields}
@@ -222,7 +344,10 @@ class FinancialCalculator:
                         income_fields.append(new_field)
                         income_map['stock_compensation'] = new_field
         
+        # Revenue puede estar como 'revenue' o 'total_revenue' (si adjust_revenue_presentation ya se ejecutó)
         revenue = income_map.get('revenue', {}).get('values', [])
+        if not revenue or not any(v is not None for v in revenue):
+            revenue = income_map.get('total_revenue', {}).get('values', [])
         cost_of_revenue = income_map.get('cost_of_revenue', {}).get('values', [])
         gross_profit = income_map.get('gross_profit', {}).get('values', [])
         operating_income = income_map.get('operating_income', {}).get('values', [])
@@ -272,10 +397,21 @@ class FinancialCalculator:
                     income_map['cost_of_revenue'] = {'values': cost_of_revenue}
         
         # 0. CALCULAR/COMPLETAR GROSS PROFIT
-        # Gross Profit = Revenue - Cost of Revenue
         # Re-leer cost_of_revenue del mapa en caso de que se haya calculado arriba
         cost_of_revenue = income_map.get('cost_of_revenue', {}).get('values', [])
         cost_of_revenue_has_values = cost_of_revenue and any(v is not None for v in cost_of_revenue)
+        
+        # Get Finance Division costs (for manufacturing_finance industry)
+        finance_div_op_exp = income_map.get('finance_div_operating_exp', {}).get('values', [])
+        interest_exp_finance = income_map.get('interest_expense_finance_div', {}).get('values', [])
+        has_finance_div_costs = (
+            (finance_div_op_exp and any(v is not None for v in finance_div_op_exp)) or
+            (interest_exp_finance and any(v is not None for v in interest_exp_finance))
+        )
+        
+        # Determine if we should use Finance Division formula
+        # TIKR/Bloomberg method: if Finance Div costs exist, use extended formula
+        use_finance_div_formula = has_finance_div_costs and industry in ('manufacturing_finance', None)
         
         # Calcular Gross Profit POR PERÍODO (no todo o nada)
         # Algunas empresas dejan de reportar GrossProfit en años recientes
@@ -288,11 +424,25 @@ class FinancialCalculator:
                 rev = revenue[i] if i < len(revenue) else None
                 cogs = cost_of_revenue[i] if i < len(cost_of_revenue) else None
                 
-                if existing_gp is not None:
+                # For companies with Finance Division, recalculate even if XBRL has a value
+                # because their reported Gross Profit may not include Finance Div costs
+                should_recalculate = use_finance_div_formula and rev is not None and cogs is not None
+                
+                if should_recalculate:
+                    # TIKR Formula for Manufacturing with Finance Division:
+                    # Gross Profit = Total Revenue - COGS - Finance Div Op Exp - Interest Exp Finance
+                    fin_op = finance_div_op_exp[i] if finance_div_op_exp and i < len(finance_div_op_exp) and finance_div_op_exp[i] else 0
+                    fin_int = interest_exp_finance[i] if interest_exp_finance and i < len(interest_exp_finance) and interest_exp_finance[i] else 0
+                    
+                    gp = rev - abs(cogs) - abs(fin_op) - abs(fin_int)
+                    calculated_gp.append(gp)
+                    needs_update = True
+                    logger.debug(f"Gross Profit[{i}] = {rev/1e6:.0f}M - {abs(cogs)/1e6:.0f}M - {abs(fin_op)/1e6:.0f}M - {abs(fin_int)/1e6:.0f}M = {gp/1e6:.0f}M")
+                elif existing_gp is not None:
                     # Usar valor existente del XBRL
                     calculated_gp.append(existing_gp)
                 elif rev is not None and cogs is not None:
-                    # Calcular: Revenue - COGS
+                    # Standard formula: Revenue - COGS
                     calculated_gp.append(rev - abs(cogs))
                     needs_update = True
                 else:
@@ -301,10 +451,15 @@ class FinancialCalculator:
             if needs_update and any(v is not None for v in calculated_gp):
                 # Actualizar o agregar el campo gross_profit
                 gp_field = next((f for f in income_fields if f['key'] == 'gross_profit'), None)
+                
+                source_fields = ['revenue', 'cost_of_revenue']
+                if use_finance_div_formula:
+                    source_fields.extend(['finance_div_operating_exp', 'interest_expense_finance_div'])
+                
                 if gp_field:
                     gp_field['values'] = calculated_gp
                     gp_field['calculated'] = True
-                    gp_field['source_fields'] = ['revenue', 'cost_of_revenue', 'GrossProfit']
+                    gp_field['source_fields'] = source_fields
                 else:
                     income_fields.append({
                         'key': 'gross_profit',
@@ -312,7 +467,7 @@ class FinancialCalculator:
                         'values': calculated_gp,
                         'importance': 9400,
                         'data_type': 'monetary',
-                        'source_fields': ['revenue', 'cost_of_revenue'],
+                        'source_fields': source_fields,
                         'calculated': True
                     })
                 income_map['gross_profit'] = {'values': calculated_gp}

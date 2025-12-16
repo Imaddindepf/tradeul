@@ -92,6 +92,10 @@ export interface SECDilutionProfileResponse {
   };
   cached: boolean;
   cache_age_seconds?: number;
+  
+  // Company type detection
+  is_spac?: boolean;
+  sic_code?: string;
 }
 
 // ============================================================================

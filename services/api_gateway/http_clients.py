@@ -514,6 +514,178 @@ class FinancialsClient(InternalServiceClient):
 
 
 # ============================================================================
+# SEC EDGAR Client (gratis, sin API key)
+# ============================================================================
+
+class SECEdgarClient:
+    """
+    Cliente para SEC EDGAR API pública (gratis, sin API key).
+    
+    Usado para:
+    - Detección de SPACs (SIC Code 6770 = Blank Checks)
+    - Obtener CIK de empresa
+    - Obtener SIC Code
+    """
+    
+    BASE_URL = "https://data.sec.gov"
+    
+    # SIC Code para SPACs (Blank Checks)
+    SPAC_SIC_CODE = "6770"
+    
+    # Palabras clave en nombres de SPACs
+    SPAC_NAME_KEYWORDS = [
+        'acquisition corp',
+        'acquisition company',
+        'acquisition co',
+        'blank check',
+        ' spac',
+        'merger corp',
+        'merger company',
+    ]
+    
+    def __init__(self, timeout: float = 15.0):
+        self._client = httpx.AsyncClient(
+            base_url=self.BASE_URL,
+            timeout=timeout,
+            limits=EXTERNAL_API_LIMITS,
+            headers={
+                "User-Agent": "TradeUL/1.0 (support@tradeul.com)",
+                "Accept": "application/json"
+            }
+        )
+        logger.info("sec_edgar_client_initialized")
+    
+    async def get_company_info(self, cik: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtener información de empresa por CIK.
+        
+        Returns:
+            Dict con name, sic, sicDescription, tickers, etc.
+        """
+        try:
+            cik_padded = str(cik).zfill(10)
+            response = await self._client.get(f"/submissions/CIK{cik_padded}.json")
+            
+            if response.status_code == 200:
+                return response.json()
+            return None
+            
+        except Exception as e:
+            logger.error("sec_edgar_get_company_failed", cik=cik, error=str(e))
+            return None
+    
+    async def detect_spac(self, symbol: str, sec_api_client: Optional['SECAPIClient'] = None) -> Dict[str, Any]:
+        """
+        Detectar si un ticker es un SPAC.
+        
+        Args:
+            symbol: Ticker symbol
+            sec_api_client: Cliente SEC-API.io para obtener CIK (opcional)
+        
+        Returns:
+            Dict con is_spac, confidence, sic_code, reason
+        """
+        symbol = symbol.upper()
+        
+        try:
+            cik = None
+            company_name = None
+            
+            # Obtener CIK desde SEC-API.io si disponible
+            if sec_api_client:
+                try:
+                    query = f'ticker:{symbol}'
+                    data = await sec_api_client._client.post(
+                        "",
+                        params={"token": sec_api_client.api_key},
+                        json={"query": {"query_string": {"query": query}}, "from": "0", "size": "1"}
+                    )
+                    filings = data.json().get('filings', [])
+                    if filings:
+                        cik = filings[0].get('cik')
+                        company_name = filings[0].get('companyName')
+                except Exception as e:
+                    logger.debug("spac_detect_sec_api_failed", error=str(e))
+            
+            if not cik:
+                return {
+                    "is_spac": False,
+                    "confidence": 0.0,
+                    "sic_code": None,
+                    "reason": "Could not determine CIK"
+                }
+            
+            # Obtener info de empresa desde SEC EDGAR
+            company_info = await self.get_company_info(cik)
+            
+            if not company_info:
+                # Fallback: verificar por nombre
+                if company_name:
+                    name_lower = company_name.lower()
+                    if any(kw in name_lower for kw in self.SPAC_NAME_KEYWORDS):
+                        return {
+                            "is_spac": True,
+                            "confidence": 0.80,
+                            "sic_code": None,
+                            "reason": f"Name '{company_name}' matches SPAC pattern"
+                        }
+                
+                return {
+                    "is_spac": False,
+                    "confidence": 0.0,
+                    "sic_code": None,
+                    "reason": "Company info not available"
+                }
+            
+            sic_code = company_info.get('sic')
+            sic_desc = company_info.get('sicDescription')
+            name = company_info.get('name', company_name)
+            
+            # Verificar SIC Code 6770 (100% certeza)
+            if sic_code == self.SPAC_SIC_CODE:
+                return {
+                    "is_spac": True,
+                    "confidence": 1.0,
+                    "sic_code": sic_code,
+                    "sic_description": sic_desc,
+                    "reason": "SIC Code 6770 (Blank Checks)"
+                }
+            
+            # Verificar nombre (80% certeza)
+            if name:
+                name_lower = name.lower()
+                if any(kw in name_lower for kw in self.SPAC_NAME_KEYWORDS):
+                    return {
+                        "is_spac": True,
+                        "confidence": 0.80,
+                        "sic_code": sic_code,
+                        "sic_description": sic_desc,
+                        "reason": f"Name '{name}' matches SPAC pattern"
+                    }
+            
+            return {
+                "is_spac": False,
+                "confidence": 1.0,
+                "sic_code": sic_code,
+                "sic_description": sic_desc,
+                "reason": "Not a SPAC"
+            }
+            
+        except Exception as e:
+            logger.error("spac_detect_failed", symbol=symbol, error=str(e))
+            return {
+                "is_spac": False,
+                "confidence": 0.0,
+                "sic_code": None,
+                "reason": f"Detection error: {str(e)}"
+            }
+    
+    async def close(self):
+        """Cierra el cliente HTTP"""
+        await self._client.aclose()
+
+
+# ============================================================================
 # Gestor de Clientes HTTP
 # ============================================================================
 
@@ -563,6 +735,9 @@ class HTTPClientManager:
         self.ticker_metadata = TickerMetadataClient()
         self.benzinga_news = BenzingaNewsClient()
         self.financials = FinancialsClient()
+        
+        # SEC EDGAR (gratis, sin API key - para detección SPAC)
+        self.sec_edgar = SECEdgarClient()
         
         self._initialized = True
         logger.info("http_client_manager_initialized")

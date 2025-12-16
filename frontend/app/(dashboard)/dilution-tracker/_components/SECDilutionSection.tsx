@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  AlertCircle, 
-  ExternalLink, 
-  RefreshCw, 
-  FileText, 
-  TrendingDown, 
-  Calendar, 
-  DollarSign, 
+import {
+  AlertCircle,
+  ExternalLink,
+  RefreshCw,
+  FileText,
+  TrendingDown,
+  Calendar,
+  DollarSign,
   Percent,
   Zap,
   Waves,
@@ -19,14 +19,14 @@ import {
   BadgeDollarSign,
   BarChart3
 } from "lucide-react";
-import { 
-  getSECDilutionProfile, 
+import {
+  getSECDilutionProfile,
   refreshSECDilutionProfile,
   type SECDilutionProfileResponse,
   type Warrant,
   type ATMOffering,
   type ShelfRegistration,
-  type CompletedOffering 
+  type CompletedOffering
 } from "@/lib/dilution-api";
 
 // Fases del análisis SEC
@@ -49,12 +49,12 @@ interface SECDilutionSectionProps {
 }
 
 // Terminal Animation Component
-function SECAnalysisTerminal({ 
-  ticker, 
-  isActive, 
-  onComplete 
-}: { 
-  ticker: string; 
+function SECAnalysisTerminal({
+  ticker,
+  isActive,
+  onComplete
+}: {
+  ticker: string;
   isActive: boolean;
   onComplete: () => void;
 }) {
@@ -160,13 +160,12 @@ function SECAnalysisTerminal({
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.03 }}
-                className={`flex items-center gap-2 py-1 px-2 rounded text-xs transition-all ${
-                  status === 'running' 
-                    ? 'bg-emerald-500/20 border-l-2 border-emerald-400' 
+                className={`flex items-center gap-2 py-1 px-2 rounded text-xs transition-all ${status === 'running'
+                    ? 'bg-emerald-500/20 border-l-2 border-emerald-400'
                     : status === 'completed'
-                    ? 'opacity-50'
-                    : 'opacity-30'
-                }`}
+                      ? 'opacity-50'
+                      : 'opacity-30'
+                  }`}
               >
                 <div className="w-4 h-4 flex items-center justify-center">
                   {status === 'completed' ? (
@@ -254,7 +253,7 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
     try {
       const profile = await getSECDilutionProfile(ticker);
       setData(profile);
-      
+
       if (!profile) {
         setError("No SEC dilution data available for this ticker");
       }
@@ -294,7 +293,7 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
   // Mostrar terminal de análisis
   if (showTerminal) {
     return (
-      <SECAnalysisTerminal 
+      <SECAnalysisTerminal
         ticker={ticker}
         isActive={showTerminal}
         onComplete={handleAnalysisComplete}
@@ -329,13 +328,13 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
     );
   }
 
-  const { profile, dilution_analysis, cached, cache_age_seconds } = data;
+  const { profile, dilution_analysis, cached, cache_age_seconds, is_spac } = data;
 
   // Check if there's any data
-  const hasData = 
-    profile.warrants.length > 0 || 
-    profile.atm_offerings.length > 0 || 
-    profile.shelf_registrations.length > 0 || 
+  const hasData =
+    profile.warrants.length > 0 ||
+    profile.atm_offerings.length > 0 ||
+    profile.shelf_registrations.length > 0 ||
     profile.completed_offerings.length > 0;
 
   if (!hasData) {
@@ -365,6 +364,9 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
           <div className="flex items-center gap-2">
             <TrendingDown className="h-4 w-4 text-blue-600" />
             <h3 className="text-sm font-semibold text-slate-700">SEC Dilution Summary</h3>
+            {is_spac && (
+              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded">SPAC</span>
+            )}
           </div>
           <button
             onClick={handleRefresh}
@@ -375,7 +377,7 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
-        
+
         <div className="grid grid-cols-3 gap-4">
           {/* Total Dilution */}
           <div>
@@ -406,7 +408,7 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
             <p className="text-xs text-slate-500 mt-1">shares</p>
           </div>
         </div>
-        
+
         <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-100">
           Based on current price: ${profile.current_price ? Number(profile.current_price).toFixed(2) : 'N/A'}
         </p>
@@ -504,7 +506,7 @@ function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'com
       >
         <Info className="h-3.5 w-3.5" />
       </button>
-      
+
       {show && (
         <div className="absolute z-50 left-0 top-full mt-1 w-72 bg-slate-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
           <div className="font-semibold mb-1">{tooltip.title}</div>
@@ -528,10 +530,10 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
       {warrants.map((warrant, idx) => {
         const issueDate = warrant.issue_date ? new Date(warrant.issue_date) : null;
-        const title = issueDate 
+        const title = issueDate
           ? `${issueDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Warrants`
           : 'Warrants';
-        
+
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
             {/* Header Compacto con Ícono Educativo */}

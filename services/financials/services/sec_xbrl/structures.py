@@ -16,23 +16,39 @@ from typing import Dict, Optional
 
 INCOME_STATEMENT_STRUCTURE = {
     # === REVENUE (100-199) ===
-    # Para empresas standard (tech, retail, etc.): Solo mostrar Revenue total
-    # EXCEPCIÓN: Finance Division se muestra porque es estructuralmente diferente (como CAT, GE)
-    'operating_revenue':    {'section': 'Revenue',              'order': 90,  'indent': 0, 'is_subtotal': False},
-    'interest_income_revenue': {'section': 'Revenue',           'order': 95,  'indent': 0, 'is_subtotal': False},
+    # Estructura jerárquica TIKR: componentes primero, total al final
+    #
+    # Para empresas con Finance Division (CAT, GE, Ford):
+    #   Revenues (productos/servicios)  ← operating_revenue (calculado)
+    #   Finance Div. Revenues           ← finance_division_revenue
+    #   Total Revenues                  ← total_revenue (subtotal)
+    #
+    # Para empresas con Interest Income significativo (fintech, crypto):
+    #   Operating Revenue               ← operating_revenue (calculado)
+    #   Interest & Investment Income    ← interest_income_revenue
+    #   Total Revenue                   ← total_revenue (subtotal)
+    #
+    'operating_revenue':    {'section': 'Revenue',              'order': 90,  'indent': 0, 'is_subtotal': False, 'label': 'Revenues'},
+    'interest_income_revenue': {'section': 'Revenue',           'order': 92,  'indent': 0, 'is_subtotal': False, 'label': 'Interest & Investment Income'},
+    'finance_division_revenue': {'section': 'Revenue',          'order': 95,  'indent': 0, 'is_subtotal': False, 'label': 'Finance Div. Revenues'},
     'other_revenue':        {'section': 'Revenue',              'order': 98,  'indent': 0, 'is_subtotal': False},
-    'revenue':              {'section': 'Revenue',              'order': 100, 'indent': 0, 'is_subtotal': True, 'label': 'Revenues'},
+    'total_revenue':        {'section': 'Revenue',              'order': 100, 'indent': 0, 'is_subtotal': True, 'label': 'Total Revenues'},
+    'revenue':              {'section': 'Revenue',              'order': 100, 'indent': 0, 'is_subtotal': True, 'label': 'Revenues'},  # Fallback si no se ajusta
     'revenue_yoy':          {'section': 'Revenue',              'order': 101, 'indent': 1, 'is_subtotal': False},
-    # Finance Division (CAT, GE, etc.) - SE MUESTRA porque es negocio estructuralmente diferente
-    'finance_division_revenue': {'section': 'Revenue',          'order': 105, 'indent': 0, 'is_subtotal': False, 'label': 'Finance Div. Revenue'},
-    'total_revenue':        {'section': 'Revenue',              'order': 110, 'indent': 0, 'is_subtotal': True, 'label': 'Total Revenues'},
     # NOTA: Segmentos de producto/servicio (cloud, services, products) NO se muestran en estándar
     # TIKR solo muestra estos en banking/fintech donde son estructurales, no en tech
     
     # === COST & GROSS PROFIT (200-299) ===
+    # TIKR Order for Manufacturing + Finance Division (CAT, GE, Ford):
+    #   Cost of Goods Sold (-)
+    #   Finance Div. Operating Exp. (-)
+    #   Interest Expense - Finance Div. (-)
+    #   Gross Profit (=)
     'cost_of_revenue':      {'section': 'Cost & Gross Profit',  'order': 200, 'indent': 0, 'is_subtotal': False},
     'cost_of_goods_sold':   {'section': 'Cost & Gross Profit',  'order': 201, 'indent': 1, 'is_subtotal': False},
     'cost_of_services':     {'section': 'Cost & Gross Profit',  'order': 202, 'indent': 1, 'is_subtotal': False},
+    'finance_div_operating_exp': {'section': 'Cost & Gross Profit', 'order': 205, 'indent': 0, 'is_subtotal': False, 'label': 'Finance Div. Operating Exp.'},
+    'interest_expense_finance_div': {'section': 'Cost & Gross Profit', 'order': 207, 'indent': 0, 'is_subtotal': False, 'label': 'Interest Expense - Finance Div.'},
     'gross_profit':         {'section': 'Cost & Gross Profit',  'order': 210, 'indent': 0, 'is_subtotal': True},
     'gross_profit_yoy':     {'section': 'Cost & Gross Profit',  'order': 211, 'indent': 1, 'is_subtotal': False},
     'gross_margin':         {'section': 'Cost & Gross Profit',  'order': 212, 'indent': 1, 'is_subtotal': False},
