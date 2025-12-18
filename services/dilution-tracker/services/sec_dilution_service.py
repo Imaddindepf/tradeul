@@ -825,10 +825,10 @@ class SECDilutionService:
     # NEW: ENHANCED DATA ENDPOINTS (SEC-API /float, FMP Cash)
     # ========================================================================
     
-    async def get_shares_history(self, ticker: str) -> Dict[str, Any]:
+    async def get_shares_history(self, ticker: str, cik: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get historical shares outstanding from SEC-API /float endpoint.
-        This provides official SEC data for dilution history.
+        Get historical shares outstanding from SEC-API.io /float endpoint (PAID, primary source).
+        Falls back to SEC EDGAR XBRL if SEC-API fails.
         
         Returns:
             Dict with shares history, dilution metrics, and all records.
@@ -843,11 +843,16 @@ class SECDilutionService:
                 logger.info("shares_history_from_cache", ticker=ticker)
                 return cached
             
-            # Fetch from SEC-API
-            result = await self.enhanced_fetcher.fetch_shares_history(ticker)
+            # PRIMARY: SEC-API.io /float (PAID - more reliable data)
+            result = await self._fetch_shares_from_sec_api(ticker)
             
-            # Cache for 6 hours (shares don't change that often)
-            if "error" not in result:
+            # FALLBACK: SEC EDGAR XBRL if SEC-API fails
+            if not result or "error" in result:
+                logger.info("falling_back_to_sec_edgar", ticker=ticker)
+                result = await self._fetch_shares_from_sec_edgar(ticker, cik)
+            
+            # Cache for 6 hours
+            if result and "error" not in result:
                 await self.redis.set(cache_key, result, ttl=21600, serialize=True)
             
             return result
@@ -855,6 +860,334 @@ class SECDilutionService:
         except Exception as e:
             logger.error("get_shares_history_failed", ticker=ticker, error=str(e))
             return {"error": str(e)}
+    
+    async def _fetch_shares_from_sec_api(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch historical shares from SEC-API.io /float endpoint.
+        This is the PAID API with clean, reliable data.
+        """
+        try:
+            sec_api_key = settings.SEC_API_IO_KEY
+            if not sec_api_key:
+                logger.warning("sec_api_io_key_missing")
+                return None
+            
+            url = f"https://api.sec-api.io/float?ticker={ticker}&token={sec_api_key}"
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url)
+                
+                if response.status_code != 200:
+                    logger.warning("sec_api_float_failed", ticker=ticker, status=response.status_code)
+                    return None
+                
+                data = response.json()
+            
+            records_list = data.get('data', [])
+            if not records_list:
+                logger.warning("no_float_data_from_sec_api", ticker=ticker)
+                return None
+            
+            # Process records - sum all share classes
+            records = []
+            for item in records_list:
+                period = item.get('periodOfReport')
+                float_data = item.get('float', {})
+                outstanding_list = float_data.get('outstandingShares', [])
+                
+                if not period or not outstanding_list:
+                    continue
+                
+                # Sum all share classes
+                total_shares = sum(s.get('value', 0) for s in outstanding_list)
+                
+                if total_shares > 0:
+                    records.append({
+                        'date': period,
+                        'shares': total_shares,
+                        'form': 'SEC-API',
+                        'filed': item.get('reportedAt', '')[:10]
+                    })
+            
+            if not records:
+                return None
+            
+            # Sort by date ascending
+            records.sort(key=lambda x: x['date'])
+            
+            # Adjust for stock splits to make chart consistent
+            records = await self._adjust_for_splits_fmp(ticker, records)
+            
+            # Calculate dilution metrics
+            now = datetime.now()
+            current = records[-1] if records else None
+            
+            def find_closest(target_date: str) -> Optional[Dict]:
+                closest = None
+                min_diff = float('inf')
+                for rec in records:
+                    try:
+                        rec_dt = datetime.strptime(rec['date'][:10], "%Y-%m-%d")
+                        tgt_dt = datetime.strptime(target_date, "%Y-%m-%d")
+                        diff = abs((rec_dt - tgt_dt).days)
+                        if diff < min_diff:
+                            min_diff = diff
+                            closest = rec
+                    except:
+                        continue
+                return closest if min_diff < 120 else None
+            
+            one_year_ago = (now - timedelta(days=365)).strftime("%Y-%m-%d")
+            three_years_ago = (now - timedelta(days=365*3)).strftime("%Y-%m-%d")
+            
+            yr1_rec = find_closest(one_year_ago)
+            yr3_rec = find_closest(three_years_ago)
+            
+            def calc_dilution(old: int, new: int) -> float:
+                if old > 0:
+                    return ((new - old) / old) * 100
+                return 0.0
+            
+            result = {
+                "source": "SEC-API.io /float",
+                "current": {
+                    "date": current['date'] if current else None,
+                    "outstanding_shares": current['shares'] if current else None,
+                },
+                "all_records": [
+                    {"period": r['date'], "outstanding_shares": r['shares']}
+                    for r in records
+                ],
+                "dilution_summary": {},
+                "history": records,
+            }
+            
+            if current and yr1_rec:
+                result["dilution_summary"]["1_year"] = round(calc_dilution(yr1_rec['shares'], current['shares']), 2)
+            if current and yr3_rec:
+                result["dilution_summary"]["3_years"] = round(calc_dilution(yr3_rec['shares'], current['shares']), 2)
+            
+            logger.info("sec_api_float_fetched", ticker=ticker, records=len(records))
+            return result
+            
+        except Exception as e:
+            logger.error("sec_api_float_exception", ticker=ticker, error=str(e))
+            return None
+    
+    async def _adjust_for_splits_fmp(self, ticker: str, records: List[Dict]) -> List[Dict]:
+        """
+        Adjust historical shares for stock splits using FMP split history.
+        This normalizes all historical values to the current split-adjusted basis.
+        
+        Example: If there was a 1:10 reverse split, historical values of 39M
+        become 3.9M to match the current post-split value.
+        """
+        if not records or len(records) < 2:
+            return records
+        
+        try:
+            fmp_key = settings.FMP_API_KEY
+            if not fmp_key:
+                logger.debug("no_fmp_key_for_splits", ticker=ticker)
+                return records
+            
+            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/stock_split/{ticker}?apikey={fmp_key}"
+            
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(url)
+                if response.status_code != 200:
+                    return records
+                data = response.json()
+            
+            splits = data.get('historical', [])
+            if not splits:
+                return records
+            
+            # Sort splits by date ascending
+            splits = sorted(splits, key=lambda x: x['date'])
+            
+            logger.info(
+                "splits_detected",
+                ticker=ticker,
+                count=len(splits),
+                splits=[(s['date'], f"{s['numerator']}:{s['denominator']}") for s in splits]
+            )
+            
+            # Adjust each record for all splits that occurred AFTER that record date
+            adjusted = []
+            for record in records:
+                record_date = record['date']
+                factor = 1.0
+                
+                for split in splits:
+                    # If split happened after this record date, adjust
+                    if split['date'] > record_date:
+                        # For reverse split 1:10 (numerator=1, denominator=10)
+                        # We divide old shares by 10 to match new basis
+                        # factor = denominator / numerator
+                        factor *= split['denominator'] / split['numerator']
+                
+                if factor != 1.0:
+                    adjusted.append({
+                        **record,
+                        'shares': int(record['shares'] / factor),
+                        'original_shares': record['shares'],
+                        'split_adjusted': True
+                    })
+                else:
+                    adjusted.append({
+                        **record,
+                        'split_adjusted': False
+                    })
+            
+            adjusted_count = sum(1 for r in adjusted if r.get('split_adjusted'))
+            if adjusted_count > 0:
+                logger.info("shares_split_adjusted", ticker=ticker, adjusted=adjusted_count, total=len(adjusted))
+            
+            return adjusted
+            
+        except Exception as e:
+            logger.warning("split_adjustment_error", ticker=ticker, error=str(e))
+            return records
+    
+    async def _fetch_shares_from_sec_edgar(self, ticker: str, cik: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Fetch historical shares from SEC EDGAR Company Facts API (XBRL).
+        FREE and official SEC data.
+        """
+        try:
+            # Get CIK if not provided
+            if not cik:
+                cik, _ = await self._get_cik_and_company_name(ticker)
+            
+            if not cik:
+                logger.warning("no_cik_for_edgar_shares", ticker=ticker)
+                return None
+            
+            # Pad CIK to 10 digits
+            cik_padded = cik.lstrip('0').zfill(10)
+            url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik_padded}.json"
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    url,
+                    headers={"User-Agent": "TradeulApp/1.0 (support@tradeul.com)"}
+                )
+                
+                if response.status_code != 200:
+                    logger.warning("sec_edgar_shares_failed", ticker=ticker, status=response.status_code)
+                    return None
+                
+                data = response.json()
+            
+            # Extract shares outstanding from XBRL
+            facts = data.get('facts', {}).get('us-gaap', {})
+            
+            # Try multiple fields
+            share_fields = [
+                'CommonStockSharesOutstanding',
+                'CommonStockSharesIssued',
+                'WeightedAverageNumberOfSharesOutstandingBasic',
+            ]
+            
+            records = []
+            for field in share_fields:
+                field_data = facts.get(field, {})
+                shares_list = field_data.get('units', {}).get('shares', [])
+                
+                if shares_list:
+                    for item in shares_list:
+                        form = item.get('form', '')
+                        if form not in ['10-K', '10-Q', '10-K/A', '10-Q/A']:
+                            continue
+                        
+                        end_date = item.get('end')
+                        value = item.get('val')
+                        filed = item.get('filed')
+                        
+                        if end_date and value:
+                            records.append({
+                                'date': end_date,
+                                'shares': int(value),
+                                'form': form,
+                                'filed': filed
+                            })
+                    
+                    if records:
+                        break
+            
+            if not records:
+                return None
+            
+            # Deduplicate by date (keep latest filed)
+            seen = {}
+            for r in records:
+                d = r['date']
+                if d not in seen or r['filed'] > seen[d]['filed']:
+                    seen[d] = r
+            
+            sorted_records = sorted(seen.values(), key=lambda x: x['date'])
+            
+            # Calculate dilution metrics
+            now = datetime.now()
+            current = sorted_records[-1] if sorted_records else None
+            
+            def find_closest(target_date: str) -> Optional[Dict]:
+                closest = None
+                min_diff = float('inf')
+                for rec in sorted_records:
+                    try:
+                        rec_dt = datetime.strptime(rec['date'][:10], "%Y-%m-%d")
+                        tgt_dt = datetime.strptime(target_date, "%Y-%m-%d")
+                        diff = abs((rec_dt - tgt_dt).days)
+                        if diff < min_diff:
+                            min_diff = diff
+                            closest = rec
+                    except:
+                        continue
+                return closest if min_diff < 120 else None
+            
+            one_year_ago = (now - timedelta(days=365)).strftime("%Y-%m-%d")
+            three_years_ago = (now - timedelta(days=365*3)).strftime("%Y-%m-%d")
+            five_years_ago = (now - timedelta(days=365*5)).strftime("%Y-%m-%d")
+            
+            yr1_rec = find_closest(one_year_ago)
+            yr3_rec = find_closest(three_years_ago)
+            yr5_rec = find_closest(five_years_ago)
+            
+            def calc_dilution(old: int, new: int) -> float:
+                if old > 0:
+                    return ((new - old) / old) * 100
+                return 0.0
+            
+            result = {
+                "source": "SEC EDGAR XBRL (official)",
+                "current": {
+                    "date": current['date'] if current else None,
+                    "outstanding_shares": current['shares'] if current else None,
+                    "form": current['form'] if current else None,
+                },
+                "all_records": [
+                    {"period": r['date'], "outstanding_shares": r['shares'], "form": r['form']}
+                    for r in sorted_records
+                ],
+                "dilution_summary": {},
+                "history": sorted_records,  # For chart
+            }
+            
+            if current and yr1_rec:
+                result["dilution_summary"]["1_year"] = round(calc_dilution(yr1_rec['shares'], current['shares']), 2)
+            if current and yr3_rec:
+                result["dilution_summary"]["3_years"] = round(calc_dilution(yr3_rec['shares'], current['shares']), 2)
+            if current and yr5_rec:
+                result["dilution_summary"]["5_years"] = round(calc_dilution(yr5_rec['shares'], current['shares']), 2)
+            
+            logger.info("sec_edgar_shares_fetched", ticker=ticker, records=len(sorted_records))
+            return result
+            
+        except Exception as e:
+            logger.error("sec_edgar_shares_exception", ticker=ticker, error=str(e))
+            return None
     
     async def get_cash_data(self, ticker: str) -> Dict[str, Any]:
         """
@@ -871,10 +1204,28 @@ class SECDilutionService:
             cached = await self.redis.get(cache_key, deserialize=True)
             if cached:
                 logger.info("cash_data_from_cache", ticker=ticker)
+                
+                # 🚀 INYECTAR ESTIMACIÓN REAL-TIME
+                try:
+                    real_time = await self._calculate_real_time_estimation(ticker, cached)
+                    if real_time:
+                        cached['real_time_estimate'] = real_time
+                except Exception as rt_error:
+                    logger.error("real_time_estimation_cache_failed", error=str(rt_error))
+                
                 return cached
             
             # Fetch from FMP
             result = await self.enhanced_fetcher.fetch_cash_data(ticker)
+            
+            # 🚀 INYECTAR ESTIMACIÓN REAL-TIME
+            if result and result.get("error") is None:
+                try:
+                    real_time = await self._calculate_real_time_estimation(ticker, result)
+                    if real_time:
+                        result['real_time_estimate'] = real_time
+                except Exception as rt_error:
+                    logger.error("real_time_estimation_fetch_failed", error=str(rt_error))
             
             # Cache for 4 hours
             if result.get("error") is None:
@@ -885,6 +1236,79 @@ class SECDilutionService:
         except Exception as e:
             logger.error("get_cash_data_failed", ticker=ticker, error=str(e))
             return {"error": str(e)}
+
+    async def _calculate_real_time_estimation(self, ticker: str, cash_data: Dict) -> Optional[Dict]:
+        """
+        Calcula estimación de caja en tiempo real (Ingeniería de Flujo)
+        """
+        try:
+            if not cash_data or not cash_data.get('last_report_date'):
+                return None
+
+            last_report_date_str = cash_data.get('last_report_date')
+            # Asegurar float y manejar nulos
+            last_cash = float(cash_data.get('cash_and_equivalents') or 0)
+            quarterly_burn = float(cash_data.get('quarterly_cash_burn') or 0)
+            
+            # Fechas
+            try:
+                last_report_date = datetime.strptime(last_report_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return None
+                
+            today = datetime.now().date()
+            days_elapsed = (today - last_report_date).days
+            if days_elapsed < 0: days_elapsed = 0
+            
+            # 1. Burn Prorrateado
+            daily_burn = quarterly_burn / 91.0
+            # Si quarterly_burn es positivo (gasto), prorated es negativo (resta caja)
+            prorated_burn = daily_burn * days_elapsed * -1
+            
+            # 2. Capital Levantado (Desde DB interna)
+            capital_raise = 0.0
+            raise_details = []
+            
+            try:
+                # Usar cache only para evitar llamadas recursivas o scraping
+                profile_response = await self.get_from_cache_only(ticker)
+                
+                if profile_response and profile_response.profile and profile_response.profile.completed_offerings:
+                    for off in profile_response.profile.completed_offerings:
+                        # Manejar formato de fecha que puede venir como string o date
+                        off_date = off.completion_date
+                        if isinstance(off_date, str):
+                            try:
+                                off_date = datetime.strptime(off_date, "%Y-%m-%d").date()
+                            except:
+                                continue
+                                
+                        if off_date > last_report_date:
+                            amount = float(off.gross_proceeds or 0)
+                            if amount > 0:
+                                capital_raise += amount
+                                raise_details.append({
+                                    "date": str(off_date),
+                                    "type": off.offering_type or "Offering",
+                                    "amount": amount
+                                })
+            except Exception as db_e:
+                logger.warning(f"Error fetching completed offerings for RT calc: {db_e}")
+
+            # 3. Resultado Final
+            current_est = last_cash + prorated_burn + capital_raise
+            
+            return {
+                "report_date": last_report_date_str,
+                "days_elapsed": days_elapsed,
+                "prorated_burn": prorated_burn,
+                "capital_raise": capital_raise,
+                "current_cash_estimate": current_est,
+                "raise_details": raise_details
+            }
+        except Exception as e:
+            logger.error(f"Error calculating RT estimation: {e}")
+            return None
     
     async def get_enhanced_dilution_profile(self, ticker: str, force_refresh: bool = False) -> Dict[str, Any]:
         """
@@ -999,6 +1423,46 @@ class SECDilutionService:
         except Exception as e:
             logger.error("ticker_lock_release_failed", ticker=ticker, error=str(e))
             return False
+    
+    async def get_from_cache_only(self, ticker: str) -> Optional[SECDilutionProfile]:
+        """
+        Obtener perfil de dilución SOLO desde caché (NO bloquea).
+        
+        Estrategia:
+        1. Redis (instantáneo) - ~10ms
+        2. PostgreSQL (rápido) - ~50ms
+        3. Si no hay datos -> retorna None (NO hace scraping)
+        
+        Args:
+            ticker: Ticker symbol
+            
+        Returns:
+            SECDilutionProfile si está en caché, None si no
+        """
+        try:
+            ticker = ticker.upper()
+            
+            # 1. Intentar desde Redis
+            cached_profile = await self._get_from_redis(ticker)
+            if cached_profile:
+                logger.info("cache_check_hit_redis", ticker=ticker)
+                return cached_profile
+            
+            # 2. Intentar desde PostgreSQL
+            db_profile = await self.repository.get_profile(ticker)
+            if db_profile:
+                logger.info("cache_check_hit_db", ticker=ticker)
+                # Cachear en Redis para próximas consultas
+                await self._save_to_redis(ticker, db_profile)
+                return db_profile
+            
+            # 3. No hay datos en caché
+            logger.info("cache_check_miss", ticker=ticker)
+            return None
+            
+        except Exception as e:
+            logger.error("get_from_cache_only_failed", ticker=ticker, error=str(e))
+            return None
     
     async def get_dilution_profile(
         self, 
@@ -1237,8 +1701,8 @@ class SECDilutionService:
             
             logger.info("cik_found", ticker=ticker, cik=cik, company_name=company_name)
             
-            # 2. Buscar TODOS los filings desde 2015 usando SEC-API.io (ACCESO COMPLETO)
-            filings = await self._fetch_all_filings_from_sec_api_io(ticker)
+            # 2. Buscar TODOS los filings usando SEC-API.io por CIK (más preciso que ticker)
+            filings = await self._fetch_all_filings_from_sec_api_io(ticker, cik)
             
             # 2.5 CRÍTICO: Buscar TODOS los 424B (tienen detalles de warrants/offerings)
             # Aumentar a 100 para asegurar que capturamos filings recientes
@@ -1354,30 +1818,27 @@ class SECDilutionService:
             logger.error("get_cik_failed", ticker=ticker, error=str(e))
             return None, None
     
-    async def _fetch_all_filings_from_sec_api_io(self, ticker: str) -> List[Dict]:
+    async def _fetch_all_filings_from_sec_api_io(self, ticker: str, cik: Optional[str] = None) -> List[Dict]:
         """
         Buscar TODOS los filings usando SEC-API.io Query API (FUENTE DE VERDAD)
         
-        IMPORTANTE: Usamos el Query API correcto, NO full-text-search.
+        IMPORTANTE: Busca por CIK para precisión. El ticker puede ser ambiguo
+        (múltiples empresas pueden haber tenido el mismo ticker en el tiempo).
         
         Query API (https://api.sec-api.io):
-        - Filtra por METADATA (ticker, formType, filedAt)
-        - Devuelve TODOS los filings del ticker desde 1993+
+        - Filtra por CIK (precisión 100%)
+        - Devuelve TODOS los filings de la empresa desde 1993+
         - Es la fuente primaria para enumerar filings
         
-        Full-Text Search (NO LO USAMOS AQUÍ):
-        - Busca dentro del CONTENIDO de los filings
-        - Indexa desde 2001
-        - Se usa para buscar palabras clave dentro de documentos
-        
         Estrategia TOP:
-        1. Query AMPLIA: ticker + fecha, SIN filtrar formType
+        1. Query por CIK (no ticker) para precisión
         2. Incluye automáticamente 20-F, 6-K, F-1, F-3 (foreign issuers)
         3. Filtrado inteligente después en memoria
         4. Ventana desde 2010 (warrants viven 10-15 años)
         
         Args:
-            ticker: Ticker symbol
+            ticker: Ticker symbol (solo para logging)
+            cik: CIK de la empresa (fuente de precisión)
             
         Returns:
             Lista COMPLETA de todos los filings desde 2010
@@ -1391,13 +1852,19 @@ class SECDilutionService:
             
             base_url = "https://api.sec-api.io"
             
-            # Query SIMPLE: Solo filtrar ticker y fecha
-            # NO filtrar formType aquí - capturamos TODO y filtramos después
-            # Ventana ampliada a 2010 (vs 2015 anterior)
+            # Query por CIK para precisión (elimina ambigüedad de tickers reutilizados)
+            # Si no tenemos CIK, usamos ticker como fallback
+            if cik:
+                # Normalizar CIK (sin ceros iniciales para SEC-API)
+                cik_normalized = cik.lstrip('0') if cik else None
+                query_str = f'cik:{cik_normalized} AND filedAt:[2010-01-01 TO *]'
+            else:
+                query_str = f'ticker:{ticker} AND filedAt:[2010-01-01 TO *]'
+            
             query = {
                 "query": {
                     "query_string": {
-                        "query": f'ticker:{ticker} AND filedAt:[2010-01-01 TO *]'
+                        "query": query_str
                     }
                 },
                 "from": "0",
@@ -1764,15 +2231,12 @@ class SECDilutionService:
     
     def _filter_relevant_filings(self, filings: List[Dict]) -> List[Dict]:
         """
-        Filtrar filings relevantes para análisis de dilución TOP
+        Filtrar filings relevantes para análisis de dilución.
         
-        CAMBIOS vs versión anterior:
-        - ✅ NO limitar 8-K arbitrariamente a 30 (un 8-K de 2018 puede tener warrant activo)
-        - ✅ INCLUIR 20-F y 6-K (empresas foreign issuer como GLMD)
-        - ✅ NO descartar form types desconocidos (marcar como OTHER)
-        - ✅ Ventana desde 2010 (vs 2015 anterior)
+        SOLO incluye filings directamente relevantes para dilución.
+        EXCLUYE tipos irrelevantes como Form 4 (insider trading), LETTER, CORRESP, etc.
         
-        PRIORIDAD DE FILINGS PARA DILUCIÓN:
+        FILINGS INCLUIDOS (relevantes para dilución):
         
         Tier 1 (CRÍTICOS - Shelf Registrations):
         - S-3, S-3/A, S-3ASR: Universal shelf registrations
@@ -1784,22 +2248,28 @@ class SECDilutionService:
         Tier 2 (MUY IMPORTANTES - Annual/Quarterly Reports):
         - 10-K, 10-K/A: Annual report (equity structure completa)
         - 10-Q, 10-Q/A: Quarterly report (equity changes)
-        - 20-F, 20-F/A: Foreign issuer annual (equivalente a 10-K) 🔥 CRÍTICO
-        - 6-K: Foreign issuer current report (equivalente a 8-K y puede tener 10-Q info) 🔥 CRÍTICO
+        - 20-F, 20-F/A: Foreign issuer annual (equivalente a 10-K)
+        - 6-K, 6-K/A: Foreign issuer current report
         
         Tier 3 (IMPORTANTES - Prospectus Supplements):
         - 424B5, 424B3, 424B4, 424B7, 424B2: Offerings activos con detalles
         - FWP: Free writing prospectus
         
         Tier 4 (ÚTILES - Current Reports):
-        - 8-K, 8-K/A: Current report (offerings, warrant exercises) 🔥 NO LIMITAR
+        - 8-K, 8-K/A: Current report (offerings, warrant exercises)
         
         Tier 5 (COMPLEMENTARIOS):
         - DEF 14A, DEFM14A, DEFR14A, DEFA14A: Proxy statements
-        - SC 13D, SC 13G: Beneficial ownership
+        - SC 13D, SC 13G: Beneficial ownership (5%+ holders)
         
-        Tier 6 (OTHER):
-        - Cualquier otro tipo no reconocido → NO DESCARTAR, marcar como OTHER
+        EXCLUIDOS (no relevantes para dilución):
+        - Form 4, 3, 5: Insider trading reports
+        - LETTER, CORRESP: SEC correspondence
+        - EFFECT: Effectiveness notices
+        - 425: Merger communications
+        - D: Private offerings
+        - 144: Sale of restricted securities
+        - ARS, 11-K: Annual reports to shareholders / benefit plans
         """
         
         result = []
@@ -1853,34 +2323,47 @@ class SECDilutionService:
                 if filing_date < year_cutoff:
                     continue
             except:
-                # Si no tiene fecha válida, skip
                 continue
             
-            # Estrategia nueva: INCLUIR tipos relevantes + marcar unknown como OTHER
+            # 🚀 OPTIMIZACIÓN DE FILTRADO INTELIGENTE
+            # Reducir ruido de filings de alto volumen que pueden ser irrelevantes si son muy antiguos
+            
+            # 1. 8-K/6-K (Current Reports): Solo últimos 3 años (eventos recientes)
+            # Los eventos de dilución antiguos ya deberían estar en 10-K/10-Q posteriores
+            if form_type in ['8-K', '8-K/A', '6-K', '6-K/A']:
+                three_years_ago = date.today().replace(year=date.today().year - 3)
+                if filing_date < three_years_ago:
+                    continue
+
+            # 2. SC 13G/D (Ownership): Solo necesitamos la foto actual (últimos 2 años)
+            if form_type.startswith('SC 13') or form_type.startswith('SCHEDULE 13'):
+                two_years_ago = date.today().replace(year=date.today().year - 2)
+                if filing_date < two_years_ago:
+                    continue
+
+            # 3. S-8 (Employee Plans): Solo últimos 5 años
+            if form_type == 'S-8':
+                five_years_ago = date.today().replace(year=date.today().year - 5)
+                if filing_date < five_years_ago:
+                    continue
+            
+            # SOLO incluir tipos relevantes para dilución
             if form_type in relevant_types:
                 result.append(f)
                 forms_used.add(form_type)
             else:
-                # NO descartar tipos desconocidos - puede ser importante
-                # Ejemplos: 20FR, 6-KR, FWP/A, etc.
                 unknown_types.add(form_type)
-                # Agregar de todas formas pero marcar internamente
-                f_copy = f.copy()
-                f_copy['_marked_as_other'] = True
-                result.append(f_copy)
         
-        # Log COMPLETO para debugging
-        logger.info("filings_filtered_top", 
+        # Log para debugging
+        logger.info("filings_filtered_for_dilution", 
                    total_input=len(filings), 
                    total_output=len(result), 
+                   excluded_count=len(filings) - len(result),
                    forms_used=sorted(list(forms_used)),
-                   unknown_types=sorted(list(unknown_types)),
-                   form_type_counts_top_20=dict(sorted(form_type_counts.items(), key=lambda x: x[1], reverse=True)[:20]),
+                   excluded_types=sorted(list(unknown_types)),
+                   form_type_counts_top_10=dict(sorted(form_type_counts.items(), key=lambda x: x[1], reverse=True)[:10]),
                    has_20f='20-F' in forms_used or '20-F/A' in forms_used,
-                   has_6k='6-K' in forms_used or '6-K/A' in forms_used,
-                   count_8k=form_type_counts.get('8-K', 0),
-                   count_20f=form_type_counts.get('20-F', 0) + form_type_counts.get('20-F/A', 0),
-                   count_6k=form_type_counts.get('6-K', 0) + form_type_counts.get('6-K/A', 0))
+                   has_6k='6-K' in forms_used or '6-K/A' in forms_used)
         
         return result
     

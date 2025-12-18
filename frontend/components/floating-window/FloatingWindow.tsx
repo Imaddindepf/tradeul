@@ -27,13 +27,14 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           // La ventana externa se cerró, restaurar contenido
           updateWindow(window.id, { isPoppedOut: false, poppedOutWindow: null });
           
-          // Si es el chat, limpiar mensajes para forzar recarga
+          // Si es el chat, invalidar mensajes para forzar recarga desde servidor
           if (window.title === 'Community Chat') {
             const { useChatStore } = require('@/stores/useChatStore');
             const activeTarget = useChatStore.getState().activeTarget;
             if (activeTarget) {
               const key = `${activeTarget.type}:${activeTarget.id}`;
-              useChatStore.getState().clearMessages(key);
+              // Usar invalidateMessages en lugar de clearMessages para forzar recarga
+              useChatStore.getState().invalidateMessages(key);
             }
           }
           

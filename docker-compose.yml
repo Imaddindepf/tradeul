@@ -80,7 +80,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8002:8002"  # Solo accesible via Caddy
+      - "127.0.0.1:8002:8002" # Solo accesible via Caddy
     deploy:
       resources:
         limits:
@@ -189,13 +189,40 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8009:8000"  # Solo accesible via Caddy
+      - "127.0.0.1:8009:8000" # Solo accesible via Caddy
     healthcheck:
       test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=5.0)" ]
       interval: 60s
       timeout: 30s
       retries: 10
       start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 2048M
+        reservations:
+          memory: 512M
+
+  # ARQ Worker para jobs de scraping SEC en background
+  dilution_worker:
+    build:
+      context: .
+      dockerfile: services/dilution-tracker/Dockerfile
+    container_name: tradeul_dilution_worker
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=dilution-worker
+    command: [ "arq", "workers.arq_worker.WorkerSettings" ]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
     deploy:
       resources:
         limits:
@@ -364,7 +391,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:9000:9000"  # Solo accesible via Caddy
+      - "127.0.0.1:9000:9000" # Solo accesible via Caddy
     deploy:
       resources:
         limits:
@@ -387,7 +414,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8000:8000"  # Solo accesible via Caddy
+      - "127.0.0.1:8000:8000" # Solo accesible via Caddy
     deploy:
       resources:
         limits:
@@ -412,7 +439,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     volumes:
-      - ./edgar_cache:/app/edgar_cache  # Local storage para edgartools
+      - ./edgar_cache:/app/edgar_cache # Local storage para edgartools
     logging:
       driver: "json-file"
       options:
@@ -465,7 +492,7 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:8012:8012"  # Solo accesible via Caddy
+      - "127.0.0.1:8012:8012" # Solo accesible via Caddy
     deploy:
       resources:
         limits:
@@ -564,15 +591,14 @@ services:
     networks:
       - tradeul_network
     ports:
-      - "127.0.0.1:9001:9001"  # Puerto DIFERENTE al scanner (9000)
+      - "127.0.0.1:9001:9001" # Puerto DIFERENTE al scanner (9000)
     deploy:
       resources:
         limits:
-          cpus: "0.5"
-          memory: 512M
+          cpus: "1"
+          memory: 1024M
         reservations:
           memory: 256M
-
   # admin_panel:
   #   build:
   #     context: .

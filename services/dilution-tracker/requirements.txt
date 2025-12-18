@@ -35,3 +35,9 @@ structlog==24.1.0
 # xAI SDK for Grok API
 xai-sdk>=1.4.0
 
+# Job Queue (async background tasks)
+arq==0.26.1
+
+# SSE Support
+sse-starlette==2.1.0
+

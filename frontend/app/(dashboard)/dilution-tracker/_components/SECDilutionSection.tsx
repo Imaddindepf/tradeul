@@ -3,21 +3,13 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  AlertCircle,
   ExternalLink,
-  RefreshCw,
-  FileText,
-  TrendingDown,
   Calendar,
   DollarSign,
   Percent,
-  Zap,
-  Waves,
-  Archive,
-  CheckCircle2,
   Info,
   BadgeDollarSign,
-  BarChart3
+  CheckCircle2
 } from "lucide-react";
 import {
   getSECDilutionProfile,
@@ -46,6 +38,16 @@ const ANALYSIS_PHASES = [
 
 interface SECDilutionSectionProps {
   ticker: string;
+  /** Datos pre-cargados desde caché (si disponibles) */
+  cachedData?: SECDilutionProfileResponse | null;
+  /** Si hay un job de scraping en progreso */
+  jobPending?: boolean;
+  /** Status del job */
+  jobStatus?: 'queued' | 'processing' | 'none' | 'unknown';
+  /** Callback cuando se cargan datos (compatibilidad) */
+  onDataLoaded?: () => void;
+  /** Callback para solicitar refresh */
+  onRefreshRequest?: () => void;
 }
 
 // Terminal Animation Component
@@ -161,10 +163,10 @@ function SECAnalysisTerminal({
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.03 }}
                 className={`flex items-center gap-2 py-1 px-2 rounded text-xs transition-all ${status === 'running'
-                    ? 'bg-emerald-500/20 border-l-2 border-emerald-400'
-                    : status === 'completed'
-                      ? 'opacity-50'
-                      : 'opacity-30'
+                  ? 'bg-emerald-500/20 border-l-2 border-emerald-400'
+                  : status === 'completed'
+                    ? 'opacity-50'
+                    : 'opacity-30'
                   }`}
               >
                 <div className="w-4 h-4 flex items-center justify-center">
@@ -236,94 +238,63 @@ function SECAnalysisTerminal({
   );
 }
 
-export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
-  const [data, setData] = useState<SECDilutionProfileResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+export function SECDilutionSection({
+  ticker,
+  cachedData,
+  jobPending = false,
+  jobStatus = 'none',
+  onDataLoaded,
+  onRefreshRequest
+}: SECDilutionSectionProps) {
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showTerminal, setShowTerminal] = useState(false);
 
+  // Usar datos pasados como prop
+  const data = cachedData;
+
+  // Notificar al padre cuando hay datos (compatibilidad)
   useEffect(() => {
-    fetchData();
-  }, [ticker]);
-
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const profile = await getSECDilutionProfile(ticker);
-      setData(profile);
-
-      if (!profile) {
-        setError("No SEC dilution data available for this ticker");
-      }
-    } catch (err) {
-      // Si hay 404, mostrar animación de análisis
-      if (err instanceof Error && err.message.includes('404')) {
-        setShowTerminal(true);
-      } else {
-        setError("Failed to load SEC dilution data");
-      }
-      console.error(err);
-    } finally {
-      setLoading(false);
+    if (data) {
+      onDataLoaded?.();
     }
-  };
+  }, [data, onDataLoaded]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = () => {
     setRefreshing(true);
-    setShowTerminal(true);  // Mostrar animación durante refresh
-    try {
-      const success = await refreshSECDilutionProfile(ticker);
-      // La animación controla cuándo termina
-    } catch (err) {
-      console.error("Failed to refresh:", err);
-      setShowTerminal(false);
-      setRefreshing(false);
-    }
+    onRefreshRequest?.();
+    // El padre controlará el refresh
   };
 
-  const handleAnalysisComplete = async () => {
-    // Cuando la animación termina, cargar los datos
-    setShowTerminal(false);
-    setRefreshing(false);
-    await fetchData();
-  };
-
-  // Mostrar terminal de análisis
-  if (showTerminal) {
+  // Estado: Job en progreso (analyzing)
+  if (jobPending || jobStatus === 'queued' || jobStatus === 'processing') {
     return (
-      <SECAnalysisTerminal
-        ticker={ticker}
-        isActive={showTerminal}
-        onComplete={handleAnalysisComplete}
-      />
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="bg-white border border-slate-200 rounded-xl p-8">
-        <div className="flex items-center justify-center">
-          <RefreshCw className="h-6 w-6 text-slate-400 animate-spin" />
-          <span className="ml-3 text-slate-600">Loading SEC dilution data...</span>
-        </div>
+      <div className="border border-slate-200 rounded-lg p-4">
+        <h4 className="font-medium text-slate-700 mb-1">SEC Analysis in Progress</h4>
+        <p className="text-sm text-slate-500">
+          Deep analysis of SEC filings is running in background.
+        </p>
+        <p className="text-xs text-slate-400 mt-2">
+          Status: {jobStatus === 'queued' ? 'Queued' : 'Processing'}
+        </p>
       </div>
     );
   }
 
-  if (error || !data) {
+  // Estado: Sin datos y sin job
+  if (!data) {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-6">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <h4 className="font-semibold text-slate-900 mb-1">SEC Data Unavailable</h4>
-            <p className="text-sm text-slate-600">
-              {error || "Unable to extract dilution data from recent SEC filings. This may indicate no active warrants, ATM, or shelf registrations."}
-            </p>
-          </div>
-        </div>
+      <div className="border border-slate-200 rounded-lg p-4">
+        <h4 className="font-medium text-slate-700 mb-1">SEC Data Unavailable</h4>
+        <p className="text-sm text-slate-500">
+          No cached dilution data available for this ticker.
+        </p>
+        {onRefreshRequest && (
+          <button
+            onClick={handleRefresh}
+            className="mt-3 px-3 py-1.5 text-xs text-slate-600 border border-slate-300 rounded hover:bg-slate-50 transition-colors"
+          >
+            Request Full Analysis
+          </button>
+        )}
       </div>
     );
   }
@@ -339,73 +310,59 @@ export function SECDilutionSection({ ticker }: SECDilutionSectionProps) {
 
   if (!hasData) {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-xl p-6">
-        <div className="flex items-start gap-3">
-          <FileText className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
-          <div>
-            <h4 className="font-semibold text-slate-900 mb-1">Clean Dilution Profile</h4>
-            <p className="text-sm text-slate-600">
-              No active warrants, ATM offerings, or shelf registrations found in recent SEC filings.
-            </p>
-            <p className="text-xs text-slate-500 mt-2">
-              Last checked: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
-            </p>
-          </div>
-        </div>
+      <div className="border border-slate-200 rounded-lg p-4">
+        <h4 className="font-medium text-slate-700 mb-1">Clean Dilution Profile</h4>
+        <p className="text-sm text-slate-500">
+          No active warrants, ATM offerings, or shelf registrations found.
+        </p>
+        <p className="text-xs text-slate-400 mt-2">
+          Last checked: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
+        </p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Summary Stats - Compacto en una sola card */}
-      <div className="bg-white border border-slate-200 rounded-lg p-4">
+      {/* Summary Stats */}
+      <div className="border border-slate-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <TrendingDown className="h-4 w-4 text-blue-600" />
-            <h3 className="text-sm font-semibold text-slate-700">SEC Dilution Summary</h3>
-            {is_spac && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded">SPAC</span>
-            )}
-          </div>
+          <h3 className="text-sm font-medium text-slate-700">
+            SEC Dilution Summary
+            {is_spac && <span className="ml-2 text-xs text-slate-400">(SPAC)</span>}
+          </h3>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded transition-colors disabled:opacity-50"
-            title="Refresh from SEC EDGAR"
+            className="text-xs text-slate-400 hover:text-slate-600"
           >
-            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? '...' : 'Refresh'}
           </button>
         </div>
 
         <div className="grid grid-cols-3 gap-4">
-          {/* Total Dilution */}
           <div>
-            <p className="text-xs text-slate-500 mb-1">Total Potential</p>
-            <p className="text-2xl font-bold text-blue-600">
+            <p className="text-xs text-slate-400 mb-1">Total Potential</p>
+            <p className="text-xl font-semibold text-slate-800">
               {Number(dilution_analysis.total_potential_dilution_pct).toFixed(1)}%
             </p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-400">
               {(Number(dilution_analysis.total_potential_new_shares) / 1_000_000).toFixed(1)}M shares
             </p>
           </div>
-
-          {/* Warrants */}
           <div>
-            <p className="text-xs text-slate-500 mb-1">Warrants</p>
-            <p className="text-2xl font-bold text-purple-600">
+            <p className="text-xs text-slate-400 mb-1">Warrants</p>
+            <p className="text-xl font-semibold text-slate-800">
               {(Number(dilution_analysis.warrant_shares) / 1_000_000).toFixed(1)}M
             </p>
-            <p className="text-xs text-slate-500 mt-1">shares</p>
+            <p className="text-xs text-slate-400">shares</p>
           </div>
-
-          {/* ATM + Shelf */}
           <div>
-            <p className="text-xs text-slate-500 mb-1">ATM + Shelf</p>
-            <p className="text-2xl font-bold text-orange-600">
+            <p className="text-xs text-slate-400 mb-1">ATM + Shelf</p>
+            <p className="text-xl font-semibold text-slate-800">
               {((Number(dilution_analysis.atm_potential_shares) + Number(dilution_analysis.shelf_potential_shares)) / 1_000_000).toFixed(1)}M
             </p>
-            <p className="text-xs text-slate-500 mt-1">shares</p>
+            <p className="text-xs text-slate-400">shares</p>
           </div>
         </div>
 
@@ -536,12 +493,9 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
 
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
-            {/* Header Compacto con Ícono Educativo */}
-            <div className="bg-purple-50 px-4 py-2 border-l-2 border-purple-500 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-purple-600" />
-                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-              </div>
+            {/* Header */}
+            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-700">{title}</h3>
               <EducationalTooltip type="warrant" />
             </div>
 
@@ -608,12 +562,9 @@ function ATMCard({ offerings }: { offerings: ATMOffering[] }) {
 
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
-            {/* Header Compacto con Ícono Educativo */}
-            <div className="bg-blue-50 px-4 py-2 border-l-2 border-blue-500 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Waves className="h-4 w-4 text-blue-600" />
-                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-              </div>
+            {/* Header */}
+            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-700">{title}</h3>
               <EducationalTooltip type="atm" />
             </div>
 
@@ -686,17 +637,12 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
 
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
-            {/* Header Compacto con Ícono Educativo */}
-            <div className="bg-orange-50 px-4 py-2 border-l-2 border-orange-500 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Archive className="h-4 w-4 text-orange-600" />
-                <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-                {shelf.is_baby_shelf && (
-                  <span className="text-xs px-1.5 py-0.5 bg-orange-200 text-orange-800 rounded font-medium">
-                    Baby Shelf
-                  </span>
-                )}
-              </div>
+            {/* Header */}
+            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-700">
+                {title}
+                {shelf.is_baby_shelf && <span className="ml-2 text-xs text-slate-400">(Baby Shelf)</span>}
+              </h3>
               <EducationalTooltip type="shelf" />
             </div>
 

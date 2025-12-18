@@ -3,6 +3,19 @@
 import { AlertCircle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
+interface RealTimeEstimate {
+  report_date: string;
+  days_elapsed: number;
+  prorated_burn: number;
+  capital_raise: number;
+  current_cash_estimate: number;
+  raise_details: Array<{
+    date: string;
+    type: string;
+    amount: number;
+  }>;
+}
+
 interface CashRunwayData {
   current_cash: number;
   quarterly_burn_rate: number;
@@ -17,6 +30,7 @@ interface CashRunwayData {
     date: string;
     estimated_cash: number;
   }>;
+  real_time_estimate?: RealTimeEstimate;
 }
 
 interface CashRunwayChartProps {
@@ -52,51 +66,106 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
   }
 
   const formatCash = (amount: number) => {
-    if (amount >= 1_000_000_000) {
-      return `$${(amount / 1_000_000_000).toFixed(2)}B`;
+    // Handle negative numbers for formatting
+    const isNegative = amount < 0;
+    const absAmount = Math.abs(amount);
+    const prefix = isNegative ? "-$" : "$";
+
+    if (absAmount >= 1_000_000_000) {
+      return `${prefix}${(absAmount / 1_000_000_000).toFixed(2)}B`;
     }
-    if (amount >= 1_000_000) {
-      return `$${(amount / 1_000_000).toFixed(2)}M`;
+    if (absAmount >= 1_000_000) {
+      return `${prefix}${(absAmount / 1_000_000).toFixed(2)}M`;
     }
-    return `$${amount.toLocaleString()}`;
+    return `${prefix}${absAmount.toLocaleString()}`;
   };
 
   const formatCashCompact = (amount: number) => {
-    if (amount >= 1_000_000_000) {
-      return `$${(amount / 1_000_000_000).toFixed(1)}B`;
+    const isNegative = amount < 0;
+    const absAmount = Math.abs(amount);
+    const prefix = isNegative ? "-$" : "$";
+
+    if (absAmount >= 1_000_000_000) {
+      return `${prefix}${(absAmount / 1_000_000_000).toFixed(1)}B`;
     }
-    if (amount >= 1_000_000) {
-      return `$${(amount / 1_000_000).toFixed(0)}M`;
+    if (absAmount >= 1_000_000) {
+      return `${prefix}${(absAmount / 1_000_000).toFixed(0)}M`;
     }
-    return `$${(amount / 1000).toFixed(0)}K`;
+    return `${prefix}${(absAmount / 1000).toFixed(0)}K`;
   };
 
   const isBurningCash = data.quarterly_burn_rate < 0;
 
   // Preparar datos para Recharts - usar historial real si existe, sino proyección
   const useHistory = data.history && data.history.length > 0;
-  const hasProjection = data.projection && data.projection.length > 0;
   
-  // Si no hay datos para graficar, no renderizar
-  if (!useHistory && !hasProjection) {
-    console.log("No chart data available", { useHistory, hasProjection, data });
-  }
-  
-  const chartData = useHistory
-    ? data.history!.slice(-20).map((point, index, arr) => ({
+  let chartData: Array<{
+    month: string;
+    cash: number;
+    type: string;
+    isCurrent: boolean;
+    isDepleted?: boolean;
+  }> = [];
+
+  if (useHistory) {
+    chartData = data.history!.slice(-20).map((point, index, arr) => ({
         month: new Date(point.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
         cash: point.cash,
+      type: 'historical',
         isCurrent: index === arr.length - 1,
-        isDepleted: false,
-      }))
-    : hasProjection
-    ? data.projection.map((month, index) => ({
+    }));
+  } else if (data.projection && data.projection.length > 0) {
+    chartData = data.projection.map((month, index) => ({
         month: new Date(month.date).toLocaleDateString('en-US', { month: 'short' }),
         cash: month.estimated_cash,
+      type: 'projection',
         isCurrent: index === 0,
         isDepleted: !month.estimated_cash || month.estimated_cash <= 0,
-      }))
-    : [];
+    }));
+  }
+
+  // 🚀 Insertar Real-Time Estimate Bars si existen
+  if (data.real_time_estimate && useHistory) {
+    // 1. Prorated Burn (Gasto estimado desde el último reporte)
+    chartData.push({
+      month: "Burn (Est)",
+      cash: data.real_time_estimate.prorated_burn,
+      type: 'estimate_burn',
+      isCurrent: false
+    });
+
+    // 2. Capital Raise (Si hubo)
+    if (data.real_time_estimate.capital_raise > 0) {
+      chartData.push({
+        month: "Cap Raise",
+        cash: data.real_time_estimate.capital_raise,
+        type: 'estimate_raise',
+        isCurrent: false
+      });
+    }
+
+    // 3. Current Estimate (Saldo final estimado)
+    chartData.push({
+      month: "Current Est",
+      cash: data.real_time_estimate.current_cash_estimate,
+      type: 'estimate_total',
+      isCurrent: true
+    });
+  }
+
+  if (chartData.length === 0) {
+    console.log("No chart data available", { useHistory, data });
+  }
+
+  // Helper para colores
+  const getBarColor = (entry: any) => {
+    if (entry.type === 'estimate_burn') return '#ef4444'; // Red for burn outflow
+    if (entry.type === 'estimate_raise') return '#22c55e'; // Green for capital raise
+    if (entry.type === 'estimate_total') return '#8b5cf6'; // Purple for final estimate
+    if (entry.isDepleted) return '#ef4444';
+    if (entry.isCurrent) return '#2563eb';
+    return '#60a5fa';
+  };
 
   return (
     <>
@@ -104,8 +173,13 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       <h4 className="text-base font-semibold text-slate-900 mb-3">Cash Runway</h4>
       <div className="flex items-center gap-6 text-sm mb-4 pb-3 border-b border-slate-200">
         <div>
-          <span className="text-slate-500">Cash:</span> <span className="font-bold ml-1">{formatCash(data.current_cash)}</span>
+          <span className="text-slate-500">Cash (Reported):</span> <span className="font-bold ml-1">{formatCash(data.current_cash)}</span>
         </div>
+        {data.real_time_estimate && (
+           <div>
+             <span className="text-slate-500">Cash (Est):</span> <span className="font-bold ml-1 text-purple-600">{formatCash(data.real_time_estimate.current_cash_estimate)}</span>
+           </div>
+        )}
         <div>
           <span className="text-slate-500">Burn:</span> <span className={`font-bold ml-1 ${isBurningCash ? 'text-red-600' : 'text-green-600'}`}>
             {formatCash(Math.abs(data.quarterly_burn_rate))}/Q {isBurningCash ? '↓' : '↑'}
@@ -131,7 +205,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
       {chartData.length > 0 && (
         <>
           <h4 className="text-base font-semibold text-slate-900 mb-3">
-            {useHistory ? `Historical Cash Position (${chartData.length} quarters)` : 'Cash Position Projection (12 months)'}
+            {useHistory ? `Historical Cash & Real-Time Estimate` : 'Cash Position Projection (12 months)'}
           </h4>
         
           <div className="h-64 border border-slate-200 bg-white rounded-lg p-4">
@@ -144,8 +218,8 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
                   axisLine={{ stroke: '#e2e8f0' }}
                   angle={useHistory ? -45 : 0}
                   textAnchor={useHistory ? "end" : "middle"}
-                  height={useHistory ? 50 : 30}
-                  interval={useHistory ? "preserveStartEnd" : 0}
+                  height={useHistory ? 60 : 30}
+                  interval={0} 
                 />
                 <YAxis 
                   tick={{ fontSize: 12, fill: '#64748b' }}
@@ -164,14 +238,22 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
                   }}
                   labelStyle={{ color: '#f1f5f9', fontWeight: 600, marginBottom: '4px' }}
                   itemStyle={{ color: '#cbd5e1' }}
-                  formatter={(value: number) => [formatCash(value), 'Cash']}
+                  formatter={(value: number, name: string, props: any) => {
+                    let label = 'Cash';
+                    if (props.payload.type === 'estimate_burn') label = 'Est. Burn';
+                    if (props.payload.type === 'estimate_raise') label = 'Cap. Raise';
+                    if (props.payload.type === 'estimate_total') label = 'Est. Total';
+                    return [formatCash(value), label];
+                  }}
                   cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }}
                 />
-                <Bar dataKey="cash" radius={[8, 8, 0, 0]} maxBarSize={useHistory ? 35 : 40}>
+                <Bar dataKey="cash" radius={[4, 4, 0, 0]} maxBarSize={40}>
                   {chartData.map((entry, index) => (
                     <Cell 
                       key={`cell-${index}`}
-                      fill={entry.isDepleted ? '#ef4444' : entry.isCurrent ? '#2563eb' : '#60a5fa'}
+                      fill={getBarColor(entry)}
+                      stroke={entry.type?.startsWith('estimate') ? 'rgba(0,0,0,0.2)' : 'none'}
+                      strokeDasharray={entry.type === 'estimate_total' ? '4 4' : 'none'}
                     />
                   ))}
                 </Bar>
@@ -180,7 +262,7 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
           </div>
 
           {/* Legend */}
-          <div className="flex items-center justify-center gap-6 mt-4">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-4">
             {useHistory ? (
               <>
                 <div className="flex items-center gap-2">
@@ -189,10 +271,29 @@ export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps)
             </div>
                 <div className="flex items-center gap-2">
                   <div className="h-3 w-3 bg-blue-600 rounded" />
-                  <span className="text-xs text-slate-600 font-medium">Latest Quarter</span>
+                  <span className="text-xs text-slate-600 font-medium">Latest Reported</span>
+                </div>
+                {data.real_time_estimate && (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 bg-red-500 rounded" />
+                      <span className="text-xs text-slate-600 font-medium">Est. Burn</span>
+                    </div>
+                    {data.real_time_estimate.capital_raise > 0 && (
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 bg-green-500 rounded" />
+                        <span className="text-xs text-slate-600 font-medium">Cap Raise</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <div className="h-3 w-3 bg-purple-500 rounded" />
+                      <span className="text-xs text-slate-600 font-medium">Real-Time Est</span>
         </div>
+                  </>
+                )}
               </>
             ) : (
+              // ... existing projection legend
               <>
           <div className="flex items-center gap-2">
                   <div className="h-3 w-3 bg-blue-600 rounded" />

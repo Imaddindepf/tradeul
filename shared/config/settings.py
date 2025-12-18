@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     polygon_api_key: str = Field(..., description="Polygon.io API key")
     fmp_api_key: str = Field(..., description="FMP API key")
     grok_api_key: Optional[str] = Field(default=None, description="Grok (X.AI) API key for LLM extraction")
+    grok_api_key_dilution: Optional[str] = Field(default=None, description="Grok API key dedicated to Dilution Tracker")
     sec_api_io: Optional[str] = Field(default=None, description="SEC-API.io API key for complete SEC data")
     
     # Aliases para compatibilidad (mayúsculas)
@@ -41,6 +42,11 @@ class Settings(BaseSettings):
     @property
     def GROK_API_KEY(self) -> Optional[str]:
         return self.grok_api_key
+    
+    @property
+    def GROK_API_KEY_DILUTION(self) -> Optional[str]:
+        """Dedicated Grok API key for Dilution Tracker - falls back to GROK_API_KEY if not set"""
+        return self.grok_api_key_dilution or self.grok_api_key
     
     @property
     def SEC_API_IO_KEY(self) -> Optional[str]:

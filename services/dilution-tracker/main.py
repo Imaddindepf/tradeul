@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from shared.utils.logger import get_logger
 from shared.config.settings import settings
 from routers import analysis_router, sec_dilution_router, async_analysis_router
+from routers.websocket_router import router as websocket_router, manager as ws_manager
 from http_clients import http_clients
 
 logger = get_logger(__name__)
@@ -36,10 +37,19 @@ async def lifespan(app: FastAPI):
     )
     logger.info("http_clients_initialized_with_pooling")
     
+    # Iniciar listener de Pub/Sub para notificaciones de jobs
+    await ws_manager.start_pubsub_listener()
+    logger.info("pubsub_listener_initialized")
+    
     yield
     
-    # Shutdown - cerrar clientes HTTP
+    # Shutdown
     logger.info("dilution_tracker_shutting_down")
+    
+    # Detener listener de Pub/Sub
+    await ws_manager.stop_pubsub_listener()
+    
+    # Cerrar clientes HTTP
     await http_clients.close()
     logger.info("dilution_tracker_stopped")
 
@@ -65,6 +75,7 @@ app.add_middleware(
 app.include_router(analysis_router)
 app.include_router(sec_dilution_router)
 app.include_router(async_analysis_router)
+app.include_router(websocket_router)
 
 
 @app.get("/health")

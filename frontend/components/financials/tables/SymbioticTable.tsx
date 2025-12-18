@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 
 // Display unit type for toggle
-type DisplayUnit = 'thousands' | 'millions' | 'billions';
+type DisplayUnit = 'thousands' | 'millions' | 'billions' | 'auto';
 
 // ============================================================================
 // TYPES - Formato profesional institucional (estilo TIKR/Bloomberg)

@@ -124,8 +124,8 @@ class FinancialCalculator:
                 if ratio >= 0.03:
                     return FinancialCalculator._adjust_for_interest_income(fields, revenue, interest_inv)
         
-        return fields
-    
+            return fields
+        
     @staticmethod
     def _adjust_for_finance_division(fields: List[Dict], revenue: Dict, finance_div: Dict) -> List[Dict]:
         """

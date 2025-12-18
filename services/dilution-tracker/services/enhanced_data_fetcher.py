@@ -1,7 +1,8 @@
 """
 Enhanced Data Fetcher for SEC Dilution Analysis
 Includes:
-- SEC-API /float endpoint for shares outstanding history
+- SEC EDGAR XBRL for shares outstanding history (FREE, primary source)
+- SEC-API /float endpoint as fallback
 - FMP balance sheet + cash flow for cash position/runway
 - Pre-screening logic for Grok optimization
 - Deduplication utilities
@@ -10,8 +11,9 @@ Includes:
 import asyncio
 import hashlib
 import json
+import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
@@ -278,8 +280,14 @@ class EnhancedDataFetcher:
                 return result
             
             # Parse cash history
+            # IMPORTANTE: Usar cashAndShortTermInvestments que incluye inversiones líquidas
+            # Short-term investments son activos líquidos (T-bills, money market, etc.)
             for item in bs_data:
-                cash = item.get("cashAndCashEquivalents") or item.get("cashAndShortTermInvestments") or 0
+                # Priorizar el campo combinado, si no existe sumar manualmente
+                cash = item.get("cashAndShortTermInvestments") or (
+                    (item.get("cashAndCashEquivalents") or 0) + 
+                    (item.get("shortTermInvestments") or 0)
+                )
                 result["cash_history"].append({
                     "date": item.get("date"),
                     "cash": cash,
@@ -302,7 +310,11 @@ class EnhancedDataFetcher:
                 latest_bs = bs_data[0]
                 latest_cf = cf_data[0]
                 
-                result["latest_cash"] = latest_bs.get("cashAndCashEquivalents") or latest_bs.get("cashAndShortTermInvestments") or 0
+                # Usar cash + short-term investments (activos líquidos totales)
+                result["latest_cash"] = latest_bs.get("cashAndShortTermInvestments") or (
+                    (latest_bs.get("cashAndCashEquivalents") or 0) + 
+                    (latest_bs.get("shortTermInvestments") or 0)
+                )
                 result["latest_operating_cf"] = latest_cf.get("operatingCashFlow") or latest_cf.get("netCashProvidedByOperatingActivities") or 0
                 result["last_report_date"] = latest_cf.get("date")
                 

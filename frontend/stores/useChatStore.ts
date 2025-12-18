@@ -83,28 +83,28 @@ export interface ChatState {
   // Connection
   isConnected: boolean;
   connectionError?: string;
-  
+
   // Data
   channels: ChatChannel[];
   groups: ChatGroup[];
   invites: ChatInvite[];
-  
+
   // Active chat
   activeTarget: { type: 'channel' | 'group'; id: string } | null;
   messages: Record<string, ChatMessage[]>; // target_key -> messages
-  
+
   // Typing indicators
   typingUsers: Record<string, TypingUser[]>; // target_key -> typing users
-  
+
   // Presence
   onlineUsers: Record<string, string[]>; // target_key -> user_ids
-  
+
   // UI State
   isSidebarOpen: boolean;
   isLoadingMessages: boolean;
   hasMoreMessages: Record<string, boolean>;
   replyingTo: ChatMessage | null;
-  
+
   // Actions
   setConnected: (connected: boolean, error?: string) => void;
   setChannels: (channels: ChatChannel[]) => void;
@@ -113,31 +113,32 @@ export interface ChatState {
   addInvite: (invite: ChatInvite) => void;
   removeInvite: (groupId: string) => void;
   setActiveTarget: (target: { type: 'channel' | 'group'; id: string } | null) => void;
-  
+
   // Message actions
   addMessage: (targetKey: string, message: ChatMessage) => void;
   addMessages: (targetKey: string, messages: ChatMessage[], prepend?: boolean) => void;
   updateMessage: (targetKey: string, messageId: string, updates: Partial<ChatMessage>) => void;
   removeMessage: (targetKey: string, messageId: string) => void;
   clearMessages: (targetKey: string) => void;
+  invalidateMessages: (targetKey: string) => void; // Fuerza recarga desde servidor
   setHasMoreMessages: (targetKey: string, hasMore: boolean) => void;
-  
+
   // Typing
   addTypingUser: (targetKey: string, user: TypingUser) => void;
   removeTypingUser: (targetKey: string, userId: string) => void;
-  
+
   // Presence
   setOnlineUsers: (targetKey: string, userIds: string[]) => void;
-  
+
   // Reactions
   addReaction: (targetKey: string, messageId: string, emoji: string, userId: string) => void;
   removeReaction: (targetKey: string, messageId: string, emoji: string, userId: string) => void;
-  
+
   // UI
   toggleSidebar: () => void;
   setLoadingMessages: (loading: boolean) => void;
   setReplyingTo: (message: ChatMessage | null) => void;
-  
+
   // Utils
   getTargetKey: (target: { type: 'channel' | 'group'; id: string }) => string;
   getActiveMessages: () => ChatMessage[];
@@ -228,7 +229,7 @@ export const useChatStore = create<ChatState>()(
             // Filter duplicates
             const existingIds = new Set(state.messages[targetKey].map((m) => m.id));
             const newMessages = messages.filter((m) => !existingIds.has(m.id));
-            
+
             if (prepend) {
               state.messages[targetKey] = [...newMessages, ...state.messages[targetKey]];
             } else {
@@ -260,6 +261,13 @@ export const useChatStore = create<ChatState>()(
           set((state) => {
             state.messages[targetKey] = [];
             state.hasMoreMessages[targetKey] = true;
+          }),
+
+        // Invalidar mensajes completamente (fuerza recarga desde servidor)
+        invalidateMessages: (targetKey) =>
+          set((state) => {
+            delete state.messages[targetKey];
+            delete state.hasMoreMessages[targetKey];
           }),
 
         setHasMoreMessages: (targetKey, hasMore) =>

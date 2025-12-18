@@ -135,6 +135,51 @@ export async function getTickerAnalysis(symbol: string): Promise<TickerAnalysis>
   }
 }
 
+/**
+ * CHECK SEC CACHE (NON-BLOCKING)
+ * 
+ * Verifica si hay datos de dilución en caché.
+ * NUNCA bloquea - retorna inmediatamente.
+ * 
+ * @returns 
+ * - Si hay caché: { status: 'cached', data: SECDilutionProfileResponse }
+ * - Si no hay: { status: 'no_cache', job_status: 'queued'|'processing'|'none' }
+ */
+export interface SECCacheCheckResult {
+  status: 'cached' | 'no_cache' | 'error';
+  data?: SECDilutionProfileResponse;
+  ticker?: string;
+  job_status?: 'queued' | 'processing' | 'none' | 'unknown';
+  job_id?: string;
+  message?: string;
+  error?: string;
+}
+
+export async function checkSECCache(symbol: string, enqueueIfMissing: boolean = true): Promise<SECCacheCheckResult> {
+  try {
+    const response = await fetch(
+      `${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/check?enqueue_if_missing=${enqueueIfMissing}`,
+      { 
+        // Timeout corto - este endpoint debe ser rápido
+        signal: AbortSignal.timeout(10000)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`Error checking SEC cache for ${symbol}:`, error);
+    return {
+      status: 'error',
+      ticker: symbol,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
 export async function getSECDilutionProfile(symbol: string): Promise<SECDilutionProfileResponse> {
   try {
     // Endpoint REAL: /api/sec-dilution/{ticker}/profile
@@ -142,7 +187,7 @@ export async function getSECDilutionProfile(symbol: string): Promise<SECDilution
     const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/profile?include_filings=true`);
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch SEC dilution profile for ${symbol}`);
+      throw new Error(`Failed to fetch SEC dilution profile for ${symbol}: ${response.status}`);
     }
 
     const data = await response.json();
@@ -167,6 +212,164 @@ export async function refreshSECDilutionProfile(symbol: string): Promise<SECDilu
   } catch (error) {
     console.error(`Error refreshing SEC dilution profile for ${symbol}:`, error);
     throw error;
+  }
+}
+
+// ============================================================================
+// CASH POSITION API
+// ============================================================================
+
+export interface CashPositionResponse {
+  cash_history: Array<{
+    date: string;
+    cash: number;
+    total_assets?: number;
+    total_liabilities?: number;
+  }>;
+  cashflow_history: Array<{
+    date: string;
+    operating_cf: number;
+    investing_cf?: number;
+    financing_cf?: number;
+    net_income?: number;
+  }>;
+  latest_cash: number;
+  latest_operating_cf: number;
+  last_report_date: string;
+  days_since_report: number;
+  daily_burn_rate: number;
+  prorated_cf: number;
+  estimated_current_cash: number;
+  runway_days: number | null;
+  runway_risk_level: string;
+  error?: string | null;
+}
+
+export interface CashRunwayData {
+  current_cash: number;
+  quarterly_burn_rate: number;
+  estimated_runway_months: number | null;
+  runway_risk_level: "critical" | "high" | "medium" | "low" | "unknown";
+  history?: Array<{ date: string; cash: number }>;
+  projection: Array<{ month: number; date: string; estimated_cash: number }>;
+}
+
+/**
+ * Obtener datos de cash position desde SEC
+ * Transforma al formato esperado por CashRunwayChart
+ */
+export async function getCashPosition(symbol: string): Promise<CashRunwayData | null> {
+  try {
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/cash-position`);
+    
+    if (!response.ok) {
+      console.warn(`Cash position not available for ${symbol}`);
+      return null;
+    }
+    
+    const data: CashPositionResponse = await response.json();
+    
+    if (data.error || !data.latest_cash) {
+      return null;
+    }
+    
+    // Calcular quarterly burn rate desde el daily burn rate
+    const quarterlyBurnRate = data.daily_burn_rate * 90; // ~90 días por trimestre
+    
+    // Calcular runway en meses
+    const runwayMonths = data.runway_days ? data.runway_days / 30 : null;
+    
+    // Preparar historial ordenado de antiguo a nuevo
+    const history = data.cash_history
+      ?.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(h => ({ date: h.date, cash: h.cash })) || [];
+    
+    // Crear proyección (próximos 12 meses)
+    const projection: Array<{ month: number; date: string; estimated_cash: number }> = [];
+    const monthlyBurn = quarterlyBurnRate / 3;
+    let currentCash = data.estimated_current_cash;
+    const now = new Date();
+    
+    for (let i = 1; i <= 12; i++) {
+      const futureDate = new Date(now);
+      futureDate.setMonth(futureDate.getMonth() + i);
+      currentCash = Math.max(0, currentCash + monthlyBurn); // monthlyBurn is negative
+      projection.push({
+        month: i,
+        date: futureDate.toISOString().split('T')[0],
+        estimated_cash: currentCash
+      });
+    }
+    
+    return {
+      current_cash: data.estimated_current_cash,
+      quarterly_burn_rate: quarterlyBurnRate,
+      estimated_runway_months: runwayMonths,
+      runway_risk_level: (data.runway_risk_level as CashRunwayData['runway_risk_level']) || 'unknown',
+      history,
+      projection
+    };
+  } catch (error) {
+    console.error(`Error fetching cash position for ${symbol}:`, error);
+    return null;
+  }
+}
+
+// ============================================================================
+// SEC EDGAR SHARES HISTORY API
+// ============================================================================
+
+export interface SharesHistoryData {
+  source: string;
+  current?: {
+    date: string;
+    outstanding_shares: number;
+    form?: string;
+  };
+  all_records?: Array<{
+    period: string;
+    outstanding_shares: number;
+    form?: string;
+  }>;
+  history?: Array<{
+    date: string;
+    shares: number;
+    form?: string;
+    filed?: string;
+  }>;
+  dilution_summary?: {
+    "1_year"?: number;
+    "3_years"?: number;
+    "5_years"?: number;
+  };
+  error?: string;
+}
+
+/**
+ * Obtener historical shares outstanding desde SEC EDGAR
+ * Fuente gratuita y oficial de la SEC
+ */
+export async function getSharesHistory(symbol: string): Promise<SharesHistoryData | null> {
+  try {
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/shares-history`, {
+      signal: AbortSignal.timeout(15000) // 15s timeout
+    });
+    
+    if (!response.ok) {
+      console.warn(`Shares history not available for ${symbol}`);
+      return null;
+    }
+    
+    const data: SharesHistoryData = await response.json();
+    
+    if (data.error) {
+      return null;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error(`Error fetching shares history for ${symbol}:`, error);
+    return null;
   }
 }
 

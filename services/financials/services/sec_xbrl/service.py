@@ -149,7 +149,7 @@ class SECXBRLService:
                     ]
                     income_consolidated.append(finance_div)
                     logger.info(f"[{ticker}] Extracted Finance Division Revenue from segments")
-            
+        
             # Finance Division Operating Expenses + Interest Expense
             finance_costs = self.extractor.extract_finance_division_costs(raw_xbrl_latest, fiscal_years)
             if finance_costs:

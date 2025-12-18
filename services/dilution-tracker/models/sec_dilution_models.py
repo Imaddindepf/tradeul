@@ -420,6 +420,12 @@ class SECDilutionProfile(BaseModel):
     shares_outstanding: Optional[int] = None
     float_shares: Optional[int] = None
     
+    # Historical shares outstanding (from SEC EDGAR XBRL)
+    historical_shares: List[dict] = Field(
+        default_factory=list,
+        description="Historical shares outstanding: [{date, shares, form, filed}]"
+    )
+    
     # Metadata
     metadata: DilutionProfileMetadata
     
@@ -566,7 +572,7 @@ class DilutionProfileResponse(BaseModel):
     dilution_analysis: dict
     cached: bool = False
     cache_age_seconds: Optional[int] = None
-    
+
     # Company type detection
     is_spac: Optional[bool] = Field(None, description="True if company is a SPAC")
     sic_code: Optional[str] = Field(None, description="SIC Code (6770 = Blank Checks/SPAC)")
