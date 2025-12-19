@@ -47,6 +47,7 @@ from services.enhanced_data_fetcher import (
 )
 from services.grok_pool import GrokPool, get_grok_pool
 from services.chunk_processor import ChunkProcessor, ChunkResult, ChunkStatus
+from services.instrument_linker import InstrumentLinker, InstrumentType, link_instruments_across_filings
 
 logger = get_logger(__name__)
 
@@ -1050,6 +1051,567 @@ class SECDilutionService:
             logger.warning("split_adjustment_error", ticker=ticker, error=str(e))
             return records
     
+    async def _get_split_history(self, ticker: str) -> List[Dict]:
+        """
+        Fetch stock split history from FMP.
+        Cached to avoid repeated API calls.
+        
+        Returns:
+            List of splits: [{'date': '2025-09-17', 'numerator': 1, 'denominator': 10}, ...]
+        """
+        try:
+            fmp_key = settings.FMP_API_KEY
+            if not fmp_key:
+                return []
+            
+            # Check cache first
+            cache_key = f"sec_dilution:splits:{ticker}"
+            cached = await self.redis.get(cache_key, deserialize=True)
+            if cached is not None:
+                return cached
+            
+            url = f"https://financialmodelingprep.com/api/v3/historical-price-full/stock_split/{ticker}?apikey={fmp_key}"
+            
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(url)
+                if response.status_code != 200:
+                    return []
+                data = response.json()
+            
+            splits = data.get('historical', [])
+            splits = sorted(splits, key=lambda x: x['date'])
+            
+            # Cache for 24 hours
+            await self.redis.set(cache_key, splits, ttl=86400, serialize=True)
+            
+            return splits
+            
+        except Exception as e:
+            logger.warning("get_split_history_error", ticker=ticker, error=str(e))
+            return []
+    
+    async def _adjust_warrants_for_splits(self, ticker: str, warrants: List[Dict]) -> List[Dict]:
+        """
+        Adjust warrants for stock splits.
+        
+        For a reverse split 1:10:
+        - exercise_price is MULTIPLIED by 10 (more expensive)
+        - outstanding is DIVIDED by 10 (fewer shares)
+        
+        Example:
+        - Before split: 7,407,407 warrants @ $1.35
+        - After 1:10 reverse split: 740,740 warrants @ $13.50
+        
+        Args:
+            ticker: Stock ticker
+            warrants: List of warrant dicts from Grok extraction
+            
+        Returns:
+            List of warrants with adjusted values
+        """
+        if not warrants:
+            return warrants
+        
+        try:
+            splits = await self._get_split_history(ticker)
+            if not splits:
+                return warrants
+            
+            logger.info("adjusting_warrants_for_splits", 
+                       ticker=ticker, 
+                       warrant_count=len(warrants),
+                       split_count=len(splits))
+            
+            adjusted_warrants = []
+            for w in warrants:
+                warrant = dict(w)  # Copy to avoid mutation
+                
+                # Get issue_date to determine which splits apply
+                issue_date = warrant.get('issue_date')
+                if not issue_date:
+                    # No issue date - assume pre-split, apply all splits
+                    issue_date = '2000-01-01'
+                elif hasattr(issue_date, 'isoformat'):
+                    issue_date = issue_date.isoformat()[:10]
+                else:
+                    issue_date = str(issue_date)[:10]
+                
+                # Calculate cumulative split factor for splits AFTER issue date
+                factor = 1.0
+                for split in splits:
+                    split_date = split.get('date', '')
+                    if split_date > issue_date:
+                        # Reverse split: numerator=1, denominator=10 → factor = 10
+                        # Forward split: numerator=2, denominator=1 → factor = 0.5
+                        factor *= split['denominator'] / split['numerator']
+                
+                if factor != 1.0:
+                    # Store original values
+                    original_price = warrant.get('exercise_price')
+                    original_outstanding = warrant.get('outstanding')
+                    
+                    # Adjust exercise price (multiply for reverse split)
+                    if original_price is not None:
+                        try:
+                            price_float = float(original_price)
+                            warrant['exercise_price'] = round(price_float * factor, 4)
+                            warrant['original_exercise_price'] = original_price
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Adjust outstanding shares (divide for reverse split)
+                    if original_outstanding is not None:
+                        try:
+                            outstanding_int = int(original_outstanding)
+                            warrant['outstanding'] = int(outstanding_int / factor)
+                            warrant['original_outstanding'] = original_outstanding
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Adjust potential_new_shares too
+                    original_potential = warrant.get('potential_new_shares')
+                    if original_potential is not None:
+                        try:
+                            potential_int = int(original_potential)
+                            warrant['potential_new_shares'] = int(potential_int / factor)
+                            warrant['original_potential_new_shares'] = original_potential
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    warrant['split_adjusted'] = True
+                    warrant['split_factor'] = factor
+                    
+                    logger.debug("warrant_split_adjusted",
+                               ticker=ticker,
+                               factor=factor,
+                               original_price=original_price,
+                               adjusted_price=warrant.get('exercise_price'),
+                               original_outstanding=original_outstanding,
+                               adjusted_outstanding=warrant.get('outstanding'))
+                else:
+                    warrant['split_adjusted'] = False
+                
+                adjusted_warrants.append(warrant)
+            
+            adjusted_count = sum(1 for w in adjusted_warrants if w.get('split_adjusted'))
+            if adjusted_count > 0:
+                logger.info("warrants_split_adjusted", 
+                           ticker=ticker, 
+                           adjusted=adjusted_count, 
+                           total=len(adjusted_warrants))
+            
+            return adjusted_warrants
+            
+        except Exception as e:
+            logger.warning("warrant_split_adjustment_error", ticker=ticker, error=str(e))
+            return warrants
+    
+    def _extract_warrant_section(self, html_content: str) -> Optional[str]:
+        """
+        Extract only the warrant-related section from a 10-Q/10-K filing.
+        
+        OPTIMIZADO: Usa regex simple primero (rápido), solo usa BeautifulSoup si necesario.
+        
+        Returns:
+            The warrant section text, or None if not found
+        """
+        if not html_content:
+            return None
+        
+        try:
+            content_size = len(html_content)
+            
+            # SKIP archivos muy grandes (>2MB) - tarda demasiado en parsear
+            if content_size > 2_000_000:
+                logger.debug("warrant_section_skip_large_file", size_mb=content_size/1_000_000)
+                return None
+            
+            # FAST PATH: Primero verificar si hay "warrant" en el contenido
+            if 'warrant' not in html_content.lower():
+                return None
+            
+            # Buscar secciones relevantes con regex simple (MUY rápido)
+            # Buscar tablas o párrafos que contengan "warrant"
+            warrant_patterns = [
+                r'(?is)<table[^>]*>(?:[^<]*<[^>]*>)*[^<]*warrant[^<]*(?:<[^>]*>[^<]*)*</table>',
+                r'(?is)warrant[^<]{0,500}(?:exercised|expired|outstanding)[^<]{0,500}',
+            ]
+            
+            sections = []
+            for pattern in warrant_patterns:
+                matches = re.findall(pattern, html_content[:500000])  # Solo primeros 500KB
+                for match in matches[:3]:  # Máximo 3 matches por patrón
+                    if len(match) > 50:
+                        sections.append(match)
+            
+            if sections:
+                combined = '\n\n'.join(sections)
+                # Solo retornar si tiene keywords de ejercicio
+                if any(kw in combined.lower() for kw in ['exercised', 'expired', 'outstanding']):
+                    # Limpiar HTML básico
+                    clean = re.sub(r'<[^>]+>', ' ', combined)
+                    clean = re.sub(r'\s+', ' ', clean).strip()
+                    return clean[:20000]
+            
+            return None
+            
+        except Exception as e:
+            logger.warning("extract_warrant_section_error", error=str(e))
+            return None
+    
+    async def _extract_warrant_exercises(
+        self, 
+        ticker: str, 
+        company_name: str, 
+        warrant_sections: List[Dict]
+    ) -> List[Dict]:
+        """
+        Extract warrant exercise information from 10-Q/10-K warrant sections.
+        
+        This is a FOCUSED extraction - we only want to know:
+        1. How many warrants were exercised in each period
+        2. Current outstanding after exercises
+        3. Any expirations
+        
+        Args:
+            ticker: Stock ticker
+            company_name: Company name
+            warrant_sections: List of {form_type, filing_date, content} dicts
+            
+        Returns:
+            List of warrant exercise records
+        """
+        if not warrant_sections:
+            return []
+        
+        try:
+            # Combine all sections into one prompt
+            sections_text = "\n\n".join([
+                f"=== {s['form_type']} filed {s['filing_date']} ===\n{s['content'][:5000]}"
+                for s in warrant_sections
+            ])
+            
+            prompt = f"""
+Analyze these warrant sections from {company_name} ({ticker}) SEC filings and extract EXERCISE information.
+
+{sections_text}
+
+Extract ONLY exercise/expiration events. Return JSON:
+{{
+  "warrant_updates": [
+    {{
+      "filing_date": "YYYY-MM-DD",
+      "period_end": "YYYY-MM-DD (e.g., 09/30/2024)",
+      "warrants_exercised": number or null,
+      "warrants_expired": number or null,
+      "warrants_outstanding_end": number (outstanding at end of period),
+      "exercise_price": number or null,
+      "notes": "brief description of the warrant activity"
+    }}
+  ]
+}}
+
+IMPORTANT:
+- Focus on CHANGES (exercises, expirations), not just outstanding counts
+- If a filing says "X warrants were exercised" - that's what we want
+- If it just says "Y warrants outstanding" with no changes, include with exercised=null
+- Return empty list if no warrant exercise info found
+"""
+            
+            # Use a simpler Grok call (not the full multipass)
+            try:
+                client, pool_idx = self._grok_pool.get_client() if self._grok_pool else (None, None)
+                
+                if not client:
+                    client = Client(api_key=self.grok_api_key)
+                
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: client.chat.completions.create(
+                        model="grok-3-fast",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,
+                        max_tokens=2000
+                    )
+                )
+                
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=True)
+                
+                response_text = response.choices[0].message.content
+                
+                # Parse JSON response
+                json_match = re.search(r'\{[\s\S]*\}', response_text)
+                if json_match:
+                    data = json.loads(json_match.group(0))
+                    updates = data.get('warrant_updates', [])
+                    
+                    # Convert to warrant format for merging
+                    exercises = []
+                    for u in updates:
+                        if u.get('warrants_exercised') or u.get('warrants_expired'):
+                            exercises.append({
+                                'issue_date': u.get('period_end') or u.get('filing_date'),
+                                'outstanding': u.get('warrants_outstanding_end'),
+                                'exercise_price': u.get('exercise_price'),
+                                'notes': f"10-Q Update: {u.get('notes', '')} | Exercised: {u.get('warrants_exercised', 0)} | Expired: {u.get('warrants_expired', 0)}",
+                                'status': 'Update',
+                                'is_10q_update': True,
+                                'exercised_count': u.get('warrants_exercised'),
+                                'expired_count': u.get('warrants_expired')
+                            })
+                    
+                    return exercises
+                
+            except Exception as e:
+                logger.warning("extract_warrant_exercises_grok_error", ticker=ticker, error=str(e))
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=False, error=str(e))
+            
+            return []
+            
+        except Exception as e:
+            logger.warning("extract_warrant_exercises_error", ticker=ticker, error=str(e))
+            return []
+    
+    def _extract_atm_section(self, html_content: str) -> Optional[str]:
+        """
+        Extract the ATM-related section from a 10-Q/10-K filing.
+        
+        MEJORADO: Busca más ampliamente y extrae contexto más grande.
+        
+        Returns:
+            The ATM section text, or None if not found
+        """
+        if not html_content:
+            return None
+        
+        try:
+            content_lower = html_content.lower()
+            
+            # Skip if no ATM-related keywords
+            has_atm = any(kw in content_lower for kw in [
+                'at-the-market', 'at the market', ' atm ', 'atm program', 
+                'sales agreement', 'equity distribution'
+            ])
+            if not has_atm:
+                return None
+            
+            # Limpiar HTML primero para búsqueda más efectiva
+            clean_text = re.sub(r'<[^>]+>', ' ', html_content)
+            clean_text = re.sub(r'\s+', ' ', clean_text)
+            
+            # Patterns mejorados para encontrar ATM usage
+            atm_patterns = [
+                # Patrón 1: "sold X shares ... $Y million ... at-the-market"
+                r'(?is)(?:sold|issued|sold\s+and\s+issued)[^.]{0,300}(?:\$[\d,\.]+\s*(?:million|M|billion)?)[^.]{0,200}(?:at-the-market|at\s+the\s+market|atm|sales\s+agreement)',
+                
+                # Patrón 2: "$X million ... under ... ATM"
+                r'(?is)\$[\d,\.]+\s*(?:million|M)?[^.]{0,150}(?:under|pursuant|through)[^.]{0,100}(?:at-the-market|at\s+the\s+market|atm)',
+                
+                # Patrón 3: "ATM program" seguido de montos
+                r'(?is)(?:at-the-market|atm)\s*(?:program|offering|agreement|facility)[^.]{0,500}',
+                
+                # Patrón 4: Sección de "Liquidity" que mencione ATM (contexto más amplio)
+                r'(?is)(?:liquidity|capital\s+resources)[^.]{0,2000}(?:at-the-market|at\s+the\s+market|atm)[^.]{0,1000}',
+                
+                # Patrón 5: Gross proceeds seguido de ATM
+                r'(?is)(?:gross\s+proceeds|net\s+proceeds|aggregate\s+proceeds)[^.]{0,300}(?:at-the-market|at\s+the\s+market|atm)',
+                
+                # Patrón 6: "During the period ... ATM"
+                r'(?is)(?:during\s+the\s+(?:three|six|nine|twelve)\s+months)[^.]{0,500}(?:at-the-market|at\s+the\s+market|atm)[^.]{0,300}',
+            ]
+            
+            sections = []
+            for pattern in atm_patterns:
+                try:
+                    matches = re.findall(pattern, clean_text[:2_000_000])  # First 2MB of clean text
+                    for match in matches[:3]:  # Max 3 matches per pattern
+                        if len(match) > 50:
+                            sections.append(match)
+                except:
+                    continue
+            
+            if sections:
+                # Combinar y deduplicar
+                combined = '\n\n'.join(set(sections))
+                # Limpiar espacios extra
+                combined = re.sub(r'\s+', ' ', combined).strip()
+                
+                if len(combined) > 100:  # Solo retornar si hay contenido sustancial
+                    logger.debug("atm_section_extracted", length=len(combined))
+                    return combined[:20000]
+            
+            return None
+            
+        except Exception as e:
+            logger.warning("extract_atm_section_error", error=str(e))
+            return None
+    
+    async def _extract_atm_usage_from_section(
+        self, 
+        ticker: str, 
+        atm_section: str,
+        filing_date: str
+    ) -> Optional[float]:
+        """
+        Extract ATM USAGE amount from a 10-Q section.
+        
+        CRITICAL: Distinguir entre:
+        - USAGE: "we sold shares for gross proceeds of $70M under our ATM" → $70M USADO
+        - CAPACITY: "ATM program with capacity of $75M" → $75M TOTAL (NO USAR)
+        
+        Returns:
+            Total ATM usage (amount SOLD) in dollars, or None if not found
+        """
+        if not atm_section:
+            return None
+        
+        try:
+            section_lower = atm_section.lower()
+            
+            # SKIP si parece ser descripción de capacidad, no usage
+            # Frases que indican CAPACIDAD (no queremos capturar):
+            capacity_indicators = [
+                'capacity of', 'up to $', 'maximum of', 'aggregate offering',
+                'may offer', 'may sell', 'pursuant to which we may'
+            ]
+            
+            # Frases que indican USAGE REAL (sí queremos capturar):
+            usage_indicators = [
+                'we sold', 'we issued', 'sold and issued', 'gross proceeds of',
+                'net proceeds of', 'aggregate sales of', 'received proceeds',
+                'during the', 'for the period', 'months ended'
+            ]
+            
+            has_usage_context = any(ind in section_lower for ind in usage_indicators)
+            
+            if not has_usage_context:
+                logger.debug("atm_section_no_usage_context", ticker=ticker, 
+                            section_preview=atm_section[:200])
+                return None
+            
+            # Patrones específicos para USAGE (no capacity)
+            usage_patterns = [
+                # "we sold X shares ... for gross proceeds of $Y million"
+                r'(?:sold|issued)[^$]{0,100}(?:gross|net|aggregate)\s*proceeds\s*of\s*\$\s*([\d,\.]+)\s*(million|M)?',
+                
+                # "received proceeds of $Y million from sales"
+                r'(?:received|realized)\s*proceeds\s*of\s*\$\s*([\d,\.]+)\s*(million|M)?',
+                
+                # "aggregate sales of $Y million under"
+                r'aggregate\s*sales\s*of\s*\$\s*([\d,\.]+)\s*(million|M)?',
+                
+                # "$Y million in gross proceeds ... sold under"
+                r'\$\s*([\d,\.]+)\s*(million|M)?[^.]{0,50}(?:in\s*)?(?:gross|net)\s*proceeds[^.]{0,100}(?:sold|issued)',
+            ]
+            
+            max_usage = 0
+            for pattern in usage_patterns:
+                matches = re.findall(pattern, atm_section, re.IGNORECASE)
+                for match in matches:
+                    try:
+                        amount_str = match[0].replace(',', '')
+                        amount = float(amount_str)
+                        
+                        # Apply multiplier
+                        multiplier = match[1].lower() if len(match) > 1 and match[1] else ''
+                        if multiplier in ['million', 'm']:
+                            amount *= 1_000_000
+                        elif amount < 1000:  # Likely already in millions
+                            amount *= 1_000_000
+                        
+                        # Sanity check: ATM usage razonable es < $500M
+                        if 0 < amount < 500_000_000:
+                            if amount > max_usage:
+                                max_usage = amount
+                                logger.debug("atm_usage_candidate", ticker=ticker, 
+                                           amount=amount, pattern=pattern[:50])
+                    except:
+                        continue
+            
+            if max_usage > 0:
+                logger.info("atm_usage_regex_found", ticker=ticker, amount=max_usage, 
+                           filing_date=filing_date)
+                return max_usage
+            
+            # Si no encontramos con regex pero hay contexto de usage, usar Grok
+            if has_usage_context:
+                logger.debug("atm_usage_trying_grok", ticker=ticker)
+                usage = await self._extract_atm_usage_with_grok(ticker, atm_section, filing_date)
+                return usage
+            
+            return None
+            
+        except Exception as e:
+            logger.warning("extract_atm_usage_error", ticker=ticker, error=str(e))
+            return None
+    
+    async def _extract_atm_usage_with_grok(
+        self, 
+        ticker: str, 
+        atm_section: str,
+        filing_date: str
+    ) -> Optional[float]:
+        """
+        Use Grok to extract ATM usage when regex fails.
+        """
+        try:
+            prompt = f"""
+Analyze this section from a {ticker} SEC filing dated {filing_date} and extract ATM (At-The-Market) usage information.
+
+TEXT:
+{atm_section[:5000]}
+
+QUESTION: What is the TOTAL gross proceeds raised under the ATM program mentioned in this text?
+
+Return ONLY a JSON object:
+{{
+  "atm_gross_proceeds": <number in dollars or null>,
+  "period": "<time period covered, e.g., 'nine months ended Sep 30, 2025'>",
+  "confidence": "<high/medium/low>"
+}}
+
+IMPORTANT:
+- Extract the DOLLAR AMOUNT of shares sold under the ATM
+- Convert millions to full numbers: "$70.0 million" = 70000000
+- If unclear or not found, return null
+"""
+            
+            try:
+                client, key_name, pool_idx = await self._grok_pool.get_client() if self._grok_pool else (None, None, None)
+                
+                if not client:
+                    client = Client(api_key=self.grok_api_key, timeout=30)
+                
+                chat = client.chat.create(model="grok-3-fast", temperature=0)
+                chat.append(system("You are a financial data extraction expert. Return ONLY valid JSON."))
+                chat.append(user(prompt))
+                response = chat.sample()
+                
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=True)
+                
+                # Parse response
+                json_match = re.search(r'\{[\s\S]*\}', response.content)
+                if json_match:
+                    data = json.loads(json_match.group(0))
+                    proceeds = data.get('atm_gross_proceeds')
+                    if proceeds and proceeds > 0:
+                        logger.info("atm_usage_grok_found", ticker=ticker, amount=proceeds, period=data.get('period'))
+                        return float(proceeds)
+                
+            except Exception as e:
+                logger.warning("extract_atm_usage_grok_error", ticker=ticker, error=str(e))
+                if self._grok_pool and pool_idx is not None:
+                    self._grok_pool.release(pool_idx, success=False, error=str(e))
+            
+            return None
+            
+        except Exception as e:
+            logger.warning("extract_atm_usage_with_grok_error", ticker=ticker, error=str(e))
+            return None
+    
     async def _fetch_shares_from_sec_edgar(self, ticker: str, cik: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Fetch historical shares from SEC EDGAR Company Facts API (XBRL).
@@ -1748,10 +2310,17 @@ class SECDilutionService:
                 logger.warning("multipass_extraction_failed", ticker=ticker)
                 return self._create_empty_profile(ticker, cik, company_name)
             
-            # 5. Obtener precio actual y shares outstanding
+            # 5. NUEVO: Ajustar warrants por stock splits
+            if extracted_data.get('warrants'):
+                extracted_data['warrants'] = await self._adjust_warrants_for_splits(
+                    ticker, 
+                    extracted_data['warrants']
+                )
+            
+            # 6. Obtener precio actual y shares outstanding
             current_price, shares_outstanding, float_shares = await self._get_current_market_data(ticker)
             
-            # 6. Construir profile completo
+            # 7. Construir profile completo
             profile = self._build_profile(
                 ticker=ticker,
                 cik=cik,
@@ -2689,7 +3258,7 @@ class SECDilutionService:
                     logger.info("multipass_pass2_s3_chunk", ticker=ticker, chunk_num=i//chunk_size+1, total_chunks=(len(filings_s3)+chunk_size-1)//chunk_size, chunk_size=len(chunk))
                     result_s3 = await self._extract_pass_focused(
                         ticker, company_name, chunk,
-                        focus="S-1 offerings, shelf registrations, and preferred stock registrations (S-11) - extract S-1 offerings with deal sizes and warrant coverage, shelf MAXIMUM registered capacity (NOT actual sales), remaining capacity, expiration, baby shelf restrictions, amounts raised"
+                        focus="CRITICAL: Extract SHELF REGISTRATIONS with TOTAL_CAPACITY (the MAXIMUM dollar amount registered, e.g. $300,000,000), registration_statement type (S-3, S-1), effect_date (when SEC declared effective), expiration_date (typically 3 years later). Also extract ATM agreements if mentioned with total_capacity, placement_agent."
                     )
                     if result_s3:
                         logger.info("pass2_chunk_extracted", ticker=ticker, chunk_num=i//chunk_size+1,
@@ -2730,7 +3299,7 @@ class SECDilutionService:
                     
                     results_424b = await self._process_chunks_parallel(
                         ticker, company_name, chunks_424b,
-                        focus="Prospectus supplements and S-1 pricing - extract S-1 offerings with final pricing and warrant coverage, warrants issued with offerings, offering details, convertible notes details"
+                        focus="CRITICAL: Extract ATM offerings (at-the-market) with TOTAL_CAPACITY and REMAINING_CAPACITY dollar amounts, placement_agent, agreement_date. Also extract warrants with exercise_price, outstanding quantity, expiration. Extract completed offerings with shares, price, amount raised."
                     )
                     
                     # Agregar resultados de todos los chunks
@@ -2751,7 +3320,7 @@ class SECDilutionService:
                         logger.info("multipass_pass3_424b_chunk", ticker=ticker, chunk_num=i+1, total_chunks=len(chunks_424b), chunk_size=len(chunk))
                         result_424b = await self._extract_pass_focused(
                             ticker, company_name, chunk,
-                            focus="Prospectus supplements and S-1 pricing - extract S-1 offerings with final pricing and warrant coverage, warrants issued with offerings, offering details, convertible notes details"
+                            focus="CRITICAL: Extract ATM offerings (at-the-market) with TOTAL_CAPACITY and REMAINING_CAPACITY dollar amounts, placement_agent, agreement_date. Also extract warrants with exercise_price, outstanding quantity, expiration. Extract completed offerings with shares, price, amount raised."
                         )
                         if result_424b:
                             logger.info("pass3_chunk_extracted", ticker=ticker, chunk_num=i+1,
@@ -2769,12 +3338,84 @@ class SECDilutionService:
                         else:
                             logger.warning("pass3_chunk_empty", ticker=ticker, chunk_num=i+1)
             
-            # ❌ ELIMINADO Pass 4: 10-Q
-            # Los datos de 10-Q ahora vienen de APIs estructuradas:
-            # - SEC-API /float → shares outstanding
-            # - FMP API → cash flow, balance sheet
-            # Esto ahorra ~30% del tiempo (10-Q son documentos muy grandes)
-            logger.info("pass4_10q_skipped_using_structured_apis", ticker=ticker)
+            # Pass 4a: Extraer EJERCICIOS de 10-Q/10-K (sección de warrants únicamente)
+            # Los datos financieros (cash, shares) siguen viniendo de APIs, pero
+            # los ejercicios de warrants SOLO están en las notas del 10-Q/10-K
+            filings_10q = [f for f in filing_contents if f['form_type'] in ['10-Q', '10-Q/A', '10-K', '10-K/A']]
+            
+            logger.info("pass4a_10q_start", ticker=ticker, total_10q=len(filings_10q))
+            
+            if filings_10q:
+                # Solo procesar los 4 más recientes (últimos 4 quarters)
+                filings_10q_recent = sorted(filings_10q, key=lambda x: x.get('filing_date', ''), reverse=True)[:4]
+                
+                # Extraer solo la sección de warrants de cada 10-Q
+                warrant_sections = []
+                for i, f in enumerate(filings_10q_recent):
+                    logger.debug("pass4a_extracting_section", ticker=ticker, idx=i+1, form=f['form_type'], date=f.get('filing_date'))
+                    section = self._extract_warrant_section(f.get('content', ''))
+                    if section and ('exercised' in section.lower() or 'expired' in section.lower() or 'outstanding' in section.lower()):
+                        warrant_sections.append({
+                            'form_type': f['form_type'],
+                            'filing_date': f['filing_date'],
+                            'content': section  # Solo la sección de warrants (~2-10KB vs 500KB full 10-Q)
+                        })
+                
+                if warrant_sections:
+                    logger.info("10q_warrant_sections_found", ticker=ticker, count=len(warrant_sections))
+                    
+                    # Extraer ejercicios con Grok (prompt específico, más barato)
+                    exercises = await self._extract_warrant_exercises(ticker, company_name, warrant_sections)
+                    
+                    if exercises:
+                        # Agregar ejercicios como información complementaria a warrants existentes
+                        all_warrants.extend(exercises)
+                        logger.info("warrant_exercises_extracted", ticker=ticker, count=len(exercises))
+                else:
+                    logger.info("no_warrant_sections_in_10q", ticker=ticker)
+            
+            # Pass 4b: Extraer ATM USAGE de 10-Q/10-K (sección de Liquidity)
+            # Los 10-Q reportan cuánto se vendió bajo el ATM:
+            # "During the nine months ended Sep 30, 2025, we sold X shares for gross proceeds of $Y under our ATM"
+            atm_usage_total = 0
+            
+            # CRITICAL: Definir filings_10q_recent aquí si no existe (por si Pass 4a no se ejecutó)
+            if filings_10q and 'filings_10q_recent' not in dir():
+                filings_10q_recent = sorted(filings_10q, key=lambda x: x.get('filing_date', ''), reverse=True)[:4]
+            
+            if filings_10q and filings_10q_recent:
+                logger.info("pass4b_atm_usage_start", ticker=ticker, total_10q=len(filings_10q_recent), atm_count=len(all_atm))
+                
+                for f in filings_10q_recent[:2]:  # Solo los 2 más recientes (6 meses de data)
+                    content = f.get('content', '')
+                    has_atm = 'at-the-market' in content.lower() or 'atm' in content.lower() if content else False
+                    logger.info("pass4b_checking_10q", ticker=ticker, 
+                               date=f.get('filing_date'), content_len=len(content),
+                               has_atm_keyword=has_atm)
+                    
+                    atm_section = self._extract_atm_section(content)
+                    if atm_section:
+                        logger.info("pass4b_atm_section_found", ticker=ticker, 
+                                   date=f['filing_date'], section_len=len(atm_section))
+                        usage = await self._extract_atm_usage_from_section(ticker, atm_section, f['filing_date'])
+                        if usage and usage > 0:
+                            atm_usage_total = max(atm_usage_total, usage)  # Tomar el mayor (acumulativo)
+                            logger.info("atm_usage_found", ticker=ticker, usage=usage, filing_date=f['filing_date'])
+                    else:
+                        logger.debug("pass4b_no_atm_section", ticker=ticker, date=f['filing_date'])
+                
+                # Si encontramos usage, actualizar remaining_capacity de TODOS los ATMs
+                if atm_usage_total > 0:
+                    logger.info("atm_usage_total", ticker=ticker, total_used=atm_usage_total)
+                    for atm in all_atm:
+                        total = atm.get('total_capacity')
+                        if total:
+                            # SIEMPRE actualizar remaining si tenemos usage de 10-Q
+                            remaining = max(0, float(total) - atm_usage_total)
+                            atm['remaining_capacity'] = remaining
+                            atm['_usage_from_10q'] = atm_usage_total
+                            logger.info("atm_remaining_updated", ticker=ticker, 
+                                       total=total, used=atm_usage_total, remaining=remaining)
             
             # Pass 4: 6-K SOLAMENTE (Tier 2 para empresas extranjeras)
             # 6-K sigue siendo necesario porque puede contener anuncios de dilución
@@ -2973,6 +3614,9 @@ class SECDilutionService:
             # 5. Deduplicate final (por si el impute creó duplicados con la misma key)
             warrants_final = self._deduplicate_warrants(warrants_classified)
             logger.info("warrants_after_final_processing", ticker=ticker, count=len(warrants_final))
+            
+            # 6. NUEVO: Calcular remaining para cada warrant usando data de 10-Q
+            warrants_final = self._calculate_remaining_warrants(warrants_final)
             
             # 🔧 PROCESO DE LIMPIEZA DE ATM:
             atm_deduped = self._deduplicate_atm(all_atm, ticker=ticker)
@@ -3243,27 +3887,64 @@ THIS IS A FOCUSED ANALYSIS PASS. Your specific task:
 FILES PROVIDED ({len(file_references)} filings):
 {files_list}
 
-INSTRUCTIONS:
-1. Search through ALL provided files systematically
-2. Extract ALL relevant data for the focus area
-3. Be THOROUGH - don't miss anything
-4. If data is incomplete, use financial knowledge to infer missing details
-5. Return ONLY valid JSON with the extracted data
+=== CRITICAL: EXACT FIELDS TO EXTRACT ===
 
-RETURN FORMAT (JSON only, no markdown):
+**ATM OFFERINGS (At-The-Market):**
+Look for: "at-the-market offering", "ATM program", "equity distribution agreement", "sales agreement"
+REQUIRED FIELDS:
+- total_capacity: The MAXIMUM dollar amount authorized (e.g., "$75,000,000" = 75000000)
+- remaining_capacity: Amount still available (total - used), if mentioned
+- placement_agent: The broker/dealer (e.g., "Cantor Fitzgerald", "H.C. Wainwright", "Jefferies")
+- agreement_date: When the ATM agreement was signed (YYYY-MM-DD)
+- filing_date: Filing date of this document (YYYY-MM-DD)
+
+**SHELF REGISTRATIONS (S-3, S-1):**
+Look for: "shelf registration statement", "Form S-3", "up to $X million"
+REQUIRED FIELDS:
+- total_capacity: Maximum amount registered on the shelf (e.g., "$300,000,000" = 300000000)
+- remaining_capacity: Amount not yet used from shelf
+- registration_statement: "S-3" or "S-1"
+- effect_date: When SEC declared effective (YYYY-MM-DD)
+- expiration_date: Typically 3 years from effect_date (YYYY-MM-DD)
+- is_baby_shelf: true if company has <$75M public float
+
+**WARRANTS:**
+- outstanding: Number of warrants currently outstanding
+- exercise_price: Price per share to exercise
+- expiration_date: When warrants expire (YYYY-MM-DD)
+- issue_date: When warrants were issued (YYYY-MM-DD)
+- notes: Description (e.g., "Public Warrants", "Pre-funded warrants")
+
+**COMPLETED OFFERINGS:**
+- offering_type: "Public Offering", "Private Placement", "ATM Sales", etc.
+- shares_issued: Number of shares sold
+- price_per_share: Price per share
+- amount_raised: Total gross proceeds
+- offering_date: Date of offering (YYYY-MM-DD)
+
+=== EXTRACTION RULES ===
+1. Convert ALL dollar amounts to numbers: "$75 million" = 75000000, "$300M" = 300000000
+2. Dates MUST be in YYYY-MM-DD format
+3. Return EMPTY ARRAYS [] if no data found - DO NOT return arrays with null objects
+4. Be thorough - search ENTIRE document for each data point
+
+=== RETURN FORMAT (JSON only, no markdown) ===
 {{
-  "warrants": [...],
-  "atm_offerings": [...],
-  "shelf_registrations": [...],
-  "completed_offerings": [...],
-  "s1_offerings": [...],
-  "convertible_notes": [...],
-  "convertible_preferred": [...],
-  "equity_lines": [...]
+  "warrants": [
+    {{"outstanding": 5000000, "exercise_price": 1.50, "expiration_date": "2028-01-15", "issue_date": "2023-01-06", "notes": "Public Warrants"}}
+  ],
+  "atm_offerings": [
+    {{"total_capacity": 75000000, "remaining_capacity": 5000000, "placement_agent": "Cantor Fitzgerald", "agreement_date": "2023-01-06", "filing_date": "2023-01-06"}}
+  ],
+  "shelf_registrations": [
+    {{"total_capacity": 300000000, "remaining_capacity": 300000000, "registration_statement": "S-3", "effect_date": "2024-10-28", "expiration_date": "2027-10-28", "is_baby_shelf": true}}
+  ],
+  "completed_offerings": [],
+  "s1_offerings": [],
+  "convertible_notes": [],
+  "convertible_preferred": [],
+  "equity_lines": []
 }}
-
-Each array should contain objects with relevant fields. Return empty arrays [] if nothing found for a category.
-DO NOT return arrays with null-filled objects.
 """
                 
                 # 3. LLAMAR A GROK CON ARCHIVOS ADJUNTOS
@@ -3870,6 +4551,76 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
         
         return warrants
     
+    def _calculate_remaining_warrants(self, warrants: List[Dict]) -> List[Dict]:
+        """
+        Calculate remaining outstanding for each warrant based on:
+        1. 10-Q/10-K exercise updates if available
+        2. Fall back to outstanding = remaining if no update data
+        
+        This merges exercise information from 10-Q extractions with
+        the original warrant data from 424B/S-1 filings.
+        """
+        if not warrants:
+            return warrants
+        
+        # Separate 10-Q updates from original warrant definitions
+        updates = [w for w in warrants if w.get('is_10q_update')]
+        originals = [w for w in warrants if not w.get('is_10q_update')]
+        
+        if not updates:
+            # No 10-Q data - use outstanding as remaining
+            for w in originals:
+                if w.get('outstanding') and not w.get('remaining'):
+                    w['remaining'] = w['outstanding']
+            return originals
+        
+        # Try to match updates to original warrants by exercise_price
+        updates_by_price = {}
+        for u in updates:
+            price = u.get('exercise_price')
+            if price is not None:
+                key = str(float(price))
+                if key not in updates_by_price:
+                    updates_by_price[key] = []
+                updates_by_price[key].append(u)
+        
+        # Apply updates to originals
+        for w in originals:
+            price = w.get('exercise_price')
+            if price is not None:
+                key = str(float(price))
+                if key in updates_by_price:
+                    # Get most recent update (by filing_date or period_end)
+                    matching_updates = updates_by_price[key]
+                    if matching_updates:
+                        latest = max(matching_updates, 
+                                    key=lambda x: x.get('issue_date') or '1900-01-01')
+                        
+                        # Update the warrant with exercise info
+                        if latest.get('outstanding') is not None:
+                            w['remaining'] = latest['outstanding']
+                        if latest.get('exercised_count'):
+                            w['exercised'] = w.get('exercised', 0) + latest['exercised_count']
+                        if latest.get('expired_count'):
+                            w['expired'] = w.get('expired', 0) + latest['expired_count']
+                        
+                        # Keep original outstanding as total_issued
+                        if w.get('outstanding') and not w.get('total_issued'):
+                            w['total_issued'] = w['outstanding']
+                        
+                        # Update last_update_date
+                        w['last_update_date'] = latest.get('issue_date')
+            
+            # If still no remaining, use outstanding
+            if not w.get('remaining') and w.get('outstanding'):
+                w['remaining'] = w['outstanding']
+        
+        logger.info("remaining_warrants_calculated",
+                   originals=len(originals),
+                   updates_applied=len([w for w in originals if w.get('exercised') or w.get('expired')]))
+        
+        return originals
+    
     def _classify_shelf_status(self, shelfs: List[Dict], ticker: str) -> List[Dict]:
         """
         Clasificar shelf registrations por su estado: Active o Expired.
@@ -3970,127 +4721,214 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
         """
         Deduplicar ATM inteligentemente.
         
-        ESTRATEGIA:
-        1. DESCARTAR ATMs sin total_capacity ni remaining_capacity (son inútiles para dilución)
-        2. Agrupar por placement_agent
-        3. Para cada grupo, tomar el registro más COMPLETO y RECIENTE
+        ESTRATEGIA ACTUALIZADA (Instrument Linking):
+        1. INCLUIR todos los ATMs (incluso sin capacity - pueden enriquecerse)
+        2. Agrupar por placement_agent + agreement_date
+        3. Para cada grupo, FUSIONAR datos (no solo tomar el mejor)
+        4. Marcar ATMs incompletos para enriquecimiento posterior
         """
-        # Paso 1: Filtrar ATMs sin datos de capacidad
-        atms_with_data = []
-        atms_without_data = 0
+        if not atms:
+            return []
+        
+        # Paso 1: Marcar ATMs según completeness (NO descartar)
+        atms_complete = []
+        atms_incomplete = []
         
         for a in atms:
             remaining = self._normalize_grok_value(a.get('remaining_capacity'), 'number')
             total = self._normalize_grok_value(a.get('total_capacity'), 'number')
+            agent = self._safe_get_for_key(a, 'placement_agent', 'string')
+            date = a.get('agreement_date') or a.get('filing_date')
             
+            # Un ATM tiene datos útiles si tiene al menos uno de: capacity, agent, o date
             if remaining or total:
-                atms_with_data.append(a)
-            else:
-                atms_without_data += 1
+                a['_has_capacity'] = True
+                atms_complete.append(a)
+            elif agent or date:
+                # Tiene identificadores pero no capacity - incluir para linking
+                a['_has_capacity'] = False
+                a['_needs_enrichment'] = True
+                atms_incomplete.append(a)
+            # Si no tiene nada útil, descartar silenciosamente
         
-        if atms_without_data > 0:
-            logger.info("atm_filtered_no_capacity", ticker=ticker, filtered_count=atms_without_data)
+        if atms_incomplete:
+            logger.info("atm_needs_enrichment", ticker=ticker, count=len(atms_incomplete))
         
-        # Paso 2: Agrupar por placement_agent
+        # Combinar completos e incompletos para procesamiento unificado
+        all_atms = atms_complete + atms_incomplete
+        
+        # Paso 2: Agrupar por placement_agent + agreement_date (para mejor matching)
         groups = {}
-        for a in atms_with_data:
+        for a in all_atms:
             agent = self._safe_get_for_key(a, 'placement_agent', 'string') or 'Unknown'
-            if agent not in groups:
-                groups[agent] = []
-            groups[agent].append(a)
+            date_key = str(a.get('agreement_date') or a.get('filing_date') or '')[:7]  # YYYY-MM
+            group_key = f"{agent}|{date_key}"
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(a)
         
-        # Paso 3: Para cada grupo, seleccionar el mejor
+        # Paso 3: Para cada grupo, FUSIONAR datos (no solo seleccionar)
         unique = []
-        for agent, group in groups.items():
+        for group_key, group in groups.items():
             if len(group) == 1:
                 unique.append(group[0])
             else:
-                # Ordenar por completeness y recency
-                def score(a):
-                    s = 0
-                    if a.get('remaining_capacity'):
-                        s += 3
-                    if a.get('total_capacity'):
-                        s += 2
-                    if a.get('filing_date'):
-                        s += 1
-                    return s
+                # FUSIONAR: combinar datos de todos los registros del grupo
+                merged = self._merge_atm_records(group)
+                unique.append(merged)
                 
-                sorted_group = sorted(group, key=lambda x: (score(x), str(self._safe_get_for_key(x, 'filing_date', 'date') or '')), reverse=True)
-                unique.append(sorted_group[0])
-                
-                logger.info("atm_dedup_merged",
+                logger.info("atm_records_merged",
                            ticker=ticker,
-                           agent=agent,
+                           group_key=group_key,
                            merged_count=len(group))
                 
-        logger.info("atm_deduplication", ticker=ticker, total_input=len(atms), 
-                   filtered_no_data=atms_without_data, total_output=len(unique))
+        logger.info("atm_deduplication", ticker=ticker, total_input=len(atms),
+                   complete=len(atms_complete), incomplete=len(atms_incomplete),
+                   total_output=len(unique))
         return unique
+    
+    def _merge_atm_records(self, records: List[Dict]) -> Dict:
+        """
+        Fusionar múltiples registros de ATM en uno solo.
+        Prioriza: remaining_capacity > total_capacity > otros campos
+        """
+        if len(records) == 1:
+            return records[0]
+        
+        # Ordenar por completeness
+        def score(a):
+            s = 0
+            if a.get('remaining_capacity'):
+                s += 10
+            if a.get('total_capacity'):
+                s += 5
+            if a.get('placement_agent'):
+                s += 2
+            if a.get('filing_date'):
+                s += 1
+            return s
+        
+        sorted_records = sorted(records, key=score, reverse=True)
+        
+        # Usar el más completo como base
+        merged = dict(sorted_records[0])
+        
+        # Agregar campos faltantes de otros registros
+        for record in sorted_records[1:]:
+            for key, value in record.items():
+                if key.startswith('_'):
+                    continue
+                if merged.get(key) is None and value is not None:
+                    merged[key] = value
+        
+        merged['_merged_from'] = len(records)
+        return merged
     
     def _deduplicate_shelfs(self, shelfs: List[Dict], ticker: str = "") -> List[Dict]:
         """
         Deduplicar shelfs inteligentemente.
         
-        ESTRATEGIA:
-        1. DESCARTAR shelfs sin total_capacity ni remaining_capacity (inútiles para dilución)
-        2. Agrupar por registration_statement (S-3, S-1, etc.)
-        3. Para cada grupo, tomar el registro más COMPLETO y RECIENTE
+        ESTRATEGIA ACTUALIZADA (Instrument Linking):
+        1. INCLUIR todos los shelfs (incluso sin capacity - pueden enriquecerse)
+        2. Agrupar por registration_statement + effect_date
+        3. Para cada grupo, FUSIONAR datos (no solo tomar el mejor)
         """
-        # Paso 1: Filtrar shelfs sin datos de capacidad
-        shelfs_with_data = []
-        shelfs_without_data = 0
+        if not shelfs:
+            return []
+        
+        # Paso 1: Clasificar shelfs según completeness (NO descartar)
+        shelfs_complete = []
+        shelfs_incomplete = []
         
         for s in shelfs:
             remaining = self._normalize_grok_value(s.get('remaining_capacity'), 'number')
             total = self._normalize_grok_value(s.get('total_capacity'), 'number')
+            reg_stmt = self._safe_get_for_key(s, 'registration_statement', 'string')
+            effect_date = s.get('effect_date') or s.get('filing_date')
             
             if remaining or total:
-                shelfs_with_data.append(s)
-            else:
-                shelfs_without_data += 1
+                s['_has_capacity'] = True
+                shelfs_complete.append(s)
+            elif reg_stmt or effect_date:
+                # Tiene identificadores pero no capacity - incluir para linking
+                s['_has_capacity'] = False
+                s['_needs_enrichment'] = True
+                shelfs_incomplete.append(s)
         
-        if shelfs_without_data > 0:
-            logger.info("shelf_filtered_no_capacity", ticker=ticker, filtered_count=shelfs_without_data)
+        if shelfs_incomplete:
+            logger.info("shelf_needs_enrichment", ticker=ticker, count=len(shelfs_incomplete))
         
-        # Paso 2: Agrupar por registration_statement
+        # Combinar completos e incompletos
+        all_shelfs = shelfs_complete + shelfs_incomplete
+        
+        # Paso 2: Agrupar por registration_statement + effect_date
         groups = {}
-        for s in shelfs_with_data:
+        for s in all_shelfs:
             reg_stmt = self._safe_get_for_key(s, 'registration_statement', 'string') or 'Unknown'
-            if reg_stmt not in groups:
-                groups[reg_stmt] = []
-            groups[reg_stmt].append(s)
+            date_key = str(s.get('effect_date') or s.get('filing_date') or '')[:7]  # YYYY-MM
+            group_key = f"{reg_stmt}|{date_key}"
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(s)
         
-        # Paso 3: Para cada grupo, seleccionar el mejor
+        # Paso 3: Para cada grupo, FUSIONAR datos
         unique = []
-        for reg_stmt, group in groups.items():
+        for group_key, group in groups.items():
             if len(group) == 1:
                 unique.append(group[0])
             else:
-                # Ordenar por completeness y recency
-                def score(s):
-                    sc = 0
-                    if s.get('remaining_capacity'):
-                        sc += 3
-                    if s.get('total_capacity'):
-                        sc += 2
-                    if s.get('filing_date'):
-                        sc += 1
-                    if s.get('expiration_date'):
-                        sc += 1
-                    return sc
+                # FUSIONAR: combinar datos de todos los registros del grupo
+                merged = self._merge_shelf_records(group)
+                unique.append(merged)
                 
-                sorted_group = sorted(group, key=lambda x: (score(x), str(self._safe_get_for_key(x, 'filing_date', 'date') or '')), reverse=True)
-                unique.append(sorted_group[0])
-                
-                logger.info("shelf_dedup_merged",
+                logger.info("shelf_records_merged",
                            ticker=ticker,
-                           registration=reg_stmt,
+                           group_key=group_key,
                            merged_count=len(group))
                 
-        logger.info("shelf_deduplication", ticker=ticker, total_input=len(shelfs), 
-                   filtered_no_data=shelfs_without_data, total_output=len(unique))
+        logger.info("shelf_deduplication", ticker=ticker, total_input=len(shelfs),
+                   complete=len(shelfs_complete), incomplete=len(shelfs_incomplete),
+                   total_output=len(unique))
         return unique
+    
+    def _merge_shelf_records(self, records: List[Dict]) -> Dict:
+        """
+        Fusionar múltiples registros de Shelf en uno solo.
+        Prioriza: remaining_capacity > total_capacity > otros campos
+        """
+        if len(records) == 1:
+            return records[0]
+        
+        # Ordenar por completeness
+        def score(s):
+            sc = 0
+            if s.get('remaining_capacity'):
+                sc += 10
+            if s.get('total_capacity'):
+                sc += 5
+            if s.get('expiration_date'):
+                sc += 3
+            if s.get('registration_statement'):
+                sc += 2
+            if s.get('filing_date'):
+                sc += 1
+            return sc
+        
+        sorted_records = sorted(records, key=score, reverse=True)
+        
+        # Usar el más completo como base
+        merged = dict(sorted_records[0])
+        
+        # Agregar campos faltantes de otros registros
+        for record in sorted_records[1:]:
+            for key, value in record.items():
+                if key.startswith('_'):
+                    continue
+                if merged.get(key) is None and value is not None:
+                    merged[key] = value
+        
+        merged['_merged_from'] = len(records)
+        return merged
     
     def _deduplicate_shelfs_old(self, shelfs: List[Dict]) -> List[Dict]:
         """DEPRECATED - Old deduplication logic"""
@@ -4214,11 +5052,11 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                     no_date_notes.append(n)
                     continue
                 
-                    # Convertir issue_date a string para usar como key de dict
-                    issue_date_key = str(issue_date) if issue_date else None
-                    
-                    if issue_date_key not in merged_by_date:
-                        merged_by_date[issue_date_key] = n.copy()
+                # Convertir issue_date a string para usar como key de dict
+                issue_date_key = str(issue_date)
+                
+                if issue_date_key not in merged_by_date:
+                    merged_by_date[issue_date_key] = n.copy()
                 else:
                     # Merge inteligente: rellenar campos faltantes en base con los del nuevo
                     base = merged_by_date[issue_date_key]
@@ -4237,21 +5075,18 @@ Return empty arrays [] if nothing found. Do NOT include null values or placehold
                         if base.get(field) is None and n.get(field) is not None:
                             base[field] = n[field]
                     
-                        # Combinar notes de ambas entradas
-                            base_notes = self._normalize_grok_value(base.get('notes'), 'string') or ''
-                            new_notes = self._normalize_grok_value(n.get('notes'), 'string') or ''
-                        if base_notes and new_notes and base_notes != new_notes:
-                            # Evitar duplicar texto idéntico
-                            combined = ' / '.join([base_notes, new_notes])
-                            base['notes'] = combined
-                        elif new_notes and not base_notes:
-                            base['notes'] = new_notes
+                    # Combinar notes de ambas entradas
+                    base_notes = self._normalize_grok_value(base.get('notes'), 'string') or ''
+                    new_notes = self._normalize_grok_value(n.get('notes'), 'string') or ''
+                    if base_notes and new_notes and base_notes != new_notes:
+                        combined = ' / '.join([base_notes, new_notes])
+                        base['notes'] = combined
+                    elif new_notes and not base_notes:
+                        base['notes'] = new_notes
                     
-                        logger.info("convertible_notes_merged",
-                                    issue_date=issue_date_key,
-                                base_principal=base.get('total_principal_amount'),
-                                merged_fields=[k for k in ['maturity_date', 'conversion_price'] 
-                                                if base.get(k) is not None])
+                    logger.debug("convertible_notes_merged",
+                                issue_date=issue_date_key,
+                                base_principal=base.get('total_principal_amount'))
             except Exception as e:
                 logger.warning("convertible_notes_dedup_error", error=str(e))
                 no_date_notes.append(n)
@@ -4793,7 +5628,7 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                    extracted_convertible_preferred=len(extracted_data.get('convertible_preferred', [])),
                    extracted_equity_lines=len(extracted_data.get('equity_lines', [])))
         
-        # Parse warrants (incluyendo metadatos de calidad de datos y status)
+        # Parse warrants (incluyendo metadatos de calidad de datos, status, split adjustment y ejercicios)
         warrants = [
             WarrantModel(
                 ticker=ticker,
@@ -4806,7 +5641,18 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 status=w.get('status'),  # Active, Exercised, Replaced, Historical_Summary
                 is_summary_row=w.get('is_summary_row'),
                 exclude_from_dilution=w.get('exclude_from_dilution'),
-                imputed_fields=w.get('imputed_fields')
+                imputed_fields=w.get('imputed_fields'),
+                # Split adjustment fields
+                split_adjusted=w.get('split_adjusted'),
+                split_factor=w.get('split_factor'),
+                original_exercise_price=w.get('original_exercise_price'),
+                original_outstanding=w.get('original_outstanding'),
+                # Exercise tracking fields
+                total_issued=w.get('total_issued'),
+                exercised=w.get('exercised_count') or w.get('exercised'),
+                expired=w.get('expired_count') or w.get('expired'),
+                remaining=w.get('remaining'),
+                last_update_date=w.get('last_update_date')
             )
             for w in extracted_data.get('warrants', [])
         ]

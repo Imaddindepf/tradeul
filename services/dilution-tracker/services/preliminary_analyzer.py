@@ -170,7 +170,7 @@ class PreliminaryAnalyzer:
         
         # Yield connecting message (diferente al output de Gemini)
         logger.info("preliminary_yielding_header", ticker=ticker)
-        yield f"[CONNECTING] Initializing Gemini analysis for {ticker}...\n"
+        yield f"[CONNECTING] Initializing Tradeul AI analysis for {ticker}...\n"
         logger.info("preliminary_header_yielded", ticker=ticker)
         
         # Cola para comunicación thread -> async generator

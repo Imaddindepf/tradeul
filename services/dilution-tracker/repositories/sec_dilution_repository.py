@@ -243,10 +243,13 @@ class SECDilutionRepository:
     # ========================================================================
     
     async def _get_warrants(self, ticker: str) -> List[WarrantModel]:
-        """Obtener warrants de un ticker"""
+        """Obtener warrants de un ticker con todos los campos"""
         query = """
         SELECT id, ticker, issue_date, outstanding, exercise_price,
-               expiration_date, potential_new_shares, notes
+               expiration_date, potential_new_shares, notes,
+               status, is_summary_row, exclude_from_dilution, imputed_fields,
+               split_adjusted, split_factor, original_exercise_price, original_outstanding,
+               total_issued, exercised, expired, remaining, last_update_date
         FROM sec_warrants
         WHERE ticker = $1
         ORDER BY expiration_date DESC NULLS LAST
@@ -263,7 +266,20 @@ class SECDilutionRepository:
                 exercise_price=row['exercise_price'],
                 expiration_date=row['expiration_date'],
                 potential_new_shares=row['potential_new_shares'],
-                notes=row['notes']
+                notes=row['notes'],
+                status=row.get('status'),
+                is_summary_row=row.get('is_summary_row'),
+                exclude_from_dilution=row.get('exclude_from_dilution'),
+                imputed_fields=row.get('imputed_fields', '').split(',') if row.get('imputed_fields') else None,
+                split_adjusted=row.get('split_adjusted'),
+                split_factor=row.get('split_factor'),
+                original_exercise_price=row.get('original_exercise_price'),
+                original_outstanding=row.get('original_outstanding'),
+                total_issued=row.get('total_issued'),
+                exercised=row.get('exercised'),
+                expired=row.get('expired'),
+                remaining=row.get('remaining'),
+                last_update_date=row.get('last_update_date')
             )
             for row in rows
         ]
@@ -565,14 +581,20 @@ class SECDilutionRepository:
         except: pass
     
     async def _insert_warrant(self, ticker: str, warrant: WarrantModel):
-        """Insertar un warrant"""
+        """Insertar un warrant con todos los campos incluyendo split adjustment y ejercicios"""
         query = """
         INSERT INTO sec_warrants (
             ticker, issue_date, outstanding, exercise_price,
-            expiration_date, potential_new_shares, notes
+            expiration_date, potential_new_shares, notes,
+            status, is_summary_row, exclude_from_dilution, imputed_fields,
+            split_adjusted, split_factor, original_exercise_price, original_outstanding,
+            total_issued, exercised, expired, remaining, last_update_date
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
         """
+        
+        # Convert imputed_fields list to string
+        imputed_str = ','.join(warrant.imputed_fields) if warrant.imputed_fields else None
         
         await self.db.execute(
             query,
@@ -582,7 +604,20 @@ class SECDilutionRepository:
             warrant.exercise_price,
             warrant.expiration_date,
             warrant.potential_new_shares,
-            warrant.notes
+            warrant.notes,
+            warrant.status,
+            warrant.is_summary_row,
+            warrant.exclude_from_dilution,
+            imputed_str,
+            warrant.split_adjusted,
+            warrant.split_factor,
+            warrant.original_exercise_price,
+            warrant.original_outstanding,
+            warrant.total_issued,
+            warrant.exercised,
+            warrant.expired,
+            warrant.remaining,
+            warrant.last_update_date
         )
     
     async def _insert_atm_offering(self, ticker: str, atm: ATMOfferingModel):

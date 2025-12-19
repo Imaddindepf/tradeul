@@ -77,11 +77,11 @@ async def scrape_sec_dilution(
             # Crear instancia del servicio con clientes compatibles
             service = SECDilutionService(db_client, redis_client)
         
-        # Ejecutar scraping completo
-        profile = await service.get_dilution_profile(
-            ticker, 
-            force_refresh=force_refresh
-        )
+            # Ejecutar scraping completo
+            profile = await service.get_dilution_profile(
+                ticker, 
+                force_refresh=force_refresh
+            )
         finally:
             # Cerrar conexiones
             await db_client.disconnect()

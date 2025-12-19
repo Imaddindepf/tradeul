@@ -83,15 +83,26 @@ class WarrantModel(BaseModel):
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
     issue_date: Optional[date] = None
-    outstanding: Optional[int] = Field(None, description="Number of warrants outstanding")
-    exercise_price: Optional[Decimal] = Field(None, description="Exercise/strike price")
+    outstanding: Optional[int] = Field(None, description="Number of warrants outstanding (split-adjusted)")
+    exercise_price: Optional[Decimal] = Field(None, description="Exercise/strike price (split-adjusted)")
     expiration_date: Optional[date] = None
-    potential_new_shares: Optional[int] = Field(None, description="Potential shares if all warrants exercised")
+    potential_new_shares: Optional[int] = Field(None, description="Potential shares if all warrants exercised (split-adjusted)")
     notes: Optional[str] = None
     status: Optional[str] = Field(None, description="Status: Active, Exercised, Replaced, Historical_Summary")
     is_summary_row: Optional[bool] = Field(None, description="True if this is an aggregated summary row from 10-Q/10-K")
     exclude_from_dilution: Optional[bool] = Field(None, description="True if should be excluded from dilution calculation")
     imputed_fields: Optional[list] = Field(None, description="List of fields that were imputed from other warrants")
+    # Split adjustment fields
+    split_adjusted: Optional[bool] = Field(None, description="True if values were adjusted for stock splits")
+    split_factor: Optional[float] = Field(None, description="Cumulative split factor applied (e.g., 10 for 1:10 reverse split)")
+    original_exercise_price: Optional[Decimal] = Field(None, description="Original exercise price before split adjustment")
+    original_outstanding: Optional[int] = Field(None, description="Original outstanding before split adjustment")
+    # Exercise tracking fields (from 10-Q/10-K)
+    total_issued: Optional[int] = Field(None, description="Total warrants originally issued")
+    exercised: Optional[int] = Field(None, description="Number of warrants exercised to date")
+    expired: Optional[int] = Field(None, description="Number of warrants expired/cancelled to date")
+    remaining: Optional[int] = Field(None, description="Remaining warrants (total - exercised - expired)")
+    last_update_date: Optional[date] = Field(None, description="Date of last 10-Q/10-K update for exercise data")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
