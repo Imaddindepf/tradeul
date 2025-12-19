@@ -103,6 +103,12 @@ class WarrantModel(BaseModel):
     expired: Optional[int] = Field(None, description="Number of warrants expired/cancelled to date")
     remaining: Optional[int] = Field(None, description="Remaining warrants (total - exercised - expired)")
     last_update_date: Optional[date] = Field(None, description="Date of last 10-Q/10-K update for exercise data")
+    # NEW: Additional fields from DilutionTracker
+    known_owners: Optional[str] = Field(None, description="Known warrant holders (e.g., '3i, Akita, CVI')")
+    underwriter_agent: Optional[str] = Field(None, max_length=255, description="Underwriter/Placement agent")
+    price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet, Undisclosed")
+    pp_clause: Optional[str] = Field(None, description="Full text of Price Protection clause")
+    exercisable_date: Optional[date] = Field(None, description="Date when warrants become exercisable")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -139,7 +145,7 @@ class ATMOfferingModel(BaseModel):
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
     total_capacity: Optional[Decimal] = Field(None, description="Total ATM capacity in dollars")
-    remaining_capacity: Optional[Decimal] = Field(None, description="Remaining capacity in dollars")
+    remaining_capacity: Optional[Decimal] = Field(None, description="Remaining capacity in dollars (may be limited by baby shelf)")
     placement_agent: Optional[str] = Field(None, max_length=255)
     status: Optional[str] = Field(None, max_length=50, description="Active, Terminated, Replaced, etc.")
     agreement_start_date: Optional[date] = None
@@ -147,6 +153,10 @@ class ATMOfferingModel(BaseModel):
     filing_url: Optional[str] = None
     potential_shares_at_current_price: Optional[int] = None
     notes: Optional[str] = None
+    # NEW: Baby Shelf calculation fields
+    atm_limited_by_baby_shelf: Optional[bool] = Field(None, description="True if ATM is limited by baby shelf restriction")
+    remaining_capacity_without_restriction: Optional[Decimal] = Field(None, description="Remaining capacity without baby shelf limitation")
+    last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -183,11 +193,11 @@ class ShelfRegistrationModel(BaseModel):
     ticker: str = Field(..., max_length=10)
     total_capacity: Optional[Decimal] = Field(None, description="Total shelf capacity in dollars")
     remaining_capacity: Optional[Decimal] = Field(None, description="Remaining capacity in dollars")
-    current_raisable_amount: Optional[Decimal] = Field(None, description="Current amount that can be raised")
+    current_raisable_amount: Optional[Decimal] = Field(None, description="Current amount that can be raised (limited by baby shelf)")
     total_amount_raised: Optional[Decimal] = Field(None, description="Total amount raised from this shelf")
     total_amount_raised_last_12mo: Optional[Decimal] = Field(None, description="Total raised in last 12 months under IB6")
-    is_baby_shelf: Optional[bool] = Field(default=False, description="Is this a baby shelf (<$75M)?")
-    baby_shelf_restriction: Optional[bool] = Field(None, description="Is baby shelf restriction active?")
+    is_baby_shelf: Optional[bool] = Field(default=False, description="Is this a baby shelf (<$75M float)?")
+    baby_shelf_restriction: Optional[bool] = Field(None, description="Is baby shelf restriction currently active?")
     security_type: Optional[str] = Field(None, max_length=50, description="Type of security: 'common_stock', 'preferred_stock', 'mixed', or null if unknown")
     filing_date: Optional[date] = None
     effect_date: Optional[date] = None
@@ -195,8 +205,15 @@ class ShelfRegistrationModel(BaseModel):
     filing_url: Optional[str] = None
     expiration_date: Optional[date] = Field(None, description="Shelf expiration (typically 3 years)")
     last_banker: Optional[str] = Field(None, max_length=255, description="Last investment banker used")
-    status: Optional[str] = Field(None, max_length=50, description="Active, Expired, etc.")
+    status: Optional[str] = Field(None, max_length=50, description="Active, Expired, Replaced, etc.")
     notes: Optional[str] = None
+    # NEW: Baby Shelf calculation fields (calculated at runtime)
+    price_to_exceed_baby_shelf: Optional[Decimal] = Field(None, description="Price needed to exceed baby shelf restriction")
+    ib6_float_value: Optional[Decimal] = Field(None, description="IB6 float value = Float × Highest60DayClose × (1/3)")
+    highest_60_day_close: Optional[Decimal] = Field(None, description="Highest closing price in last 60 days")
+    outstanding_shares_calc: Optional[int] = Field(None, description="Outstanding shares used for calculation")
+    float_shares_calc: Optional[int] = Field(None, description="Float shares used for calculation")
+    last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -323,6 +340,11 @@ class ConvertibleNoteModel(BaseModel):
     underwriter_agent: Optional[str] = Field(None, max_length=255)
     filing_url: Optional[str] = None
     notes: Optional[str] = None
+    # NEW: Additional fields from DilutionTracker
+    known_owners: Optional[str] = Field(None, description="Known note holders (e.g., 'Cavalry, WVP, Bigger Capital')")
+    price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet")
+    pp_clause: Optional[str] = Field(None, description="Full text of Price Protection clause")
+    last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -357,6 +379,12 @@ class ConvertiblePreferredModel(BaseModel):
     underwriter_agent: Optional[str] = Field(None, max_length=255)
     filing_url: Optional[str] = None
     notes: Optional[str] = None
+    # NEW: Additional fields from DilutionTracker
+    known_owners: Optional[str] = Field(None, description="Known preferred holders (e.g., 'C/M Capital, WVP')")
+    price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet")
+    pp_clause: Optional[str] = Field(None, description="Full text of Price Protection clause")
+    status: Optional[str] = Field(None, max_length=50, description="Registered, Pending Effect, etc.")
+    last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -385,6 +413,9 @@ class EquityLineModel(BaseModel):
     agreement_end_date: Optional[date] = None
     filing_url: Optional[str] = None
     notes: Optional[str] = None
+    # NEW: Additional fields
+    counterparty: Optional[str] = Field(None, max_length=255, description="Equity line counterparty (e.g., 'Lincoln Park', 'YA II')")
+    last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):

@@ -48,6 +48,7 @@ from services.enhanced_data_fetcher import (
 from services.grok_pool import GrokPool, get_grok_pool
 from services.chunk_processor import ChunkProcessor, ChunkResult, ChunkStatus
 from services.instrument_linker import InstrumentLinker, InstrumentType, link_instruments_across_filings
+from services.market_data_calculator import MarketDataCalculator, get_market_data_calculator
 
 logger = get_logger(__name__)
 
@@ -78,6 +79,10 @@ class SECDilutionService:
         
         # Enhanced data fetcher for SEC-API /float and FMP cash data
         self.enhanced_fetcher = EnhancedDataFetcher()
+        
+        # Market data calculator for Baby Shelf, IB6 Float Value, etc.
+        polygon_key = settings.POLYGON_API_KEY if hasattr(settings, 'POLYGON_API_KEY') else os.getenv('POLYGON_API_KEY')
+        self.market_calculator = get_market_data_calculator(polygon_key) if polygon_key else None
         
         # Semáforo global para limitar requests concurrentes a SEC
         self._sec_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_SCRAPES)
@@ -2332,6 +2337,12 @@ IMPORTANT:
                 source_filings=relevant_filings
             )
             
+            # 8. NUEVO: Calcular métricas de Baby Shelf
+            profile = await self._enrich_profile_with_baby_shelf_calculations(
+                profile,
+                float_shares=float_shares
+            )
+            
             logger.info("sec_scrape_completed", ticker=ticker)
             return profile
             
@@ -3913,7 +3924,48 @@ REQUIRED FIELDS:
 - exercise_price: Price per share to exercise
 - expiration_date: When warrants expire (YYYY-MM-DD)
 - issue_date: When warrants were issued (YYYY-MM-DD)
+- exercisable_date: When warrants become exercisable (YYYY-MM-DD)
 - notes: Description (e.g., "Public Warrants", "Pre-funded warrants")
+- known_owners: Known warrant holders if disclosed (e.g., "3i, Akita, CVI, Iroquois")
+- underwriter_agent: Underwriter/Placement agent if disclosed (e.g., "Laidlaw", "H.C. Wainwright")
+- price_protection: Type of price protection (e.g., "Customary Anti-Dilution", "Reset", "Full Ratchet", "Undisclosed")
+- pp_clause: Full text of the Price Protection/Anti-Dilution clause if found
+
+**CONVERTIBLE NOTES:**
+- total_principal_amount: Total principal amount of the note
+- remaining_principal_amount: Remaining principal not converted
+- conversion_price: Conversion price per share
+- total_shares_when_converted: Total shares if fully converted
+- remaining_shares_when_converted: Remaining shares to be issued
+- issue_date: When note was issued (YYYY-MM-DD)
+- convertible_date: When note becomes convertible (YYYY-MM-DD)
+- maturity_date: When note matures (YYYY-MM-DD)
+- known_owners: Known note holders (e.g., "Cavalry, WVP, Bigger Capital")
+- underwriter_agent: Underwriter/Placement agent
+- price_protection: Type of price protection
+- pp_clause: Full text of the Price Protection clause
+
+**CONVERTIBLE PREFERRED:**
+- series: Series name (e.g., "Series A", "Series B")
+- total_dollar_amount_issued: Total dollar amount issued
+- remaining_dollar_amount: Remaining dollar amount
+- conversion_price: Conversion price per share
+- total_shares_when_converted: Total shares if fully converted
+- remaining_shares_when_converted: Remaining shares to be issued
+- issue_date: When preferred was issued (YYYY-MM-DD)
+- convertible_date: When becomes convertible (YYYY-MM-DD)
+- maturity_date: Maturity date if any (YYYY-MM-DD)
+- known_owners: Known holders (e.g., "C/M Capital, WVP")
+- price_protection: Type of price protection
+- pp_clause: Full text of the Price Protection clause
+- status: Status (e.g., "Registered", "Pending Effect")
+
+**EQUITY LINES:**
+- total_capacity: Total equity line capacity
+- remaining_capacity: Remaining capacity
+- agreement_start_date: Agreement start date (YYYY-MM-DD)
+- agreement_end_date: Agreement end date (YYYY-MM-DD)
+- counterparty: Counterparty name (e.g., "Lincoln Park", "YA II")
 
 **COMPLETED OFFERINGS:**
 - offering_type: "Public Offering", "Private Placement", "ATM Sales", etc.
@@ -3931,19 +3983,25 @@ REQUIRED FIELDS:
 === RETURN FORMAT (JSON only, no markdown) ===
 {{
   "warrants": [
-    {{"outstanding": 5000000, "exercise_price": 1.50, "expiration_date": "2028-01-15", "issue_date": "2023-01-06", "notes": "Public Warrants"}}
+    {{"outstanding": 5000000, "exercise_price": 1.50, "expiration_date": "2028-01-15", "issue_date": "2023-01-06", "exercisable_date": "2023-07-06", "notes": "Public Warrants", "known_owners": "3i, Akita, CVI", "underwriter_agent": "Laidlaw", "price_protection": "Customary Anti-Dilution", "pp_clause": null}}
   ],
   "atm_offerings": [
     {{"total_capacity": 75000000, "remaining_capacity": 5000000, "placement_agent": "Cantor Fitzgerald", "agreement_date": "2023-01-06", "filing_date": "2023-01-06"}}
   ],
   "shelf_registrations": [
-    {{"total_capacity": 300000000, "remaining_capacity": 300000000, "registration_statement": "S-3", "effect_date": "2024-10-28", "expiration_date": "2027-10-28", "is_baby_shelf": true}}
+    {{"total_capacity": 300000000, "remaining_capacity": 300000000, "registration_statement": "S-3", "effect_date": "2024-10-28", "expiration_date": "2027-10-28", "is_baby_shelf": true, "total_amount_raised": 0, "total_amount_raised_last_12mo": 0, "last_banker": null}}
   ],
   "completed_offerings": [],
   "s1_offerings": [],
-  "convertible_notes": [],
-  "convertible_preferred": [],
-  "equity_lines": []
+  "convertible_notes": [
+    {{"total_principal_amount": 1000000, "remaining_principal_amount": 500000, "conversion_price": 1.50, "issue_date": "2024-02-01", "maturity_date": "2025-07-30", "known_owners": "Cavalry, WVP", "price_protection": "Reset", "pp_clause": "The Conversion Price is subject to a 0.30 floor price."}}
+  ],
+  "convertible_preferred": [
+    {{"series": "Series B", "total_dollar_amount_issued": 1700000, "conversion_price": 1.00, "issue_date": "2025-09-30", "known_owners": "C/M Capital, WVP", "price_protection": "Full Ratchet", "status": "Pending Effect"}}
+  ],
+  "equity_lines": [
+    {{"total_capacity": 2500000000, "remaining_capacity": 2160000000, "agreement_start_date": "2024-07-03", "agreement_end_date": "2027-07-03", "counterparty": "YA II"}}
+  ]
 }}
 """
                 
@@ -5604,6 +5662,117 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
         
         return sanitized
     
+    async def _enrich_profile_with_baby_shelf_calculations(
+        self,
+        profile: SECDilutionProfile,
+        float_shares: Optional[int] = None
+    ) -> SECDilutionProfile:
+        """
+        Enriquece el perfil con cálculos de Baby Shelf, IB6 Float Value, etc.
+        
+        Usa MarketDataCalculator para:
+        1. Obtener Highest 60-Day Close desde Polygon
+        2. Calcular IB6 Float Value = Float × Highest60DayClose × (1/3)
+        3. Calcular Current Raisable Amount
+        4. Calcular Price To Exceed Baby Shelf
+        5. Determinar si ATM está limitado por Baby Shelf
+        """
+        ticker = profile.ticker
+        
+        if not self.market_calculator:
+            logger.warning("market_calculator_not_available", ticker=ticker)
+            return profile
+        
+        # Usar float_shares del perfil si no se proporciona
+        float_shares = float_shares or profile.float_shares
+        
+        if not float_shares:
+            logger.warning("no_float_shares_for_baby_shelf_calc", ticker=ticker)
+            return profile
+        
+        try:
+            # Obtener Highest 60-Day Close
+            highest_close = await self.market_calculator.get_highest_60_day_close(ticker)
+            
+            if not highest_close:
+                logger.warning("no_highest_close_for_baby_shelf_calc", ticker=ticker)
+                return profile
+            
+            # Calcular IB6 Float Value
+            ib6_float_value = self.market_calculator.calculate_ib6_float_value(
+                float_shares, highest_close
+            )
+            
+            # Determinar si es Baby Shelf
+            is_baby_shelf = self.market_calculator.is_baby_shelf_company(
+                float_shares, highest_close
+            )
+            
+            logger.info("baby_shelf_calculated", ticker=ticker,
+                       is_baby_shelf=is_baby_shelf,
+                       ib6_float_value=float(ib6_float_value),
+                       highest_60_day_close=float(highest_close))
+            
+            # Enriquecer Shelf Registrations
+            for shelf in profile.shelf_registrations:
+                shelf.highest_60_day_close = highest_close
+                shelf.ib6_float_value = ib6_float_value
+                shelf.outstanding_shares_calc = profile.shares_outstanding
+                shelf.float_shares_calc = float_shares
+                shelf.is_baby_shelf = is_baby_shelf
+                shelf.baby_shelf_restriction = is_baby_shelf
+                shelf.last_update_date = datetime.now().date()
+                
+                # Calcular Current Raisable Amount
+                if shelf.total_capacity:
+                    total_raised = shelf.total_amount_raised or Decimal("0")
+                    raised_12mo = shelf.total_amount_raised_last_12mo or Decimal("0")
+                    
+                    current_raisable = self.market_calculator.calculate_current_raisable_amount(
+                        ib6_float_value,
+                        shelf.total_capacity,
+                        total_raised,
+                        raised_12mo
+                    )
+                    shelf.current_raisable_amount = current_raisable
+                    
+                    # Calcular Price To Exceed Baby Shelf
+                    if is_baby_shelf:
+                        price_to_exceed = self.market_calculator.calculate_price_to_exceed_baby_shelf(
+                            shelf.total_capacity,
+                            float_shares
+                        )
+                        shelf.price_to_exceed_baby_shelf = price_to_exceed
+            
+            # Enriquecer ATM Offerings
+            for atm in profile.atm_offerings:
+                atm.last_update_date = datetime.now().date()
+                
+                if is_baby_shelf and atm.remaining_capacity:
+                    # El ATM puede estar limitado por Baby Shelf
+                    atm.remaining_capacity_without_restriction = atm.remaining_capacity
+                    
+                    # Current raisable bajo IB6
+                    current_raisable = self.market_calculator.calculate_current_raisable_amount(
+                        ib6_float_value,
+                        atm.total_capacity or atm.remaining_capacity,
+                        Decimal("0"),  # ATM ya descuenta lo usado
+                        Decimal("0")
+                    )
+                    
+                    if current_raisable < atm.remaining_capacity:
+                        atm.atm_limited_by_baby_shelf = True
+                        # El effective remaining es el menor entre IB6 y el remaining real
+                        atm.remaining_capacity = current_raisable
+                    else:
+                        atm.atm_limited_by_baby_shelf = False
+            
+            return profile
+            
+        except Exception as e:
+            logger.error("baby_shelf_calc_failed", ticker=ticker, error=str(e))
+            return profile
+    
     def _build_profile(
         self,
         ticker: str,
@@ -5652,7 +5821,13 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 exercised=w.get('exercised_count') or w.get('exercised'),
                 expired=w.get('expired_count') or w.get('expired'),
                 remaining=w.get('remaining'),
-                last_update_date=w.get('last_update_date')
+                last_update_date=w.get('last_update_date'),
+                # NEW: Additional DilutionTracker fields
+                known_owners=w.get('known_owners'),
+                underwriter_agent=w.get('underwriter_agent') or w.get('placement_agent'),
+                price_protection=w.get('price_protection'),
+                pp_clause=w.get('pp_clause'),
+                exercisable_date=w.get('exercisable_date')
             )
             for w in extracted_data.get('warrants', [])
         ]
@@ -5742,7 +5917,7 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
             for s1 in [self._sanitize_field_lengths(x, s1_limits) for x in extracted_data.get('s1_offerings', [])]
         ]
         
-        # Parse convertible notes (NUEVO)
+        # Parse convertible notes (con campos adicionales de DilutionTracker)
         from models.sec_dilution_models import ConvertibleNoteModel
         cn_limits = {'underwriter_agent': 255}
         convertible_notes = [
@@ -5758,14 +5933,19 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 maturity_date=cn.get('maturity_date'),
                 underwriter_agent=cn.get('underwriter_agent'),
                 filing_url=cn.get('filing_url'),
-                notes=cn.get('notes')
+                notes=cn.get('notes'),
+                # NEW: Additional DilutionTracker fields
+                known_owners=cn.get('known_owners'),
+                price_protection=cn.get('price_protection'),
+                pp_clause=cn.get('pp_clause'),
+                last_update_date=cn.get('last_update_date')
             )
             for cn in [self._sanitize_field_lengths(x, cn_limits) for x in extracted_data.get('convertible_notes', [])]
         ]
         
-        # Parse convertible preferred (NUEVO)
+        # Parse convertible preferred (con campos adicionales de DilutionTracker)
         from models.sec_dilution_models import ConvertiblePreferredModel
-        cp_limits = {'series': 50, 'underwriter_agent': 255}
+        cp_limits = {'series': 50, 'underwriter_agent': 255, 'status': 50}
         convertible_preferred = [
             ConvertiblePreferredModel(
                 ticker=ticker,
@@ -5780,13 +5960,20 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 maturity_date=cp.get('maturity_date'),
                 underwriter_agent=cp.get('underwriter_agent'),
                 filing_url=cp.get('filing_url'),
-                notes=cp.get('notes')
+                notes=cp.get('notes'),
+                # NEW: Additional DilutionTracker fields
+                known_owners=cp.get('known_owners'),
+                price_protection=cp.get('price_protection'),
+                pp_clause=cp.get('pp_clause'),
+                status=cp.get('status'),
+                last_update_date=cp.get('last_update_date')
             )
             for cp in [self._sanitize_field_lengths(x, cp_limits) for x in extracted_data.get('convertible_preferred', [])]
         ]
         
-        # Parse equity lines (NUEVO)
+        # Parse equity lines (con campos adicionales de DilutionTracker)
         from models.sec_dilution_models import EquityLineModel
+        el_limits = {'counterparty': 255}
         equity_lines = [
             EquityLineModel(
                 ticker=ticker,
@@ -5795,9 +5982,12 @@ EXAMPLE BAD RESPONSE (DO NOT DO THIS):
                 agreement_start_date=el.get('agreement_start_date'),
                 agreement_end_date=el.get('agreement_end_date'),
                 filing_url=el.get('filing_url'),
-                notes=el.get('notes')
+                notes=el.get('notes'),
+                # NEW: Additional DilutionTracker fields
+                counterparty=el.get('counterparty'),
+                last_update_date=el.get('last_update_date')
             )
-            for el in extracted_data.get('equity_lines', [])
+            for el in [self._sanitize_field_lengths(x, el_limits) for x in extracted_data.get('equity_lines', [])]
         ]
         
         # Metadata
