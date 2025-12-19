@@ -1,17 +1,22 @@
 """
-Services for dilution tracker
+Services Package - Dilution Tracker
+
+Estructura:
+- core/       - Servicio principal de dilución
+- grok/       - Integración con Grok AI
+- sec/        - Integración con SEC EDGAR
+- data/       - Fuentes de datos externos
+- analysis/   - Análisis y procesamiento
+- market/     - Cálculos de mercado
+- extraction/ - Extracción de contenido
+- cache/      - Caché y persistencia
+- external/   - APIs externas
+
+USO:
+    from services.core.sec_dilution_service import SECDilutionService
+    from services.grok.grok_pool import GrokPool
+    from services.data.enhanced_data_fetcher import EnhancedDataFetcher
 """
 
-from .base_fmp_service import BaseFMPService
-from .api_gateway_client import APIGatewayClient  # Financieros unificados
-from .sec_13f_holders import SEC13FHoldersService  # SEC-API.io 13F holders
-from .fmp_filings import FMPFilingsService
-from .data_aggregator import DataAggregator
-
-__all__ = [
-    "BaseFMPService",
-    "APIGatewayClient",
-    "SEC13FHoldersService",
-    "FMPFilingsService",
-    "DataAggregator",
-]
+# No importar nada aquí para evitar dependencias circulares
+# Usar imports directos desde los módulos específicos

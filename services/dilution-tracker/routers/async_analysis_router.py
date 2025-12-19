@@ -19,7 +19,7 @@ from shared.utils.logger import get_logger
 from shared.config.settings import settings
 
 from strategies.search_tracker import SearchTracker
-from services.data_aggregator import DataAggregator
+from services.data.data_aggregator import DataAggregator
 
 logger = get_logger(__name__)
 

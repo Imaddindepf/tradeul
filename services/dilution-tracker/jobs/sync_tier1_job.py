@@ -15,9 +15,9 @@ from shared.utils.logger import get_logger
 from shared.config.settings import settings
 
 from strategies.tier_manager import TierManager
-from services.api_gateway_client import APIGatewayClient  # Financieros unificados
-from services.sec_13f_holders import SEC13FHoldersService
-from services.fmp_filings import FMPFilingsService
+from services.external.api_gateway_client import APIGatewayClient  # Financieros unificados
+from services.sec.sec_13f_holders import SEC13FHoldersService
+from services.data.fmp_filings import FMPFilingsService
 from models.sync_models import SyncTier
 
 logger = get_logger(__name__)

@@ -10,7 +10,7 @@ from typing import Optional, List, Dict
 from datetime import datetime
 
 from shared.utils.logger import get_logger
-from services.base_fmp_service import BaseFMPService
+from services.data.base_fmp_service import BaseFMPService
 from models.filing_models import SECFilingCreate, FilingType
 
 logger = get_logger(__name__)

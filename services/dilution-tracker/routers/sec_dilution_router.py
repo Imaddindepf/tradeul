@@ -16,10 +16,10 @@ from shared.utils.timescale_client import TimescaleClient
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 
-from services.sec_dilution_service import SECDilutionService
-from services.spac_detector import SPACDetector
-from services.preliminary_analyzer import get_preliminary_analyzer
-from services.cash_runway_service import get_enhanced_cash_runway
+from services.core.sec_dilution_service import SECDilutionService
+from services.analysis.spac_detector import SPACDetector
+from services.analysis.preliminary_analyzer import get_preliminary_analyzer
+from services.market.cash_runway_service import get_enhanced_cash_runway
 from models.sec_dilution_models import DilutionProfileResponse
 
 logger = get_logger(__name__)
@@ -113,7 +113,7 @@ async def check_sec_dilution_cache(
             
             if enqueue_if_missing:
                 # Encolar job automáticamente
-                from services.job_queue_service import get_job_queue
+                from services.external.job_queue_service import get_job_queue
                 try:
                     queue = await get_job_queue()
                     
@@ -1047,7 +1047,7 @@ async def enqueue_scraping_job(
     }
     ```
     """
-    from services.job_queue_service import get_job_queue
+    from services.external.job_queue_service import get_job_queue
     
     ticker = ticker.upper()
     logger.info("enqueue_scraping_requested", ticker=ticker, priority=priority)
@@ -1095,7 +1095,7 @@ async def get_job_status(ticker: str):
     }
     ```
     """
-    from services.job_queue_service import get_job_queue
+    from services.external.job_queue_service import get_job_queue
     
     ticker = ticker.upper()
     
@@ -1138,7 +1138,7 @@ async def get_queue_stats():
     }
     ```
     """
-    from services.job_queue_service import get_job_queue
+    from services.external.job_queue_service import get_job_queue
     
     try:
         queue = await get_job_queue()

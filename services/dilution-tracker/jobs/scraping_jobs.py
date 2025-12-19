@@ -63,7 +63,7 @@ async def scrape_sec_dilution(
         await _update_job_status(redis, ticker, "processing", job_id)
         
         # Importar servicio y clientes aquí para evitar imports circulares
-        from services.sec_dilution_service import SECDilutionService
+        from services.core.sec_dilution_service import SECDilutionService
         from shared.utils.timescale_client import TimescaleClient
         from shared.utils.redis_client import RedisClient
         

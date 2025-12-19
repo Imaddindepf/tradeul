@@ -15,12 +15,13 @@ from shared.utils.redis_client import RedisClient
 from shared.utils.logger import get_logger
 from shared.config.settings import settings
 
-from services.api_gateway_client import APIGatewayClient  # Financieros unificados
-from services.sec_13f_holders import SEC13FHoldersService  # SEC-API.io 13F
-from services.sec_api_filings import SECAPIFilingsService  # SEC-API.io Filings (principal)
-from services.fmp_filings import FMPFilingsService  # FMP Filings (fallback)
-from services.sec_dilution_service import SECDilutionService
-from services.spac_detector import SPACDetector
+from services.external.api_gateway_client import APIGatewayClient  # Financieros unificados
+from services.sec.sec_13f_holders import SEC13FHoldersService  # SEC-API.io 13F
+from services.sec.sec_api_filings import SECAPIFilingsService  # SEC-API.io Filings (principal)
+from services.data.fmp_filings import FMPFilingsService  # FMP Filings (fallback)
+# Lazy import to avoid circular dependency
+# from services.core.sec_dilution_service import SECDilutionService
+from services.analysis.spac_detector import SPACDetector
 
 from repositories.financial_repository import FinancialRepository
 from repositories.holder_repository import HolderRepository
@@ -51,6 +52,8 @@ class DataAggregator:
         self.sec_holders = SEC13FHoldersService()    # SEC-API.io 13F holders
         self.sec_filings = SECAPIFilingsService()    # SEC-API.io Filings (principal)
         self.fmp_filings = FMPFilingsService(settings.FMP_API_KEY)  # FMP Filings (fallback)
+        # Lazy import to avoid circular dependency
+        from services.core.sec_dilution_service import SECDilutionService
         self.sec_dilution = SECDilutionService(db, redis)
         self.spac_detector = SPACDetector()          # Detector de SPACs
         
