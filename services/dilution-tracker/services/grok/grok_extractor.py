@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
 from xai_sdk import Client
 from xai_sdk.chat import user, system, file
+from xai_sdk.tools import web_search
 
 from shared.config.settings import settings
 from shared.utils.logger import get_logger
@@ -232,38 +233,86 @@ class GrokExtractor:
                             atm['remaining_capacity'] = remaining
                             atm['_usage_from_10q'] = atm_usage_total
             
-            # Pass 4c: Extract Convertible Notes from 10-K/10-Q (primary source - has full details)
-            # 10-K/10-Q have complete debt footnotes with total/remaining principal, conversion rates, etc.
+            # Pass 4c: Extract Convertible Notes from annual/quarterly reports
+            # Strategy: Use Collections Search for large F-1/20-F (>1MB), upload for smaller filings
             filings_10k = [f for f in filing_contents if f['form_type'] in ['10-K', '10-K/A']]
-            filings_annual_quarterly = filings_10q[:3] + filings_10k[:2]  # Recent 10-Qs and 10-Ks
+            filings_20f = [f for f in filing_contents if f['form_type'] in ['20-F', '20-F/A']]
+            filings_f1 = [f for f in filing_contents if f['form_type'] in ['F-1', 'F-1/A']]
             
+            # Separate large filings (>1MB) for Collections Search
+            LARGE_FILE_THRESHOLD = 1_000_000  # 1MB
+            large_filings = []
+            small_filings = []
+            
+            for f in (filings_f1[:2] + filings_20f[:2]):
+                content_size = len(f.get('content', ''))
+                if content_size > LARGE_FILE_THRESHOLD:
+                    large_filings.append(f)
+                else:
+                    small_filings.append(f)
+            
+            # Small filings: 10-K, 10-Q, and small F-1/20-F
+            filings_annual_quarterly = filings_10q[:3] + filings_10k[:2] + small_filings
+            
+            # Large F-1/20-F files: Add to processing, web_search enrichment will fill missing data
+            if large_filings:
+                logger.info("pass4c_large_filings_detected", ticker=ticker, 
+                           count=len(large_filings))
+                # Skip large filings from upload - web_search enrichment will handle them
+                # by reading SEC.gov directly with the filing URL
+            
+            # Process smaller filings with standard upload method
             if filings_annual_quarterly:
                 logger.info("pass4c_convertible_notes_start", ticker=ticker, 
                            filings=len(filings_annual_quarterly))
                 
-                # Extract convertible notes with FULL details from 10-K/10-Q
+                # Extract convertible notes with FULL details from 10-K/10-Q/20-F/F-1
                 result = await self._extract_pass_focused(
                     ticker, company_name, filings_annual_quarterly,
-                    focus="""CRITICAL: Extract ALL CONVERTIBLE NOTES from Debt/Long-Term Debt footnotes.
+                    focus="""CRITICAL: Extract ALL CONVERTIBLE NOTES with COMPLETE details.
 
-SEARCH FOR these exact phrases in the financial statement notes:
-- "Convertible Notes" or "Convertible Senior Notes" or "Senior Convertible Notes"
-- "Notes due [year]" (e.g., "1.25% Convertible Senior Notes due 2025")
-- "conversion rate" (e.g., "107.2113 shares per $1,000 principal")
-- "aggregate principal amount"
+WHERE TO LOOK IN THE DOCUMENT:
+1. "USE OF PROCEEDS" section - mentions note terms
+2. "DESCRIPTION OF SECURITIES" or "DESCRIPTION OF NOTES" section
+3. "NOTES TO FINANCIAL STATEMENTS" - Note 8, Note 9, or "Debt" sections
+4. "RECENT DEVELOPMENTS" - new note issuances
+5. "RELATED PARTY TRANSACTIONS" - investor note details
+6. Tables with headers like "Conversion Price", "Principal Amount"
+7. Look for dollar amounts followed by "conversion price" or "per share"
 
-EXTRACT these specific values:
-- series_name: EXACT name like "1.25% Convertible Senior Notes due 2025"
-- total_principal_amount: Original issuance amount in DOLLARS (e.g., $143,800,000)
-- remaining_principal_amount: Current outstanding amount (total minus repurchases/conversions)
-- conversion_rate: Shares per $1,000 principal (e.g., 107.2113)
-- conversion_price: Calculate as $1000 / conversion_rate (e.g., $9.33)
-- interest_rate: Coupon rate as percentage (e.g., 1.25)
-- issue_date: When notes were originally issued
-- maturity_date: When notes are due
+SEARCH FOR these terms:
+- "Convertible Notes", "Senior Convertible Notes", "Convertible Senior Notes"
+- "Securities Purchase Agreement", "Note Purchase Agreement", "SPA"
+- "First Tranche", "Second Tranche", "Tranche Notes"
+- "initial conversion price", "conversion price of $", "convertible at $"
+- "per share", "per ordinary share", "per common share"
 
-DO NOT return 0 for amounts - extract the ACTUAL numbers from the text.
-If notes were partially repurchased, remaining = total - repurchased amount."""
+FOR EACH NOTE FOUND, extract ALL fields:
+- series_name: Full name (e.g., "First Tranche Senior Secured Convertible Notes")
+- total_principal_amount: Total amount in DOLLARS (e.g., 3687500 for $3,687,500)
+- remaining_principal_amount: Outstanding amount if different
+- conversion_price: CRITICAL - Price per share. LOOK FOR PATTERNS:
+  * "$X.XX per share" or "at $X.XX"
+  * "conversion price of $X.XX"
+  * "initial conversion price was $X.XX"
+  * If reset provisions, use CURRENT/LATEST price
+  * NEVER return 0 if any price is mentioned
+- conversion_ratio: Shares per $1,000 if given (price = 1000/ratio)
+- interest_rate: Coupon rate as percentage (e.g., 10.0)
+- issue_date: YYYY-MM-DD format
+- maturity_date: YYYY-MM-DD format
+- known_owners: Note holders (e.g., "Biomed II", "Hudson Bay", "Cavalry")
+- price_protection: "Variable Rate", "Full Ratchet", "Reset", or "None"
+- price_protection_clause: EXACT text about resets
+- floor_price: Minimum conversion price
+- variable_rate_adjustment: true if VWAP-based
+- is_toxic: true if death spiral/highly dilutive
+
+CRITICAL RULES:
+- Extract ACTUAL numbers from text, NEVER default to 0
+- If a price like "$298.88" or "$0.50" appears near conversion terms, USE IT
+- For F-1/20-F filings: prices are in narrative text, not tables
+- Each tranche = separate note entry"""
                 )
                 
                 # Log what Grok returned
@@ -318,7 +367,23 @@ If notes were partially repurchased, remaining = total - repurchased amount."""
                         self._stats["grok_calls"] += 1
                         result = await self._extract_pass_focused(
                             ticker, company_name, chunk,
-                            focus="Foreign company reports (6-K) - extract ATM offerings, warrant issuances, shelf registration updates."
+                            focus="""Foreign company reports (6-K) - extract ALL dilution instruments with FULL details:
+
+CONVERTIBLE NOTES - Extract COMPLETELY:
+- series_name, total_principal_amount, remaining_principal_amount
+- conversion_price, floor_price, interest_rate
+- known_owners (WHO holds the notes - e.g., "JAK", "Cavalry Fund")
+- price_protection ("Variable Rate", "Full Ratchet", "Reset", "None")
+- price_protection_clause (EXACT TEXT from filing about conversion price adjustments)
+- variable_rate_adjustment: true if price resets based on market
+- is_toxic: true if death spiral or highly dilutive structure
+- issue_date, maturity_date
+
+WARRANTS - series, exercise_price, outstanding, expiration, known_owners
+ATM OFFERINGS - capacity, remaining, placement_agent, status
+SHELF REGISTRATIONS - capacity, expiration, registration_statement
+
+For EACH instrument, always extract known_owners and price_protection if mentioned."""
                         )
                         if result:
                             all_warrants.extend(result.get('warrants', []))
@@ -382,6 +447,20 @@ If notes were partially repurchased, remaining = total - repurchased amount."""
                 'convertible_preferred': deduplicate_convertible_preferred(all_convertible_preferred),
                 'equity_lines': deduplicate_equity_lines(all_equity_lines)
             }
+            
+            # ENRICHMENT PASS: Use web_search to fill missing critical data
+            # Build filing URLs map from filing_contents
+            filing_urls = {}
+            for f in filing_contents:
+                if f.get('url'):
+                    key = f"{f.get('form_type', '')}_{f.get('filing_date', '')}"
+                    filing_urls[key] = f['url']
+            
+            combined_data = await self._enrich_with_web_search(
+                ticker=ticker,
+                combined_data=combined_data,
+                filing_urls=filing_urls
+            )
             
             logger.info("multipass_completed", ticker=ticker,
                        total_warrants=len(combined_data['warrants']),
@@ -638,9 +717,11 @@ If notes were partially repurchased, remaining = total - repurchased amount."""
     ) -> Optional[str]:
         """Upload a filing to Grok Files API."""
         try:
+            # Sanitize form_type to avoid directory issues (e.g., F-1/A -> F-1_A)
+            safe_form_type = form_type.replace('/', '_')
             temp_file = tempfile.NamedTemporaryFile(
                 mode='w', suffix='.html', 
-                prefix=f'{ticker}_{form_type}_{filing_date}_',
+                prefix=f'{ticker}_{safe_form_type}_{filing_date}_',
                 delete=False, encoding='utf-8'
             )
             
@@ -672,6 +753,276 @@ If notes were partially repurchased, remaining = total - repurchased amount."""
                 grok_client.files.delete(file_id)
             except:
                 pass
+    
+    async def _enrich_with_web_search(
+        self,
+        ticker: str,
+        combined_data: Dict,
+        filing_urls: Dict[str, str]
+    ) -> Dict:
+        """
+        Enrich missing critical data using Grok web_search.
+        
+        Uses grok-4-1-fast with web_search(allowed_domains=["sec.gov"]) to:
+        - Fill conversion_price=0 in convertible notes
+        - Fill exercise_price=0 in warrants
+        - Extract missing series_name, known_owners, etc.
+        
+        Args:
+            ticker: Stock ticker
+            combined_data: Deduplicated data from multipass extraction
+            filing_urls: Map of filing keys to URLs
+            
+        Returns:
+            Enriched combined_data
+        """
+        # Check if enrichment is needed
+        notes_needing_enrichment = [
+            n for n in combined_data.get('convertible_notes', [])
+            if not n.get('conversion_price') or float(n.get('conversion_price', 0)) == 0
+        ]
+        
+        warrants_needing_enrichment = [
+            w for w in combined_data.get('warrants', [])
+            if not w.get('exercise_price') or float(w.get('exercise_price', 0)) == 0
+        ]
+        
+        if not notes_needing_enrichment and not warrants_needing_enrichment:
+            logger.debug("enrichment_not_needed", ticker=ticker)
+            return combined_data
+        
+        logger.info("enrichment_starting", ticker=ticker,
+                   notes_to_enrich=len(notes_needing_enrichment),
+                   warrants_to_enrich=len(warrants_needing_enrichment))
+        
+        try:
+            # Create Grok client with web_search capability
+            api_key = self.grok_api_key or settings.GROK_API_KEY
+            client = Client(api_key=api_key)
+            
+            # Enrich convertible notes
+            if notes_needing_enrichment:
+                combined_data = await self._enrich_convertible_notes(
+                    ticker, combined_data, filing_urls, client
+                )
+            
+            # Enrich warrants
+            if warrants_needing_enrichment:
+                combined_data = await self._enrich_warrants(
+                    ticker, combined_data, filing_urls, client
+                )
+            
+            logger.info("enrichment_completed", ticker=ticker)
+            
+        except Exception as e:
+            logger.error("enrichment_failed", ticker=ticker, error=str(e))
+        
+        return combined_data
+    
+    async def _enrich_convertible_notes(
+        self,
+        ticker: str,
+        combined_data: Dict,
+        filing_urls: Dict[str, str],
+        client: Client
+    ) -> Dict:
+        """Enrich convertible notes with missing conversion prices."""
+        notes = combined_data.get('convertible_notes', [])
+        
+        for i, note in enumerate(notes):
+            conv_price = note.get('conversion_price', 0)
+            if conv_price and float(conv_price) > 0:
+                continue
+            
+            # Find the best filing URL for this note
+            issue_date = note.get('issue_date', '')
+            filing_url = self._find_best_filing_url(filing_urls, issue_date)
+            
+            if not filing_url:
+                logger.debug("no_filing_url_for_note", ticker=ticker, 
+                           series=note.get('series_name'))
+                continue
+            
+            try:
+                # Use web_search to find conversion price
+                chat = client.chat.create(
+                    model="grok-4-1-fast",
+                    tools=[web_search(allowed_domains=["sec.gov"])],
+                )
+                
+                series_name = note.get('series_name', 'convertible note')
+                prompt = f"""
+Read this SEC filing and find the Conversion Price for the convertible note:
+{filing_url}
+
+Looking for: {series_name}
+Issue date: {issue_date}
+
+Extract ONLY:
+1. conversion_price (number, e.g., 0.2197 or 10.00)
+2. floor_price if mentioned (number)
+3. known_owners if mentioned (text)
+
+Return as JSON: {{"conversion_price": X, "floor_price": Y, "known_owners": "Z"}}
+If not found, return {{"conversion_price": null}}
+"""
+                
+                chat.append(user(prompt))
+                response = chat.sample()
+                
+                # Parse response
+                content = response.content or ""
+                enriched = self._parse_enrichment_response(content)
+                
+                if enriched.get('conversion_price'):
+                    notes[i]['conversion_price'] = float(enriched['conversion_price'])
+                    notes[i]['_enriched_via_web_search'] = True
+                    logger.info("note_enriched", ticker=ticker,
+                               series=series_name,
+                               conversion_price=enriched['conversion_price'])
+                
+                if enriched.get('floor_price'):
+                    notes[i]['floor_price'] = float(enriched['floor_price'])
+                
+                if enriched.get('known_owners') and not note.get('known_owners'):
+                    notes[i]['known_owners'] = enriched['known_owners']
+                    
+            except Exception as e:
+                logger.warning("note_enrichment_failed", ticker=ticker,
+                             series=note.get('series_name'), error=str(e))
+        
+        combined_data['convertible_notes'] = notes
+        return combined_data
+    
+    async def _enrich_warrants(
+        self,
+        ticker: str,
+        combined_data: Dict,
+        filing_urls: Dict[str, str],
+        client: Client
+    ) -> Dict:
+        """Enrich warrants with missing exercise prices."""
+        warrants = combined_data.get('warrants', [])
+        
+        for i, warrant in enumerate(warrants):
+            ex_price = warrant.get('exercise_price', 0)
+            if ex_price and float(ex_price) > 0:
+                continue
+            
+            issue_date = warrant.get('issue_date', '')
+            filing_url = self._find_best_filing_url(filing_urls, issue_date)
+            
+            if not filing_url:
+                continue
+            
+            try:
+                chat = client.chat.create(
+                    model="grok-4-1-fast",
+                    tools=[web_search(allowed_domains=["sec.gov"])],
+                )
+                
+                series_name = warrant.get('series_name', 'warrant')
+                prompt = f"""
+Read this SEC filing and find the Exercise Price for the warrant:
+{filing_url}
+
+Looking for: {series_name}
+Issue date: {issue_date}
+
+Extract:
+1. exercise_price (number)
+2. series_name if more specific name found
+3. known_owners if mentioned
+
+Return as JSON: {{"exercise_price": X, "series_name": "Y", "known_owners": "Z"}}
+"""
+                
+                chat.append(user(prompt))
+                response = chat.sample()
+                
+                enriched = self._parse_enrichment_response(response.content or "")
+                
+                if enriched.get('exercise_price'):
+                    warrants[i]['exercise_price'] = float(enriched['exercise_price'])
+                    warrants[i]['_enriched_via_web_search'] = True
+                    logger.info("warrant_enriched", ticker=ticker,
+                               exercise_price=enriched['exercise_price'])
+                
+                if enriched.get('series_name') and not warrant.get('series_name'):
+                    warrants[i]['series_name'] = enriched['series_name']
+                    
+            except Exception as e:
+                logger.warning("warrant_enrichment_failed", ticker=ticker, error=str(e))
+        
+        combined_data['warrants'] = warrants
+        return combined_data
+    
+    def _find_best_filing_url(self, filing_urls: Dict[str, str], target_date: str) -> Optional[str]:
+        """Find the best filing URL for a given date."""
+        if not filing_urls or not target_date:
+            # Return any 6-K or F-1 URL if no specific date
+            for key, url in filing_urls.items():
+                if '6-K' in key or 'F-1' in key or '8-K' in key:
+                    return url
+            # Return first available URL
+            return next(iter(filing_urls.values()), None)
+        
+        # Try to find exact date match
+        target = str(target_date)[:10]  # YYYY-MM-DD
+        for key, url in filing_urls.items():
+            if target in key:
+                return url
+        
+        # Try month match
+        target_month = target[:7]  # YYYY-MM
+        for key, url in filing_urls.items():
+            if target_month in key:
+                return url
+        
+        # Return any 6-K, F-1, or 8-K (likely to have transaction details)
+        for key, url in filing_urls.items():
+            if '6-K' in key or 'F-1' in key or '8-K' in key:
+                return url
+        
+        return next(iter(filing_urls.values()), None)
+    
+    def _parse_enrichment_response(self, content: str) -> Dict:
+        """Parse JSON from Grok enrichment response."""
+        try:
+            # Try to extract JSON from response
+            # Look for {...} pattern
+            json_match = re.search(r'\{[^{}]*\}', content)
+            if json_match:
+                return json.loads(json_match.group())
+            
+            # Try parsing entire content as JSON
+            return json.loads(content)
+        except:
+            # Try to extract numbers from text
+            result = {}
+            
+            # Look for conversion_price pattern
+            price_match = re.search(r'conversion[_\s]*price[:\s]*\$?([0-9]+\.?[0-9]*)', content, re.I)
+            if price_match:
+                result['conversion_price'] = float(price_match.group(1))
+            
+            # Look for exercise_price pattern
+            ex_match = re.search(r'exercise[_\s]*price[:\s]*\$?([0-9]+\.?[0-9]*)', content, re.I)
+            if ex_match:
+                result['exercise_price'] = float(ex_match.group(1))
+            
+            # Look for floor_price pattern
+            floor_match = re.search(r'floor[_\s]*price[:\s]*\$?([0-9]+\.?[0-9]*)', content, re.I)
+            if floor_match:
+                result['floor_price'] = float(floor_match.group(1))
+            
+            # Look for standalone price (like "**0.2197**" or "$0.2197")
+            if not result:
+                standalone = re.search(r'\*?\*?\$?([0-9]+\.[0-9]+)\*?\*?', content)
+                if standalone:
+                    result['conversion_price'] = float(standalone.group(1))
+            
+            return result
     
     def _build_extraction_prompt(
         self,

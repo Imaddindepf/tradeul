@@ -465,6 +465,117 @@ class SharesDataService:
             logger.warning("warrant_split_adjustment_error", ticker=ticker, error=str(e))
             return warrants
 
+    async def adjust_convertible_notes_for_splits(self, ticker: str, notes: List[Dict]) -> List[Dict]:
+        """
+        Adjust convertible notes for stock splits.
+        
+        For a reverse split 1:50:
+        - conversion_price is MULTIPLIED by 50 (more expensive per share)
+        - shares_when_converted is DIVIDED by 50 (fewer shares)
+        - principal_amount stays the same (it's a dollar amount)
+        
+        Note: Some notes have anti-dilution protection that may reset prices
+        after splits, but we adjust based on the split ratio first.
+        """
+        if not notes:
+            return notes
+        
+        try:
+            splits = await self.get_split_history(ticker)
+            if not splits:
+                return notes
+            
+            logger.info("adjusting_notes_for_splits", 
+                       ticker=ticker, 
+                       note_count=len(notes),
+                       split_count=len(splits))
+            
+            adjusted_notes = []
+            for n in notes:
+                note = dict(n)  # Copy
+                
+                issue_date = note.get('issue_date')
+                if not issue_date:
+                    issue_date = '2000-01-01'
+                elif hasattr(issue_date, 'isoformat'):
+                    issue_date = issue_date.isoformat()[:10]
+                else:
+                    issue_date = str(issue_date)[:10]
+                
+                # Calculate cumulative split factor for splits AFTER issue date
+                factor = 1.0
+                for split in splits:
+                    split_date = split.get('date', '')
+                    if split_date > issue_date:
+                        factor *= split['denominator'] / split['numerator']
+                
+                if factor != 1.0:
+                    # Adjust conversion_price (multiply for reverse split)
+                    original_price = note.get('conversion_price')
+                    if original_price is not None and original_price > 0:
+                        try:
+                            price_float = float(original_price)
+                            note['conversion_price'] = round(price_float * factor, 4)
+                            note['original_conversion_price'] = original_price
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Adjust floor_price if exists
+                    original_floor = note.get('floor_price')
+                    if original_floor is not None and original_floor > 0:
+                        try:
+                            floor_float = float(original_floor)
+                            note['floor_price'] = round(floor_float * factor, 4)
+                            note['original_floor_price'] = original_floor
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Adjust total_shares_when_converted (divide for reverse split)
+                    original_shares = note.get('total_shares_when_converted')
+                    if original_shares is not None:
+                        try:
+                            shares_int = int(original_shares)
+                            note['total_shares_when_converted'] = int(shares_int / factor)
+                            note['original_total_shares'] = original_shares
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    # Adjust remaining_shares_when_converted
+                    original_remaining = note.get('remaining_shares_when_converted')
+                    if original_remaining is not None:
+                        try:
+                            remaining_int = int(original_remaining)
+                            note['remaining_shares_when_converted'] = int(remaining_int / factor)
+                            note['original_remaining_shares'] = original_remaining
+                        except (ValueError, TypeError):
+                            pass
+                    
+                    note['split_adjusted'] = True
+                    note['split_factor'] = factor
+                    
+                    logger.debug("note_split_adjusted",
+                               ticker=ticker,
+                               factor=factor,
+                               original_price=original_price,
+                               adjusted_price=note.get('conversion_price'))
+                else:
+                    note['split_adjusted'] = False
+                
+                adjusted_notes.append(note)
+            
+            adjusted_count = sum(1 for n in adjusted_notes if n.get('split_adjusted'))
+            if adjusted_count > 0:
+                logger.info("convertible_notes_split_adjusted", 
+                           ticker=ticker, 
+                           adjusted=adjusted_count, 
+                           total=len(adjusted_notes))
+            
+            return adjusted_notes
+            
+        except Exception as e:
+            logger.warning("note_split_adjustment_error", ticker=ticker, error=str(e))
+            return notes
+
 
 # Singleton instance
 _shares_service: Optional[SharesDataService] = None

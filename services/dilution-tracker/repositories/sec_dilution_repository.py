@@ -465,37 +465,55 @@ class SECDilutionRepository:
             return []
     
     async def _get_convertible_notes(self, ticker: str) -> List[ConvertibleNoteModel]:
-        """Obtener convertible notes de un ticker (si existe tabla)"""
+        """Obtener convertible notes de un ticker con todos los campos"""
         try:
             query = """
-            SELECT id, ticker, total_principal_amount, remaining_principal_amount,
-                   conversion_price, total_shares_when_converted, remaining_shares_when_converted,
-                   issue_date, convertible_date, maturity_date, underwriter_agent,
-                   filing_url, notes
+            SELECT id, ticker, series_name, total_principal_amount, remaining_principal_amount,
+                   conversion_price, original_conversion_price, conversion_ratio,
+                   total_shares_when_converted, remaining_shares_when_converted,
+                   interest_rate, issue_date, convertible_date, maturity_date, 
+                   underwriter_agent, filing_url, notes,
+                   is_registered, registration_type, known_owners,
+                   price_protection, pp_clause, variable_rate_adjustment,
+                   floor_price, is_toxic, last_update_date
             FROM sec_convertible_notes
             WHERE ticker = $1
-            ORDER BY maturity_date DESC NULLS LAST
+            ORDER BY issue_date DESC NULLS LAST
             """
             rows = await self.db.fetch(query, ticker)
             return [
                 ConvertibleNoteModel(
                     id=row['id'],
                     ticker=row['ticker'],
+                    series_name=row['series_name'],
                     total_principal_amount=row['total_principal_amount'],
                     remaining_principal_amount=row['remaining_principal_amount'],
                     conversion_price=row['conversion_price'],
+                    original_conversion_price=row['original_conversion_price'],
+                    conversion_ratio=row['conversion_ratio'],
                     total_shares_when_converted=row['total_shares_when_converted'],
                     remaining_shares_when_converted=row['remaining_shares_when_converted'],
+                    interest_rate=row['interest_rate'],
                     issue_date=row['issue_date'],
                     convertible_date=row['convertible_date'],
                     maturity_date=row['maturity_date'],
                     underwriter_agent=row['underwriter_agent'],
                     filing_url=row['filing_url'],
-                    notes=row['notes']
+                    notes=row['notes'],
+                    is_registered=row['is_registered'],
+                    registration_type=row['registration_type'],
+                    known_owners=row['known_owners'],
+                    price_protection=row['price_protection'],
+                    pp_clause=row['pp_clause'],
+                    variable_rate_adjustment=row['variable_rate_adjustment'],
+                    floor_price=row['floor_price'],
+                    is_toxic=row['is_toxic'],
+                    last_update_date=row['last_update_date']
                 )
                 for row in rows
             ]
-        except Exception:
+        except Exception as e:
+            logger.warning("get_convertible_notes_failed", ticker=ticker, error=str(e))
             return []
     
     async def _get_convertible_preferred(self, ticker: str) -> List[ConvertiblePreferredModel]:
@@ -582,15 +600,29 @@ class SECDilutionRepository:
     
     async def _insert_warrant(self, ticker: str, warrant: WarrantModel):
         """Insertar un warrant con todos los campos incluyendo split adjustment y ejercicios"""
+        
+        # Validate exercise_price to avoid DB overflow (max 10^8 - 1)
+        MAX_PRICE = 99_999_999.9999
+        exercise_price = float(warrant.exercise_price or 0)
+        if exercise_price > MAX_PRICE:
+            logger.warning("warrant_price_overflow_capped", ticker=ticker,
+                          original_price=exercise_price, capped_to=MAX_PRICE,
+                          series=warrant.series_name)
+            exercise_price = MAX_PRICE
+        
+        original_ex_price = float(warrant.original_exercise_price or 0)
+        if original_ex_price > MAX_PRICE:
+            original_ex_price = MAX_PRICE
+        
         query = """
         INSERT INTO sec_warrants (
-            ticker, issue_date, outstanding, exercise_price,
+            ticker, series_name, issue_date, outstanding, exercise_price,
             expiration_date, potential_new_shares, notes,
             status, is_summary_row, exclude_from_dilution, imputed_fields,
             split_adjusted, split_factor, original_exercise_price, original_outstanding,
             total_issued, exercised, expired, remaining, last_update_date
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         """
         
         # Convert imputed_fields list to string
@@ -599,9 +631,10 @@ class SECDilutionRepository:
         await self.db.execute(
             query,
             ticker,
+            warrant.series_name,
             warrant.issue_date,
             warrant.outstanding,
-            warrant.exercise_price,
+            exercise_price,  # Use validated price
             warrant.expiration_date,
             warrant.potential_new_shares,
             warrant.notes,
@@ -611,7 +644,7 @@ class SECDilutionRepository:
             imputed_str,
             warrant.split_adjusted,
             warrant.split_factor,
-            warrant.original_exercise_price,
+            original_ex_price,  # Use validated original price
             warrant.original_outstanding,
             warrant.total_issued,
             warrant.exercised,
@@ -776,34 +809,51 @@ class SECDilutionRepository:
             pass
     
     async def _insert_convertible_note(self, ticker: str, cn: ConvertibleNoteModel):
-        """Insertar un convertible note (si existe tabla)"""
+        """Insertar un convertible note con todos los campos"""
         try:
             query = """
             INSERT INTO sec_convertible_notes (
-                ticker, total_principal_amount, remaining_principal_amount,
-                conversion_price, total_shares_when_converted, remaining_shares_when_converted,
-                issue_date, convertible_date, maturity_date, underwriter_agent,
-                filing_url, notes
+                ticker, series_name, total_principal_amount, remaining_principal_amount,
+                conversion_price, original_conversion_price, conversion_ratio,
+                total_shares_when_converted, remaining_shares_when_converted,
+                interest_rate, issue_date, convertible_date, maturity_date, 
+                underwriter_agent, filing_url, notes,
+                is_registered, registration_type, known_owners,
+                price_protection, pp_clause, variable_rate_adjustment,
+                floor_price, is_toxic, last_update_date
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
             """
             await self.db.execute(
                 query,
                 ticker,
+                cn.series_name,
                 cn.total_principal_amount,
                 cn.remaining_principal_amount,
                 cn.conversion_price,
+                cn.original_conversion_price,
+                cn.conversion_ratio,
                 cn.total_shares_when_converted,
                 cn.remaining_shares_when_converted,
+                cn.interest_rate,
                 cn.issue_date,
                 cn.convertible_date,
                 cn.maturity_date,
                 cn.underwriter_agent,
                 cn.filing_url,
-                cn.notes
+                cn.notes,
+                cn.is_registered,
+                cn.registration_type,
+                cn.known_owners,
+                cn.price_protection,
+                cn.pp_clause,
+                cn.variable_rate_adjustment,
+                cn.floor_price,
+                cn.is_toxic,
+                cn.last_update_date
             )
-        except Exception:
-            # Tabla no existe aún, ignorar
+        except Exception as e:
+            logger.warning("insert_convertible_note_failed", ticker=ticker, error=str(e))
             pass
     
     async def _insert_convertible_preferred(self, ticker: str, cp: ConvertiblePreferredModel):

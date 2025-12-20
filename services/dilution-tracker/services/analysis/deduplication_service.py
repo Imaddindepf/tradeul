@@ -739,94 +739,150 @@ class DeduplicationService(GrokNormalizers):
     
     def deduplicate_convertible_notes(self, notes: List[Dict]) -> List[Dict]:
         """
-        Deduplicar convertible notes con merge inteligente.
-        Usa combinación de: interest_rate + maturity_year + series_name keywords
-        """
-        merged_by_key = {}
+        Deduplicar convertible notes.
         
-        def get_dedup_key(n: Dict) -> str:
-            """Generate key for deduplication based on note characteristics."""
-            # Extract key fields
-            interest_rate = n.get('interest_rate') or 0
-            maturity = n.get('maturity_date') or ''
-            series_name = (n.get('series_name') or '').lower()
-            
-            # Extract year from maturity
-            maturity_year = ''
-            if maturity:
+        ESTRATEGIA PROFESIONAL:
+        1. Filtrar notas con principal <= 0 (no son notas reales)
+        2. Agrupar por issue_date + maturity_date (notas del mismo acuerdo)
+        3. Merge notas del mismo grupo tomando el valor más completo de cada campo
+        
+        Las notas del mismo acuerdo tienen las mismas fechas de issue y maturity.
+        Grok puede extraer la misma nota múltiples veces con diferentes owners/prices.
+        """
+        if not notes:
+            return []
+        
+        def parse_date_key(date_val) -> str:
+            """Extraer YYYY-MM de una fecha para agrupar."""
+            if not date_val:
+                return 'unknown'
+            try:
+                if isinstance(date_val, str):
+                    return date_val[:7]  # YYYY-MM
+                elif hasattr(date_val, 'strftime'):
+                    return date_val.strftime('%Y-%m')
+            except:
+                pass
+            return 'unknown'
+        
+        def calculate_completeness(n: Dict) -> int:
+            """Calcular score de completitud de una nota."""
+            score = 0
+            # Campos críticos (más peso)
+            if n.get('total_principal_amount'):
                 try:
-                    from datetime import datetime
-                    if isinstance(maturity, str):
-                        for fmt in ['%Y-%m-%d', '%Y-%m', '%Y']:
-                            try:
-                                maturity_year = datetime.strptime(maturity[:10], fmt).year
-                                break
+                    if float(n.get('total_principal_amount', 0)) > 0:
+                        score += 10
                             except:
                                 pass
+            if n.get('conversion_price'):
+                try:
+                    if float(n.get('conversion_price', 0)) > 0:
+                        score += 10
                 except:
                     pass
-            
-            # Extract key identifier from series_name (e.g., "2025" from "Notes Due 2025")
-            import re
-            year_match = re.search(r'20\d{2}', series_name)
-            series_year = year_match.group(0) if year_match else ''
-            
-            # Use maturity year or series year
-            year_key = str(maturity_year) if maturity_year else series_year
-            
-            # Create composite key: interest_rate + year
-            return f"{float(interest_rate):.2f}_{year_key}"
+            if n.get('issue_date'):
+                score += 5
+            if n.get('maturity_date'):
+                score += 5
+            # Campos adicionales
+            if n.get('known_owners'):
+                score += 3
+            if n.get('price_protection'):
+                score += 3
+            if n.get('pp_clause'):
+                score += 2
+            if n.get('interest_rate'):
+                score += 2
+            return score
         
+        def get_dedup_key(n: Dict) -> str:
+            """Generar clave basada en fechas (issue + maturity)."""
+            issue_key = parse_date_key(n.get('issue_date'))
+            maturity_key = parse_date_key(n.get('maturity_date'))
+            return f"{issue_key}_{maturity_key}"
+        
+        def merge_notes(group: List[Dict]) -> Dict:
+            """Fusionar notas del mismo grupo, seleccionando la más completa."""
+            if len(group) == 1:
+                return group[0].copy()
+            
+            # Ordenar por completitud (mayor primero)
+            sorted_group = sorted(group, key=calculate_completeness, reverse=True)
+            best = sorted_group[0].copy()
+            
+            # Fusionar campos de las otras notas
+            for n in sorted_group[1:]:
+                for field in ['known_owners', 'price_protection', 'pp_clause', 
+                              'floor_price', 'is_toxic', 'variable_rate_adjustment',
+                              'underwriter_agent', 'interest_rate', 'conversion_price',
+                              'total_principal_amount', 'remaining_principal_amount',
+                              'series_name']:
+                    best_val = best.get(field)
+                    n_val = n.get(field)
+                    # Para números, preferir > 0
+                    if field in ['conversion_price', 'total_principal_amount', 'remaining_principal_amount',
+                                 'floor_price', 'interest_rate']:
+                        try:
+                            if (not best_val or float(best_val) <= 0) and n_val and float(n_val) > 0:
+                                best[field] = n_val
+                        except:
+                            pass
+                    # Para strings, preferir no vacío y más largo
+                    elif not best_val and n_val:
+                        best[field] = n_val
+                    elif best_val and n_val and len(str(n_val)) > len(str(best_val)):
+                        best[field] = n_val
+            
+            return best
+        
+        # PASO 1: Filtrar notas con principal <= 0
+        valid_notes = []
         for n in notes:
-            try:
-                key = get_dedup_key(n)
-                
-                if key not in merged_by_key:
-                    merged_by_key[key] = n.copy()
-                else:
-                    base = merged_by_key[key]
-                    
-                    # Merge fields - prefer non-null and non-zero values
-                    for field in [
-                        'total_principal_amount', 'remaining_principal_amount',
-                        'conversion_price', 'original_conversion_price',
-                        'conversion_ratio', 'total_shares_when_converted',
-                        'remaining_shares_when_converted', 'underwriter_agent', 
-                        'filing_url', 'known_owners', 'price_protection'
-                    ]:
-                        base_val = base.get(field)
-                        new_val = n.get(field)
-                        # Prefer non-null and non-zero values
-                        if (base_val is None or base_val == 0) and new_val is not None and new_val != 0:
-                            base[field] = new_val
-                    
-                    # Prefer the more complete series_name
-                    base_series = base.get('series_name') or ''
-                    new_series = n.get('series_name') or ''
-                    if len(new_series) > len(base_series):
-                        base['series_name'] = new_series
-                    
-                    # Merge dates - prefer non-null
-                    for date_field in ['issue_date', 'maturity_date', 'convertible_date']:
-                        if not base.get(date_field) and n.get(date_field):
-                            base[date_field] = n[date_field]
-                    
-                    # Merge notes
-                    base_notes = self.normalize_grok_value(base.get('notes'), 'string') or ''
-                    new_notes = self.normalize_grok_value(n.get('notes'), 'string') or ''
-                    if base_notes and new_notes and base_notes != new_notes:
-                        combined = ' / '.join([base_notes, new_notes])
-                        base['notes'] = combined
-                    elif new_notes and not base_notes:
-                        base['notes'] = new_notes
-                    
-                    logger.debug("convertible_notes_merged",
-                                key=key,
-                                base_principal=base.get('total_principal_amount'))
-            except Exception as e:
-                logger.warning("convertible_notes_dedup_error", error=str(e), note=str(n)[:100])
+            principal = self.normalize_grok_value(n.get('total_principal_amount'), 'number') or 0
+            
+            if principal <= 0:
+                logger.debug("note_filtered_zero_principal", 
+                           series=n.get('series_name'))
+                continue
+            
+            valid_notes.append(n)
         
-        return list(merged_by_key.values())
+        if len(notes) != len(valid_notes):
+            logger.info("convertible_notes_filtered",
+                       input=len(notes),
+                       valid=len(valid_notes),
+                       filtered=len(notes) - len(valid_notes))
+        
+        # PASO 2: Agrupar por clave
+        groups = {}
+        for n in valid_notes:
+            key = get_dedup_key(n)
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(n)
+        
+        # PASO 3: Merge cada grupo
+        unique = []
+        for key, group in groups.items():
+            try:
+                merged = merge_notes(group)
+                unique.append(merged)
+                
+                if len(group) > 1:
+                    logger.info("convertible_notes_merged",
+                                key=key,
+                               input_count=len(group),
+                               selected_principal=merged.get('total_principal_amount'))
+            except Exception as e:
+                logger.warning("convertible_notes_merge_error", error=str(e))
+                unique.extend(group)
+        
+        logger.info("convertible_notes_dedup_result",
+                   input_count=len(notes),
+                   output_count=len(unique))
+        
+        return unique
     
     # ========================================================================
     # CONVERTIBLE PREFERRED

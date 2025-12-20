@@ -711,12 +711,16 @@ async def get_cash_position(ticker: str, max_quarters: int = 40):
     
     **Metodología DilutionTracker:**
     - Cash = Cash & Equivalents + Short-Term Investments + Restricted Cash
+    - Prorated CF = (Last Quarter Operating CF / 90) * days since report
+    - Capital Raises = Extracted from 8-K filings
+    - Estimated Cash = Latest Cash + Prorated CF + Capital Raises
     
     Incluye:
     - Historial COMPLETO de cash (hasta 10 años)
     - Historial de operating cash flow
+    - Capital raises desde último reporte
     - Burn rate diario calculado
-    - Estimated current cash (prorrateado desde último reporte)
+    - Estimated current cash (prorrateado + raises)
     - Cash runway en días
     - Risk level (critical, high, medium, low)
     
@@ -739,11 +743,43 @@ async def get_cash_position(ticker: str, max_quarters: int = 40):
         
         try:
             from services.sec.sec_cash_history import SECCashHistoryService
+            from services.market.capital_raise_extractor import get_total_capital_raises
+            
+            # Get SEC XBRL cash history
             service = SECCashHistoryService(redis)
             result = await service.get_full_cash_history(ticker, max_quarters)
             
             if result.get("error"):
                 raise HTTPException(status_code=404, detail=result["error"])
+            
+            # Get capital raises since last report
+            last_report_date = result.get("last_report_date")
+            if last_report_date:
+                try:
+                    capital_raises_raw = await get_total_capital_raises(ticker, last_report_date)
+                    
+                    # Normalize structure for frontend
+                    total_raised = capital_raises_raw.get("total_gross_proceeds", 0) or capital_raises_raw.get("total", 0) or 0
+                    raise_count = capital_raises_raw.get("raise_count", 0) or capital_raises_raw.get("count", 0) or 0
+                    raise_details = capital_raises_raw.get("raises", []) or capital_raises_raw.get("details", [])
+                    
+                    result["capital_raises"] = {
+                        "total": total_raised,
+                        "count": raise_count,
+                        "details": raise_details
+                    }
+                    
+                    # Add capital raises to estimated cash
+                    if total_raised > 0:
+                        result["estimated_current_cash"] = (
+                            result.get("estimated_current_cash", 0) + total_raised
+                        )
+                        logger.info("capital_raises_added", ticker=ticker, total=total_raised)
+                except Exception as cr_err:
+                    logger.warning("capital_raises_fetch_failed", ticker=ticker, error=str(cr_err))
+                    result["capital_raises"] = {"total": 0, "count": 0, "details": []}
+            else:
+                result["capital_raises"] = {"total": 0, "count": 0, "details": []}
             
             return result
             
@@ -754,6 +790,156 @@ async def get_cash_position(ticker: str, max_quarters: int = 40):
         raise
     except Exception as e:
         logger.error("get_cash_position_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{ticker}/risk-ratings")
+async def get_risk_ratings(ticker: str):
+    """
+    Obtener los 5 Risk Ratings de DilutionTracker.
+    
+    **Ratings:**
+    1. **Overall Risk** - Combinación de los 4 sub-ratings (High = short bias)
+    2. **Offering Ability** - Capacidad de ofertas: >$20M=High, $1M-$20M=Med, <$1M=Low
+    3. **Overhead Supply** - Dilución potencial: >50%=High, 20-50%=Med, <20%=Low
+    4. **Historical** - O/S growth 3yr: >100%=High, 30-100%=Med, <30%=Low
+    5. **Cash Need** - Runway: <6mo=High, 6-24mo=Med, >24mo=Low
+    
+    **Ejemplo respuesta:**
+    ```json
+    {
+        "overall_risk": "High",
+        "offering_ability": "High",
+        "overhead_supply": "Medium",
+        "historical": "Low",
+        "cash_need": "High",
+        "scores": {
+            "overall": 72,
+            "offering_ability": 90,
+            "overhead_supply": 45,
+            "historical": 25,
+            "cash_need": 85
+        }
+    }
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            from calculators.dilution_tracker_risk_scorer import get_dt_risk_scorer
+            from services.sec.sec_cash_history import SECCashHistoryService
+            
+            scorer = get_dt_risk_scorer()
+            
+            # 1. Get dilution profile from cache
+            cache_key = f"sec_dilution:profile:{ticker}"
+            profile = await redis.get(cache_key, deserialize=True)
+            
+            # 2. Get cash data
+            cash_service = SECCashHistoryService(redis)
+            cash_data = await cash_service.get_full_cash_history(ticker, max_quarters=40)
+            
+            # 3. Extract inputs for risk calculation
+            warrants = profile.get("warrants", []) if profile else []
+            atm_offerings = profile.get("atm_offerings", []) if profile else []
+            shelf_registrations = profile.get("shelf_registrations", []) if profile else []
+            convertible_notes = profile.get("convertible_notes", []) if profile else []
+            shares_outstanding = profile.get("shares_outstanding", 0) if profile else 0
+            
+            # Calculate warrant shares
+            total_warrant_shares = sum(
+                w.get("remaining_warrants", 0) or w.get("outstanding", 0) or 0
+                for w in warrants
+            )
+            
+            # Calculate ATM shares (estimate from remaining capacity / current price)
+            current_price = profile.get("current_price", 1) if profile else 1
+            total_atm_shares = sum(
+                int((a.get("remaining_capacity", 0) or 0) / max(current_price, 0.01))
+                for a in atm_offerings
+            )
+            
+            # Calculate convertible shares
+            total_convertible_shares = sum(
+                c.get("shares_if_converted", 0) or c.get("remaining_shares_to_be_issued", 0) or 0
+                for c in convertible_notes
+            )
+            
+            # Get shelf capacity
+            active_shelves = [s for s in shelf_registrations if s.get("status", "").lower() in ["active", "effective", "registered"]]
+            total_shelf_capacity = sum(
+                s.get("remaining_capacity", 0) or s.get("current_raisable_amount", 0) or 0
+                for s in active_shelves
+            )
+            has_active_shelf = len(active_shelves) > 0
+            
+            # Get runway from cash data
+            runway_months = None
+            has_positive_cf = False
+            if cash_data and not cash_data.get("error"):
+                runway_days = cash_data.get("runway_days")
+                if runway_days is not None:
+                    runway_months = runway_days / 30
+                quarterly_cf = cash_data.get("quarterly_operating_cf", 0)
+                has_positive_cf = quarterly_cf > 0 if quarterly_cf else False
+            
+            # Get historical O/S (3 years ago) from shares history
+            shares_3yr_ago = 0
+            try:
+                from services.data.shares_data_service import SharesDataService
+                from datetime import timedelta
+                shares_service = SharesDataService(redis)
+                shares_history = await shares_service.get_shares_history(ticker)
+                
+                if shares_history and shares_history.get("history"):
+                    hist = shares_history["history"]
+                    target_date = datetime.now() - timedelta(days=3*365)
+                    
+                    # Find closest date <= 3 years ago
+                    for h in sorted(hist, key=lambda x: x.get("date", ""), reverse=True):
+                        try:
+                            h_date = datetime.strptime(h.get("date", "")[:10], "%Y-%m-%d")
+                            if h_date <= target_date:
+                                shares_3yr_ago = h.get("shares", 0)
+                                logger.info("historical_shares_found", ticker=ticker, 
+                                           date=h.get("date"), shares=shares_3yr_ago)
+                                break
+                        except:
+                            continue
+            except Exception as e:
+                logger.warning("shares_history_fetch_for_risk_failed", ticker=ticker, error=str(e))
+            
+            # Calculate ratings
+            ratings = scorer.calculate_all_ratings(
+                shelf_capacity_remaining=total_shelf_capacity,
+                has_active_shelf=has_active_shelf,
+                has_pending_s1=False,  # Would need S-1 detection
+                warrants_shares=total_warrant_shares,
+                atm_shares=total_atm_shares,
+                convertible_shares=total_convertible_shares,
+                equity_line_shares=0,  # Would need ELOC detection
+                shares_outstanding=shares_outstanding,
+                shares_outstanding_3yr_ago=shares_3yr_ago or int(shares_outstanding * 0.7),  # Estimate if missing
+                runway_months=runway_months,
+                has_positive_operating_cf=has_positive_cf,
+                current_price=current_price
+            )
+            
+            result = ratings.to_dict()
+            result["ticker"] = ticker
+            result["data_available"] = profile is not None
+            
+            return result
+            
+        finally:
+            await redis.disconnect()
+        
+    except Exception as e:
+        logger.error("get_risk_ratings_failed", ticker=ticker, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

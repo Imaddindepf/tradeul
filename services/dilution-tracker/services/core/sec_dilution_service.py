@@ -207,6 +207,10 @@ class SECDilutionService:
         """Delegar a shares_service"""
         return await self.shares_service.adjust_warrants_for_splits(ticker, warrants)
     
+    async def _adjust_convertible_notes_for_splits(self, ticker: str, notes: List[Dict]) -> List[Dict]:
+        """Delegar a shares_service para ajustar notas convertibles por splits"""
+        return await self.shares_service.adjust_convertible_notes_for_splits(ticker, notes)
+    
     async def get_shares_history(self, ticker: str, cik: Optional[str] = None) -> Dict[str, Any]:
         """Delegar a shares_service"""
         return await self.shares_service.get_shares_history(ticker, cik)
@@ -898,11 +902,18 @@ class SECDilutionService:
                     'has_convertibles': fulltext_discovery.get('summary', {}).get('has_convertibles', False),
                 }
             
-            # 6. NUEVO: Ajustar warrants por stock splits
+            # 6. Ajustar warrants por stock splits
             if extracted_data.get('warrants'):
                 extracted_data['warrants'] = await self._adjust_warrants_for_splits(
                     ticker, 
                     extracted_data['warrants']
+                )
+            
+            # 6b. Ajustar convertible notes por stock splits
+            if extracted_data.get('convertible_notes'):
+                extracted_data['convertible_notes'] = await self._adjust_convertible_notes_for_splits(
+                    ticker, 
+                    extracted_data['convertible_notes']
                 )
             
             # 7. Obtener precio actual y shares outstanding

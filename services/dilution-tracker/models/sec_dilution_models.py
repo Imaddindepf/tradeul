@@ -19,16 +19,20 @@ def parse_flexible_date(value):
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, str):
-        if not value.strip():
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        # Handle invalid date placeholders from Grok
+        if cleaned in ('0000-00-00', '0000-00-01', '1900-01-01', 'N/A', 'TBD', 'null', 'None', '-'):
             return None
         try:
             # Try ISO format first
-            return datetime.strptime(value, '%Y-%m-%d').date()
+            return datetime.strptime(cleaned, '%Y-%m-%d').date()
         except ValueError:
             pass
         try:
             # Try flexible parsing (handles "December 16, 2026", "Dec 16, 2026", etc.)
-            return date_parser.parse(value).date()
+            return date_parser.parse(cleaned).date()
         except Exception:
             return None
     return None
@@ -122,7 +126,7 @@ class WarrantModel(BaseModel):
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
     
-    @validator('issue_date', 'expiration_date', pre=True)
+    @validator('issue_date', 'expiration_date', 'exercisable_date', 'last_update_date', pre=True)
     def parse_dates(cls, v):
         return parse_flexible_date(v)
     

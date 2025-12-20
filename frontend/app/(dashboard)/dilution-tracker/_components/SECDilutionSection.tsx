@@ -14,12 +14,15 @@ import {
 import {
   getSECDilutionProfile,
   refreshSECDilutionProfile,
+  getRiskRatings,
   type SECDilutionProfileResponse,
   type Warrant,
   type ATMOffering,
   type ShelfRegistration,
   type CompletedOffering,
-  type ConvertibleNote
+  type ConvertibleNote,
+  type DilutionRiskRatings,
+  type RiskLevel
 } from "@/lib/dilution-api";
 
 // Fases del análisis SEC
@@ -239,6 +242,25 @@ function SECAnalysisTerminal({
   );
 }
 
+// Risk Rating Tag Component
+function RiskRatingTag({ label, level, tooltip }: { label: string; level: RiskLevel; tooltip?: string }) {
+  const colorMap: Record<RiskLevel, string> = {
+    Low: 'bg-green-100 text-green-700 border-green-200',
+    Medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    High: 'bg-red-100 text-red-700 border-red-200',
+    Unknown: 'bg-slate-100 text-slate-500 border-slate-200'
+  };
+  
+  return (
+    <div className="flex items-center gap-2" title={tooltip}>
+      <span className="text-sm text-slate-600">{label}</span>
+      <span className={`px-3 py-1 text-xs font-medium rounded-full border ${colorMap[level]}`}>
+        {level}
+      </span>
+    </div>
+  );
+}
+
 export function SECDilutionSection({
   ticker,
   cachedData,
@@ -248,15 +270,23 @@ export function SECDilutionSection({
   onRefreshRequest
 }: SECDilutionSectionProps) {
   const [refreshing, setRefreshing] = useState(false);
+  const [riskRatings, setRiskRatings] = useState<DilutionRiskRatings | null>(null);
 
   // Usar datos pasados como prop
   const data = cachedData;
+  
+  // Fetch risk ratings
+  useEffect(() => {
+    if (ticker) {
+      getRiskRatings(ticker).then(setRiskRatings).catch(console.error);
+    }
+  }, [ticker]);
 
   // Notificar al padre cuando hay datos (compatibilidad)
   useEffect(() => {
     if (data) {
-      onDataLoaded?.();
-    }
+        onDataLoaded?.();
+      }
   }, [data, onDataLoaded]);
 
   const handleRefresh = () => {
@@ -315,23 +345,23 @@ export function SECDilutionSection({
         <h4 className="font-medium text-slate-700 mb-1">Clean Dilution Profile</h4>
         <p className="text-sm text-slate-500">
           No active warrants, ATM offerings, or shelf registrations found.
-        </p>
+            </p>
         <p className="text-xs text-slate-400 mt-2">
-          Last checked: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
-        </p>
+              Last checked: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
+            </p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Summary Stats */}
+      {/* Risk Ratings Tags */}
       <div className="border border-slate-200 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-slate-700">
-            SEC Dilution Summary
-            {is_spac && <span className="ml-2 text-xs text-slate-400">(SPAC)</span>}
-          </h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium text-slate-700">Dilution Risk</h3>
+            {is_spac && <span className="text-xs text-slate-400">(SPAC)</span>}
+          </div>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -341,35 +371,45 @@ export function SECDilutionSection({
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs text-slate-400 mb-1">Total Potential</p>
-            <p className="text-xl font-semibold text-slate-800">
-              {Number(dilution_analysis.total_potential_dilution_pct).toFixed(1)}%
-            </p>
-            <p className="text-xs text-slate-400">
-              {(Number(dilution_analysis.total_potential_new_shares) / 1_000_000).toFixed(1)}M shares
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-400 mb-1">Warrants</p>
-            <p className="text-xl font-semibold text-slate-800">
-              {(Number(dilution_analysis.warrant_shares) / 1_000_000).toFixed(1)}M
-            </p>
-            <p className="text-xs text-slate-400">shares</p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-400 mb-1">ATM + Shelf</p>
-            <p className="text-xl font-semibold text-slate-800">
-              {((Number(dilution_analysis.atm_potential_shares) + Number(dilution_analysis.shelf_potential_shares)) / 1_000_000).toFixed(1)}M
-            </p>
-            <p className="text-xs text-slate-400">shares</p>
-          </div>
+        {/* Risk Rating Tags - Similar to DilutionTracker */}
+        <div className="flex flex-wrap items-center gap-4">
+          <RiskRatingTag 
+            label="Overall Risk" 
+            level={riskRatings?.overall_risk || 'Unknown'}
+            tooltip="Combined assessment of all dilution risk factors"
+          />
+          <RiskRatingTag 
+            label="Offering Ability" 
+            level={riskRatings?.offering_ability || 'Unknown'}
+            tooltip="Ability to conduct discounted offerings (shelf capacity)"
+          />
+          <RiskRatingTag 
+            label="Overhead Supply" 
+            level={riskRatings?.overhead_supply || 'Unknown'}
+            tooltip={`Potential dilution: ${riskRatings?.details?.overhead_supply?.dilution_pct?.toFixed(1) || '?'}% of O/S`}
+          />
+          <RiskRatingTag 
+            label="Historical" 
+            level={riskRatings?.historical || 'Unknown'}
+            tooltip={`O/S change 3yr: ${riskRatings?.details?.historical?.increase_pct?.toFixed(1) || '?'}%`}
+          />
+          <RiskRatingTag 
+            label="Cash Need" 
+            level={riskRatings?.cash_need || 'Unknown'}
+            tooltip={`Runway: ${riskRatings?.details?.cash_need?.runway_months?.toFixed(1) || '?'} months`}
+          />
         </div>
 
-        <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-100">
-          Based on current price: ${profile.current_price ? Number(profile.current_price).toFixed(2) : 'N/A'}
-        </p>
+        {/* Quick Stats */}
+        <div className="flex items-center gap-6 mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500">
+          <span>
+            Total Potential: <strong className="text-slate-700">{Number(dilution_analysis.total_potential_dilution_pct).toFixed(1)}%</strong>
+            <span className="text-slate-400 ml-1">({(Number(dilution_analysis.total_potential_new_shares) / 1_000_000).toFixed(1)}M shares)</span>
+          </span>
+          <span>
+            Price: <strong className="text-slate-700">${profile.current_price ? Number(profile.current_price).toFixed(2) : 'N/A'}</strong>
+          </span>
+        </div>
       </div>
 
       {/* Cards Grid - Máximo 2 columnas */}
@@ -581,10 +621,10 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
                   <span className="ml-2 text-slate-900">{formatDate(warrant.issue_date)}</span>
                 </div>
                 {warrant.exercisable_date && (
-                  <div>
+                <div>
                     <span className="text-slate-500">Exercisable Date:</span>
                     <span className="ml-2 text-slate-900">{formatDate(warrant.exercisable_date)}</span>
-                  </div>
+                </div>
                 )}
                 <div>
                   <span className="text-slate-500">Expiration Date:</span>

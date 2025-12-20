@@ -138,7 +138,7 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
   // Prepare chart data
   const validHistory = historyData.filter(h => h.shares && h.shares > 0);
   const displayHistory = validHistory.slice(-20);
-  
+
   // Current O/S: Use last historical record for consistency in the chart
   // The "Fully Diluted" bar should show the same base O/S as the last historical bar
   const lastHistoricalOS = displayHistory.length > 0 ? displayHistory[displayHistory.length - 1].shares : 0;
@@ -211,31 +211,31 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
         <div>
           <h4 className="text-sm font-medium text-slate-700">
             Historical O/S & Potential Dilution
-          </h4>
+      </h4>
           {secData?.current_price && (
             <p className="text-xs text-slate-400 mt-0.5">
               Dilution calculated using market price of ${Number(secData.current_price).toFixed(4)}
             </p>
           )}
         </div>
-        
+      
         {/* Dilution Metrics */}
         <div className="flex items-center gap-4 text-xs">
           {dilution1y !== null && dilution1y !== undefined && (
-            <div>
+          <div>
               <span className="text-slate-400">1Y:</span>
               <span className={`ml-1 font-medium ${dilution1y > 0 ? 'text-red-600' : dilution1y < 0 ? 'text-green-600' : 'text-slate-600'}`}>
                 {formatPercent(dilution1y)}
-              </span>
-            </div>
+            </span>
+          </div>
           )}
           {dilution3y !== null && dilution3y !== undefined && (
-            <div>
+          <div>
               <span className="text-slate-400">3Y:</span>
               <span className={`ml-1 font-medium ${dilution3y > 0 ? 'text-red-600' : dilution3y < 0 ? 'text-green-600' : 'text-slate-600'}`}>
                 {formatPercent(dilution3y)}
-              </span>
-            </div>
+            </span>
+                </div>
           )}
         </div>
       </div>
@@ -325,7 +325,7 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-
+      
       {/* Legend - Potential Dilution Breakdown */}
       {hasPotentialDilution && (
         <div className="mt-4 pt-3 border-t border-slate-100">
@@ -393,6 +393,6 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
           </div>
         </div>
       )}
-    </div>
+      </div>
   );
 }

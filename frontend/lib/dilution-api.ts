@@ -276,6 +276,73 @@ export async function getTickerAnalysis(symbol: string): Promise<TickerAnalysis>
   }
 }
 
+// ============================================================================
+// RISK RATINGS (DilutionTracker 5 Ratings)
+// ============================================================================
+
+export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Unknown';
+
+export interface DilutionRiskRatings {
+  ticker: string;
+  overall_risk: RiskLevel;
+  offering_ability: RiskLevel;
+  overhead_supply: RiskLevel;
+  historical: RiskLevel;
+  cash_need: RiskLevel;
+  scores: {
+    overall: number;
+    offering_ability: number;
+    overhead_supply: number;
+    historical: number;
+    cash_need: number;
+  };
+  details: {
+    offering_ability: {
+      shelf_capacity_remaining: number;
+      has_active_shelf: boolean;
+      has_pending_s1: boolean;
+    };
+    overhead_supply: {
+      warrants_shares: number;
+      atm_shares: number;
+      convertible_shares: number;
+      equity_line_shares: number;
+      total_potential_shares: number;
+      shares_outstanding: number;
+      dilution_pct: number;
+    };
+    historical: {
+      shares_outstanding_current: number;
+      shares_outstanding_3yr_ago: number;
+      increase_pct: number;
+    };
+    cash_need: {
+      runway_months: number | null;
+      has_positive_operating_cf: boolean;
+    };
+  };
+  data_available: boolean;
+}
+
+/**
+ * Get DilutionTracker 5 Risk Ratings
+ */
+export async function getRiskRatings(symbol: string): Promise<DilutionRiskRatings | null> {
+  try {
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/risk-ratings`);
+
+    if (!response.ok) {
+      console.warn(`Risk ratings not available for ${symbol}`);
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`Error fetching risk ratings for ${symbol}:`, error);
+    return null;
+  }
+}
+
 /**
  * CHECK SEC CACHE (NON-BLOCKING)
  * 
@@ -479,6 +546,7 @@ export async function getCashPosition(symbol: string): Promise<CashRunwayData | 
       daily_burn_rate: data.daily_burn_rate || 0,
       days_since_report: data.days_since_report || 0,
       prorated_cf: data.prorated_cf || 0,
+      capital_raises: data.capital_raises || { total: 0, count: 0, details: [] },
       estimated_current_cash: data.estimated_current_cash || latestCash,
       runway_days: data.runway_days,
       runway_months: data.runway_days ? data.runway_days / 30 : null,
