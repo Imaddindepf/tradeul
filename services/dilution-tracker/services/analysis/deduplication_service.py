@@ -743,11 +743,11 @@ class DeduplicationService(GrokNormalizers):
         
         ESTRATEGIA PROFESIONAL:
         1. Filtrar notas con principal <= 0 (no son notas reales)
-        2. Agrupar por issue_date + maturity_date (notas del mismo acuerdo)
+        2. Agrupar por principal_amount + issue_date (notas con mismo monto/fecha son la misma)
         3. Merge notas del mismo grupo tomando el valor más completo de cada campo
+        4. Filtrar notas que son "Incremental" capacity (no emitidas aún)
         
-        Las notas del mismo acuerdo tienen las mismas fechas de issue y maturity.
-        Grok puede extraer la misma nota múltiples veces con diferentes owners/prices.
+        DilutionTracker muestra notas ACTIVAS, no capacidades futuras.
         """
         if not notes:
             return []
@@ -764,6 +764,18 @@ class DeduplicationService(GrokNormalizers):
             except:
                 pass
             return 'unknown'
+        
+        def normalize_principal(amount) -> str:
+            """Normalizar monto a bucket (para agrupar montos similares)."""
+            try:
+                val = float(amount or 0)
+                if val <= 0:
+                    return '0'
+                # Round to nearest 10K for bucketing
+                bucket = round(val / 10000) * 10000
+                return str(int(bucket))
+            except:
+                return '0'
         
         def calculate_completeness(n: Dict) -> int:
             """Calcular score de completitud de una nota."""
@@ -794,13 +806,17 @@ class DeduplicationService(GrokNormalizers):
                 score += 2
             if n.get('interest_rate'):
                 score += 2
+            # Bonus for non-generic series_name
+            series = str(n.get('series_name', '')).lower()
+            if series and 'unnamed' not in series and 'unknown' not in series:
+                score += 2
             return score
         
         def get_dedup_key(n: Dict) -> str:
-            """Generar clave basada en fechas (issue + maturity)."""
+            """Generar clave basada en principal + issue_date."""
+            principal_key = normalize_principal(n.get('total_principal_amount'))
             issue_key = parse_date_key(n.get('issue_date'))
-            maturity_key = parse_date_key(n.get('maturity_date'))
-            return f"{issue_key}_{maturity_key}"
+            return f"{principal_key}_{issue_key}"
         
         def merge_notes(group: List[Dict]) -> Dict:
             """Fusionar notas del mismo grupo, seleccionando la más completa."""
@@ -817,7 +833,7 @@ class DeduplicationService(GrokNormalizers):
                               'floor_price', 'is_toxic', 'variable_rate_adjustment',
                               'underwriter_agent', 'interest_rate', 'conversion_price',
                               'total_principal_amount', 'remaining_principal_amount',
-                              'series_name']:
+                              'series_name', 'maturity_date', 'convertible_date']:
                     best_val = best.get(field)
                     n_val = n.get(field)
                     # Para números, preferir > 0
@@ -828,6 +844,10 @@ class DeduplicationService(GrokNormalizers):
                                 best[field] = n_val
                         except:
                             pass
+                    # Para fechas, preferir no vacío
+                    elif field in ['maturity_date', 'convertible_date']:
+                        if not best_val and n_val:
+                            best[field] = n_val
                     # Para strings, preferir no vacío y más largo
                     elif not best_val and n_val:
                         best[field] = n_val
@@ -836,14 +856,38 @@ class DeduplicationService(GrokNormalizers):
             
             return best
         
-        # PASO 1: Filtrar notas con principal <= 0
+        def is_incremental_capacity(n: Dict) -> bool:
+            """Detectar si es capacidad incremental (no emitida aún)."""
+            series = str(n.get('series_name', '')).lower()
+            notes_text = str(n.get('notes', '')).lower()
+            
+            # Incremental = capacity, not issued yet
+            if 'incremental' in series or 'incremental' in notes_text:
+                # Check if no issue_date (not issued yet)
+                if not n.get('issue_date'):
+                    return True
+            
+            return False
+        
+        # PASO 1: Filtrar notas inválidas
         valid_notes = []
+        filtered_reasons = {'zero_principal': 0, 'incremental': 0}
+        
         for n in notes:
             principal = self.normalize_grok_value(n.get('total_principal_amount'), 'number') or 0
             
             if principal <= 0:
                 logger.debug("note_filtered_zero_principal", 
                            series=n.get('series_name'))
+                filtered_reasons['zero_principal'] += 1
+                continue
+            
+            # Filter out incremental capacity (not issued yet)
+            if is_incremental_capacity(n):
+                logger.debug("note_filtered_incremental", 
+                           series=n.get('series_name'),
+                           principal=principal)
+                filtered_reasons['incremental'] += 1
                 continue
             
             valid_notes.append(n)
@@ -852,7 +896,8 @@ class DeduplicationService(GrokNormalizers):
             logger.info("convertible_notes_filtered",
                        input=len(notes),
                        valid=len(valid_notes),
-                       filtered=len(notes) - len(valid_notes))
+                       filtered=len(notes) - len(valid_notes),
+                       reasons=filtered_reasons)
         
         # PASO 2: Agrupar por clave
         groups = {}

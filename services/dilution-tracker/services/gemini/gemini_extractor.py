@@ -39,84 +39,137 @@ logger = get_logger(__name__)
 # =============================================================================
 
 UNIFIED_EXTRACTION_PROMPT = """
-Analyze this SEC filing/exhibit completely and extract ALL financial instruments.
+Analyze this SEC filing/exhibit and extract ALL ISSUED financial instruments.
 
-Return a valid JSON object with these sections:
+CRITICAL: Extract only ACTUALLY ISSUED instruments, NOT future capacity.
+- If agreement has "$3M initial + $24M incremental capacity", extract ONLY the $3M issued
+- "Incremental Notes" or "Future Capacity" should NOT be extracted
+
+Return JSON with this EXACT structure:
 
 {
-  "convertible_notes": [
-    {
-      "series_name": "Full descriptive name of the note",
-      "total_principal_amount": <number in dollars, e.g., 1534250>,
-      "remaining_principal_amount": <number or null if same as total>,
-      "conversion_price": <price per share - CRITICAL, must be exact number>,
-      "interest_rate": <percentage as number, e.g., 10.0 for 10%>,
-      "issue_date": "YYYY-MM-DD",
-      "maturity_date": "YYYY-MM-DD",
-      "known_owners": "investor/holder names",
-      "price_protection": "Variable Rate|Full Ratchet|Reset|None",
-      "price_protection_clause": "exact text of reset provision if any",
-      "floor_price": <minimum conversion price or null>,
-      "is_toxic": <true if death spiral or highly dilutive>
-    }
-  ],
-  "warrants": [
-    {
-      "series_name": "warrant name/series",
-      "exercise_price": <price per share>,
-      "outstanding": <number of warrants>,
-      "total_issued": <total warrants issued>,
-      "issue_date": "YYYY-MM-DD",
-      "expiration_date": "YYYY-MM-DD",
-      "exercisable_date": "YYYY-MM-DD or null",
-      "known_owners": "holder names",
-      "warrant_type": "Common|Pre-Funded|Placement Agent|SPAC",
-      "price_protection": "description if any"
-    }
-  ],
-  "atm_offerings": [
-    {
-      "series_name": "ATM program name",
-      "total_capacity": <maximum amount in dollars>,
-      "remaining_capacity": <unused amount>,
-      "placement_agent": "agent name",
-      "agreement_date": "YYYY-MM-DD",
-      "termination_date": "YYYY-MM-DD or null"
-    }
-  ],
-  "shelf_registrations": [
-    {
-      "series_name": "shelf name",
-      "total_capacity": <amount in dollars>,
-      "remaining_capacity": <unused amount>,
-      "form_type": "S-3|F-3|S-1|F-1",
-      "effect_date": "YYYY-MM-DD",
-      "expiration_date": "YYYY-MM-DD"
-    }
-  ],
-  "equity_lines": [
-    {
-      "series_name": "ELOC/equity line name",
-      "total_capacity": <amount>,
-      "remaining_capacity": <unused amount>,
-      "counterparty": "investor name",
-      "agreement_date": "YYYY-MM-DD",
-      "termination_date": "YYYY-MM-DD"
-    }
-  ]
+  "convertible_notes": [{
+    "series_name": "Full descriptive name",
+    "total_principal_amount": <ISSUED principal in dollars>,
+    "remaining_principal_amount": <outstanding or null>,
+    "conversion_price": <price per share - CRITICAL>,
+    "original_conversion_price": <initial price before resets>,
+    "conversion_ratio": <shares per dollar if given>,
+    "total_shares_when_converted": <max shares if fully converted>,
+    "remaining_shares_when_converted": <shares from remaining principal>,
+    "interest_rate": <percentage number>,
+    "issue_date": "YYYY-MM-DD",
+    "convertible_date": "YYYY-MM-DD",
+    "maturity_date": "YYYY-MM-DD",
+    "is_registered": <boolean>,
+    "registration_type": "S-1|S-3|F-1|F-3|null",
+    "known_owners": "investor names",
+    "underwriter_agent": "placement agent",
+    "price_protection": "Variable Rate|Full Ratchet|Reset|None",
+    "price_protection_clause": "EXACT TEXT of reset provision - copy verbatim",
+    "floor_price": <minimum conversion price>,
+    "variable_rate_adjustment": <boolean>,
+    "is_toxic": <boolean if death spiral>
+  }],
+  "convertible_preferred": [{
+    "series_name": "Series A/B/etc",
+    "shares_outstanding": <number>,
+    "liquidation_preference": <dollar per share>,
+    "conversion_price": <price per common>,
+    "conversion_ratio": <common per preferred>,
+    "dividend_rate": <percentage>,
+    "issue_date": "YYYY-MM-DD",
+    "is_cumulative": <boolean>,
+    "is_participating": <boolean>,
+    "anti_dilution_provision": "weighted average|full ratchet|none",
+    "known_owners": "holders"
+  }],
+  "warrants": [{
+    "series_name": "warrant series name",
+    "exercise_price": <price per share>,
+    "original_exercise_price": <initial price>,
+    "outstanding": <number outstanding>,
+    "total_issued": <total issued>,
+    "exercised": <number exercised>,
+    "expired": <number expired>,
+    "issue_date": "YYYY-MM-DD",
+    "expiration_date": "YYYY-MM-DD",
+    "exercisable_date": "YYYY-MM-DD",
+    "is_registered": <boolean>,
+    "registration_type": "S-1|S-3|F-1|F-3|null",
+    "is_prefunded": <boolean for $0.0001 exercise>,
+    "has_cashless_exercise": <boolean>,
+    "warrant_coverage_ratio": <warrants per share purchased>,
+    "known_owners": "holders",
+    "underwriter_agent": "agent",
+    "warrant_type": "Common|Pre-Funded|Placement Agent|SPAC",
+    "status": "active|expired|exercised",
+    "price_protection": "description",
+    "anti_dilution_provision": <boolean>
+  }],
+  "atm_offerings": [{
+    "series_name": "ATM program name",
+    "total_capacity": <max dollars>,
+    "remaining_capacity": <unused>,
+    "amount_raised_to_date": <raised so far>,
+    "registered_shares": <shares registered>,
+    "placement_agent": "agent",
+    "commission_rate": <percentage>,
+    "agreement_date": "YYYY-MM-DD",
+    "termination_date": "YYYY-MM-DD",
+    "is_baby_shelf_limited": <boolean>
+  }],
+  "shelf_registrations": [{
+    "series_name": "shelf name",
+    "total_capacity": <dollars>,
+    "remaining_capacity": <unused>,
+    "current_raisable_amount": <current available>,
+    "amount_raised": <total raised>,
+    "amount_raised_last_12_months": <recent usage>,
+    "form_type": "S-3|F-3|S-1|F-1|S-3ASR",
+    "effect_date": "YYYY-MM-DD",
+    "expiration_date": "YYYY-MM-DD",
+    "is_baby_shelf": <boolean if <$75M float>,
+    "baby_shelf_restriction": <boolean>,
+    "is_mixed_shelf": <boolean>,
+    "is_wksi": <boolean>,
+    "last_banker": "underwriter"
+  }],
+  "equity_lines": [{
+    "series_name": "ELOC name",
+    "total_capacity": <amount>,
+    "remaining_capacity": <unused>,
+    "amount_used": <drawn>,
+    "pricing_discount": <discount to market>,
+    "daily_purchase_limit": <max daily>,
+    "counterparty": "investor",
+    "agreement_date": "YYYY-MM-DD",
+    "termination_date": "YYYY-MM-DD",
+    "registration_type": "S-1|S-3|F-1|F-3"
+  }],
+  "completed_offerings": [{
+    "series_name": "offering name",
+    "offering_date": "YYYY-MM-DD",
+    "shares_offered": <number>,
+    "price_per_share": <price>,
+    "gross_proceeds": <total raised>,
+    "offering_type": "Public|Private|PIPE|Rights|Direct",
+    "method": "S-1|S-3|Direct|Private|Shelf",
+    "warrants_issued": <warrant count>,
+    "warrant_exercise_price": <strike>,
+    "investors": "buyer names"
+  }]
 }
 
-CRITICAL RULES:
-1. Extract EXACT numbers from the document - never guess or approximate
-2. conversion_price is the MOST IMPORTANT field - search thoroughly for it
-3. Look for patterns like "$X.XX per share", "conversion price of $X.XX", "at $X.XX"
-4. If multiple prices mentioned (initial, reset, current), use the CURRENT/LATEST
-5. For dates, use YYYY-MM-DD format strictly
-6. If a field is not found, use null instead of empty string
-7. Extract ALL instruments found, not just the first one
-8. Include price protection details verbatim when found
-
-Return ONLY valid JSON, no markdown code blocks or extra text.
+EXTRACTION RULES:
+1. conversion_price and exercise_price are MOST CRITICAL - search thoroughly
+2. Look for: "$X.XX per share", "conversion price of $X.XX", "exercise price"
+3. price_protection_clause: Copy the EXACT TEXT verbatim from the document
+4. Dates must be YYYY-MM-DD format
+5. Use null for missing fields, not empty strings
+6. Extract ALL instruments, not just the first
+7. ONLY extract ISSUED instruments with issue_date, NOT capacity/incremental
+8. If multiple prices (initial/reset/current), use CURRENT for conversion_price, INITIAL for original_conversion_price
 """
 
 
@@ -305,9 +358,16 @@ class GeminiExtractor:
             # Extraer con Gemini
             start_time = time.time()
             
+            # Forzar respuesta JSON para consistencia
+            config = GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1  # Baja temperatura para precisión
+            )
+            
             response = self.client.models.generate_content(
                 model=self.model,
-                contents=[uploaded_file, UNIFIED_EXTRACTION_PROMPT]
+                contents=[uploaded_file, UNIFIED_EXTRACTION_PROMPT],
+                config=config
             )
             
             extraction_time = time.time() - start_time

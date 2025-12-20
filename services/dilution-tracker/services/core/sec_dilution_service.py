@@ -523,77 +523,59 @@ class SECDilutionService:
         """
         Merge datos extraídos por Gemini con datos existentes.
         
-        Estrategia:
-        1. Para notas con conversion_price=0, actualizar con valor de Gemini
-        2. Para nuevos instrumentos, añadir si no existen
-        3. Priorizar datos más completos
+        ESTRATEGIA: Gemini (exhibits) es la fuente autoritativa para foreign issuers.
+        
+        Para notas convertibles:
+        - Si Gemini extrajo notas de exhibits, USAR ESAS como base
+        - Los exhibits son los contratos legales reales, más precisos que F-1 narrativo
+        - Solo mantener notas de Grok si Gemini no encontró ninguna
         """
-        # Merge convertible notes
+        from services.analysis.deduplication_service import deduplicate_convertible_notes
+        
         existing_notes = extracted_data.get('convertible_notes', [])
-        gemini_notes = gemini_data.get('convertible_notes', [])
+        gemini_notes = [n for n in gemini_data.get('convertible_notes', []) 
+                       if n.get('conversion_price', 0) and n.get('conversion_price', 0) > 0]
         
-        for gemini_note in gemini_notes:
-            gemini_price = gemini_note.get('conversion_price', 0) or 0
+        # Si Gemini encontró notas con precios válidos, usar esas como base
+        if gemini_notes:
+            logger.info("gemini_notes_replace_grok",
+                       grok_notes=len(existing_notes),
+                       gemini_notes=len(gemini_notes))
             
-            if gemini_price <= 0:
-                continue
+            # Marcar fuente
+            for n in gemini_notes:
+                n['_source'] = 'gemini_exhibit'
             
-            # Buscar nota existente sin precio para actualizar
-            matched = False
-            for existing in existing_notes:
-                existing_price = existing.get('conversion_price', 0) or 0
-                
-                # Match por fechas o principal
-                same_dates = (
-                    existing.get('issue_date') == gemini_note.get('issue_date') or
-                    existing.get('maturity_date') == gemini_note.get('maturity_date')
-                )
-                same_principal = (
-                    existing.get('total_principal_amount') and
-                    gemini_note.get('total_principal_amount') and
-                    abs(float(existing.get('total_principal_amount', 0)) - 
-                        float(gemini_note.get('total_principal_amount', 0))) < 1000
-                )
-                
-                if (same_dates or same_principal) and existing_price <= 0:
-                    # Actualizar con datos de Gemini
-                    existing['conversion_price'] = gemini_price
-                    
-                    # Actualizar otros campos si están vacíos
-                    for field in ['issue_date', 'maturity_date', 'interest_rate', 
-                                 'known_owners', 'price_protection', 'floor_price']:
-                        if not existing.get(field) and gemini_note.get(field):
-                            existing[field] = gemini_note.get(field)
-                    
-                    existing['_enriched_by_gemini'] = True
-                    matched = True
-                    break
-            
-            # Si no hubo match y la nota tiene datos completos, añadir
-            if not matched and gemini_note.get('total_principal_amount'):
-                gemini_note['_source'] = 'gemini_exhibit'
-                existing_notes.append(gemini_note)
+            # Gemini como base, deduplicar
+            final_notes = deduplicate_convertible_notes(gemini_notes)
+        else:
+            # No hay notas de Gemini, mantener las de Grok
+            final_notes = existing_notes
         
-        extracted_data['convertible_notes'] = existing_notes
+        extracted_data['convertible_notes'] = final_notes
         
-        # Similar merge para warrants
+        # Para warrants: COMBINAR Grok + Gemini (no reemplazar)
+        # Grok puede tener warrants especiales (note warrants) que Gemini no extrae bien
         existing_warrants = extracted_data.get('warrants', [])
-        gemini_warrants = gemini_data.get('warrants', [])
+        gemini_warrants = [w for w in gemini_data.get('warrants', [])
+                         if w.get('exercise_price') and w.get('outstanding')]
         
-        for gw in gemini_warrants:
-            if gw.get('exercise_price') and gw.get('outstanding'):
-                # Verificar si ya existe
-                exists = any(
-                    abs(float(w.get('exercise_price', 0)) - float(gw.get('exercise_price', 0))) < 0.01 and
-                    w.get('expiration_date') == gw.get('expiration_date')
-                    for w in existing_warrants
-                )
-                
-                if not exists:
-                    gw['_source'] = 'gemini_exhibit'
-                    existing_warrants.append(gw)
+        if gemini_warrants:
+            logger.info("gemini_warrants_merge",
+                       grok_warrants=len(existing_warrants),
+                       gemini_warrants=len(gemini_warrants))
+            
+            for w in gemini_warrants:
+                w['_source'] = 'gemini_exhibit'
+            
+            # Combinar: Grok + Gemini, luego deduplicar
+            combined = existing_warrants + gemini_warrants
+            from services.analysis.deduplication_service import deduplicate_warrants
+            final_warrants = deduplicate_warrants(combined)
+        else:
+            final_warrants = existing_warrants
         
-        extracted_data['warrants'] = existing_warrants
+        extracted_data['warrants'] = final_warrants
         
         return extracted_data
     

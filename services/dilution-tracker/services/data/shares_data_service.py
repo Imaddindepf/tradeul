@@ -374,6 +374,9 @@ class SharesDataService:
         For a reverse split 1:10:
         - exercise_price is MULTIPLIED by 10 (more expensive)
         - outstanding is DIVIDED by 10 (fewer shares)
+        
+        EXCEPTION: Warrants to purchase convertible NOTES (not shares) are NOT adjusted.
+        These have exercise_price = note principal amount, not price per share.
         """
         if not warrants:
             return warrants
@@ -391,6 +394,30 @@ class SharesDataService:
             adjusted_warrants = []
             for w in warrants:
                 warrant = dict(w)  # Copy
+                
+                # CRITICAL: Skip split adjustment for warrants that purchase NOTES (not shares)
+                # These are identified by:
+                # 1. Notes mentioning "purchase" + "note" or "convertible note"
+                # 2. Very high exercise prices (> $100,000 per "share")
+                notes_text = str(warrant.get('notes', '')).lower()
+                exercise_price = float(warrant.get('exercise_price', 0) or 0)
+                
+                is_note_warrant = (
+                    ('purchase' in notes_text and 'note' in notes_text) or
+                    ('convertible note' in notes_text) or
+                    (exercise_price > 100000)  # No warrant is $100K+ per share
+                )
+                
+                if is_note_warrant:
+                    logger.debug("warrant_skip_split_adjustment",
+                               ticker=ticker,
+                               reason="note_warrant",
+                               exercise_price=exercise_price,
+                               notes_preview=notes_text[:100])
+                    warrant['split_adjusted'] = False
+                    warrant['original_exercise_price'] = warrant.get('exercise_price')
+                    adjusted_warrants.append(warrant)
+                    continue
                 
                 issue_date = warrant.get('issue_date')
                 if not issue_date:
