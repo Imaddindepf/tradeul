@@ -1,7 +1,7 @@
 # Core Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
-websockets==12.0
+websockets>=13.0
 
 # Validation
 pydantic==2.5.3
@@ -34,6 +34,9 @@ structlog==24.1.0
 
 # xAI SDK for Grok API
 xai-sdk>=1.4.0
+
+# Google Gemini API
+google-genai>=1.0.0
 
 # Job Queue (async background tasks)
 arq==0.26.1

@@ -540,6 +540,256 @@ class SECFilingFetcher:
                     consecutive_429s = 0
         
         return results
+    
+    # =========================================================================
+    # EXHIBITS DOWNLOAD - Para extracción precisa con Gemini
+    # =========================================================================
+    
+    async def download_filings_with_exhibits(
+        self, 
+        filings: List[Dict],
+        download_exhibits: bool = True
+    ) -> List[Dict]:
+        """
+        Descarga filings Y sus exhibits asociados.
+        
+        Los exhibits contienen datos exactos (conversion_price, terms, etc.)
+        que no están en el filing principal.
+        
+        Args:
+            filings: Lista de filings [{url, form_type, filing_date}]
+            download_exhibits: Si True, también descarga exhibits
+        
+        Returns:
+            Lista con estructura extendida:
+            [{
+                "url": "...",
+                "form_type": "6-K",
+                "filing_date": "2025-09-19",
+                "content": "...",
+                "exhibits": [
+                    {"name": "ex99-1.htm", "url": "...", "content": "..."},
+                    {"name": "ex4-1.htm", "url": "...", "content": "..."}
+                ]
+            }]
+        """
+        results = []
+        
+        headers = {
+            "User-Agent": "TradeulApp contact@tradeul.com"
+        }
+        
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            for idx, filing in enumerate(filings):
+                try:
+                    if idx > 0:
+                        await asyncio.sleep(self.SEC_RATE_LIMIT_DELAY)
+                    
+                    # 1. Descargar filing principal
+                    response = await client.get(filing['url'], headers=headers)
+                    
+                    if response.status_code != 200:
+                        logger.warning("filing_download_failed", 
+                                     url=filing['url'], 
+                                     status=response.status_code)
+                        continue
+                    
+                    filing_data = {
+                        'form_type': filing['form_type'],
+                        'filing_date': filing['filing_date'],
+                        'url': filing['url'],
+                        'content': response.text,
+                        'exhibits': []
+                    }
+                    
+                    # 2. Buscar y descargar exhibits si está habilitado
+                    if download_exhibits:
+                        exhibits = await self._download_exhibits(
+                            client, 
+                            filing['url'], 
+                            headers
+                        )
+                        filing_data['exhibits'] = exhibits
+                        
+                        if exhibits:
+                            logger.info("exhibits_downloaded",
+                                      form_type=filing['form_type'],
+                                      filing_url=filing['url'],
+                                      exhibit_count=len(exhibits),
+                                      exhibit_names=[e['name'] for e in exhibits])
+                    
+                    results.append(filing_data)
+                    
+                    logger.info("filing_with_exhibits_downloaded", 
+                               form_type=filing['form_type'], 
+                               url=filing['url'],
+                               has_exhibits=len(filing_data['exhibits']) > 0)
+                    
+                except Exception as e:
+                    logger.error("filing_download_error", 
+                               url=filing['url'], 
+                               error=str(e))
+        
+        return results
+    
+    async def _download_exhibits(
+        self,
+        client: httpx.AsyncClient,
+        filing_url: str,
+        headers: Dict
+    ) -> List[Dict]:
+        """
+        Descarga exhibits de un filing.
+        
+        Busca en el index.html del filing para encontrar exhibits.
+        """
+        exhibits = []
+        
+        try:
+            # Obtener URL base del filing
+            base_url = filing_url.rsplit('/', 1)[0] + "/"
+            
+            # Intentar descargar index.html
+            index_url = base_url + "index.html"
+            await asyncio.sleep(0.15)  # Rate limit
+            
+            response = await client.get(index_url, headers=headers)
+            
+            if response.status_code != 200:
+                # Fallback: intentar index.json
+                index_url = base_url + "index.json"
+                await asyncio.sleep(0.15)
+                response = await client.get(index_url, headers=headers)
+                
+                if response.status_code == 200:
+                    exhibits = await self._parse_exhibits_from_json(
+                        client, response.text, base_url, headers
+                    )
+                return exhibits
+            
+            # Parsear index.html para encontrar exhibits
+            exhibits = await self._parse_exhibits_from_html(
+                client, response.text, base_url, headers
+            )
+            
+        except Exception as e:
+            logger.warning("exhibit_download_error", 
+                         filing_url=filing_url, 
+                         error=str(e))
+        
+        return exhibits
+    
+    async def _parse_exhibits_from_html(
+        self,
+        client: httpx.AsyncClient,
+        index_html: str,
+        base_url: str,
+        headers: Dict
+    ) -> List[Dict]:
+        """Parsea index.html para extraer y descargar exhibits."""
+        exhibits = []
+        
+        soup = BeautifulSoup(index_html, 'html.parser')
+        
+        # Buscar todos los links a exhibits
+        for link in soup.find_all('a', href=True):
+            href = link.get('href', '')
+            name = href.split('/')[-1].lower()
+            
+            if self._is_relevant_exhibit(name):
+                exhibit_url = base_url + name
+                
+                await asyncio.sleep(0.15)  # Rate limit
+                
+                try:
+                    response = await client.get(exhibit_url, headers=headers)
+                    
+                    if response.status_code == 200 and len(response.text) > 500:
+                        exhibits.append({
+                            'name': name,
+                            'url': exhibit_url,
+                            'content': response.text,
+                            'description': link.get_text()[:100].strip()
+                        })
+                except Exception as e:
+                    logger.warning("exhibit_file_download_failed",
+                                 exhibit_url=exhibit_url,
+                                 error=str(e))
+        
+        return exhibits
+    
+    async def _parse_exhibits_from_json(
+        self,
+        client: httpx.AsyncClient,
+        index_json: str,
+        base_url: str,
+        headers: Dict
+    ) -> List[Dict]:
+        """Parsea index.json para extraer y descargar exhibits."""
+        exhibits = []
+        
+        try:
+            import json
+            data = json.loads(index_json)
+            
+            items = data.get('directory', {}).get('item', [])
+            
+            for item in items:
+                name = item.get('name', '').lower()
+                
+                if self._is_relevant_exhibit(name):
+                    exhibit_url = base_url + name
+                    
+                    await asyncio.sleep(0.15)
+                    
+                    try:
+                        response = await client.get(exhibit_url, headers=headers)
+                        
+                        if response.status_code == 200 and len(response.text) > 500:
+                            exhibits.append({
+                                'name': name,
+                                'url': exhibit_url,
+                                'content': response.text,
+                                'description': item.get('description', '')[:100]
+                            })
+                    except:
+                        pass
+        except:
+            pass
+        
+        return exhibits
+    
+    def _is_relevant_exhibit(self, filename: str) -> bool:
+        """
+        Determina si un archivo es un exhibit relevante para dilución.
+        
+        Exhibits importantes:
+        - ex4-X.htm: Form of warrant, note, securities
+        - ex10-X.htm: Securities Purchase Agreement, SPA
+        - ex99-X.htm: Press releases con detalles de offerings
+        """
+        if not filename:
+            return False
+        
+        name = filename.lower()
+        
+        # Debe terminar en .htm o .html
+        if not (name.endswith('.htm') or name.endswith('.html')):
+            return False
+        
+        # Patrones de exhibits relevantes
+        import re
+        relevant_patterns = [
+            r'^ex4[-_]?\d*\.htm',      # Form of Note, Warrant, Certificate of Designation
+            r'^ex10[-_]?\d*\.htm',     # Securities Purchase Agreement, SPA
+            r'^ex99[-_]?\d*\.htm',     # Press release, announcement
+        ]
+        
+        for pattern in relevant_patterns:
+            if re.match(pattern, name):
+                return True
+        
+        return False
 
 
 # Singleton instance

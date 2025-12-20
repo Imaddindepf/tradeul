@@ -773,8 +773,8 @@ class DeduplicationService(GrokNormalizers):
                 try:
                     if float(n.get('total_principal_amount', 0)) > 0:
                         score += 10
-                            except:
-                                pass
+                except:
+                    pass
             if n.get('conversion_price'):
                 try:
                     if float(n.get('conversion_price', 0)) > 0:

@@ -91,11 +91,14 @@ from services.analysis.instrument_linker import InstrumentLinker, InstrumentType
 from services.market.market_data_calculator import MarketDataCalculator, get_market_data_calculator
 
 # SEC services
-from services.sec.sec_filing_fetcher import SECFilingFetcher
+from services.sec.sec_filing_fetcher import SECFilingFetcher, get_sec_filing_fetcher
 from services.sec.sec_fulltext_search import SECFullTextSearch, get_fulltext_search
 
 # Extraction services
 from services.extraction.html_section_extractor import HTMLSectionExtractor
+
+# Gemini services (para extracción precisa desde exhibits)
+from services.gemini.gemini_extractor import GeminiExtractor, get_gemini_extractor
 
 # Cache services
 from services.cache.cache_service import CacheService
@@ -149,6 +152,17 @@ class SECDilutionService:
         
         # Full-Text Search for comprehensive dilution discovery
         self._fulltext_search = get_fulltext_search()
+        
+        # Gemini Extractor para extracción precisa desde exhibits
+        try:
+            self._gemini_extractor = get_gemini_extractor()
+            logger.info("gemini_extractor_ready")
+        except Exception as e:
+            self._gemini_extractor = None
+            logger.warning("gemini_extractor_init_failed", error=str(e))
+        
+        # SEC Filing Fetcher con soporte para exhibits
+        self._filing_fetcher = get_sec_filing_fetcher(db)
         
         # Stats for pre-screening optimization
         self._stats = {
@@ -222,6 +236,57 @@ class SECDilutionService:
     # ========================================================================
     # FULL-TEXT SEARCH HELPERS
     # ========================================================================
+    
+    def _convert_fulltext_filings(
+        self,
+        fulltext_filings: List[Dict]
+    ) -> List[Dict]:
+        """
+        Convierte filings del Full-Text Search al formato esperado por el sistema.
+        
+        Full-Text Search retorna: {accessionNo, formType, filedAt, linkToFilingDetails, ...}
+        Sistema espera: {url, form_type, filing_date, ...}
+        """
+        converted = []
+        
+        for f in fulltext_filings:
+            # Construir URL del filing
+            accession_no = f.get('accessionNo', '')
+            filing_url = f.get('linkToFilingDetails', '')
+            
+            # Si no hay URL, intentar construirla
+            if not filing_url and accession_no:
+                # accessionNo format: 0001493152-25-014375
+                # URL format: https://www.sec.gov/Archives/edgar/data/CIK/ACCESSION/filename.htm
+                cik = f.get('cik', '').lstrip('0')
+                acc_clean = accession_no.replace('-', '')
+                filing_url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/"
+            
+            # Determinar el archivo principal del filing
+            if filing_url and not filing_url.endswith('.htm'):
+                # Buscar el archivo principal basado en form_type
+                form_type = f.get('formType', '')
+                if form_type in ['6-K', '8-K']:
+                    filing_url = filing_url + f"{form_type.lower().replace('-', '')}.htm"
+                elif form_type in ['10-K', '10-Q']:
+                    filing_url = filing_url + f"{form_type.lower().replace('-', '')}.htm"
+                elif 'F-1' in form_type or '20-F' in form_type:
+                    # Para F-1, a menudo el archivo es filename.htm
+                    pass  # Dejar URL base, se manejará en descarga
+            
+            converted.append({
+                'url': filing_url,
+                'form_type': f.get('formType', ''),
+                'filing_date': f.get('filedAt', '')[:10] if f.get('filedAt') else '',
+                'accession_number': accession_no,
+                '_from_fulltext': True
+            })
+        
+        logger.debug("fulltext_filings_converted", 
+                    input_count=len(fulltext_filings),
+                    output_count=len(converted))
+        
+        return converted
     
     def _boost_priority_filings(
         self, 
@@ -337,6 +402,198 @@ class SECDilutionService:
                            form_type=form_type,
                            total=pop.get('totalText'),
                            underwriters=len(underwriters))
+        
+        return extracted_data
+    
+    # ========================================================================
+    # GEMINI EXTRACTION - Para datos precisos desde exhibits
+    # ========================================================================
+    
+    async def _enrich_with_gemini_from_exhibits(
+        self,
+        ticker: str,
+        cik: str,
+        extracted_data: Dict,
+        filing_contents: List[Dict]
+    ) -> Dict:
+        """
+        Enriquece datos extraídos usando Gemini para analizar exhibits.
+        
+        Los exhibits (ex4-X, ex10-X, ex99-X) contienen los contratos reales
+        con valores exactos de conversion_price, terms, etc.
+        
+        Se llama cuando:
+        1. Hay convertible_notes con conversion_price = 0
+        2. Hay warrants con exercise_price faltante
+        3. Foreign issuers (F-1, 20-F) que suelen tener datos en exhibits
+        """
+        if not self._gemini_extractor or not self._gemini_extractor.client:
+            logger.debug("gemini_enrichment_skipped_no_client", ticker=ticker)
+            return extracted_data
+        
+        # Detectar si necesitamos enriquecimiento
+        needs_enrichment = False
+        
+        # Check convertible notes
+        convertible_notes = extracted_data.get('convertible_notes', [])
+        notes_missing_price = [
+            n for n in convertible_notes 
+            if not n.get('conversion_price') or n.get('conversion_price', 0) <= 0
+        ]
+        
+        if notes_missing_price:
+            needs_enrichment = True
+            logger.info("gemini_enrichment_needed",
+                       ticker=ticker,
+                       reason="notes_missing_conversion_price",
+                       count=len(notes_missing_price))
+        
+        # Check for foreign issuers (F-1, 20-F)
+        has_foreign_filings = any(
+            f.get('form_type', '').upper() in ['F-1', 'F-1/A', '20-F', '20-F/A']
+            for f in filing_contents
+        )
+        
+        if has_foreign_filings and convertible_notes:
+            needs_enrichment = True
+            logger.info("gemini_enrichment_needed",
+                       ticker=ticker,
+                       reason="foreign_issuer_filings")
+        
+        if not needs_enrichment:
+            return extracted_data
+        
+        try:
+            # Descargar filings con exhibits
+            logger.info("gemini_downloading_exhibits", ticker=ticker)
+            
+            # Filtrar filings relevantes para enriquecimiento
+            relevant_filings = [
+                {'url': f.get('url'), 
+                 'form_type': f.get('form_type'),
+                 'filing_date': f.get('filing_date')}
+                for f in filing_contents
+                if f.get('form_type', '').upper() in [
+                    '6-K', '8-K', 'F-1', 'F-1/A', '20-F', '20-F/A',
+                    '10-K', '10-K/A', '10-Q', '424B5', '424B4'
+                ] and f.get('url')
+            ][:15]  # Max 15 filings para no sobrecargar
+            
+            if not relevant_filings:
+                return extracted_data
+            
+            # Descargar con exhibits
+            filings_with_exhibits = await self._filing_fetcher.download_filings_with_exhibits(
+                relevant_filings,
+                download_exhibits=True
+            )
+            
+            total_exhibits = sum(len(f.get('exhibits', [])) for f in filings_with_exhibits)
+            logger.info("gemini_exhibits_downloaded",
+                       ticker=ticker,
+                       filings=len(filings_with_exhibits),
+                       exhibits=total_exhibits)
+            
+            if total_exhibits == 0:
+                logger.debug("gemini_no_exhibits_found", ticker=ticker)
+                return extracted_data
+            
+            # Extraer con Gemini
+            gemini_data = await self._gemini_extractor.extract_all(
+                ticker=ticker,
+                filings=filings_with_exhibits
+            )
+            
+            # Merge datos de Gemini
+            extracted_data = self._merge_gemini_data(extracted_data, gemini_data)
+            
+            logger.info("gemini_enrichment_complete",
+                       ticker=ticker,
+                       new_notes=len(gemini_data.get('convertible_notes', [])),
+                       new_warrants=len(gemini_data.get('warrants', [])))
+            
+        except Exception as e:
+            logger.error("gemini_enrichment_failed",
+                        ticker=ticker,
+                        error=str(e))
+        
+        return extracted_data
+    
+    def _merge_gemini_data(self, extracted_data: Dict, gemini_data: Dict) -> Dict:
+        """
+        Merge datos extraídos por Gemini con datos existentes.
+        
+        Estrategia:
+        1. Para notas con conversion_price=0, actualizar con valor de Gemini
+        2. Para nuevos instrumentos, añadir si no existen
+        3. Priorizar datos más completos
+        """
+        # Merge convertible notes
+        existing_notes = extracted_data.get('convertible_notes', [])
+        gemini_notes = gemini_data.get('convertible_notes', [])
+        
+        for gemini_note in gemini_notes:
+            gemini_price = gemini_note.get('conversion_price', 0) or 0
+            
+            if gemini_price <= 0:
+                continue
+            
+            # Buscar nota existente sin precio para actualizar
+            matched = False
+            for existing in existing_notes:
+                existing_price = existing.get('conversion_price', 0) or 0
+                
+                # Match por fechas o principal
+                same_dates = (
+                    existing.get('issue_date') == gemini_note.get('issue_date') or
+                    existing.get('maturity_date') == gemini_note.get('maturity_date')
+                )
+                same_principal = (
+                    existing.get('total_principal_amount') and
+                    gemini_note.get('total_principal_amount') and
+                    abs(float(existing.get('total_principal_amount', 0)) - 
+                        float(gemini_note.get('total_principal_amount', 0))) < 1000
+                )
+                
+                if (same_dates or same_principal) and existing_price <= 0:
+                    # Actualizar con datos de Gemini
+                    existing['conversion_price'] = gemini_price
+                    
+                    # Actualizar otros campos si están vacíos
+                    for field in ['issue_date', 'maturity_date', 'interest_rate', 
+                                 'known_owners', 'price_protection', 'floor_price']:
+                        if not existing.get(field) and gemini_note.get(field):
+                            existing[field] = gemini_note.get(field)
+                    
+                    existing['_enriched_by_gemini'] = True
+                    matched = True
+                    break
+            
+            # Si no hubo match y la nota tiene datos completos, añadir
+            if not matched and gemini_note.get('total_principal_amount'):
+                gemini_note['_source'] = 'gemini_exhibit'
+                existing_notes.append(gemini_note)
+        
+        extracted_data['convertible_notes'] = existing_notes
+        
+        # Similar merge para warrants
+        existing_warrants = extracted_data.get('warrants', [])
+        gemini_warrants = gemini_data.get('warrants', [])
+        
+        for gw in gemini_warrants:
+            if gw.get('exercise_price') and gw.get('outstanding'):
+                # Verificar si ya existe
+                exists = any(
+                    abs(float(w.get('exercise_price', 0)) - float(gw.get('exercise_price', 0))) < 0.01 and
+                    w.get('expiration_date') == gw.get('expiration_date')
+                    for w in existing_warrants
+                )
+                
+                if not exists:
+                    gw['_source'] = 'gemini_exhibit'
+                    existing_warrants.append(gw)
+        
+        extracted_data['warrants'] = existing_warrants
         
         return extracted_data
     
@@ -850,6 +1107,15 @@ class SECDilutionService:
             # ================================================================
             # 4. Filtrar y PRIORIZAR filings usando Full-Text Search results
             # ================================================================
+            
+            # Si no tenemos filings tradicionales pero sí del fulltext, usar esos
+            if not filings and priority_filings_from_fulltext:
+                logger.info("using_fulltext_filings_as_primary", 
+                           ticker=ticker,
+                           fulltext_count=len(priority_filings_from_fulltext))
+                # Convertir priority_filings a formato compatible
+                filings = self._convert_fulltext_filings(priority_filings_from_fulltext)
+            
             relevant_filings = self._filter_relevant_filings(filings)
             
             # Boost priority para filings encontrados por Full-Text Search
@@ -901,6 +1167,14 @@ class SECDilutionService:
                     'has_shelf': fulltext_discovery.get('summary', {}).get('has_shelf', False),
                     'has_convertibles': fulltext_discovery.get('summary', {}).get('has_convertibles', False),
                 }
+            
+            # 5.6. NUEVO: Enriquecer con Gemini desde exhibits (conversion_price precisos)
+            extracted_data = await self._enrich_with_gemini_from_exhibits(
+                ticker=ticker,
+                cik=cik,
+                extracted_data=extracted_data,
+                filing_contents=filing_contents
+            )
             
             # 6. Ajustar warrants por stock splits
             if extracted_data.get('warrants'):

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     grok_api_key: Optional[str] = Field(default=None, description="Grok (X.AI) API key for LLM extraction")
     grok_api_key_dilution: Optional[str] = Field(default=None, description="Grok API key dedicated to Dilution Tracker")
     sec_api_io: Optional[str] = Field(default=None, description="SEC-API.io API key for complete SEC data")
+    googl_api_key_v2: Optional[str] = Field(default=None, description="Google Gemini API key for SEC extraction")
     
     # Aliases para compatibilidad (mayúsculas)
     @property
@@ -51,6 +52,10 @@ class Settings(BaseSettings):
     @property
     def SEC_API_IO_KEY(self) -> Optional[str]:
         return self.sec_api_io
+    
+    @property
+    def GOOGL_API_KEY_V2(self) -> Optional[str]:
+        return self.googl_api_key_v2
     
     # =============================================
     # REDIS
