@@ -148,25 +148,25 @@ IMPORTANT:
 """
             
             try:
-                client, pool_idx = self._grok_pool.get_client() if self._grok_pool else (None, None)
+                if self._grok_pool:
+                    client, _, pool_idx = await self._grok_pool.get_client()
+                else:
+                    client, pool_idx = None, None
                 
                 if not client:
                     client = Client(api_key=self.grok_api_key)
                 
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: client.chat.completions.create(
-                        model="grok-3-fast",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.1,
-                        max_tokens=2000
-                    )
-                )
+                def _make_request():
+                    chat = client.chat.create(model="grok-3-fast", temperature=0.1, max_tokens=2000)
+                    chat.append(user(prompt))
+                    return chat.sample()
+                
+                response = await asyncio.get_event_loop().run_in_executor(None, _make_request)
                 
                 if self._grok_pool and pool_idx is not None:
                     self._grok_pool.release(pool_idx, success=True)
                 
-                response_text = response.choices[0].message.content
+                response_text = response.content
                 
                 # Parse JSON response
                 json_match = re.search(r'\{[\s\S]*\}', response_text)
@@ -407,7 +407,10 @@ IMPORTANT:
 """
             
             try:
-                client, key_name, pool_idx = await self._grok_pool.get_client() if self._grok_pool else (None, None, None)
+                if self._grok_pool:
+                    client, _, pool_idx = await self._grok_pool.get_client()
+                else:
+                    client, pool_idx = None, None
                 
                 if not client:
                     client = Client(api_key=self.grok_api_key, timeout=30)

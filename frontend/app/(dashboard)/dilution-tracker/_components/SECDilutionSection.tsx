@@ -18,7 +18,8 @@ import {
   type Warrant,
   type ATMOffering,
   type ShelfRegistration,
-  type CompletedOffering
+  type CompletedOffering,
+  type ConvertibleNote
 } from "@/lib/dilution-api";
 
 // Fases del análisis SEC
@@ -387,6 +388,11 @@ export function SECDilutionSection({
         {profile.shelf_registrations.length > 0 && (
           <ShelfCard registrations={profile.shelf_registrations} />
         )}
+
+        {/* Convertible Notes */}
+        {profile.convertible_notes && profile.convertible_notes.length > 0 && (
+          <ConvertibleNotesCard notes={profile.convertible_notes} />
+        )}
       </div>
 
       {/* Completed Offerings Table - Full Width */}
@@ -422,7 +428,7 @@ export function SECDilutionSection({
 // EDUCATIONAL TOOLTIPS
 // =====================================================
 
-function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'completed' }) {
+function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'completed' | 'convertible' }) {
   const tooltips = {
     warrant: {
       title: "Warrants Outstanding",
@@ -447,6 +453,12 @@ function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'com
       description: "Historical offerings that have been priced and closed",
       impact: "✅ Already executed - Past dilution",
       filing: "Disclosed in 424B5, 8-K, 10-Q"
+    },
+    convertible: {
+      title: "Convertible Notes",
+      description: "Debt that can be converted to equity at a fixed conversion price",
+      impact: "🔴 Dilution when converted to shares",
+      filing: "Found in: 10-K, 10-Q, 8-K, S-1"
     }
   };
 
@@ -486,16 +498,36 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
   return (
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
       {warrants.map((warrant, idx) => {
-        const issueDate = warrant.issue_date ? new Date(warrant.issue_date) : null;
-        const title = issueDate
-          ? `${issueDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Warrants`
-          : 'Warrants';
+        const seriesName = warrant.series_name || (warrant.issue_date 
+          ? `${new Date(warrant.issue_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Warrants`
+          : 'Warrants');
+        
+        // Helper para formatear fechas completas (YYYY-MM-DD)
+        const formatDate = (dateStr?: string) => {
+          if (!dateStr) return '—';
+          try {
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+          } catch { return dateStr; }
+        };
 
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
             {/* Header */}
             <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-slate-700">{title}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-slate-700">{seriesName}</h3>
+                {warrant.is_registered && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">
+                    {warrant.registration_type || 'EDGAR'}
+                  </span>
+                )}
+                {warrant.is_prefunded && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded font-medium">
+                    PRE-FUNDED
+                  </span>
+                )}
+              </div>
               <EducationalTooltip type="warrant" />
             </div>
 
@@ -503,9 +535,9 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
             <div className="p-4">
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
                 <div>
-                  <span className="text-slate-500">Outstanding:</span>
+                  <span className="text-slate-500">Remaining Warrants Outstanding:</span>
                   <span className="ml-2 font-semibold text-slate-900">
-                    {warrant.outstanding ? Number(warrant.outstanding).toLocaleString() : '—'}
+                    {(warrant.remaining || warrant.outstanding) ? Number(warrant.remaining || warrant.outstanding).toLocaleString() : '—'}
                   </span>
                 </div>
                 <div>
@@ -515,23 +547,61 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Total Issued:</span>
+                  <span className="text-slate-500">Total Warrants Issued:</span>
                   <span className="ml-2 font-semibold text-slate-900">
-                    {warrant.potential_new_shares ? Number(warrant.potential_new_shares).toLocaleString() : '—'}
+                    {(warrant.total_issued || warrant.potential_new_shares) ? Number(warrant.total_issued || warrant.potential_new_shares).toLocaleString() : '—'}
                   </span>
                 </div>
+                {warrant.known_owners && (
+                  <div>
+                    <span className="text-slate-500">Known Owners:</span>
+                    <span className="ml-2 text-slate-900">{warrant.known_owners}</span>
+                  </div>
+                )}
+                {warrant.underwriter_agent && (
+                  <div>
+                    <span className="text-slate-500">Underwriter/Placement Agent:</span>
+                    <span className="ml-2 text-slate-900">{warrant.underwriter_agent}</span>
+                  </div>
+                )}
+                {warrant.price_protection && warrant.price_protection !== 'None' && (
+                  <div>
+                    <span className="text-slate-500">Price Protection:</span>
+                    <span className="ml-2 text-slate-900">{warrant.price_protection}</span>
+                  </div>
+                )}
+                {warrant.pp_clause && (
+                  <div className="col-span-2">
+                    <span className="text-slate-500">PP Clause:</span>
+                    <span className="ml-2 text-slate-700 text-[11px]">{warrant.pp_clause}</span>
+                  </div>
+                )}
                 <div>
                   <span className="text-slate-500">Issue Date:</span>
-                  <span className="ml-2 text-slate-900">
-                    {warrant.issue_date ? new Date(warrant.issue_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}
-                  </span>
+                  <span className="ml-2 text-slate-900">{formatDate(warrant.issue_date)}</span>
                 </div>
+                {warrant.exercisable_date && (
+                  <div>
+                    <span className="text-slate-500">Exercisable Date:</span>
+                    <span className="ml-2 text-slate-900">{formatDate(warrant.exercisable_date)}</span>
+                  </div>
+                )}
                 <div>
-                  <span className="text-slate-500">Expiration:</span>
-                  <span className="ml-2 text-slate-900">
-                    {warrant.expiration_date ? new Date(warrant.expiration_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}
-                  </span>
+                  <span className="text-slate-500">Expiration Date:</span>
+                  <span className="ml-2 text-slate-900">{formatDate(warrant.expiration_date)}</span>
                 </div>
+                {warrant.last_update_date && (
+                  <div>
+                    <span className="text-slate-500">Last Update Date:</span>
+                    <span className="ml-2 text-slate-900">{formatDate(warrant.last_update_date)}</span>
+                  </div>
+                )}
+                {warrant.has_cashless_exercise && (
+                  <div>
+                    <span className="text-slate-500">Cashless Exercise:</span>
+                    <span className="ml-2 text-green-600 font-medium">Yes</span>
+                  </div>
+                )}
                 {warrant.notes && (
                   <div className="col-span-2">
                     <span className="text-slate-500">Notes:</span>
@@ -758,6 +828,147 @@ function CompletedOfferingsCard({ offerings }: { offerings: CompletedOffering[] 
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// =====================================================
+// CONVERTIBLE NOTES CARD
+// =====================================================
+
+function ConvertibleNotesCard({ notes }: { notes: ConvertibleNote[] }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+      {notes.map((note, idx) => {
+        const issueDate = note.issue_date ? new Date(note.issue_date) : null;
+        const seriesName = note.series_name || (issueDate 
+          ? `${issueDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Convertible Note`
+          : 'Convertible Note');
+        
+        const isPaid = (note.remaining_principal_amount || 0) === 0 && (note.total_principal_amount || 0) > 0;
+
+        return (
+          <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
+            {/* Header */}
+            <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-slate-700">{seriesName}</h3>
+                {isPaid && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-medium">
+                    PAID
+                  </span>
+                )}
+                {note.is_toxic && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">
+                    TOXIC
+                  </span>
+                )}
+              </div>
+              <EducationalTooltip type="convertible" />
+            </div>
+
+            {/* Grid Compacto 2 Columnas */}
+            <div className="p-4">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                <div>
+                  <span className="text-slate-500">Total Principal:</span>
+                  <span className="ml-2 font-semibold text-slate-900">
+                    {note.total_principal_amount ? `$${Number(note.total_principal_amount).toLocaleString()}` : '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Remaining:</span>
+                  <span className={`ml-2 font-semibold ${isPaid ? 'text-green-600' : 'text-slate-900'}`}>
+                    {note.remaining_principal_amount !== undefined 
+                      ? (isPaid ? '$0 (Paid)' : `$${Number(note.remaining_principal_amount).toLocaleString()}`)
+                      : '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Conversion Price:</span>
+                  <span className="ml-2 font-semibold text-slate-900">
+                    {note.conversion_price ? `$${Number(note.conversion_price).toFixed(2)}` : '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500">Interest Rate:</span>
+                  <span className="ml-2 text-slate-900">
+                    {note.interest_rate ? `${Number(note.interest_rate).toFixed(2)}%` : '—'}
+                  </span>
+                </div>
+                {note.remaining_shares_when_converted && note.remaining_shares_when_converted > 0 && (
+                  <div>
+                    <span className="text-slate-500">Shares if Converted:</span>
+                    <span className="ml-2 font-semibold text-amber-600">
+                      {Number(note.remaining_shares_when_converted).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {note.known_owners && (
+                  <div>
+                    <span className="text-slate-500">Known Owners:</span>
+                    <span className="ml-2 text-slate-900">{note.known_owners}</span>
+                  </div>
+                )}
+                {note.underwriter_agent && (
+                  <div>
+                    <span className="text-slate-500">Underwriter/Placement Agent:</span>
+                    <span className="ml-2 text-slate-900">{note.underwriter_agent}</span>
+                  </div>
+                )}
+                {note.price_protection && note.price_protection !== 'None' && (
+                  <div>
+                    <span className="text-slate-500">Price Protection:</span>
+                    <span className={`ml-2 ${note.price_protection.includes('TOXIC') || note.is_toxic ? 'text-red-600 font-semibold' : 'text-slate-900'}`}>
+                      {note.price_protection}
+                    </span>
+                  </div>
+                )}
+                {note.pp_clause && (
+                  <div className="col-span-2">
+                    <span className="text-slate-500">PP Clause:</span>
+                    <span className="ml-2 text-slate-700 text-[11px]">{note.pp_clause}</span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-slate-500">Issue Date:</span>
+                  <span className="ml-2 text-slate-900">
+                    {note.issue_date ? new Date(note.issue_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—'}
+                  </span>
+                </div>
+                {note.convertible_date && (
+                  <div>
+                    <span className="text-slate-500">Convertible Date:</span>
+                    <span className="ml-2 text-slate-900">
+                      {new Date(note.convertible_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-slate-500">Maturity Date:</span>
+                  <span className="ml-2 text-slate-900">
+                    {note.maturity_date ? new Date(note.maturity_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—'}
+                  </span>
+                </div>
+                {note.last_update_date && (
+                  <div>
+                    <span className="text-slate-500">Last Update Date:</span>
+                    <span className="ml-2 text-slate-900">
+                      {new Date(note.last_update_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                    </span>
+                  </div>
+                )}
+                {note.notes && (
+                  <div className="col-span-2">
+                    <span className="text-slate-500">Notes:</span>
+                    <span className="ml-2 text-slate-700">{note.notes}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

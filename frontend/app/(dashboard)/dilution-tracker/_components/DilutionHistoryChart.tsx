@@ -139,10 +139,12 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
   const validHistory = historyData.filter(h => h.shares && h.shares > 0);
   const displayHistory = validHistory.slice(-20);
   
-  // Current O/S (from secData or last historical)
-  const currentOS = secData?.shares_outstanding || (displayHistory.length > 0 ? displayHistory[displayHistory.length - 1].shares : 0);
+  // Current O/S: Use last historical record for consistency in the chart
+  // The "Fully Diluted" bar should show the same base O/S as the last historical bar
+  const lastHistoricalOS = displayHistory.length > 0 ? displayHistory[displayHistory.length - 1].shares : 0;
+  const currentOS = lastHistoricalOS || secData?.shares_outstanding || 0;
 
-  // Build chart data with potential dilution on last bar
+  // Build chart data - historical bars show ONLY O/S (no dilution)
   const chartData = displayHistory.map((point, index) => {
     const dateObj = new Date(point.date);
     const isLast = index === displayHistory.length - 1;
@@ -152,12 +154,12 @@ export function DilutionHistoryChart({ data, secData, loading = false }: Dilutio
       fullDate: point.date,
       shares: point.shares,
       isLatest: isLast,
-      // Only add potential dilution to the last bar
-      warrants: isLast ? potential.warrants : 0,
-      atm: isLast ? potential.atm : 0,
-      equityLine: isLast ? potential.equity_line : 0,
-      convertibles: isLast ? potential.convertibles : 0,
-      s1: isLast ? potential.s1_offering : 0,
+      // Historical bars: NO dilution - only "Fully Diluted" bar shows potential
+      warrants: 0,
+      atm: 0,
+      equityLine: 0,
+      convertibles: 0,
+      s1: 0,
     };
   });
 

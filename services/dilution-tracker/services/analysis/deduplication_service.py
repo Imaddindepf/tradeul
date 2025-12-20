@@ -740,34 +740,78 @@ class DeduplicationService(GrokNormalizers):
     def deduplicate_convertible_notes(self, notes: List[Dict]) -> List[Dict]:
         """
         Deduplicar convertible notes con merge inteligente.
+        Usa combinación de: interest_rate + maturity_year + series_name keywords
         """
-        merged_by_date = {}
-        no_date_notes = []
+        merged_by_key = {}
+        
+        def get_dedup_key(n: Dict) -> str:
+            """Generate key for deduplication based on note characteristics."""
+            # Extract key fields
+            interest_rate = n.get('interest_rate') or 0
+            maturity = n.get('maturity_date') or ''
+            series_name = (n.get('series_name') or '').lower()
+            
+            # Extract year from maturity
+            maturity_year = ''
+            if maturity:
+                try:
+                    from datetime import datetime
+                    if isinstance(maturity, str):
+                        for fmt in ['%Y-%m-%d', '%Y-%m', '%Y']:
+                            try:
+                                maturity_year = datetime.strptime(maturity[:10], fmt).year
+                                break
+                            except:
+                                pass
+                except:
+                    pass
+            
+            # Extract key identifier from series_name (e.g., "2025" from "Notes Due 2025")
+            import re
+            year_match = re.search(r'20\d{2}', series_name)
+            series_year = year_match.group(0) if year_match else ''
+            
+            # Use maturity year or series year
+            year_key = str(maturity_year) if maturity_year else series_year
+            
+            # Create composite key: interest_rate + year
+            return f"{float(interest_rate):.2f}_{year_key}"
         
         for n in notes:
             try:
-                issue_date = self.safe_get_for_key(n, 'issue_date', 'date')
+                key = get_dedup_key(n)
                 
-                if not issue_date:
-                    no_date_notes.append(n)
-                    continue
-                
-                issue_date_key = str(issue_date)
-                
-                if issue_date_key not in merged_by_date:
-                    merged_by_date[issue_date_key] = n.copy()
+                if key not in merged_by_key:
+                    merged_by_key[key] = n.copy()
                 else:
-                    base = merged_by_date[issue_date_key]
+                    base = merged_by_key[key]
                     
+                    # Merge fields - prefer non-null and non-zero values
                     for field in [
                         'total_principal_amount', 'remaining_principal_amount',
-                        'conversion_price', 'total_shares_when_converted',
-                        'remaining_shares_when_converted', 'maturity_date',
-                        'convertible_date', 'underwriter_agent', 'filing_url'
+                        'conversion_price', 'original_conversion_price',
+                        'conversion_ratio', 'total_shares_when_converted',
+                        'remaining_shares_when_converted', 'underwriter_agent', 
+                        'filing_url', 'known_owners', 'price_protection'
                     ]:
-                        if base.get(field) is None and n.get(field) is not None:
-                            base[field] = n[field]
+                        base_val = base.get(field)
+                        new_val = n.get(field)
+                        # Prefer non-null and non-zero values
+                        if (base_val is None or base_val == 0) and new_val is not None and new_val != 0:
+                            base[field] = new_val
                     
+                    # Prefer the more complete series_name
+                    base_series = base.get('series_name') or ''
+                    new_series = n.get('series_name') or ''
+                    if len(new_series) > len(base_series):
+                        base['series_name'] = new_series
+                    
+                    # Merge dates - prefer non-null
+                    for date_field in ['issue_date', 'maturity_date', 'convertible_date']:
+                        if not base.get(date_field) and n.get(date_field):
+                            base[date_field] = n[date_field]
+                    
+                    # Merge notes
                     base_notes = self.normalize_grok_value(base.get('notes'), 'string') or ''
                     new_notes = self.normalize_grok_value(n.get('notes'), 'string') or ''
                     if base_notes and new_notes and base_notes != new_notes:
@@ -777,13 +821,12 @@ class DeduplicationService(GrokNormalizers):
                         base['notes'] = new_notes
                     
                     logger.debug("convertible_notes_merged",
-                                issue_date=issue_date_key,
+                                key=key,
                                 base_principal=base.get('total_principal_amount'))
             except Exception as e:
-                logger.warning("convertible_notes_dedup_error", error=str(e))
-                no_date_notes.append(n)
+                logger.warning("convertible_notes_dedup_error", error=str(e), note=str(n)[:100])
         
-        return list(merged_by_date.values()) + no_date_notes
+        return list(merged_by_key.values())
     
     # ========================================================================
     # CONVERTIBLE PREFERRED

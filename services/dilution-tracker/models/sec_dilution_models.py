@@ -104,11 +104,19 @@ class WarrantModel(BaseModel):
     remaining: Optional[int] = Field(None, description="Remaining warrants (total - exercised - expired)")
     last_update_date: Optional[date] = Field(None, description="Date of last 10-Q/10-K update for exercise data")
     # NEW: Additional fields from DilutionTracker
+    series_name: Optional[str] = Field(None, max_length=255, description="Warrant series name (e.g., 'August 2025 Warrants')")
     known_owners: Optional[str] = Field(None, description="Known warrant holders (e.g., '3i, Akita, CVI')")
     underwriter_agent: Optional[str] = Field(None, max_length=255, description="Underwriter/Placement agent")
     price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet, Undisclosed")
     pp_clause: Optional[str] = Field(None, description="Full text of Price Protection clause")
     exercisable_date: Optional[date] = Field(None, description="Date when warrants become exercisable")
+    # Registration and exercise features
+    is_registered: Optional[bool] = Field(None, description="True if warrants are registered (EDGAR)")
+    registration_type: Optional[str] = Field(None, description="EDGAR / Not Registered")
+    is_prefunded: Optional[bool] = Field(None, description="True if pre-funded warrants")
+    has_cashless_exercise: Optional[bool] = Field(None, description="True if cashless exercise is permitted")
+    warrant_coverage_ratio: Optional[Decimal] = Field(None, description="Warrant coverage ratio from offering")
+    anti_dilution_provision: Optional[bool] = Field(None, description="True if has anti-dilution provision")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -329,21 +337,31 @@ class ConvertibleNoteModel(BaseModel):
     """Model for convertible notes/debt"""
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
+    series_name: Optional[str] = Field(None, max_length=255, description="Note name (e.g., 'November 2020 1.25% Convertible Notes Due 2025')")
     total_principal_amount: Optional[Decimal] = Field(None, description="Total principal amount")
     remaining_principal_amount: Optional[Decimal] = Field(None, description="Remaining principal amount")
     conversion_price: Optional[Decimal] = Field(None, description="Conversion price per share")
+    original_conversion_price: Optional[Decimal] = Field(None, description="Original conversion price before adjustments")
+    conversion_ratio: Optional[Decimal] = Field(None, description="Conversion ratio (shares per $1000)")
     total_shares_when_converted: Optional[int] = Field(None, description="Total shares if fully converted")
     remaining_shares_when_converted: Optional[int] = Field(None, description="Remaining shares to be issued")
+    interest_rate: Optional[Decimal] = Field(None, description="Interest rate (e.g., 1.25 for 1.25%)")
     issue_date: Optional[date] = None
     convertible_date: Optional[date] = None
     maturity_date: Optional[date] = None
     underwriter_agent: Optional[str] = Field(None, max_length=255)
     filing_url: Optional[str] = None
     notes: Optional[str] = None
-    # NEW: Additional fields from DilutionTracker
+    # Registration and protection fields
+    is_registered: Optional[bool] = Field(None, description="True if notes are registered (EDGAR)")
+    registration_type: Optional[str] = Field(None, description="EDGAR / Not Registered")
     known_owners: Optional[str] = Field(None, description="Known note holders (e.g., 'Cavalry, WVP, Bigger Capital')")
-    price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet")
+    price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet, Variable Rate (TOXIC)")
     pp_clause: Optional[str] = Field(None, description="Full text of Price Protection clause")
+    # Toxic financing indicators
+    variable_rate_adjustment: Optional[bool] = Field(None, description="True if has variable rate conversion (TOXIC)")
+    floor_price: Optional[Decimal] = Field(None, description="Floor price for variable rate notes")
+    is_toxic: Optional[bool] = Field(None, description="True if identified as toxic/death spiral financing")
     last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
@@ -474,6 +492,84 @@ class SECDilutionProfile(BaseModel):
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
+    
+    def calculate_warrant_analysis(self) -> dict:
+        """
+        Analizar warrants in-the-money vs out-of-money
+        """
+        if not self.current_price:
+            return {"error": "Missing current_price"}
+        
+        current_price_float = float(self.current_price)
+        active_warrants = [w for w in self.warrants if w.status == 'Active' and not w.exclude_from_dilution]
+        
+        in_the_money = []
+        out_of_money = []
+        
+        for w in active_warrants:
+            exercise_price = float(w.exercise_price or 0)
+            warrant_info = {
+                "outstanding": w.outstanding or 0,
+                "exercise_price": exercise_price,
+                "expiration_date": str(w.expiration_date) if w.expiration_date else None,
+                "notes": w.notes
+            }
+            if exercise_price > 0 and exercise_price <= current_price_float:
+                in_the_money.append(warrant_info)
+            else:
+                out_of_money.append(warrant_info)
+        
+        total_itm = sum(w["outstanding"] for w in in_the_money)
+        total_otm = sum(w["outstanding"] for w in out_of_money)
+        
+        return {
+            "in_the_money_count": len(in_the_money),
+            "in_the_money_warrants": total_itm,
+            "in_the_money_details": in_the_money,
+            "out_of_money_count": len(out_of_money),
+            "out_of_money_warrants": total_otm,
+            "out_of_money_details": out_of_money,
+            "total_active_warrants": total_itm + total_otm,
+            "current_price": current_price_float
+        }
+    
+    def calculate_equity_line_shares(self) -> dict:
+        """
+        Calcular shares de equity lines considerando 20% NASDAQ rule
+        """
+        if not self.current_price or not self.shares_outstanding:
+            return {"error": "Missing current_price or shares_outstanding"}
+        
+        current_price_float = float(self.current_price)
+        nasdaq_20_pct_limit = int(self.shares_outstanding * 0.20)  # 20% of outstanding
+        
+        results = []
+        total_estimated_shares = 0
+        total_shares_with_nasdaq_limit = 0
+        
+        for el in self.equity_lines:
+            remaining = float(el.remaining_capacity or 0)
+            estimated_shares = int(remaining / current_price_float) if current_price_float > 0 else 0
+            shares_with_limit = min(estimated_shares, nasdaq_20_pct_limit)
+            
+            results.append({
+                "partner": el.partner,
+                "remaining_capacity": remaining,
+                "estimated_shares_no_limit": estimated_shares,
+                "nasdaq_20_pct_limit": nasdaq_20_pct_limit,
+                "estimated_shares_with_limit": shares_with_limit,
+                "is_limited_by_nasdaq": estimated_shares > nasdaq_20_pct_limit
+            })
+            total_estimated_shares += estimated_shares
+            total_shares_with_nasdaq_limit += shares_with_limit
+        
+        return {
+            "equity_lines": results,
+            "total_estimated_shares_no_limit": total_estimated_shares,
+            "total_shares_with_nasdaq_limit": total_shares_with_nasdaq_limit,
+            "nasdaq_20_pct_cap": nasdaq_20_pct_limit,
+            "note": "20% NASDAQ rule limits ELOC usage without shareholder approval"
+        }
     
     def calculate_potential_dilution(self) -> dict:
         """

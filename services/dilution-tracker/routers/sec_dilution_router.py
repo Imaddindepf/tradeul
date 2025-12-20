@@ -703,36 +703,44 @@ async def get_shares_history(ticker: str):
 
 
 @router.get("/{ticker}/cash-position")
-async def get_cash_position(ticker: str):
+async def get_cash_position(ticker: str, max_quarters: int = 40):
     """
-    Obtener cash position y cash runway desde FMP API.
+    Obtener cash position y cash runway desde SEC-API.io XBRL.
+    
+    **Fuente:** SEC-API.io (datos oficiales de la SEC, NO FMP)
+    
+    **Metodología DilutionTracker:**
+    - Cash = Cash & Equivalents + Short-Term Investments + Restricted Cash
     
     Incluye:
-    - Historial de cash position (últimos 12 trimestres)
+    - Historial COMPLETO de cash (hasta 10 años)
     - Historial de operating cash flow
     - Burn rate diario calculado
     - Estimated current cash (prorrateado desde último reporte)
     - Cash runway en días
     - Risk level (critical, high, medium, low)
     
-    **Caché:** 4 horas
+    **Parámetros:**
+    - max_quarters: Máximo de trimestres a obtener (default 40 = 10 años)
+    
+    **Caché:** 6 horas
     
     **Ejemplo:**
     ```
-    GET /api/sec-dilution/SOUN/cash-position
+    GET /api/sec-dilution/GPRO/cash-position
+    GET /api/sec-dilution/GPRO/cash-position?max_quarters=20
     ```
     """
     try:
         ticker = ticker.upper()
         
-        db = TimescaleClient()
-        await db.connect()
         redis = RedisClient()
         await redis.connect()
         
         try:
-            service = SECDilutionService(db, redis)
-            result = await service.get_cash_data(ticker)
+            from services.sec.sec_cash_history import SECCashHistoryService
+            service = SECCashHistoryService(redis)
+            result = await service.get_full_cash_history(ticker, max_quarters)
             
             if result.get("error"):
                 raise HTTPException(status_code=404, detail=result["error"])
@@ -740,7 +748,6 @@ async def get_cash_position(ticker: str):
             return result
             
         finally:
-            await db.disconnect()
             await redis.disconnect()
         
     except HTTPException:

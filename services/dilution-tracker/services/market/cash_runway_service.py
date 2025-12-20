@@ -300,44 +300,76 @@ class CashRunwayService:
         return None
     
     def _extract_cash_from_xbrl(self, xbrl_data: Dict, period: str) -> Optional[float]:
-        """Extract cash and cash equivalents from XBRL data."""
+        """
+        Extract TOTAL cash following DilutionTracker.com methodology:
+        Cash + Cash Equivalents + Short-Term Investments + Restricted Cash
+        """
         balance_sheet = xbrl_data.get("BalanceSheets", {})
         
-        # Priority order of cash concepts
+        # Try to get each component separately for accurate calculation
+        cash_equiv = None
+        restricted_cash = None
+        short_term_investments = None
+        
+        # 1. Cash and Cash Equivalents
         cash_concepts = [
-            # Total cash + short-term investments (most complete)
             "CashCashEquivalentsAndShortTermInvestments",
-            # Just cash and equivalents
             "CashAndCashEquivalentsAtCarryingValue",
-            # Including restricted cash
-            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
         ]
         
         for concept in cash_concepts:
-            values = balance_sheet.get(concept, [])
-            if not values:
-                continue
-            
-            # Find value for the period
-            for val in values:
-                val_period = val.get("period", {})
-                instant = val_period.get("instant", "")
-                
-                if instant and instant[:10] == period[:10]:
-                    try:
-                        return float(val.get("value", 0))
-                    except (ValueError, TypeError):
-                        continue
+            val = self._get_xbrl_value(balance_sheet, concept, period)
+            if val is not None:
+                cash_equiv = val
+                break
         
-        # Fallback: sum cash + short-term investments manually
-        cash = self._get_xbrl_value(balance_sheet, "CashAndCashEquivalentsAtCarryingValue", period)
-        short_term = self._get_xbrl_value(balance_sheet, "ShortTermInvestments", period) or 0
+        # 2. Restricted Cash (DilutionTracker includes this!)
+        restricted_concepts = [
+            "RestrictedCash",
+            "RestrictedCashCurrent",
+            "RestrictedCashAndCashEquivalents",
+            "RestrictedCashNoncurrent",
+        ]
         
-        if cash is not None:
-            return cash + short_term
+        for concept in restricted_concepts:
+            val = self._get_xbrl_value(balance_sheet, concept, period)
+            if val is not None:
+                restricted_cash = val
+                break
         
-        return None
+        # 3. Short-term Investments (if not already included)
+        if "ShortTermInvestments" not in (cash_concepts[0] if cash_equiv else ""):
+            short_term_investments = self._get_xbrl_value(balance_sheet, "ShortTermInvestments", period) or 0
+        
+        # Calculate total
+        total_cash = 0
+        if cash_equiv is not None:
+            total_cash += cash_equiv
+        
+        # Add restricted cash if found and not already included in main cash figure
+        if restricted_cash is not None and restricted_cash > 0:
+            # Check if cash_equiv already includes restricted cash
+            combined_concepts = [
+                "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+                "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations"
+            ]
+            # Only add if we didn't use a combined concept
+            if not any(self._get_xbrl_value(balance_sheet, c, period) for c in combined_concepts):
+                total_cash += restricted_cash
+        
+        # Add short-term investments if not already included
+        if short_term_investments and short_term_investments > 0:
+            total_cash += short_term_investments
+        
+        logger.debug("cash_extraction_complete", 
+                    period=period,
+                    cash_equiv=cash_equiv,
+                    restricted_cash=restricted_cash,
+                    short_term=short_term_investments,
+                    total=total_cash)
+        
+        return total_cash if total_cash > 0 else None
     
     def _extract_operating_cf_from_xbrl(self, xbrl_data: Dict, period: str) -> Optional[float]:
         """

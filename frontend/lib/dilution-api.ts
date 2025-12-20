@@ -10,54 +10,194 @@ const DILUTION_SERVICE_URL = process.env.NEXT_PUBLIC_DILUTION_API_URL || 'http:/
 export interface Warrant {
   id?: string;
   symbol?: string;
+  ticker?: string;
+  series_name?: string;
+  // Pricing
   exercise_price?: number;
-  expiration_date?: string;
-  issue_date?: string;
+  original_exercise_price?: number;
+  // Quantities
+  outstanding?: number;
   outstanding_warrants?: number;
-  warrant_type?: string;
+  remaining?: number;
+  total_issued?: number;
+  potential_new_shares?: number;
+  exercised?: number;
+  expired?: number;
+  // Type: "standard" | "pre-funded" | "callable" | "penny warrants"
+  warrant_type?: 'standard' | 'pre-funded' | 'callable' | 'penny' | string;
+  // Status: "active" | "expired" | "exercised" | "replaced"
+  status?: 'Active' | 'Expired' | 'Exercised' | 'Replaced' | string;
+  // Registration
+  is_registered?: boolean;
+  registration_type?: 'EDGAR' | 'Not Registered' | string;
+  is_prefunded?: boolean;
+  has_cashless_exercise?: boolean;
+  warrant_coverage_ratio?: number;
+  // Ownership & Underwriting
+  known_owners?: string;
+  underwriter_agent?: string;
+  // Price Protection
+  price_protection?: string;
+  price_protection_clause?: string;
+  pp_clause?: string; // alias
+  anti_dilution_provision?: boolean;
+  // Dates
+  issue_date?: string;
+  exercisable_date?: string;
+  expiration_date?: string;
+  last_update_date?: string;
+  // Filing info
   filing_date?: string;
   source_filing?: string;
   filing_url?: string;
-  [key: string]: any; // Allow additional dynamic properties
+  notes?: string;
+  [key: string]: any;
 }
 
 export interface ATMOffering {
   id?: string;
   symbol?: string;
+  ticker?: string;
+  series_name?: string;
+  // Capacity & Usage
+  total_capacity?: number;
   max_amount?: number;
   remaining_capacity?: number;
-  status?: string;
+  amount_raised_to_date?: number;
+  registered_shares?: number;
+  potential_shares_at_current_price?: number;
+  // Status: "Active" | "Terminated" | "Expired" | "Replaced"
+  status?: 'Active' | 'Terminated' | 'Expired' | 'Replaced' | string;
+  // Placement Agent (primary field, broker is alias)
+  placement_agent?: string;
+  broker_dealer?: string;
+  broker?: string; // deprecated alias
+  commission_rate?: number;
+  // Baby Shelf Limitations
+  is_baby_shelf_limited?: boolean;
+  remaining_capacity_without_baby_shelf?: number;
+  // Dates
+  agreement_date?: string;
+  issue_date?: string;
   filing_date?: string;
-  last_update?: string;
-  broker?: string;
+  expiration_date?: string;
+  last_update_date?: string;
+  last_update?: string; // alias
+  // Filing info
   filing_url?: string;
-  [key: string]: any; // Allow additional dynamic properties
+  notes?: string;
+  [key: string]: any;
 }
 
 export interface ShelfRegistration {
   id?: string;
   symbol?: string;
+  ticker?: string;
+  series_name?: string;
+  // Capacity & Usage
+  total_capacity?: number;
   total_amount?: number;
   remaining_capacity?: number;
-  status?: string;
+  amount_raised?: number;
+  amount_raised_last_12_months?: number;
+  // Baby Shelf (IB-6) fields
+  is_baby_shelf?: boolean;
+  public_float?: number;
+  highest_60_day_close?: number;
+  ib6_float_value?: number;
+  current_raisable_amount?: number;
+  price_to_exceed_baby_shelf?: number;
+  // Registration type: "S-1" | "S-3" | "F-1" | "F-3"
+  registration_statement?: 'S-1' | 'S-3' | 'F-1' | 'F-3' | string;
+  registration_type?: string; // alias
+  // Status: "Active" | "Expired" | "Used"
+  status?: 'Active' | 'Expired' | 'Used' | string;
+  // Shelf Type
+  is_mixed_shelf?: boolean;
+  is_primary_offering?: boolean;
+  is_resale?: boolean;
+  // Dates
+  effect_date?: string;
   filing_date?: string;
   expiration_date?: string;
-  last_update?: string;
+  last_update_date?: string;
+  last_update?: string; // alias
+  // Filing info
   filing_url?: string;
-  [key: string]: any; // Allow additional dynamic properties
+  notes?: string;
+  [key: string]: any;
 }
 
 export interface CompletedOffering {
   id?: string;
   symbol?: string;
+  ticker?: string;
+  // Offering Details
   offering_date?: string;
   shares_offered?: number;
+  shares_issued?: number;
   price_per_share?: number;
   gross_proceeds?: number;
+  amount_raised?: number;
+  // Type: "Underwritten" | "Direct" | "Private" | "ATM" | "PIPE" | "Registered Direct"
   offering_type?: string;
+  // Method: "S-1" | "S-3" | "Direct" | "Private"
+  method?: 'S-1' | 'S-3' | 'Direct' | 'Private' | string;
+  // Warrant info (if warrants were issued with offering)
+  warrants_issued?: number;
+  warrant_exercise_price?: number;
+  warrant_coverage?: number;
+  // Participants
+  investors?: string;
+  underwriter?: string;
+  placement_agent?: string;
+  // Dates
+  last_update_date?: string;
+  // Filing info
   filing_link?: string;
   filing_url?: string;
-  [key: string]: any; // Allow additional dynamic properties
+  notes?: string;
+  [key: string]: any;
+}
+
+export interface ConvertibleNote {
+  id?: string;
+  symbol?: string;
+  ticker?: string;
+  series_name?: string;
+  // Principal Amounts
+  total_principal_amount?: number;
+  remaining_principal_amount?: number;
+  // Conversion Terms
+  conversion_price?: number;
+  original_conversion_price?: number;
+  conversion_ratio?: number;
+  total_shares_when_converted?: number;
+  remaining_shares_when_converted?: number;
+  interest_rate?: number;
+  // Registration
+  is_registered?: boolean;
+  registration_type?: 'EDGAR' | 'Not Registered' | string;
+  // Ownership & Underwriting
+  known_owners?: string;
+  underwriter_agent?: string;
+  // Price Protection
+  price_protection?: 'Customary Anti-Dilution' | 'Full Ratchet' | 'Variable Rate (TOXIC)' | 'Reset' | 'None' | string;
+  price_protection_clause?: string;
+  pp_clause?: string; // alias
+  // Toxic Financing Indicators
+  is_toxic?: boolean;
+  variable_rate_adjustment?: boolean;
+  floor_price?: number;
+  // Dates
+  issue_date?: string;
+  convertible_date?: string;
+  maturity_date?: string;
+  last_update_date?: string;
+  // Filing info
+  filing_url?: string;
+  notes?: string;
+  [key: string]: any;
 }
 
 export interface SECDilutionProfileResponse {
@@ -69,6 +209,7 @@ export interface SECDilutionProfileResponse {
     atm_offerings: ATMOffering[];
     shelf_registrations: ShelfRegistration[];
     completed_offerings: CompletedOffering[];
+    convertible_notes?: ConvertibleNote[];
     metadata: {
       last_scraped_at: string;
       source: string;
@@ -92,7 +233,7 @@ export interface SECDilutionProfileResponse {
   };
   cached: boolean;
   cache_age_seconds?: number;
-  
+
   // Company type detection
   is_spac?: boolean;
   sic_code?: string;
@@ -159,7 +300,7 @@ export async function checkSECCache(symbol: string, enqueueIfMissing: boolean = 
   try {
     const response = await fetch(
       `${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/check?enqueue_if_missing=${enqueueIfMissing}`,
-      { 
+      {
         // Timeout corto - este endpoint debe ser rápido
         signal: AbortSignal.timeout(10000)
       }
@@ -246,12 +387,54 @@ export interface CashPositionResponse {
 }
 
 export interface CashRunwayData {
-  current_cash: number;
-  quarterly_burn_rate: number;
-  estimated_runway_months: number | null;
-  runway_risk_level: "critical" | "high" | "medium" | "low" | "unknown";
+  ticker?: string;
+  // From enhanced endpoint
+  historical_cash: number;
+  historical_cash_date: string;
+  quarterly_operating_cf: number;
+  daily_burn_rate: number;
+  days_since_report: number;
+  prorated_cf: number;
+  capital_raises?: {
+    total: number;
+    count: number;
+    details: Array<{
+      filing_date: string;
+      effective_date?: string;
+      gross_proceeds: number;
+      net_proceeds?: number | null;
+      instrument_type: string;
+      shares_issued?: number | null;
+      description: string;
+      confidence?: number;
+    }>;
+  };
+  estimated_current_cash: number;
+  runway_days: number | null;
+  runway_months: number | null;
+  runway_risk_level: "critical" | "high" | "medium" | "moderate" | "low" | "healthy" | "unknown";
+  data_source: string;
+  last_updated?: string;
+  error?: string | null;
+  // Historical data for charting
+  cash_history?: Array<{
+    date: string;
+    cash: number;
+    total_assets?: number;
+    total_liabilities?: number;
+  }>;
+  cf_history?: Array<{
+    date: string;
+    operating_cf: number;
+    investing_cf?: number;
+    financing_cf?: number;
+  }>;
+  // Legacy fields for backwards compatibility
+  current_cash?: number;
+  quarterly_burn_rate?: number;
+  estimated_runway_months?: number | null;
   history?: Array<{ date: string; cash: number }>;
-  projection: Array<{ month: number; date: string; estimated_cash: number }>;
+  projection?: Array<{ month: number; date: string; estimated_cash: number }>;
 }
 
 /**
@@ -260,54 +443,54 @@ export interface CashRunwayData {
  */
 export async function getCashPosition(symbol: string): Promise<CashRunwayData | null> {
   try {
-    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/cash-position`);
-    
+    // Use SEC-API.io endpoint ONLY (DilutionTracker methodology)
+    const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/cash-position?max_quarters=40`);
+
     if (!response.ok) {
       console.warn(`Cash position not available for ${symbol}`);
       return null;
     }
-    
-    const data: CashPositionResponse = await response.json();
-    
-    if (data.error || !data.latest_cash) {
+
+    const data = await response.json();
+
+    if (data.error) {
+      console.warn(`Cash position error for ${symbol}:`, data.error);
       return null;
     }
-    
-    // Calcular quarterly burn rate desde el daily burn rate
-    const quarterlyBurnRate = data.daily_burn_rate * 90; // ~90 días por trimestre
-    
-    // Calcular runway en meses
-    const runwayMonths = data.runway_days ? data.runway_days / 30 : null;
-    
-    // Preparar historial ordenado de antiguo a nuevo
-    const history = data.cash_history
-      ?.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .map(h => ({ date: h.date, cash: h.cash })) || [];
-    
-    // Crear proyección (próximos 12 meses)
-    const projection: Array<{ month: number; date: string; estimated_cash: number }> = [];
-    const monthlyBurn = quarterlyBurnRate / 3;
-    let currentCash = data.estimated_current_cash;
-    const now = new Date();
-    
-    for (let i = 1; i <= 12; i++) {
-      const futureDate = new Date(now);
-      futureDate.setMonth(futureDate.getMonth() + i);
-      currentCash = Math.max(0, currentCash + monthlyBurn); // monthlyBurn is negative
-      projection.push({
-        month: i,
-        date: futureDate.toISOString().split('T')[0],
-        estimated_cash: currentCash
-      });
-    }
-    
+
+    // Transform SEC-API.io data to expected format
+    const cashHistory = data.cash_history?.sort((a: any, b: any) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    ) || [];
+
+    const cfHistory = data.cashflow_history?.sort((a: any, b: any) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    ) || [];
+
+    // Get the latest values from history (more accurate than computed)
+    const latestCash = cashHistory.length > 0 ? cashHistory[cashHistory.length - 1].cash : data.latest_cash;
+    const latestDate = cashHistory.length > 0 ? cashHistory[cashHistory.length - 1].date : data.last_report_date;
+
     return {
-      current_cash: data.estimated_current_cash,
-      quarterly_burn_rate: quarterlyBurnRate,
-      estimated_runway_months: runwayMonths,
+      ticker: symbol,
+      historical_cash: latestCash,
+      historical_cash_date: latestDate,
+      quarterly_operating_cf: data.latest_operating_cf || 0,
+      daily_burn_rate: data.daily_burn_rate || 0,
+      days_since_report: data.days_since_report || 0,
+      prorated_cf: data.prorated_cf || 0,
+      estimated_current_cash: data.estimated_current_cash || latestCash,
+      runway_days: data.runway_days,
+      runway_months: data.runway_days ? data.runway_days / 30 : null,
       runway_risk_level: (data.runway_risk_level as CashRunwayData['runway_risk_level']) || 'unknown',
-      history,
-      projection
+      data_source: data.source || 'sec_xbrl',
+      cash_history: cashHistory,
+      cf_history: cfHistory,
+      // Legacy fields
+      current_cash: data.estimated_current_cash || latestCash,
+      quarterly_burn_rate: Math.abs(data.latest_operating_cf || 0),
+      estimated_runway_months: data.runway_days ? data.runway_days / 30 : null,
+      history: cashHistory,
     };
   } catch (error) {
     console.error(`Error fetching cash position for ${symbol}:`, error);
@@ -354,18 +537,18 @@ export async function getSharesHistory(symbol: string): Promise<SharesHistoryDat
     const response = await fetch(`${DILUTION_SERVICE_URL}/api/sec-dilution/${symbol}/shares-history`, {
       signal: AbortSignal.timeout(15000) // 15s timeout
     });
-    
+
     if (!response.ok) {
       console.warn(`Shares history not available for ${symbol}`);
       return null;
     }
-    
+
     const data: SharesHistoryData = await response.json();
-    
+
     if (data.error) {
       return null;
     }
-    
+
     return data;
   } catch (error) {
     console.error(`Error fetching shares history for ${symbol}:`, error);

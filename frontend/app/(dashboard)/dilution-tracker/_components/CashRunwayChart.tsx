@@ -1,36 +1,42 @@
 "use client";
 
-import { AlertCircle } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-
-interface RealTimeEstimate {
-  report_date: string;
-  days_elapsed: number;
-  prorated_burn: number;
-  capital_raise: number;
-  current_cash_estimate: number;
-  raise_details: Array<{
-    date: string;
-    type: string;
-    amount: number;
-  }>;
-}
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend, ReferenceLine } from "recharts";
 
 interface CashRunwayData {
-  current_cash: number;
-  quarterly_burn_rate: number;
-  estimated_runway_months: number | null;
-  runway_risk_level: "critical" | "high" | "medium" | "low" | "unknown";
-  history?: Array<{
+  ticker?: string;
+  historical_cash: number;
+  historical_cash_date: string;
+  quarterly_operating_cf: number;
+  daily_burn_rate: number;
+  days_since_report: number;
+  prorated_cf: number;
+  capital_raises?: {
+    total: number;
+    count: number;
+    details: Array<{
+      filing_date: string;
+      gross_proceeds: number;
+      instrument_type: string;
+      description: string;
+    }>;
+  };
+  estimated_current_cash: number;
+  runway_days: number | null;
+  runway_months: number | null;
+  runway_risk_level: string;
+  data_source: string;
+  cash_history?: Array<{
     date: string;
     cash: number;
+    total_assets?: number;
+    total_liabilities?: number;
   }>;
-  projection: Array<{
-    month: number;
+  cf_history?: Array<{
     date: string;
-    estimated_cash: number;
+    operating_cf: number;
+    investing_cf?: number;
+    financing_cf?: number;
   }>;
-  real_time_estimate?: RealTimeEstimate;
 }
 
 interface CashRunwayChartProps {
@@ -38,280 +44,327 @@ interface CashRunwayChartProps {
   loading?: boolean;
 }
 
+// Colors matching DilutionTracker style
+const COLORS = {
+  historical: '#3b82f6',      // Blue - historical cash
+  reported: '#60a5fa',        // Light blue - reported cash
+  burn: '#ef4444',            // Red - cash burn (prorated)
+  raise: '#22c55e',           // Green - capital raises
+  estimate: '#f59e0b',        // Amber - current estimate
+};
+
 export function CashRunwayChart({ data, loading = false }: CashRunwayChartProps) {
+  // Format functions
+  const formatCash = (value: number) => {
+    if (!value && value !== 0) return 'N/A';
+    const absValue = Math.abs(value);
+    if (absValue >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
+    if (absValue >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+    if (absValue >= 1_000) return `$${(value / 1_000).toFixed(0)}K`;
+    return `$${value.toLocaleString()}`;
+  };
+
+  const formatCashFull = (value: number) => {
+    if (!value && value !== 0) return 'N/A';
+    return `$${Math.abs(value).toLocaleString()}`;
+  };
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return dateStr;
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // Loading state
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-slate-100 rounded w-48" />
-        <div className="grid grid-cols-3 gap-4">
-            <div className="h-24 bg-slate-100 rounded" />
-            <div className="h-24 bg-slate-100 rounded" />
-            <div className="h-24 bg-slate-100 rounded" />
-          </div>
+      <div className="border border-slate-200 rounded-lg p-4">
+        <div className="animate-pulse space-y-4">
+          <div className="h-4 bg-slate-200 rounded w-1/3"></div>
+          <div className="h-48 bg-slate-100 rounded"></div>
         </div>
       </div>
     );
   }
 
+  // No data
   if (!data) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-      <div className="text-center py-12">
-          <AlertCircle className="h-12 w-12 text-slate-400 mx-auto mb-4" />
-          <p className="text-slate-600">No cash runway data available</p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
-  const formatCash = (amount: number) => {
-    // Handle negative numbers for formatting
-    const isNegative = amount < 0;
-    const absAmount = Math.abs(amount);
-    const prefix = isNegative ? "-$" : "$";
+  // Build chart data - Historical bars + 4 separate estimate bars
+  const buildChartData = () => {
+    const chartData: Array<{
+      label: string;
+      value: number;
+      type: 'historical' | 'reported' | 'burn' | 'raise' | 'estimate';
+      fullDate?: string;
+    }> = [];
 
-    if (absAmount >= 1_000_000_000) {
-      return `${prefix}${(absAmount / 1_000_000_000).toFixed(2)}B`;
-    }
-    if (absAmount >= 1_000_000) {
-      return `${prefix}${(absAmount / 1_000_000).toFixed(2)}M`;
-    }
-    return `${prefix}${absAmount.toLocaleString()}`;
-  };
+    // Historical cash bars - show ALL available history
+    if (data.cash_history && data.cash_history.length > 0) {
+      const sorted = [...data.cash_history].sort((a, b) => a.date.localeCompare(b.date));
+      // Show all historical data (no limit)
 
-  const formatCashCompact = (amount: number) => {
-    const isNegative = amount < 0;
-    const absAmount = Math.abs(amount);
-    const prefix = isNegative ? "-$" : "$";
-
-    if (absAmount >= 1_000_000_000) {
-      return `${prefix}${(absAmount / 1_000_000_000).toFixed(1)}B`;
-    }
-    if (absAmount >= 1_000_000) {
-      return `${prefix}${(absAmount / 1_000_000).toFixed(0)}M`;
-    }
-    return `${prefix}${(absAmount / 1000).toFixed(0)}K`;
-  };
-
-  const isBurningCash = data.quarterly_burn_rate < 0;
-
-  // Preparar datos para Recharts - usar historial real si existe, sino proyección
-  const useHistory = data.history && data.history.length > 0;
-  
-  let chartData: Array<{
-    month: string;
-    cash: number;
-    type: string;
-    isCurrent: boolean;
-    isDepleted?: boolean;
-  }> = [];
-
-  if (useHistory) {
-    chartData = data.history!.slice(-20).map((point, index, arr) => ({
-        month: new Date(point.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        cash: point.cash,
-      type: 'historical',
-        isCurrent: index === arr.length - 1,
-    }));
-  } else if (data.projection && data.projection.length > 0) {
-    chartData = data.projection.map((month, index) => ({
-        month: new Date(month.date).toLocaleDateString('en-US', { month: 'short' }),
-        cash: month.estimated_cash,
-      type: 'projection',
-        isCurrent: index === 0,
-        isDepleted: !month.estimated_cash || month.estimated_cash <= 0,
-    }));
-  }
-
-  // 🚀 Insertar Real-Time Estimate Bars si existen
-  if (data.real_time_estimate && useHistory) {
-    // 1. Prorated Burn (Gasto estimado desde el último reporte)
-    chartData.push({
-      month: "Burn (Est)",
-      cash: data.real_time_estimate.prorated_burn,
-      type: 'estimate_burn',
-      isCurrent: false
-    });
-
-    // 2. Capital Raise (Si hubo)
-    if (data.real_time_estimate.capital_raise > 0) {
-      chartData.push({
-        month: "Cap Raise",
-        cash: data.real_time_estimate.capital_raise,
-        type: 'estimate_raise',
-        isCurrent: false
+      sorted.forEach((item) => {
+        chartData.push({
+          label: formatDate(item.date),
+          value: item.cash,
+          type: 'historical',
+          fullDate: item.date
+        });
       });
     }
 
-    // 3. Current Estimate (Saldo final estimado)
+    // Add the 4 estimate component bars
+    // 1. Reported Cash (last balance sheet)
     chartData.push({
-      month: "Current Est",
-      cash: data.real_time_estimate.current_cash_estimate,
-      type: 'estimate_total',
-      isCurrent: true
+      label: 'Reported',
+      value: data.historical_cash,
+      type: 'reported'
     });
-  }
 
-  if (chartData.length === 0) {
-    console.log("No chart data available", { useHistory, data });
-  }
+    // 2. Prorated Operating CF (burn since report - negative if burning)
+    const proratedValue = data.quarterly_operating_cf < 0
+      ? -Math.abs(data.prorated_cf)  // Negative (burning)
+      : data.prorated_cf;             // Positive (generating)
 
-  // Helper para colores
-  const getBarColor = (entry: any) => {
-    if (entry.type === 'estimate_burn') return '#ef4444'; // Red for burn outflow
-    if (entry.type === 'estimate_raise') return '#22c55e'; // Green for capital raise
-    if (entry.type === 'estimate_total') return '#8b5cf6'; // Purple for final estimate
-    if (entry.isDepleted) return '#ef4444';
-    if (entry.isCurrent) return '#2563eb';
-    return '#60a5fa';
+    chartData.push({
+      label: 'Prorated CF',
+      value: proratedValue,
+      type: 'burn'
+    });
+
+    // 3. Capital Raises
+    chartData.push({
+      label: 'Cap. Raise',
+      value: data.capital_raises?.total || 0,
+      type: 'raise'
+    });
+
+    // 4. Current Estimate
+    chartData.push({
+      label: 'Current Est.',
+      value: data.estimated_current_cash,
+      type: 'estimate'
+    });
+
+    return chartData;
+  };
+
+  const chartData = buildChartData();
+
+  // Calculate runway display
+  const runwayDisplay = () => {
+    if (data.runway_months === null || data.runway_months === undefined) {
+      if (data.quarterly_operating_cf >= 0) {
+        return { text: 'Cash Positive', color: 'text-green-600' };
+      }
+      return { text: 'N/A', color: 'text-slate-400' };
+    }
+
+    const months = data.runway_months;
+    let color = 'text-green-600';
+
+    if (months < 3) color = 'text-red-600';
+    else if (months < 6) color = 'text-orange-500';
+    else if (months < 12) color = 'text-yellow-600';
+
+    return { text: `${months.toFixed(1)} months`, color };
+  };
+
+  const runway = runwayDisplay();
+
+  // Risk badge
+  const getRiskBadge = (level: string) => {
+    const badges: Record<string, { bg: string; text: string; label: string }> = {
+      critical: { bg: 'bg-red-100', text: 'text-red-700', label: 'Critical' },
+      high: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'High Risk' },
+      medium: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Moderate' },
+      moderate: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Moderate' },
+      low: { bg: 'bg-green-100', text: 'text-green-700', label: 'Low Risk' },
+      healthy: { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Healthy' },
+    };
+    return badges[level] || badges.low;
+  };
+
+  const riskBadge = getRiskBadge(data.runway_risk_level);
+
+  // Get bar color based on type
+  const getBarColor = (type: string) => {
+    switch (type) {
+      case 'historical': return COLORS.historical;
+      case 'reported': return COLORS.reported;
+      case 'burn': return COLORS.burn;
+      case 'raise': return COLORS.raise;
+      case 'estimate': return COLORS.estimate;
+      default: return COLORS.historical;
+    }
+  };
+
+  // Custom tooltip
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null;
+
+    const item = payload[0]?.payload;
+    if (!item) return null;
+
+    const typeLabels: Record<string, string> = {
+      historical: 'Historical Cash',
+      reported: 'Last Reported Cash',
+      burn: 'Prorated Operating CF',
+      raise: 'Capital Raised',
+      estimate: 'Current Estimate'
+    };
+
+    return (
+      <div className="bg-slate-800 text-white text-xs rounded-lg p-3 shadow-xl">
+        <p className="font-semibold mb-1">{typeLabels[item.type] || label}</p>
+        {item.fullDate && <p className="text-slate-400 text-[10px] mb-1">{item.fullDate}</p>}
+        <p className={item.value < 0 ? 'text-red-300' : 'text-green-300'}>
+          {item.value < 0 ? '-' : ''}{formatCashFull(item.value)}
+        </p>
+      </div>
+    );
   };
 
   return (
-    <>
-      {/* Cash Info */}
-      <h4 className="text-base font-semibold text-slate-900 mb-3">Cash Runway</h4>
-      <div className="flex items-center gap-6 text-sm mb-4 pb-3 border-b border-slate-200">
+    <div className="border border-slate-200 rounded-lg p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <span className="text-slate-500">Cash (Reported):</span> <span className="font-bold ml-1">{formatCash(data.current_cash)}</span>
+          <h4 className="text-sm font-medium text-slate-700">
+            Cash Position & Runway
+          </h4>
+          <p className="text-xs text-slate-400 mt-0.5">
+            SEC XBRL data • Last report: {formatDate(data.historical_cash_date)} • {data.days_since_report} days ago
+          </p>
         </div>
-        {data.real_time_estimate && (
-           <div>
-             <span className="text-slate-500">Cash (Est):</span> <span className="font-bold ml-1 text-purple-600">{formatCash(data.real_time_estimate.current_cash_estimate)}</span>
-           </div>
-        )}
-        <div>
-          <span className="text-slate-500">Burn:</span> <span className={`font-bold ml-1 ${isBurningCash ? 'text-red-600' : 'text-green-600'}`}>
-            {formatCash(Math.abs(data.quarterly_burn_rate))}/Q {isBurningCash ? '↓' : '↑'}
-          </span>
-        </div>
-        <div>
-          <span className="text-slate-500">Runway:</span> <span className="font-bold ml-1">
-            {data.estimated_runway_months !== null 
-              ? `${data.estimated_runway_months.toFixed(1)} months`
-              : <span className="text-green-600">Infinite</span>
-            }
-          </span>
-        </div>
-        {data.runway_risk_level === "critical" && (
-          <div className="flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">
-            <AlertCircle className="h-3 w-3" />
-            CRITICAL
+
+        {/* Runway & Risk */}
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <span className="text-xs text-slate-400">Runway:</span>
+            <span className={`ml-1 text-sm font-semibold ${runway.color}`}>
+              {runway.text}
+            </span>
           </div>
-        )}
+          <span className={`px-2 py-0.5 rounded text-xs font-medium ${riskBadge.bg} ${riskBadge.text}`}>
+            {riskBadge.label}
+          </span>
+        </div>
       </div>
 
-      {/* Cash History Chart */}
-      {chartData.length > 0 && (
-        <>
-          <h4 className="text-base font-semibold text-slate-900 mb-3">
-            {useHistory ? `Historical Cash & Real-Time Estimate` : 'Cash Position Projection (12 months)'}
-          </h4>
-        
-          <div className="h-64 border border-slate-200 bg-white rounded-lg p-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: useHistory ? 20 : 5 }}>
-                <XAxis 
-                  dataKey="month" 
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#e2e8f0' }}
-                  angle={useHistory ? -45 : 0}
-                  textAnchor={useHistory ? "end" : "middle"}
-                  height={useHistory ? 60 : 30}
-                  interval={0} 
-                />
-                <YAxis 
-                  tick={{ fontSize: 12, fill: '#64748b' }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#e2e8f0' }}
-                  tickFormatter={formatCashCompact}
-                  width={60}
-                />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1e293b', 
-                    border: 'none', 
-                    borderRadius: '8px',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-                    padding: '12px'
-                  }}
-                  labelStyle={{ color: '#f1f5f9', fontWeight: 600, marginBottom: '4px' }}
-                  itemStyle={{ color: '#cbd5e1' }}
-                  formatter={(value: number, name: string, props: any) => {
-                    let label = 'Cash';
-                    if (props.payload.type === 'estimate_burn') label = 'Est. Burn';
-                    if (props.payload.type === 'estimate_raise') label = 'Cap. Raise';
-                    if (props.payload.type === 'estimate_total') label = 'Est. Total';
-                    return [formatCash(value), label];
-                  }}
-                  cursor={{ fill: 'rgba(148, 163, 184, 0.1)' }}
-                />
-                <Bar dataKey="cash" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                  {chartData.map((entry, index) => (
-                    <Cell 
-                      key={`cell-${index}`}
-                      fill={getBarColor(entry)}
-                      stroke={entry.type?.startsWith('estimate') ? 'rgba(0,0,0,0.2)' : 'none'}
-                      strokeDasharray={entry.type === 'estimate_total' ? '4 4' : 'none'}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Legend */}
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-4">
-            {useHistory ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 bg-blue-400 rounded" />
-                  <span className="text-xs text-slate-600 font-medium">Historical</span>
-            </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 bg-blue-600 rounded" />
-                  <span className="text-xs text-slate-600 font-medium">Latest Reported</span>
-                </div>
-                {data.real_time_estimate && (
-                  <>
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 bg-red-500 rounded" />
-                      <span className="text-xs text-slate-600 font-medium">Est. Burn</span>
-                    </div>
-                    {data.real_time_estimate.capital_raise > 0 && (
-                      <div className="flex items-center gap-2">
-                        <div className="h-3 w-3 bg-green-500 rounded" />
-                        <span className="text-xs text-slate-600 font-medium">Cap Raise</span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <div className="h-3 w-3 bg-purple-500 rounded" />
-                      <span className="text-xs text-slate-600 font-medium">Real-Time Est</span>
+      {/* Legend */}
+      <div className="flex flex-wrap gap-3 mb-3 text-[10px]">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.historical }}></div>
+          <span className="text-slate-500">Historical</span>
         </div>
-                  </>
-                )}
-              </>
-            ) : (
-              // ... existing projection legend
-              <>
-          <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 bg-blue-600 rounded" />
-                  <span className="text-xs text-slate-600 font-medium">Current</span>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.reported }}></div>
+          <span className="text-slate-500">Reported</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.burn }}></div>
+          <span className="text-slate-500">Prorated CF</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.raise }}></div>
+          <span className="text-slate-500">Cap. Raise</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.estimate }}></div>
+          <span className="text-slate-500">Estimate</span>
+        </div>
+      </div>
+
+      {/* Chart - taller to show more history */}
+      <div className="h-64 overflow-x-auto">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 9, fill: '#94a3b8' }}
+              tickLine={false}
+              axisLine={{ stroke: '#e2e8f0' }}
+              angle={-45}
+              textAnchor="end"
+              height={50}
+            />
+            <YAxis
+              tick={{ fontSize: 9, fill: '#94a3b8' }}
+              tickFormatter={(val) => formatCash(val)}
+              tickLine={false}
+              axisLine={false}
+              width={55}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
+
+            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              {chartData.map((entry, index) => (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={getBarColor(entry.type)}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-4 gap-2 mt-4 text-xs">
+        <div className="bg-blue-50 rounded p-2 text-center">
+          <p className="text-slate-500 text-[10px]">Reported</p>
+          <p className="font-semibold text-blue-700">{formatCash(data.historical_cash)}</p>
+        </div>
+        <div className={`rounded p-2 text-center ${data.quarterly_operating_cf < 0 ? 'bg-red-50' : 'bg-green-50'}`}>
+          <p className="text-slate-500 text-[10px]">Prorated CF</p>
+          <p className={`font-semibold ${data.quarterly_operating_cf < 0 ? 'text-red-700' : 'text-green-700'}`}>
+            {data.quarterly_operating_cf < 0 ? '-' : '+'}{formatCash(Math.abs(data.prorated_cf))}
+          </p>
+        </div>
+        <div className="bg-green-50 rounded p-2 text-center">
+          <p className="text-slate-500 text-[10px]">Cap. Raise</p>
+          <p className="font-semibold text-green-700">
+            {data.capital_raises?.total ? `+${formatCash(data.capital_raises.total)}` : '-'}
+          </p>
+        </div>
+        <div className="bg-amber-50 rounded p-2 text-center">
+          <p className="text-slate-500 text-[10px]">Current Est.</p>
+          <p className="font-semibold text-amber-700">{formatCash(data.estimated_current_cash)}</p>
+        </div>
+      </div>
+
+      {/* Formula */}
+      <div className="mt-3 pt-3 border-t border-slate-100 text-[10px] text-slate-400">
+        <p>
+          <span className="text-slate-600">Current Est.</span> = Reported Cash + Prorated Operating CF + Capital Raises
+        </p>
+        <p className="mt-0.5">Cash includes cash equivalents, short-term investments, and restricted cash (DilutionTracker methodology)</p>
+      </div>
+
+      {/* Capital Raise Details */}
+      {data.capital_raises?.details && data.capital_raises.details.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <p className="text-xs font-medium text-slate-600 mb-2">Recent Capital Raises</p>
+          <div className="space-y-1">
+            {data.capital_raises.details.slice(0, 3).map((raise, idx) => (
+              <div key={idx} className="flex items-center justify-between text-xs">
+                <span className="text-slate-500">{formatDate(raise.filing_date)}</span>
+                <span className="text-slate-600 truncate max-w-[120px]">{raise.instrument_type}</span>
+                <span className="font-medium text-green-600">+{formatCash(raise.gross_proceeds)}</span>
+              </div>
+            ))}
           </div>
-          <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 bg-blue-400 rounded" />
-                  <span className="text-xs text-slate-600 font-medium">Projected</span>
-          </div>
-          <div className="flex items-center gap-2">
-                  <div className="h-3 w-3 bg-red-500 rounded" />
-                  <span className="text-xs text-slate-600 font-medium">Depleted</span>
-            </div>
-              </>
-            )}
-          </div>
-        </>
+        </div>
       )}
-    </>
+    </div>
   );
 }

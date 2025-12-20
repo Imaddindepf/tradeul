@@ -92,6 +92,7 @@ from services.market.market_data_calculator import MarketDataCalculator, get_mar
 
 # SEC services
 from services.sec.sec_filing_fetcher import SECFilingFetcher
+from services.sec.sec_fulltext_search import SECFullTextSearch, get_fulltext_search
 
 # Extraction services
 from services.extraction.html_section_extractor import HTMLSectionExtractor
@@ -146,6 +147,9 @@ class SECDilutionService:
             self._grok_pool = None
             logger.warning("grok_pool_init_failed", error=str(e))
         
+        # Full-Text Search for comprehensive dilution discovery
+        self._fulltext_search = get_fulltext_search()
+        
         # Stats for pre-screening optimization
         self._stats = {
             "grok_calls": 0,
@@ -158,9 +162,9 @@ class SECDilutionService:
         
         # Inicializar servicios refactorizados
         self.cache_service = CacheService(redis, self.repository)
-        self.filing_fetcher = SECFilingFetcher(http_clients)
+        self.filing_fetcher = SECFilingFetcher(db)
         self.html_extractor = HTMLSectionExtractor(self._grok_pool, self.grok_api_key)
-        self.shares_service = SharesDataService(http_clients)
+        self.shares_service = SharesDataService(redis)
         self.grok_extractor = get_grok_extractor(self._grok_pool, self.grok_api_key)
         
         if not self.grok_api_key and not self._grok_pool:
@@ -209,7 +213,128 @@ class SECDilutionService:
     
     async def get_from_cache_only(self, ticker: str) -> Optional[SECDilutionProfile]:
         """Delegar a cache_service"""
-        return await self.cache_service.get_from_cache_only(ticker, self.repository)
+        return await self.cache_service.get_from_cache_only(ticker)
+    
+    # ========================================================================
+    # FULL-TEXT SEARCH HELPERS
+    # ========================================================================
+    
+    def _boost_priority_filings(
+        self, 
+        filings: List[Dict], 
+        priority_filings: List[Dict]
+    ) -> List[Dict]:
+        """
+        Reordena filings para priorizar los encontrados por Full-Text Search.
+        Los filings con matches de instrumentos dilutivos van primero.
+        """
+        if not priority_filings:
+            return filings
+        
+        # Crear set de accession numbers prioritarios
+        priority_accessions = set()
+        for pf in priority_filings:
+            acc = pf.get('accessionNo', '').replace('-', '')
+            if acc:
+                priority_accessions.add(acc)
+        
+        # Separar en prioritarios y resto
+        prioritized = []
+        rest = []
+        
+        for f in filings:
+            # Normalizar accession number para comparar
+            filing_acc = f.get('accession_number', '').replace('-', '')
+            if not filing_acc:
+                # Intentar construir desde URL
+                url = f.get('url', '')
+                if url:
+                    import re
+                    match = re.search(r'/(\d{10})-(\d{2})-(\d{6})/', url)
+                    if match:
+                        filing_acc = match.group(1) + match.group(2) + match.group(3)
+            
+            if filing_acc in priority_accessions:
+                # Marcar como prioritario
+                f['_priority_boost'] = True
+                f['_from_fulltext'] = True
+                prioritized.append(f)
+            else:
+                rest.append(f)
+        
+        # Combinar: prioritarios primero
+        result = prioritized + rest
+        
+        logger.debug("filings_reordered_by_priority",
+                    total=len(result),
+                    prioritized=len(prioritized),
+                    rest=len(rest))
+        
+        return result
+    
+    def _enrich_with_prospectus_data(
+        self, 
+        extracted_data: Dict, 
+        prospectus_data: List[Dict]
+    ) -> Dict:
+        """
+        Enriquece extracted_data con datos estructurados de S-1/424B4 API.
+        
+        La API ya devuelve:
+        - Securities (tipo y cantidad)
+        - Public offering price (per share y total)
+        - Underwriters
+        - Proceeds before expenses
+        """
+        if not prospectus_data:
+            return extracted_data
+        
+        # Inicializar si no existe
+        if 'completed_offerings' not in extracted_data:
+            extracted_data['completed_offerings'] = []
+        
+        for prospect in prospectus_data:
+            form_type = prospect.get('formType', '')
+            filed_at = prospect.get('filedAt', '')[:10] if prospect.get('filedAt') else None
+            
+            # Solo procesar 424B4 y 424B5 (ofertas completadas)
+            if form_type not in ['424B4', '424B5']:
+                continue
+            
+            # Extraer datos estructurados
+            pop = prospect.get('publicOfferingPrice', {})
+            proceeds = prospect.get('proceedsBeforeExpenses', {})
+            securities = prospect.get('securities', [])
+            underwriters = prospect.get('underwriters', [])
+            
+            # Construir offering
+            offering = {
+                'source': 'SEC-API-S1-424B4',
+                'form_type': form_type,
+                'filing_date': filed_at,
+                'accession_no': prospect.get('accessionNo'),
+                'price_per_share': pop.get('perShare'),
+                'total_amount': pop.get('total'),
+                'total_amount_text': pop.get('totalText'),
+                'proceeds_before_expenses': proceeds.get('total'),
+                'securities': [s.get('name', '') for s in securities],
+                'underwriters': [u.get('name', '') for u in underwriters],
+            }
+            
+            # Evitar duplicados
+            existing_accessions = {
+                o.get('accession_no') for o in extracted_data['completed_offerings']
+                if o.get('accession_no')
+            }
+            
+            if offering['accession_no'] not in existing_accessions:
+                extracted_data['completed_offerings'].append(offering)
+                logger.debug("prospectus_offering_added",
+                           form_type=form_type,
+                           total=pop.get('totalText'),
+                           underwriters=len(underwriters))
+        
+        return extracted_data
     
     async def get_dilution_profile(self, ticker: str, force_refresh: bool = False) -> Optional[SECDilutionProfile]:
         """
@@ -634,17 +759,19 @@ class SECDilutionService:
         """
         Proceso completo de scraping y análisis con Grok
         
-        Pasos:
+        FLUJO HÍBRIDO (Full-Text Search + Grok):
         1. Obtener CIK del ticker
-        2. Buscar filings recientes (10-K, 10-Q, S-3, 8-K, 424B5)
-        3. Descargar contenido HTML de filings relevantes
-        4. Extraer datos estructurados básicos (si es posible)
-        5. Usar Grok API para extraer datos complejos
-        6. Combinar y validar
-        7. Obtener precio actual y shares outstanding
+        2. NUEVO: Full-Text Search para discovery de instrumentos dilutivos
+        3. NUEVO: Obtener datos estructurados de S-1/424B4 API
+        4. Buscar filings adicionales (fallback)
+        5. Priorizar filings basado en Full-Text Search
+        6. Descargar contenido HTML
+        7. Usar Grok API para extraer datos complejos
+        8. Combinar Full-Text + S-1 API + Grok
+        9. Obtener precio actual y shares outstanding
         """
         try:
-            logger.info("starting_sec_scrape", ticker=ticker)
+            logger.info("starting_sec_scrape_hybrid", ticker=ticker)
             
             # 1. Obtener CIK
             cik, company_name = await self._get_cik_and_company_name(ticker)
@@ -654,30 +781,82 @@ class SECDilutionService:
             
             logger.info("cik_found", ticker=ticker, cik=cik, company_name=company_name)
             
-            # 2. Buscar TODOS los filings usando SEC-API.io por CIK (más preciso que ticker)
+            # ================================================================
+            # 2. NUEVO: Full-Text Search Discovery (TODAS las keywords dilutivas)
+            # ================================================================
+            fulltext_discovery = None
+            priority_filings_from_fulltext = []
+            prospectus_data = []
+            
+            try:
+                logger.info("fulltext_discovery_starting", ticker=ticker, cik=cik)
+                
+                # Comprehensive discovery con TODAS las keywords
+                fulltext_discovery = await self._fulltext_search.comprehensive_dilution_discovery(
+                    cik=cik,
+                    ticker=ticker,
+                    start_date="2015-01-01"  # 10 años para warrants de larga duración
+                )
+                
+                if fulltext_discovery:
+                    summary = fulltext_discovery.get("summary", {})
+                    logger.info("fulltext_discovery_completed",
+                              ticker=ticker,
+                              total_filings=summary.get("total_filings_with_dilution", 0),
+                              categories=len(summary.get("categories_detected", [])),
+                              has_warrants=summary.get("has_warrants"),
+                              has_atm=summary.get("has_atm"),
+                              has_shelf=summary.get("has_shelf"),
+                              has_convertibles=summary.get("has_convertibles"))
+                    
+                    # Obtener filings prioritarios del Full-Text Search
+                    priority_filings_from_fulltext = fulltext_discovery.get("priority_filings", [])
+                    
+                    # Datos estructurados de S-1/424B4 (ya parseados!)
+                    prospectus_data = fulltext_discovery.get("prospectus_data", [])
+                    if prospectus_data:
+                        logger.info("prospectus_structured_data_found",
+                                  ticker=ticker,
+                                  count=len(prospectus_data))
+                    
+            except Exception as e:
+                logger.warning("fulltext_discovery_failed_continuing", 
+                             ticker=ticker, error=str(e))
+            
+            # ================================================================
+            # 3. Buscar filings adicionales (método tradicional como fallback)
+            # ================================================================
             filings = await self._fetch_all_filings_from_sec_api_io(ticker, cik)
             
-            # 2.5 CRÍTICO: Buscar TODOS los 424B (tienen detalles de warrants/offerings)
-            # Aumentar a 100 para asegurar que capturamos filings recientes
+            # 3.5 CRÍTICO: Buscar TODOS los 424B
             filings_424b = await self._fetch_424b_filings(cik, max_count=100)
             if filings_424b:
                 logger.info("424b_filings_found", ticker=ticker, count=len(filings_424b))
-                # Agregar 424B al pool de filings
                 filings.extend(filings_424b)
             
-            if not filings:
+            if not filings and not priority_filings_from_fulltext:
                 logger.warning("no_filings_found", ticker=ticker, cik=cik)
-                # Crear profile vacío
                 return self._create_empty_profile(ticker, cik, company_name)
             
-            logger.info("filings_found_total", ticker=ticker, count=len(filings), with_424b=len(filings_424b))
+            logger.info("filings_found_total", ticker=ticker, 
+                       count=len(filings), 
+                       with_424b=len(filings_424b),
+                       from_fulltext=len(priority_filings_from_fulltext))
             
-            # 3. Filtrar TODOS los filings relevantes (sin límite)
-            # Buscar desde 2015 - warrants pueden tener 10 años de vida
-            relevant_filings = self._filter_relevant_filings(filings)  # SIN LÍMITE [:50]
+            # ================================================================
+            # 4. Filtrar y PRIORIZAR filings usando Full-Text Search results
+            # ================================================================
+            relevant_filings = self._filter_relevant_filings(filings)
+            
+            # Boost priority para filings encontrados por Full-Text Search
+            if priority_filings_from_fulltext:
+                relevant_filings = self._boost_priority_filings(
+                    relevant_filings, 
+                    priority_filings_from_fulltext
+                )
             
             logger.info("relevant_filings_selected", ticker=ticker, count=len(relevant_filings), 
-                       forms=[f['form_type'] for f in relevant_filings])
+                       forms=[f['form_type'] for f in relevant_filings[:20]])
             
             filing_contents = await self._download_filings(relevant_filings)
             
@@ -701,14 +880,32 @@ class SECDilutionService:
                 logger.warning("multipass_extraction_failed", ticker=ticker)
                 return self._create_empty_profile(ticker, cik, company_name)
             
-            # 5. NUEVO: Ajustar warrants por stock splits
+            # 5. NUEVO: Enriquecer con datos estructurados de S-1/424B4 API
+            if prospectus_data:
+                extracted_data = self._enrich_with_prospectus_data(
+                    extracted_data, 
+                    prospectus_data
+                )
+            
+            # 5.5. NUEVO: Añadir metadata del Full-Text Discovery
+            if fulltext_discovery:
+                extracted_data['_fulltext_discovery'] = {
+                    'categories_detected': fulltext_discovery.get('summary', {}).get('categories_detected', []),
+                    'total_filings_scanned': fulltext_discovery.get('summary', {}).get('total_filings_with_dilution', 0),
+                    'has_warrants': fulltext_discovery.get('summary', {}).get('has_warrants', False),
+                    'has_atm': fulltext_discovery.get('summary', {}).get('has_atm', False),
+                    'has_shelf': fulltext_discovery.get('summary', {}).get('has_shelf', False),
+                    'has_convertibles': fulltext_discovery.get('summary', {}).get('has_convertibles', False),
+                }
+            
+            # 6. NUEVO: Ajustar warrants por stock splits
             if extracted_data.get('warrants'):
                 extracted_data['warrants'] = await self._adjust_warrants_for_splits(
                     ticker, 
                     extracted_data['warrants']
                 )
             
-            # 6. Obtener precio actual y shares outstanding
+            # 7. Obtener precio actual y shares outstanding
             current_price, shares_outstanding, float_shares = await self._get_current_market_data(ticker)
             
             # 7. Construir profile completo
@@ -1239,25 +1436,35 @@ class SECDilutionService:
         
         # Parse convertible notes (con campos adicionales de DilutionTracker)
         from models.sec_dilution_models import ConvertibleNoteModel
-        cn_limits = {'underwriter_agent': 255}
+        cn_limits = {'underwriter_agent': 255, 'series_name': 255}
         convertible_notes = [
             ConvertibleNoteModel(
                 ticker=ticker,
+                series_name=cn.get('series_name'),  # CRITICAL: Include series name
                 total_principal_amount=cn.get('total_principal_amount'),
                 remaining_principal_amount=cn.get('remaining_principal_amount'),
                 conversion_price=cn.get('conversion_price'),
+                original_conversion_price=cn.get('original_conversion_price'),
+                conversion_ratio=cn.get('conversion_ratio') or cn.get('conversion_rate'),
                 total_shares_when_converted=cn.get('total_shares_when_converted'),
                 remaining_shares_when_converted=cn.get('remaining_shares_when_converted'),
+                interest_rate=cn.get('interest_rate'),
                 issue_date=cn.get('issue_date'),
                 convertible_date=cn.get('convertible_date'),
                 maturity_date=cn.get('maturity_date'),
                 underwriter_agent=cn.get('underwriter_agent'),
                 filing_url=cn.get('filing_url'),
                 notes=cn.get('notes'),
-                # NEW: Additional DilutionTracker fields
+                # Registration and protection fields
+                is_registered=cn.get('is_registered'),
+                registration_type=cn.get('registration_type'),
                 known_owners=cn.get('known_owners'),
                 price_protection=cn.get('price_protection'),
                 pp_clause=cn.get('pp_clause'),
+                # Toxic indicators
+                variable_rate_adjustment=cn.get('variable_rate_adjustment'),
+                floor_price=cn.get('floor_price'),
+                is_toxic=cn.get('is_toxic'),
                 last_update_date=cn.get('last_update_date')
             )
             for cn in [self._sanitize_field_lengths(x, cn_limits) for x in extracted_data.get('convertible_notes', [])]

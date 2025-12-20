@@ -23,6 +23,422 @@ Search the web exhaustively for ANY information about this company's dilution ri
 - Cash position and burn rate
 - Insider transactions
 
+## THIS IS MY INFORM AND U WILL USE IT TO ANALYZE THE DATA:
+{
+  "sec_filings_guide": [
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-1/F-1",
+      "why_is_it_filed": "IPO",
+      "when_is_it_filed": "Months prior to pricing of IPO",
+      "how_to_tell_the_difference": "First page will say initial public offering",
+      "immediate_price_impact": "None",
+      "explanation": "Prospectus required for the registration of shares initially issued and sold in an IPO",
+      "example": "https://www.sec.gov/Archives/edgar/data/1874875/000149315221026557/forms-1.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-1/F-1",
+      "why_is_it_filed": "Follow-on/Secondary Offering",
+      "when_is_it_filed": "Usually less than one month before pricing date",
+      "how_to_tell_the_difference": "Filing will specify a maximum $ amount being offered and placeholders for # of shares and price",
+      "immediate_price_impact": "Medium",
+      "explanation": "Companies may use S-1 instead of a shelf (S-3) to register a follow-on/secondary public offering, which would normally result in a price decline depending on the pricing and offering terms. If no PR prior to filing, then the market will interpret this as new information and price will decline. Market will fully price in the offering once PR of pricing is announced.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1649009/000121390021065218/ea152193-f1_siyatamobileinc.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-1/F-1",
+      "why_is_it_filed": "Resale - to register previously restricted shares, shares underlying warrants/convertible securities, equity line agreements",
+      "when_is_it_filed": "Anytime, or contractually within time period specified in the registration rights for any private placement",
+      "how_to_tell_the_difference": "Filing will specify exactly which shares, who's selling, and how many shares are being registered",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Restricted securities need registration before it can be sold to public without rule 144 restrictions. Minimal impact on initial filing because requires EFFECT before shares are officially registered and can be sold. Once effective, may have material impact if unlocked shares greatly exceed current trading float or after a short squeeze.",
+      "example": "https://www.sec.gov/ix?doc=/Archives/edgar/data/1815903/000110465922001924/tmb-20220106xs1.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-1/F-1/A",
+      "why_is_it_filed": "Amend prior filing",
+      "when_is_it_filed": "After initial filing",
+      "how_to_tell_the_difference": "Check which filing it's linked to by clicking the file number",
+      "immediate_price_impact": "None",
+      "explanation": "Original filing may need amendments for additional disclosures, or finalizing exhibits such as underwriting agreements, documents detailing warrants/convertible terms, consent of accountant & counsel before receiving EFFECT",
+      "example": "https://www.sec.gov/Archives/edgar/data/1649009/000121390021067753/ea153074-f1a2_siyatamobile.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "EFFECT",
+      "why_is_it_filed": "Filed when SEC has officially finished review of filing",
+      "when_is_it_filed": "Usually within one month of S-1/F-1, S-3/F-3, F-10, but longer when co is smaller, has complex financials, or foreign. All EFFECTs are bulk publicly disclosed at 6:00AM daily, even if received earlier. Small cap S-1/F-1 offerings almost always priced on day of EFFECT.",
+      "how_to_tell_the_difference": "Check which filing it's linked to by clicking the file number",
+      "immediate_price_impact": "Low-Medium",
+      "explanation": "EFFECT is required before an S-1/F-1 related offering can be priced, a shelf can be used, or resale shares be fully registered and sold. Will have biggest market impact when market is unsure of exact date of pricing for small cap discounted S-1 offering, since public disclosure of EFFECT for S-1/F-1 offering means pricing is imminent.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1649009/999999999522000075/xslEFFECTX01/primary_doc.xml"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-1/F-1MEF",
+      "why_is_it_filed": "Up-size prior offering",
+      "when_is_it_filed": "After EFFECT and shortly before pricing",
+      "how_to_tell_the_difference": "Check which filing it's linked to by clicking the file number",
+      "immediate_price_impact": "Low-Medium",
+      "explanation": "Co can decide to upsize up to 20% more than max $ amount previously specified even after receiving EFFECT. Some instant impact potential if market is anticipating a discounted offering but unsure of timing; the filing signals co has received EFFECT and pricing announcement is imminent.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1828253/000110465921134595/tm2119736d15_f1mef.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "424B4",
+      "why_is_it_filed": "Final prospectus disclosing offering details",
+      "when_is_it_filed": "After pricing of IPO or S-1/F-1 related offering",
+      "how_to_tell_the_difference": "Check which filing it's linked to by clicking the file number",
+      "immediate_price_impact": "None",
+      "explanation": "Final prospectus supplement for the S-1/F-1 containing the pricing details and shares issued. No impact because pricing PR would have been released before this.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1828253/000110465921135073/tm2119736-12_424b4.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-3/F-3/F-10",
+      "why_is_it_filed": "Shelf",
+      "when_is_it_filed": "Anytime the company plans to raise funds over a period of three years",
+      "how_to_tell_the_difference": "Will state a max $ amount being registered and the types of securities issuable",
+      "immediate_price_impact": "None-Low",
+      "explanation": "An effective shelf allows the co to offer at anytime within the next three years up to the shelf $ amount, unless subject to $ limits imposed by the baby shelf rule. No immediate impact because initial filing can't be used until receiving EFFECT. Sometimes attached with ATM.",
+      "example": "https://www.sec.gov/Archives/edgar/data/924168/000092416821000063/a2021q4forms-3.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-3/F-3/F-10",
+      "why_is_it_filed": "Resale - to register previously restricted shares, shares underlying warrants/convertible securities, equity line agreements",
+      "when_is_it_filed": "Anytime, or contractually within time period specified in the registration rights for any private placement",
+      "how_to_tell_the_difference": "Filing will specify exactly which shares, whos selling, and how many shares are being registered",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Restricted securities need registration before can be sold to public without rule 144 restrictions. Minimal impact on initial filing because requires EFFECT before shares are officially registered and can be sold. Once effective, may have material impact if unlocked shares greatly exceed current trading float or after a short squeeze.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1383701/000119312521364986/d274997ds3.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-3/F-3MEF",
+      "why_is_it_filed": "Upsize prior shelf",
+      "when_is_it_filed": "Anytime after EFFECT on shelf",
+      "how_to_tell_the_difference": "Check which filing it's linked to by clicking the file number",
+      "immediate_price_impact": "Low-Medium",
+      "explanation": "Co can decide to upsize up to 20% more than max $ amount previously specified on the shelf even after receiving EFFECT. May have price impact because it signals that the company intends to use the shelf imminently, since the co wouldn't upsize the shelf unless it plans to use it soon.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1591956/000121390021046492/ea146922-f3mef_sphere3d.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-3/F-3ASR",
+      "why_is_it_filed": "Automatic shelf registration",
+      "when_is_it_filed": "Anytime, available to \"Well-Known, Seasoned Issuers (WKSI)\", which is defined as a company that exceeded $700m float value anytime in the last 60 days or have issued in the last three years at least $1 billion aggregate amount of non-convertible securities other than common equity, in primary offerings for cash, not exchange.",
+      "how_to_tell_the_difference": "Will be blank for $ amount (unless contains ATM) and state which types of securities issuable",
+      "immediate_price_impact": "None-Low",
+      "explanation": "In majority of cases, a company meets the WKSI criteria by exceeding the $700m float value. It's called automatic because it receives EFFECT automatically at the time of filing. This means a company can use the shelf immediately and offer right away. If they offer right away, then it can have material price impact. There is also no limit on the $ amount for this shelf. Sometimes attached with ATM.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1707919/000149315221012136/formf-3asr.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "S-3/F-3ASR",
+      "why_is_it_filed": "Resale - to register previously restricted shares, shares underlying warrants/convertible securities, equity line agreements",
+      "when_is_it_filed": "Anytime, or contractually within time period specified in the registration rights for any private placement",
+      "how_to_tell_the_difference": "Filing will specify exactly which shares, whos selling, and how many shares are being registered",
+      "immediate_price_impact": "None-Low",
+      "explanation": "ASR can also be used for resale purposes as long as the company meets the WKSI criteria, meaning shares are registered the moment it's filed without need for additional wait period for EFFECT.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1707919/000114036122000840/ny20001877x1_f3asr.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "424B5",
+      "why_is_it_filed": "ATM",
+      "when_is_it_filed": "Anytime after EFFECT on shelf",
+      "how_to_tell_the_difference": "First page will state max $ issuable from time to time and mention \"at the market offering\" or \"equity distribution agreement\"",
+      "immediate_price_impact": "None-Medium",
+      "explanation": "Once filed, co can issue shares on the open market anytime up to the $ amount. Usually filed throughout course of business so market will not know if the company will use immediately. Normally no market impact on filing. Will have impact if it's more obvious co will use immediately, such as filing after a big run up and needs cash badly. Sometimes filed with 424B3.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1389002/000119312521251940/d164824d424b5.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "424B5",
+      "why_is_it_filed": "Final prospectus disclosing offering details",
+      "when_is_it_filed": "Shortly after pricing PR",
+      "how_to_tell_the_difference": "Filing will specify shares issued and price/share inline with PR",
+      "immediate_price_impact": "None",
+      "explanation": "Prospectus supplement filed to disclose an offering was completed and linked to the shelf it was issued with through the same file number. No impact because the PR would be out first, unless placeholder 424B5 was filed before PR.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1541157/000110465922000597/tm221366d1_424b5.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "424B5",
+      "why_is_it_filed": "Register shares underlying warrants/convertible securities",
+      "when_is_it_filed": "Anytime, or contractually within time period specified in the registration rights for any private placement",
+      "how_to_tell_the_difference": "Filing will specify which warrants or convertible securities are being registered",
+      "immediate_price_impact": "None",
+      "explanation": "A 424B5 can also be used to register shares underlying warrants/convertible securities, which will reduce capacity room on the shelf. No impact most of the time unless market is highly short sale constrained.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1419275/000118518521001583/greenbox20211103b_424b5.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "424B3",
+      "why_is_it_filed": "Filed after resale registration receives EFFECT",
+      "when_is_it_filed": "After resale registration receives EFFECT",
+      "how_to_tell_the_difference": "First page will match the original resale registration filing",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Customary filing after resale registration receives EFFECT. Shares officially registered after this and may have material impact over time if unlocked shares greatly exceed current trading float or after a short squeeze.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1858685/000149315221032428/form424b3.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "424B3",
+      "why_is_it_filed": "Amend prior filing",
+      "when_is_it_filed": "When there is additional material disclosure required",
+      "how_to_tell_the_difference": "First page will mention amendment",
+      "immediate_price_impact": "None",
+      "explanation": "Usually filed if new material development occurs while prior S-1/F-1 filing is still active. No impact because it will usually contain the same disclosure as the 8-k.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1232582/000123258222000009/aht2021q4revparot424b3.htm"
+    },
+    {
+      "category": "Dilution/Prospectus Filings",
+      "filing": "RW",
+      "why_is_it_filed": "Withdrawal of registration filing",
+      "when_is_it_filed": "After initial filing and whenever co wants to withdraw it",
+      "how_to_tell_the_difference": "Check which filing it's linked to by clicking the file number",
+      "immediate_price_impact": "Low-Medium",
+      "explanation": "Co may decide to withdraw a prior registration such as S-1 or S-3. If the market was already partially pricing in an offering such as one signaled by an S-1, then the public disclosure of RW may cause a pop because it signals that the company is cancelling the offering. Less impact if RW for resale.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1590418/000168316821004669/focus_rw.htm"
+    },
+    {
+      "category": "Financials",
+      "filing": "10-Q",
+      "why_is_it_filed": "Quarterly financials",
+      "when_is_it_filed": "Deadline 45 days after quarter end for <$75m float value filer, 40 days for others. 99% of the time filed after earnings PR.",
+      "how_to_tell_the_difference": "N/A",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Discloses updated financials and any additional required disclosures since last quarter. Only immediate impact if earnings PR not released yet and 10-Q filed beforehand with financials materially different from market expectations. Quarterly financials for foreign firms not required but may be disclosed in form 6-k.",
+      "example": "https://www.sec.gov/ix?doc=/Archives/edgar/data/7623/000143774921023663/artw20210831_10q.htm"
+    },
+    {
+      "category": "Financials",
+      "filing": "10-K",
+      "why_is_it_filed": "Annual financials",
+      "when_is_it_filed": "Deadline 90 days after fiscal year end for <$75m float value filer, 75 days for $75m-$700m, 60 days for >$700m. 99% of the time filed after earnings PR.",
+      "how_to_tell_the_difference": "N/A",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Discloses updated financials and any additional required disclosures. Only immediate impact if earnings PR not released yet and 10-K filed beforehand with financials materially different from market expectations",
+      "example": "https://www.sec.gov/Archives/edgar/data/7623/000143774921002312/artw20201130_10k.htm"
+    },
+    {
+      "category": "Financials",
+      "filing": "20-F",
+      "why_is_it_filed": "Annual financials for foreign co",
+      "when_is_it_filed": "Deadline 4 months after year end",
+      "how_to_tell_the_difference": "N/A",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Discloses updated financials and any additional required disclosures. Only immediate impact if earnings PR not released yet and 20-F filed beforehand with financials materially different from market expectations",
+      "example": "https://www.sec.gov/Archives/edgar/data/1782309/000110465921093937/tm2114176d1_20f.htm"
+    },
+    {
+      "category": "Financials",
+      "filing": "40-F",
+      "why_is_it_filed": "Annual financials for CAD co",
+      "when_is_it_filed": "Due the same day as the issuer’s annual report is due to be filed in Canada",
+      "how_to_tell_the_difference": "N/A",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Canadian version of 20-F",
+      "example": "https://www.sec.gov/ix?doc=/Archives/edgar/data/1690947/000106299321009977/form40f.htm"
+    },
+    {
+      "category": "Material Disclosures",
+      "filing": "8-K",
+      "why_is_it_filed": "Disclosure for material event/change",
+      "when_is_it_filed": "Within 4 days of the event. 99% of time PR before 8-k, or no PR",
+      "how_to_tell_the_difference": "Filing will have categories describing the type of event and details. If filed with PR, exhibits will contain PR.",
+      "immediate_price_impact": "None-High",
+      "explanation": "Main categories are: Earnings, business updates, listing status, M&A activity, acquisitions/dispositions, changes in control or management, change in auditors, securities issuances, and bankruptcies/restructuring. If the filing is material and publicly released before the PR, then will move markets depending on severity of the event. See attached exhibits for raw documents of material contracts, purchase agreements, and other legal documents",
+      "example": "https://www.sec.gov/ix?doc=/Archives/edgar/data/1080657/000149315222000686/form8-k.htm"
+    },
+    {
+      "category": "Material Disclosures",
+      "filing": "6-K",
+      "why_is_it_filed": "Disclosure for material event/change for foreign firm",
+      "when_is_it_filed": "\"promptly\" after the event. 99% of time PR before 6-k, or no PR",
+      "how_to_tell_the_difference": "Filing will have categories describing the type of event and details. If filed with PR, exhibits will contain PR.",
+      "immediate_price_impact": "None-High",
+      "explanation": "If the filing is material and publicly released before the PR, then will move markets depending on severity of the event. See attached exhibits for raw documents of material contracts, purchase agreements, and other legal documents",
+      "example": "https://www.sec.gov/Archives/edgar/data/1696396/000156459022000689/mito-6k_20220131.htm"
+    },
+    {
+      "category": "Ownership",
+      "filing": "SC 13D",
+      "why_is_it_filed": "Initial ownership disclosure for activist stakes",
+      "when_is_it_filed": "Within 10 days of acquisition > 5% o/s",
+      "how_to_tell_the_difference": "Filing will state who filed, how many shares or derivatives owned, and % of ownership",
+      "immediate_price_impact": "None-Medium",
+      "explanation": "Main difference between 13D and 13G is purpose of stake, 13D for those with intent on having influence over the company and 13G for passive investors. May have positive price impact if a prominent investor acquires a large activist stake or significant % of the float. Filing will also disclose details on why the investor bought and each transaction of the investor.",
+      "example": "https://www.sec.gov/Archives/edgar/data/353184/000089706914000369/cg433.htm"
+    },
+    {
+      "category": "Ownership",
+      "filing": "SC 13G",
+      "why_is_it_filed": "Initial ownership disclosure for passive stakes",
+      "when_is_it_filed": "Within 45 days of acquisition > 5% o/s, within 10 days for >10%",
+      "how_to_tell_the_difference": "Filing will state who filed, how many shares or derivatives owned, and % of ownership",
+      "immediate_price_impact": "None-Medium",
+      "explanation": "May have positive price impact if a prominent investor acquires a large stake or significant % of the float.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1121702/000092963820000859/sc13g.htm"
+    },
+    {
+      "category": "Ownership",
+      "filing": "SC 13D/A",
+      "why_is_it_filed": "Disclose ownership changes for activist stakes, or change in purpose of transaction",
+      "when_is_it_filed": "Within 2 days whenever ownership changes >1% of o/s or falling below 5%",
+      "how_to_tell_the_difference": "Filing will state who filed, new # of shares or derivatives owned, and % of ownership",
+      "immediate_price_impact": "None-Low",
+      "explanation": "May have positive/negative price impact depending on magnitude of change and which investor bought/sold. Will also disclose each transaction of the investor.",
+      "example": "https://www.sec.gov/Archives/edgar/data/353184/000089706915000315/cg585.htm"
+    },
+    {
+      "category": "Ownership",
+      "filing": "SC 13G/A",
+      "why_is_it_filed": "Disclose ownership changes for passive stakes",
+      "when_is_it_filed": "All filers: once a year within 45 days after the year end if any changes. Within 2 days of falling below 5%. Qualified Institutional investors: within 10 days after the end of the first month when >10% stake and within 10 days of the end of any month for any changes > 5% of o/s. Passive investors: Within 2 days when going over 10% and within 2 days whenever ownership changes more >5% of o/s.",
+      "how_to_tell_the_difference": "Filing will state who filed, new # of shares or derivatives owned, and % of ownership",
+      "immediate_price_impact": "None-Low",
+      "explanation": "May have positive/negative price impact depending on magnitude of change and which investor bought/sold",
+      "example": "https://www.sec.gov/Archives/edgar/data/1121702/000092963821000068/sc13g.htm"
+    },
+    {
+      "category": "Ownership",
+      "filing": "Form 3",
+      "why_is_it_filed": "Initial filing of insider",
+      "when_is_it_filed": "Within 10 days of becoming an insider",
+      "how_to_tell_the_difference": "Filing will state who filed, # of shares/derivatives owned, and position of person",
+      "immediate_price_impact": "None",
+      "explanation": "Only filed once when a person becomes an officer, even if holding 0 shares. See link under form 3 for details of codes.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1717556/000149315221022545/xslF345X02/ownership.xml"
+    },
+    {
+      "category": "Ownership",
+      "filing": "Form 4",
+      "why_is_it_filed": "Transaction of insider",
+      "when_is_it_filed": "Within 2 days of transaction",
+      "how_to_tell_the_difference": "Filing will state who filed, date of transaction, # of shares/derivatives transacted at what price, and position of person",
+      "immediate_price_impact": "None-Medium",
+      "explanation": "If an important insider purchases or sells a large stake, market may react to it as positive/negative signal. Make sure to read footnotes as to how the shares were purchased or sold. Sometimes part of automated plan.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1318605/000089924321049992/xslF345X03/doc4.xml"
+    },
+    {
+      "category": "Ownership",
+      "filing": "Form 5",
+      "why_is_it_filed": "Omitted transaction of insider",
+      "when_is_it_filed": "Within 45 days of year end",
+      "how_to_tell_the_difference": "Filing will state who filed, date of transaction, # of shares/derivatives transacted at what price, and position of person",
+      "immediate_price_impact": "None",
+      "explanation": "Only filed if an earlier transaction was not reported.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1582982/000149315222000728/xslF345X03/ownership.xml"
+    },
+    {
+      "category": "Proxies",
+      "filing": "PRE 14A",
+      "why_is_it_filed": "Preliminary Proxy",
+      "when_is_it_filed": "At least 10 calendar days prior to when the definitive proxy is sent out",
+      "how_to_tell_the_difference": "Proxy will mention it's preliminary and contain the list of proposals that require a shareholder vote",
+      "immediate_price_impact": "None",
+      "explanation": "Only required for non-annual shareholder meetings, so usually special meetings for one-off items such as reverse splits, authorized share increases etc.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1309082/000147793221007950/cei_pre14a.htm"
+    },
+    {
+      "category": "Proxies",
+      "filing": "DEF 14A",
+      "why_is_it_filed": "Definitive Proxy",
+      "when_is_it_filed": "After the preliminary proxy, or within 120 days after year end for the annual meeting proxy",
+      "how_to_tell_the_difference": "Proxy will contain the list of proposals that require a shareholder vote",
+      "immediate_price_impact": "None",
+      "explanation": "Most companies have one standard annual shareholder meeting per year so they will have at least one DEF 14A per year. Proxies can also contain some information not found in other filings, such as major shareholders, insider ownership, and executive compensation schemes",
+      "example": "https://www.sec.gov/Archives/edgar/data/1309082/000147793221008829/cei_def14a.htm"
+    },
+    {
+      "category": "Proxies",
+      "filing": "DEFM14A",
+      "why_is_it_filed": "Proxy related to merger",
+      "when_is_it_filed": "After merger is announced",
+      "how_to_tell_the_difference": "Proxy will contain merger related proposals",
+      "immediate_price_impact": "None",
+      "explanation": "Proxy specifically for voting on proposals related to merger. Will contain details related to merger structure and the parties involved with the merger.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1499961/000143774921017582/nete20210726_defm14a.htm"
+    },
+    {
+      "category": "Proxies",
+      "filing": "PREC14A, PRRN14A, DFAN14A",
+      "why_is_it_filed": "Proxies filed during proxy war",
+      "when_is_it_filed": "When a shareholder group has their own proposals or board nominees different from incumbent board proposals",
+      "how_to_tell_the_difference": "Proxy will contain activist proposals",
+      "immediate_price_impact": "None-low",
+      "explanation": "Depending on what the activist is pushing for, may have material impact if trying to push for sale or some immediate value realization",
+      "example": "https://www.sec.gov/Archives/edgar/data/1772028/000110465921152636/tm2136154-1_dfan14a.htm"
+    },
+    {
+      "category": "Other less relevant forms",
+      "filing": "S-4/F-4",
+      "why_is_it_filed": "Registration for shares issued in connection with a merger",
+      "when_is_it_filed": "After a merger is announced",
+      "how_to_tell_the_difference": "Filing will contain which shares are being registered and merger details",
+      "immediate_price_impact": "None",
+      "explanation": "Filed when shares that are issued to a merger target need to be registered. Also filed for exchange offers.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1499961/000143774921012366/nete20210512_s4.htm"
+    },
+    {
+      "category": "Other less relevant forms",
+      "filing": "425",
+      "why_is_it_filed": "Additional disclosure related to merger",
+      "when_is_it_filed": "After S-4 is filed, when new information needs to be disclosed related to the merger",
+      "how_to_tell_the_difference": "Will contain the disclosure items, should match accompanying 8-k that's filed",
+      "immediate_price_impact": "None",
+      "explanation": "Will be close to identical to the 8-k disclosing any material event",
+      "example": "https://www.sec.gov/Archives/edgar/data/1828972/000110465921139164/tm2132910d1_8k.htm"
+    },
+    {
+      "category": "Other less relevant forms",
+      "filing": "1-A",
+      "why_is_it_filed": "Prospectus for offering under Regulation A+",
+      "when_is_it_filed": "Anytime co wants to raise funds from public but under rules for Regulation A+",
+      "how_to_tell_the_difference": "Looks similar to IPO S-1 for exhibit PART II of filing",
+      "immediate_price_impact": "None",
+      "explanation": "Regulation A+ is a legal process of fundraising that's similar to crowdfunding. Allows more solicitation of IPO demand by the co through social media and other means not allowed in S-1 IPO. Historically, very low quality companies IPO through this path.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1872356/000110465921117958/xsl1-A_X01/primary_doc.xml"
+    },
+    {
+      "category": "Other less relevant forms",
+      "filing": "1-U, 1-K, 1-SA",
+      "why_is_it_filed": "Regulation A+ equivalents of 8-k, 10-K, 10-Q",
+      "when_is_it_filed": "Within 4 days of event for 1-U, within 120 days of year end for 1-K, within 90 days of mid year for 1-SA",
+      "how_to_tell_the_difference": "N/A",
+      "immediate_price_impact": "None",
+      "explanation": "Same as equivalents. Regulation A+ companies only require one semi-annual (1-SA) report instead 10-q each quarter. Most Reg A+ companies convert to normal reporting company after IPO.",
+      "example": ""
+    },
+    {
+      "category": "Other less relevant forms",
+      "filing": "13F-HR",
+      "why_is_it_filed": "Disclose positions of an institutional investor that has >$100m AUM",
+      "when_is_it_filed": "Within 45 days of each quarter end",
+      "how_to_tell_the_difference": "Filing will list each position of the investor",
+      "immediate_price_impact": "None-Low",
+      "explanation": "Required disclosure filed by investment funds greater than $100m AUM. May have market impact if a prominant investor adjusts its stake in a company, if not already disclosed in 13G/D",
+      "example": "https://www.sec.gov/Archives/edgar/data/1067983/000095012322002973/xslForm13F_X01/0000950123-22-002973-9815.xml"
+    },
+    {
+      "category": "Other less relevant forms",
+      "filing": "S-8",
+      "why_is_it_filed": "Register shares given in employee benefit plans",
+      "when_is_it_filed": "Anytime",
+      "how_to_tell_the_difference": "Filing will mention shares and options issued as part of employee benefit plan",
+      "immediate_price_impact": "None",
+      "explanation": "Special registration for shares given in employee benefit plans, less disclosures in S-8 so faster to file. No impact as these shares are usually sold in small amounts and over a long period of time.",
+      "example": "https://www.sec.gov/Archives/edgar/data/1717556/000149315221025721/forms-8.htm"
+    }
+  ]
+}
+
 ## SEARCH SOURCES (prioritize in this order)
 1. SEC EDGAR filings (sec.gov)
 2. Company investor relations page
@@ -155,11 +571,56 @@ Return ONLY valid JSON in this exact structure:
 
 ## DILUTION RISK SCORING GUIDE
 
-- **9-10 (CRITICAL)**: Imminent dilution expected, toxic financing, <3 months cash
-- **7-8 (HIGH)**: Active ATM/Shelf being used, frequent raises, <6 months cash
-- **5-6 (MEDIUM)**: Has instruments that could dilute, occasional raises
-- **3-4 (LOW)**: Minimal dilution risk, strong cash position
-- **1-2 (VERY LOW)**: Cash flow positive, buybacks, no convertibles/warrants
+{
+"dilution_risk_ratings": [
+{
+"rating_name": "Overall Risk",
+"tooltip_title": "overall dilution risk",
+"explanation": "Higher the dilution risk, higher the probability that share count will increase in the near future due to dilution. All things being equal, a High rating indicates short bias, while a Low rating indicates long bias.",
+"additional_info": "This rating is derived from the four sub ratings listed to the right."
+},
+{
+"rating_name": "Offering Ability",
+"tooltip_title": "Offering Ability",
+"explanation": "A High rating indicates the company has the ability to conduct a discounted offering through a shelf offering or a S-1 offering, usually resulting in a sudden and large price drop. A Low rating reflects the absence of an active shelf, pending S-1 offering or that the company has limited remaining capacity on the shelf to conduct offerings.",
+"levels": {
+"Low": "less than $1M shelf capacity, or has no S-1",
+"Medium": "$1M - $20M shelf capacity",
+"High": "greater than $20M"
+}
+},
+{
+"rating_name": "Overhead Supply",
+"tooltip_title": "Total Potential Dilution Amount Excluding Shelf",
+"explanation": "Computes potential dilution relative to current O/S. A higher rating indicates greater dilution potential from Warrants, ATM, Convertibles, Equity Lines, and S-1 offering. All things being equal, a higher rating means more negative price pressure. Note that this computation does not include shelf amounts as it's already considered in offering ability.",
+"levels": {
+"Low": "up to 20% dilution relative to current O/S",
+"Medium": "20% - 50%",
+"High": "greater than 50%"
+}
+},
+{
+"rating_name": "Historical",
+"tooltip_title": "Historical Dilution Profile",
+"explanation": "Higher the historical dilution, more likely the company will dilute in the future.",
+"levels": {
+"Low": "less than 30% O/S increase over past 3 years",
+"Medium": "30% - 100%",
+"High": "greater than 100%"
+}
+},
+{
+"rating_name": "Cash Need",
+"tooltip_title": "Imminent Cash Need",
+"explanation": "A higher cash need indicates a higher probability that the company will raise capital. This rating is computed by examining the company's cash runway.",
+"levels": {
+"Low": "Positive operating CF or more than 2 years of cash runway",
+"Medium": "6 - 24 months of cash runway",
+"High": "less than 6 months of cash runway"
+}
+}
+]
+}
 
 ## EXAMPLE OUTPUT FOR REFERENCE
 
@@ -176,6 +637,8 @@ For a high-risk penny stock:
   ],
   ...
 }}
+
+
 
 NOW ANALYZE {ticker} ({company_name}):
 """

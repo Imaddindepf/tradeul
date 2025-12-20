@@ -232,6 +232,74 @@ class GrokExtractor:
                             atm['remaining_capacity'] = remaining
                             atm['_usage_from_10q'] = atm_usage_total
             
+            # Pass 4c: Extract Convertible Notes from 10-K/10-Q (primary source - has full details)
+            # 10-K/10-Q have complete debt footnotes with total/remaining principal, conversion rates, etc.
+            filings_10k = [f for f in filing_contents if f['form_type'] in ['10-K', '10-K/A']]
+            filings_annual_quarterly = filings_10q[:3] + filings_10k[:2]  # Recent 10-Qs and 10-Ks
+            
+            if filings_annual_quarterly:
+                logger.info("pass4c_convertible_notes_start", ticker=ticker, 
+                           filings=len(filings_annual_quarterly))
+                
+                # Extract convertible notes with FULL details from 10-K/10-Q
+                result = await self._extract_pass_focused(
+                    ticker, company_name, filings_annual_quarterly,
+                    focus="""CRITICAL: Extract ALL CONVERTIBLE NOTES from Debt/Long-Term Debt footnotes.
+
+SEARCH FOR these exact phrases in the financial statement notes:
+- "Convertible Notes" or "Convertible Senior Notes" or "Senior Convertible Notes"
+- "Notes due [year]" (e.g., "1.25% Convertible Senior Notes due 2025")
+- "conversion rate" (e.g., "107.2113 shares per $1,000 principal")
+- "aggregate principal amount"
+
+EXTRACT these specific values:
+- series_name: EXACT name like "1.25% Convertible Senior Notes due 2025"
+- total_principal_amount: Original issuance amount in DOLLARS (e.g., $143,800,000)
+- remaining_principal_amount: Current outstanding amount (total minus repurchases/conversions)
+- conversion_rate: Shares per $1,000 principal (e.g., 107.2113)
+- conversion_price: Calculate as $1000 / conversion_rate (e.g., $9.33)
+- interest_rate: Coupon rate as percentage (e.g., 1.25)
+- issue_date: When notes were originally issued
+- maturity_date: When notes are due
+
+DO NOT return 0 for amounts - extract the ACTUAL numbers from the text.
+If notes were partially repurchased, remaining = total - repurchased amount."""
+                )
+                
+                # Log what Grok returned
+                logger.info("pass4c_grok_response", ticker=ticker, 
+                           has_result=bool(result),
+                           convertible_notes_count=len(result.get('convertible_notes', [])) if result else 0,
+                           raw_notes=result.get('convertible_notes', [])[:2] if result else None)
+                
+                if result and result.get('convertible_notes'):
+                    for note in result.get('convertible_notes', []):
+                        # Log each note's raw data
+                        logger.debug("pass4c_note_raw", ticker=ticker, note=note)
+                        
+                        # Calculate conversion_price from rate if not directly provided
+                        conv_rate = note.get('conversion_rate') or note.get('conversion_ratio')
+                        if conv_rate and float(conv_rate) > 0:
+                            if not note.get('conversion_price') or float(note.get('conversion_price', 0)) == 0:
+                                note['conversion_price'] = 1000.0 / float(conv_rate)
+                        
+                        # Add ALL notes with series_name, even if principal is 0
+                        # (Grok might have the note but missed the amounts)
+                        total_principal = note.get('total_principal_amount', 0) or 0
+                        series_name = note.get('series_name')
+                        
+                        if series_name or total_principal > 0:
+                            all_convertible_notes.append(note)
+                            logger.info("convertible_note_extracted", ticker=ticker,
+                                       series=series_name,
+                                       total=total_principal,
+                                       remaining=note.get('remaining_principal_amount'),
+                                       conv_price=note.get('conversion_price'),
+                                       conv_rate=conv_rate)
+                else:
+                    logger.warning("pass4c_no_convertible_notes", ticker=ticker, 
+                                  result_keys=list(result.keys()) if result else None)
+            
             # Pass 5: 6-K (Foreign reports)
             filings_6k = [f for f in filing_contents if f['form_type'] in ['6-K', '6-K/A']]
             if filings_6k:
@@ -449,25 +517,22 @@ class GrokExtractor:
             
             try:
                 if self._grok_pool:
-                    client, pool_idx = self._grok_pool.get_client()
+                    client, _, pool_idx = await self._grok_pool.get_client()
                 
                 if not client:
                     client = Client(api_key=self.grok_api_key, timeout=120)
                 
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: client.chat.completions.create(
-                        model="grok-3-fast",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.1,
-                        max_tokens=4000
-                    )
-                )
+                def _make_request():
+                    chat = client.chat.create(model="grok-3-fast", temperature=0.1, max_tokens=4000)
+                    chat.append(user(prompt))
+                    return chat.sample()
+                
+                response = await asyncio.get_event_loop().run_in_executor(None, _make_request)
                 
                 if self._grok_pool and pool_idx is not None:
                     self._grok_pool.release(pool_idx, success=True)
                 
-                response_text = response.choices[0].message.content
+                response_text = response.content
                 
                 # Parse JSON
                 json_match = re.search(r'\{[\s\S]*\}', response_text)
@@ -505,7 +570,7 @@ class GrokExtractor:
         
         try:
             if self._grok_pool:
-                client, pool_idx = self._grok_pool.get_client()
+                client, _, pool_idx = await self._grok_pool.get_client()
             
             if not client:
                 client = Client(api_key=self.grok_api_key, timeout=180)
@@ -526,14 +591,14 @@ class GrokExtractor:
             
             prompt = self._build_extraction_prompt(ticker, company_name, "", focus)
             
-            # Build messages with file references
-            messages = [user(prompt)]
-            for file_id in uploaded_file_ids:
-                messages.append(file(file_id))
+            # Build user message with file references as additional arguments
+            # According to xAI SDK docs: user(prompt, file(id1), file(id2), ...)
+            file_refs = [file(fid) for fid in uploaded_file_ids]
+            user_message = user(prompt, *file_refs)
             
-            chat = client.chat.create(model="grok-3-fast", temperature=0.1)
-            for msg in messages:
-                chat.append(msg)
+            # Use grok-4-fast for Files API (requires agentic model)
+            chat = client.chat.create(model="grok-4-fast", temperature=0.1)
+            chat.append(user_message)
             
             response = await asyncio.get_event_loop().run_in_executor(
                 None, chat.sample
@@ -617,40 +682,194 @@ class GrokExtractor:
     ) -> str:
         """Build the extraction prompt for Grok."""
         return f"""
-You are an EXPERT financial data extraction specialist analyzing SEC EDGAR filings for {company_name} (Ticker: {ticker}).
-
-YOUR MISSION: Extract COMPREHENSIVE dilution data with MAXIMUM detail and accuracy.
+You are an ELITE forensic financial analyst extracting dilution data from SEC EDGAR filings for {company_name} (Ticker: {ticker}).
 
 FOCUS: {focus}
 
-{f"FILINGS CONTENT:{filings_text}" if filings_text else "Analyze the uploaded files."}
+{f"FILINGS CONTENT:{filings_text}" if filings_text else "Analyze the uploaded files thoroughly."}
 
-=== EXTRACT THE FOLLOWING (JSON only, no markdown) ===
+=== EXTRACT ALL FIELDS FOR EACH INSTRUMENT (JSON only, no markdown) ===
 
 {{
   "warrants": [
-    {{"outstanding": number, "exercise_price": number, "expiration_date": "YYYY-MM-DD", "issue_date": "YYYY-MM-DD", "notes": "description"}}
+    {{
+      "series_name": "August 2025 Warrants / Series A Warrants / etc.",
+      "outstanding": number,
+      "total_issued": number,
+      "exercise_price": number,
+      "original_exercise_price": number,
+      "expiration_date": "YYYY-MM-DD",
+      "issue_date": "YYYY-MM-DD",
+      "exercisable_date": "YYYY-MM-DD",
+      "is_registered": true/false,
+      "registration_type": "EDGAR/Not Registered",
+      "is_prefunded": true/false,
+      "has_cashless_exercise": true/false,
+      "warrant_coverage_ratio": number,
+      "known_owners": "Mateo Financing, Cavalry, etc. or null",
+      "underwriter_agent": "H.C. Wainwright or null",
+      "price_protection": "Full Ratchet/Reset/Customary Anti-Dilution/None",
+      "price_protection_clause": "Exact text from filing or null",
+      "anti_dilution_provision": true/false,
+      "notes": "Pre-funded, callable, penny warrants, etc."
+    }}
+  ],
+  "convertible_notes": [
+    {{
+      "series_name": "November 2020 Convertible Notes Due 2025 / 1.25% Senior Notes / etc.",
+      "total_principal_amount": number,
+      "remaining_principal_amount": number,
+      "conversion_price": number,
+      "original_conversion_price": number,
+      "conversion_ratio": number,
+      "total_shares_when_converted": number,
+      "remaining_shares_when_converted": number,
+      "interest_rate": number,
+      "issue_date": "YYYY-MM-DD",
+      "convertible_date": "YYYY-MM-DD",
+      "maturity_date": "YYYY-MM-DD",
+      "is_registered": true/false,
+      "registration_type": "EDGAR/Not Registered",
+      "known_owners": "names or null",
+      "underwriter_agent": "name or null",
+      "price_protection": "Full Ratchet/Variable Rate (TOXIC)/Customary Anti-Dilution/None",
+      "price_protection_clause": "Exact text: If stock trades below $X for Y days... or null",
+      "variable_rate_adjustment": true/false,
+      "floor_price": number,
+      "is_toxic": true/false,
+      "notes": "1.25% Convertible Senior Notes, repurchase program, etc."
+    }}
+  ],
+  "convertible_preferred": [
+    {{
+      "series_name": "Series A/B/C Convertible Preferred",
+      "total_shares_issued": number,
+      "remaining_shares": number,
+      "total_dollar_amount": number,
+      "remaining_dollar_amount": number,
+      "conversion_price": number,
+      "original_conversion_price": number,
+      "conversion_ratio": number,
+      "total_shares_when_converted": number,
+      "remaining_shares_when_converted": number,
+      "liquidation_preference": number,
+      "dividend_rate": number,
+      "is_cumulative": true/false,
+      "issue_date": "YYYY-MM-DD",
+      "convertible_date": "YYYY-MM-DD",
+      "maturity_date": "YYYY-MM-DD or null",
+      "is_registered": true/false,
+      "known_owners": "C/M Capital, WVP or null",
+      "underwriter_agent": "Thinkequity, Benchmark or null",
+      "price_protection": "Full Ratchet/Customary Anti-Dilution/None",
+      "price_protection_clause": "Exact text or null",
+      "exchange_cap_19_99_pct": true/false,
+      "notes": "description"
+    }}
   ],
   "atm_offerings": [
-    {{"total_capacity": number, "remaining_capacity": number, "placement_agent": "string", "agreement_date": "YYYY-MM-DD", "filing_date": "YYYY-MM-DD"}}
+    {{
+      "series_name": "January 2023 Cantor ATM / H.C. Wainwright ATM / etc.",
+      "total_capacity": number,
+      "remaining_capacity": number,
+      "amount_raised_to_date": number,
+      "registered_shares": number,
+      "placement_agent": "H.C. Wainwright/Cantor/BTIG/etc.",
+      "broker_dealer": "name or null",
+      "agreement_date": "YYYY-MM-DD",
+      "expiration_date": "YYYY-MM-DD or null",
+      "last_update_date": "YYYY-MM-DD",
+      "is_baby_shelf_limited": true/false,
+      "remaining_capacity_without_baby_shelf": number,
+      "commission_rate": number,
+      "notes": "pricing terms, status, etc."
+    }}
   ],
   "shelf_registrations": [
-    {{"total_capacity": number, "remaining_capacity": number, "registration_statement": "S-3/S-1/F-3/F-1", "effect_date": "YYYY-MM-DD", "expiration_date": "YYYY-MM-DD", "is_baby_shelf": boolean}}
+    {{
+      "series_name": "October 2024 Shelf / November 2021 Shelf / etc.",
+      "total_capacity": number,
+      "remaining_capacity": number,
+      "current_raisable_amount": number,
+      "amount_raised": number,
+      "amount_raised_last_12_months": number,
+      "registration_statement": "S-3/S-1/F-3/F-1/S-3ASR",
+      "effect_date": "YYYY-MM-DD",
+      "expiration_date": "YYYY-MM-DD",
+      "last_update_date": "YYYY-MM-DD",
+      "is_baby_shelf": true/false,
+      "shares_outstanding": number,
+      "public_float": number,
+      "highest_60_day_close": number,
+      "ib6_float_value": number,
+      "price_to_exceed_baby_shelf": number,
+      "last_banker": "underwriter name or null",
+      "is_mixed_shelf": true/false,
+      "is_primary_offering": true/false,
+      "is_resale": true/false,
+      "notes": "description"
+    }}
+  ],
+  "equity_lines": [
+    {{
+      "series_name": "Lincoln Park ELOC / Keystone Purchase Agreement / etc.",
+      "total_commitment": number,
+      "remaining_commitment": number,
+      "amount_used": number,
+      "estimated_shares_remaining": number,
+      "partner": "Lincoln Park Capital/Keystone Capital/etc.",
+      "agreement_date": "YYYY-MM-DD",
+      "expiration_date": "YYYY-MM-DD",
+      "last_update_date": "YYYY-MM-DD",
+      "nasdaq_20_pct_limit_shares": number,
+      "pricing_discount": number,
+      "daily_purchase_limit": number,
+      "notes": "description"
+    }}
+  ],
+  "s1_offerings": [
+    {{
+      "series_name": "IPO / Follow-On / Resale Registration",
+      "offering_type": "IPO/Follow-On/Resale/Secondary",
+      "total_shares": number,
+      "price_per_share": number,
+      "total_amount": number,
+      "underwriter": "name or null",
+      "filing_date": "YYYY-MM-DD",
+      "effect_date": "YYYY-MM-DD",
+      "is_resale": true/false,
+      "selling_shareholders": "names or null",
+      "notes": "description"
+    }}
   ],
   "completed_offerings": [
-    {{"offering_type": "string", "shares_issued": number, "price_per_share": number, "amount_raised": number, "offering_date": "YYYY-MM-DD"}}
-  ],
-  "s1_offerings": [],
-  "convertible_notes": [],
-  "convertible_preferred": [],
-  "equity_lines": []
+    {{
+      "offering_type": "Private Placement/Underwritten/ATM/PIPE/Direct/Registered Direct",
+      "method": "S-1/S-3/Direct/Private",
+      "shares_issued": number,
+      "price_per_share": number,
+      "amount_raised": number,
+      "warrants_issued": number,
+      "warrant_exercise_price": number,
+      "underwriter": "bank name or null",
+      "investors": "names if disclosed or null",
+      "offering_date": "YYYY-MM-DD",
+      "notes": "description"
+    }}
+  ]
 }}
 
-RULES:
-1. Convert dollar amounts to numbers: "$75 million" = 75000000
-2. Dates in YYYY-MM-DD format
-3. Return EMPTY ARRAYS [] if no data found
-4. Be thorough - search entire document
+CRITICAL EXTRACTION RULES:
+1. Convert ALL dollar amounts: "$143.8 million" = 143800000, "$93.8M" = 93800000
+2. ALL dates in YYYY-MM-DD format
+3. Return EMPTY ARRAYS [] ONLY if NO data found
+4. EXTRACT ALL FIELDS even if some are null
+5. For CONVERTIBLE NOTES: Search "Debt", "Notes Payable", "Convertible Securities" in 10-K/10-Q
+6. For WARRANTS: Search "Stockholders' Equity", "Warrant" footnotes
+7. For ATM/SHELF: Search 8-K "Distribution Agreement", S-3/424B5 filings
+8. Extract HISTORICAL instruments even if converted/repaid/expired
+9. Include series_name with date and type (e.g., "November 2020 1.25% Convertible Notes Due 2025")
+10. BE THOROUGH - search entire document including ALL footnotes
 """
 
 
