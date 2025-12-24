@@ -83,10 +83,11 @@ class DilutionTrackerRiskScorer:
         atm_shares: int = 0,
         convertible_shares: int = 0,
         equity_line_shares: int = 0,
-        shares_outstanding: int = 0,
+        shares_outstanding: int = 0,  # Used for Overhead Supply (can be fully diluted)
         
         # Historical inputs
         shares_outstanding_3yr_ago: int = 0,
+        shares_outstanding_current_sec: Optional[int] = None,  # SEC-reported current (for Historical)
         
         # Cash Need inputs
         runway_months: Optional[float] = None,
@@ -119,8 +120,11 @@ class DilutionTrackerRiskScorer:
             )
             
             # 3. Historical
+            # Use SEC-reported shares for Historical (not fully diluted)
+            # This ensures we compare apples-to-apples: SEC current vs SEC 3yr ago
+            shares_for_historical = shares_outstanding_current_sec if shares_outstanding_current_sec else shares_outstanding
             historical, historical_score, historical_details = self._calculate_historical(
-                shares_outstanding_current=shares_outstanding,
+                shares_outstanding_current=shares_for_historical,
                 shares_outstanding_3yr_ago=shares_outstanding_3yr_ago
             )
             

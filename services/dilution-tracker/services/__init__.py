@@ -1,20 +1,20 @@
 """
 Services Package - Dilution Tracker
+====================================
 
 Estructura:
-- core/       - Servicio principal de dilución
-- grok/       - Integración con Grok AI
+- core/       - Servicio principal de dilución (SECDilutionService)
+- extraction/ - v4 ContextualDilutionExtractor (Gemini long context)
 - sec/        - Integración con SEC EDGAR
 - data/       - Fuentes de datos externos
-- analysis/   - Análisis y procesamiento
+- analysis/   - Análisis y deduplicación
 - market/     - Cálculos de mercado
-- extraction/ - Extracción de contenido
-- cache/      - Caché y persistencia
+- cache/      - Caché Redis y persistencia
 - external/   - APIs externas
 
 USO:
     from services.core.sec_dilution_service import SECDilutionService
-    from services.grok.grok_pool import GrokPool
+    from services.extraction.contextual_extractor import get_contextual_extractor
     from services.data.enhanced_data_fetcher import EnhancedDataFetcher
 """
 

@@ -300,7 +300,21 @@ export function SECFilingsRealtime() {
             doc.documentUrl.endsWith('.xml')
         );
 
-        const filingUrl = viewableDoc?.documentUrl || selectedFiling.linkToHtml || selectedFiling.linkToFilingDetails;
+        // Función para obtener URL directa del documento
+        // El visor iXBRL (/ix?doc=...) NO funciona en iframe proxyado
+        const getDirectUrl = (url: string | undefined): string | null => {
+            if (!url) return null;
+            if (url.includes('/ix?doc=')) {
+                const match = url.match(/\/ix\?doc=([^&]+)/);
+                if (match) return `https://www.sec.gov${match[1]}`;
+            }
+            return url;
+        };
+
+        // Prioridad: linkToFilingDetails (URL directa) > documentUrl (puede ser iXBRL viewer)
+        const filingUrl = selectedFiling.linkToFilingDetails || 
+                         getDirectUrl(viewableDoc?.documentUrl) || 
+                         selectedFiling.linkToHtml;
         const secApiUrl = process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012';
         const proxyUrl = filingUrl
             ? `${secApiUrl}/api/v1/proxy?url=${encodeURIComponent(filingUrl)}`

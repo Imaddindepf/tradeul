@@ -180,12 +180,12 @@ class MarketDataCalculator:
         """
         Calcula el IB6 Float Value
         
-        Formula: Float × Highest_60_Day_Close × (1/3)
+        Formula: Float × Highest_60_Day_Close
         
-        This is the maximum amount a baby shelf company can raise in any 12-month period
-        under Instruction I.B.6 of Form S-3.
+        This is the total market value of the company's public float.
+        The baby shelf limit (what can be raised in 12 months) is IB6 / 3.
         """
-        return Decimal(str(float_shares)) * highest_60_day_close / Decimal("3")
+        return Decimal(str(float_shares)) * highest_60_day_close
     
     def calculate_current_raisable_amount(
         self,
@@ -195,12 +195,15 @@ class MarketDataCalculator:
         raised_last_12mo: Decimal = Decimal("0")
     ) -> Decimal:
         """
-        Calcula el monto que se puede levantar actualmente
+        Calcula el monto que se puede levantar actualmente (Baby Shelf Rule)
         
-        Formula: min(IB6_Float_Value - Raised_Last_12Mo, Total_Capacity - Total_Raised)
+        Formula: min(IB6_Float_Value/3 - Raised_Last_12Mo, Total_Capacity - Total_Raised)
+        
+        Baby Shelf Rule (I.B.6): Company can raise up to 1/3 of IB6 Float Value
+        in any 12-month period.
         
         Args:
-            ib6_float_value: IB6 float value calculated
+            ib6_float_value: IB6 float value (Float × Highest60DayClose)
             total_capacity: Total shelf capacity
             total_amount_raised: Total amount raised from this shelf
             raised_last_12mo: Amount raised in last 12 months under this shelf
@@ -208,7 +211,9 @@ class MarketDataCalculator:
         Returns:
             Current raisable amount
         """
-        ib6_available = ib6_float_value - raised_last_12mo
+        # Baby shelf limit is 1/3 of IB6 Float Value
+        baby_shelf_limit = ib6_float_value / Decimal("3")
+        ib6_available = baby_shelf_limit - raised_last_12mo
         capacity_available = total_capacity - total_amount_raised
         
         return max(Decimal("0"), min(ib6_available, capacity_available))

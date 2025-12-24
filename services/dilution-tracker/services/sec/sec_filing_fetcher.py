@@ -152,11 +152,15 @@ class SECFilingFetcher:
                         'filing_date': filing.get('filedAt', '')[:10],
                         'accession_number': filing.get('accessionNo', ''),
                         'primary_document': '',
+                        'file_number': filing.get('fileNumber'),  # SEC File Number (333-XXXXXX)
                         'url': filing.get('linkToFilingDetails', filing.get('linkToTxt', ''))
                     })
                 
+                # Debug: verificar cuántos tienen file_number
+                with_file_num = sum(1 for f in filings_batch if f.get('fileNumber'))
                 logger.info("sec_api_io_batch_processed", ticker=ticker, 
-                           from_index=from_index, count=len(filings_batch))
+                           from_index=from_index, count=len(filings_batch),
+                           with_file_number=with_file_num)
                 
                 if len(filings_batch) < 200:
                     break
@@ -164,6 +168,11 @@ class SECFilingFetcher:
                 from_index += 200
             
             logger.info("sec_api_io_search_completed", ticker=ticker, total=len(all_filings))
+            
+            # Enriquecer con file_numbers desde SEC EDGAR
+            # (SEC-API.io no retorna fileNumber)
+            if cik:
+                all_filings = await self.enrich_filings_with_file_numbers(all_filings, cik)
             
             return all_filings
             
@@ -211,6 +220,7 @@ class SECFilingFetcher:
                             'filing_date': filing_date,
                             'accession_number': filing.get('accessionNumber', ''),
                             'primary_document': '',
+                            'file_number': None,  # FMP no tiene file_number
                             'url': filing.get('finalLink', filing.get('link', ''))
                         })
                 
@@ -230,6 +240,54 @@ class SECFilingFetcher:
         except Exception as e:
             logger.error("fetch_fmp_filings_failed", ticker=ticker, error=str(e))
             return []
+    
+    async def enrich_filings_with_file_numbers(
+        self, 
+        filings: List[Dict], 
+        cik: str
+    ) -> List[Dict]:
+        """
+        Enriquece filings con file_number desde SEC EDGAR.
+        
+        SEC-API.io NO retorna fileNumber, pero SEC EDGAR sí.
+        Hacemos match por accession_number.
+        """
+        if not filings or not cik:
+            return filings
+        
+        try:
+            # Fetch SEC EDGAR data que tiene file_numbers
+            edgar_filings = await self.fetch_recent_filings(cik)
+            
+            if not edgar_filings:
+                logger.warning("enrich_no_edgar_filings", cik=cik)
+                return filings
+            
+            # Crear lookup por accession_number
+            file_number_map = {
+                f.get('accession_number'): f.get('file_number')
+                for f in edgar_filings
+                if f.get('accession_number') and f.get('file_number')
+            }
+            
+            # Enriquecer filings
+            enriched = 0
+            for filing in filings:
+                accession = filing.get('accession_number')
+                if accession and accession in file_number_map:
+                    filing['file_number'] = file_number_map[accession]
+                    enriched += 1
+            
+            logger.info("filings_enriched_with_file_numbers",
+                       total=len(filings),
+                       enriched=enriched,
+                       map_size=len(file_number_map))
+            
+            return filings
+            
+        except Exception as e:
+            logger.error("enrich_file_numbers_failed", cik=cik, error=str(e))
+            return filings
     
     async def fetch_recent_filings(self, cik: str) -> List[Dict]:
         """
@@ -261,6 +319,7 @@ class SECFilingFetcher:
             filing_dates = filings_data.get('filingDate', [])
             accession_numbers = filings_data.get('accessionNumber', [])
             primary_documents = filings_data.get('primaryDocument', [])
+            file_numbers = filings_data.get('fileNumber', [])  # Para agrupar por File Number
             
             for i in range(len(form_types)):
                 filings.append({
@@ -268,6 +327,7 @@ class SECFilingFetcher:
                     'filing_date': filing_dates[i],
                     'accession_number': accession_numbers[i],
                     'primary_document': primary_documents[i],
+                    'file_number': file_numbers[i] if i < len(file_numbers) else None,  # SEC File Number
                     'url': self.construct_filing_url(cik, accession_numbers[i], primary_documents[i])
                 })
             
@@ -511,7 +571,9 @@ class SECFilingFetcher:
                             'form_type': filing['form_type'],
                             'filing_date': filing['filing_date'],
                             'url': filing['url'],
-                            'content': response.text
+                            'content': response.text,
+                            'file_number': filing.get('file_number'),  # Preservar para grouping
+                            'accession_number': filing.get('accession_number'),
                         })
                         
                         logger.info("filing_downloaded", 
@@ -540,7 +602,7 @@ class SECFilingFetcher:
                     consecutive_429s = 0
         
         return results
-    
+
     # =========================================================================
     # EXHIBITS DOWNLOAD - Para extracción precisa con Gemini
     # =========================================================================
@@ -599,6 +661,8 @@ class SECFilingFetcher:
                         'filing_date': filing['filing_date'],
                         'url': filing['url'],
                         'content': response.text,
+                        'file_number': filing.get('file_number'),  # Preservar para grouping
+                        'accession_number': filing.get('accession_number'),
                         'exhibits': []
                     }
                     
@@ -778,15 +842,17 @@ class SECFilingFetcher:
             return False
         
         # Patrones de exhibits relevantes
+        # IMPORTANTE: Muchos filings tienen prefijo del ticker (ej: atha-ex4_1.htm)
+        # Por eso usamos search() en lugar de match() para buscar en cualquier parte
         import re
         relevant_patterns = [
-            r'^ex4[-_]?\d*\.htm',      # Form of Note, Warrant, Certificate of Designation
-            r'^ex10[-_]?\d*\.htm',     # Securities Purchase Agreement, SPA
-            r'^ex99[-_]?\d*\.htm',     # Press release, announcement
+            r'ex4[-_]?\d*\.htm',       # Form of Note, Warrant, Certificate of Designation
+            r'ex10[-_]?\d*\.htm',      # Securities Purchase Agreement, SPA
+            r'ex99[-_]?\d*\.htm',      # Press release, announcement
         ]
         
         for pattern in relevant_patterns:
-            if re.match(pattern, name):
+            if re.search(pattern, name):  # search() busca en cualquier parte, no solo al inicio
                 return True
         
         return False

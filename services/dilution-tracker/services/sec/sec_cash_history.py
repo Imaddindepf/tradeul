@@ -113,7 +113,12 @@ class SECCashHistoryService:
                                     "source": "SEC-XBRL"
                                 })
                         
-                        # Extract operating cash flow for each period
+                        # Extract ALL operating cash flow periods from this filing
+                        # This captures annual CF from 10-K/20-F that period matching might miss
+                        all_ocf = self._extract_all_operating_cf(xbrl_data, form_type)
+                        cashflow_history.extend(all_ocf)
+                        
+                        # Also try period-by-period extraction as fallback
                         for period, _ in periods_with_cash:
                             ocf = self._extract_operating_cf(xbrl_data, period)
                             if ocf is not None:
@@ -137,11 +142,19 @@ class SECCashHistoryService:
                     cash_by_date[date] = entry
             cash_history = list(cash_by_date.values())
             
+            # Deduplicate cashflow - keep highest absolute value for each date
+            # This ensures we keep annual CF over quarterly CF
             cf_by_date = {}
             for entry in cashflow_history:
                 date = entry["date"]
+                ocf = entry.get("operating_cf", 0) or 0
                 if date not in cf_by_date:
                     cf_by_date[date] = entry
+                else:
+                    # Keep the one with larger absolute value (annual > quarterly)
+                    existing_ocf = cf_by_date[date].get("operating_cf", 0) or 0
+                    if abs(ocf) > abs(existing_ocf):
+                        cf_by_date[date] = entry
             cashflow_history = list(cf_by_date.values())
             
             # Sort by date
@@ -231,29 +244,47 @@ class SECCashHistoryService:
             return None
     
     async def _get_all_filings(self, ticker: str, max_filings: int) -> List[Dict]:
-        """Get all 10-Q and 10-K filings from SEC-API.io using CIK"""
+        """Get all financial filings from SEC-API.io using CIK"""
         try:
             # First resolve CIK from ticker
             cik = await self._get_cik(ticker)
             
             if not cik:
                 logger.warning("no_cik_for_ticker", ticker=ticker)
-                # Fallback to ticker search
-                search_query = f'ticker:{ticker} AND formType:("10-Q" OR "10-K" OR "20-F" OR "6-K")'
+                cik_query = f'ticker:{ticker}'
             else:
-                # Use CIK for more reliable search
-                # Include foreign company filings: 20-F (annual) and 6-K (current reports)
-                search_query = f'cik:{cik} AND formType:("10-Q" OR "10-K" OR "20-F" OR "6-K")'
+                cik_query = f'cik:{cik}'
+            
+            all_filings = []
             
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Search 1: Get annual reports (10-K, 20-F) - these have the full year CF
+                annual_query = f'{cik_query} AND formType:("10-K" OR "20-F")'
                 resp = await client.post(
                     self.base_url,
                     json={
-                        "query": {
-                            "query_string": {
-                                "query": search_query
-                            }
-                        },
+                        "query": {"query_string": {"query": annual_query}},
+                        "from": 0,
+                        "size": 10,
+                        "sort": [{"filedAt": {"order": "desc"}}]
+                    },
+                    headers={
+                        "Authorization": self.sec_api_key,
+                        "Content-Type": "application/json"
+                    }
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    annual_filings = data.get("filings", [])
+                    all_filings.extend(annual_filings)
+                    logger.info("annual_filings_found", count=len(annual_filings))
+                
+                # Search 2: Get quarterly/interim reports (10-Q, 6-K)
+                interim_query = f'{cik_query} AND formType:("10-Q" OR "6-K" OR "6-K/A")'
+                resp = await client.post(
+                    self.base_url,
+                    json={
+                        "query": {"query_string": {"query": interim_query}},
                         "from": 0,
                         "size": max_filings,
                         "sort": [{"filedAt": {"order": "desc"}}]
@@ -266,12 +297,26 @@ class SECCashHistoryService:
                 
                 if resp.status_code != 200:
                     logger.warning("sec_api_search_failed", status=resp.status_code)
-                    return []
+                    return all_filings
                 
                 data = resp.json()
-                filings = data.get("filings", [])
-                logger.info("filings_found", ticker=ticker, cik=cik, count=len(filings))
-                return filings
+                interim_filings = data.get("filings", [])
+                all_filings.extend(interim_filings)
+                
+                # Deduplicate by accession number
+                seen = set()
+                unique_filings = []
+                for f in all_filings:
+                    acc = f.get("accessionNo", "")
+                    if acc not in seen:
+                        seen.add(acc)
+                        unique_filings.append(f)
+                
+                logger.info("filings_found", ticker=ticker, cik=cik, 
+                           annual=len(all_filings) - len(interim_filings),
+                           interim=len(interim_filings),
+                           total=len(unique_filings))
+                return unique_filings
                 
         except Exception as e:
             logger.error("get_all_filings_failed", ticker=ticker, error=str(e))
@@ -331,7 +376,7 @@ class SECCashHistoryService:
         return total if found_any or total > 0 else None
     
     def _extract_operating_cf(self, xbrl_data: Dict, period: str) -> Optional[float]:
-        """Extract operating cash flow from XBRL"""
+        """Extract operating cash flow from XBRL for a specific period"""
         cash_flows = xbrl_data.get("StatementsOfCashFlows", {})
         
         ocf_concepts = [
@@ -345,6 +390,52 @@ class SECCashHistoryService:
                 return val
         
         return None
+    
+    def _extract_all_operating_cf(self, xbrl_data: Dict, form_type: str) -> List[Dict]:
+        """
+        Extract ALL operating cash flow periods from XBRL.
+        This captures annual CF from 10-K/20-F that might be missed.
+        """
+        cash_flows = xbrl_data.get("StatementsOfCashFlows", {})
+        
+        ocf_concepts = [
+            "NetCashProvidedByUsedInOperatingActivities",
+            "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+        ]
+        
+        results = []
+        seen_periods = set()
+        
+        for concept in ocf_concepts:
+            values = cash_flows.get(concept, [])
+            if not isinstance(values, list):
+                continue
+            
+            for val in values:
+                period_data = val.get("period", {})
+                end_date = period_data.get("endDate", "")
+                
+                if not end_date or len(end_date) < 10:
+                    continue
+                
+                period_key = end_date[:10]
+                if period_key in seen_periods:
+                    continue
+                
+                try:
+                    ocf_value = float(val.get("value", 0))
+                    # Skip zero values and keep non-zero
+                    if ocf_value != 0:
+                        seen_periods.add(period_key)
+                        results.append({
+                            "date": period_key,
+                            "operating_cf": ocf_value,
+                            "form": form_type
+                        })
+                except:
+                    continue
+        
+        return results
     
     def _get_xbrl_value(self, data: Dict, concept: str, period: str) -> Optional[float]:
         """
@@ -425,21 +516,35 @@ class SECCashHistoryService:
         
         This is important because a single filing can contain multiple periods
         (current period + comparatives from previous periods).
+        
+        IMPORTANTE: Busca en AMBOS Balance Sheet y Cash Flow Statement.
+        El Cash Flow Statement tiene datos de períodos intermedios (Q1, Q2, etc.)
+        que no siempre están en el Balance Sheet, especialmente para foreign issuers.
         """
         balance_sheet = xbrl_data.get("BalanceSheets", {})
+        cash_flow = xbrl_data.get("StatementsOfCashFlows", {})
         
-        # Cash concepts to check (in priority order)
-        cash_concepts = [
+        # Cash concepts to check in Balance Sheet (in priority order)
+        bs_cash_concepts = [
             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
             "CashCashEquivalentsAndShortTermInvestments",
             "CashAndCashEquivalentsAtCarryingValue",
             "Cash",
         ]
         
+        # Cash concepts in Cash Flow Statement (ending balance)
+        # Este campo tiene datos de todos los períodos intermedios
+        cf_cash_concepts = [
+            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
+            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "CashAndCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
+        ]
+        
         # Collect cash values by period
         period_cash = {}
         
-        for concept in cash_concepts:
+        # 1. Extract from Balance Sheet
+        for concept in bs_cash_concepts:
             values = balance_sheet.get(concept, [])
             if isinstance(values, list):
                 for val in values:
@@ -452,12 +557,36 @@ class SECCashHistoryService:
                         try:
                             cash_float = float(cash_val)
                             # Keep the highest value for each period (in case of duplicates)
-                            if period_key not in period_cash or cash_float > period_cash[period_key]:
+                            if cash_float > 0 and (period_key not in period_cash or cash_float > period_cash[period_key]):
                                 period_cash[period_key] = cash_float
                         except:
                             continue
         
-        # Add restricted cash to each period
+        # 2. Extract from Cash Flow Statement (has intermediate periods!)
+        for concept in cf_cash_concepts:
+            values = cash_flow.get(concept, [])
+            if isinstance(values, list):
+                for val in values:
+                    if val.get("xsi:nil") == "true":
+                        continue
+                    # Cash Flow uses "instant" for ending balance
+                    period = val.get("period", {}).get("instant", "")
+                    cash_val = val.get("value")
+                    if period and cash_val and len(period) >= 10:
+                        period_key = period[:10]
+                        try:
+                            cash_float = float(cash_val)
+                            # Only use if > 0 and we don't have a value yet or this is higher
+                            if cash_float > 0 and (period_key not in period_cash or cash_float > period_cash[period_key]):
+                                period_cash[period_key] = cash_float
+                                logger.debug("cash_from_cashflow_statement", 
+                                           period=period_key, 
+                                           cash=cash_float,
+                                           concept=concept)
+                        except:
+                            continue
+        
+        # 3. Add restricted cash to each period (from Balance Sheet)
         restricted_concepts = ["RestrictedCash", "RestrictedCashCurrent"]
         for concept in restricted_concepts:
             values = balance_sheet.get(concept, [])
@@ -479,6 +608,10 @@ class SECCashHistoryService:
         # Sort by period descending and return as list of tuples
         result = [(period, cash) for period, cash in period_cash.items()]
         result.sort(key=lambda x: x[0], reverse=True)
+        
+        logger.info("cash_periods_extracted", 
+                   count=len(result),
+                   periods=[p[0] for p in result[:5]])
         
         return result
     
@@ -603,41 +736,51 @@ class SECCashHistoryService:
     def _calculate_metrics(self, data: Dict) -> Dict:
         """
         Calculate burn rate, prorated CF, and runway using DilutionTracker methodology:
-        - Quarterly CF = YTD Operating CF / Number of quarters in year
-        - Prorated CF = (Quarterly CF / 90) × Days since last report
+        - Quarterly CF = Annual Operating CF / 4
+        - Prorated CF = (Annual CF / 365) × Days since last report
+        
+        DilutionTracker uses the most recent ANNUAL operating CF (from 10-K or 20-F),
+        not the quarterly CF from interim reports.
         """
-        cf_history = data.get("cashflow_history", [])
         cf_history_ytd = data.get("cashflow_history_ytd", [])
         latest_cash = data.get("latest_cash", 0)
         days_since = data.get("days_since_report", 0)
         
-        # DilutionTracker methodology: YTD / quarters in year
-        # Get YTD OCF from the last filing
-        ytd_ocf = 0
-        quarters_in_year = 1
+        # Find the most recent ANNUAL operating CF (from 10-K/20-F, not 10-Q/6-K)
+        # Annual filings have month = 12 (US companies) or 09 (some foreign like AZI)
+        annual_ocf = 0
+        quarterly_ocf = 0
         
-        if cf_history_ytd:
-            last_cf = cf_history_ytd[-1]
-            ytd_ocf = last_cf.get("operating_cf", 0) or 0
-            last_date = last_cf.get("date", "")
+        for cf in reversed(cf_history_ytd):
+            ocf = cf.get("operating_cf", 0) or 0
+            form = cf.get("form", "")
+            date = cf.get("date", "")
             
-            # Determine quarter number from date (MM = 03, 06, 09, 12)
-            if last_date:
-                month = last_date[5:7]
-                quarter_map = {"03": 1, "06": 2, "09": 3, "12": 4}
-                quarters_in_year = quarter_map.get(month, 1)
+            # 10-K and 20-F are annual reports
+            if form in ["10-K", "20-F"] and ocf != 0:
+                annual_ocf = ocf
+                break
+            # Also check for full-year periods (ending in 12 or fiscal year end)
+            elif date and date[5:7] in ["12", "09"] and ocf != 0:
+                annual_ocf = ocf
+                break
         
-        # Calculate average quarterly CF (DilutionTracker method)
-        avg_quarterly_cf = ytd_ocf / quarters_in_year if quarters_in_year > 0 else 0
+        # Fallback: if no annual found, use the most recent with highest absolute value
+        if annual_ocf == 0 and cf_history_ytd:
+            # Find the CF with the largest absolute value (likely annual)
+            annual_ocf = max(cf_history_ytd, key=lambda x: abs(x.get("operating_cf", 0) or 0)).get("operating_cf", 0)
         
-        # Daily burn rate based on average quarterly CF
-        daily_burn = abs(avg_quarterly_cf) / 90 if avg_quarterly_cf < 0 else 0
+        # Calculate quarterly CF = Annual / 4 (DilutionTracker method)
+        quarterly_ocf = annual_ocf / 4 if annual_ocf else 0
         
-        # Prorated CF since last report (DilutionTracker: proportional to days elapsed)
-        prorated_cf = (avg_quarterly_cf / 90) * days_since if avg_quarterly_cf else 0
+        # Daily burn rate = Annual CF / 365 (DilutionTracker method)
+        daily_burn = abs(annual_ocf) / 365 if annual_ocf < 0 else 0
+        
+        # Prorated CF = Daily burn × Days since last report
+        # Use negative sign since it's cash outflow
+        prorated_cf = (annual_ocf / 365) * days_since if annual_ocf else 0
         
         # Estimated current cash = Latest Cash + Prorated CF
-        # Note: Capital raises will be added separately by the endpoint
         estimated_cash = latest_cash + prorated_cf
         
         # Runway calculation
@@ -650,7 +793,7 @@ class SECCashHistoryService:
         
         # Risk level
         if runway_months is None:
-            risk_level = "low" if avg_quarterly_cf >= 0 else "unknown"
+            risk_level = "low" if annual_ocf >= 0 else "unknown"
         elif runway_months < 3:
             risk_level = "critical"
         elif runway_months < 6:
@@ -666,9 +809,9 @@ class SECCashHistoryService:
             "estimated_current_cash": estimated_cash,
             "runway_days": runway_days,
             "runway_risk_level": risk_level,
-            "quarterly_operating_cf": avg_quarterly_cf,  # DilutionTracker: YTD / quarters
-            "ytd_operating_cf": ytd_ocf,
-            "quarters_in_year": quarters_in_year
+            "quarterly_operating_cf": quarterly_ocf,  # DilutionTracker: Annual / 4
+            "annual_operating_cf": annual_ocf,
+            "ytd_operating_cf": cf_history_ytd[-1].get("operating_cf", 0) if cf_history_ytd else 0
         }
 
 

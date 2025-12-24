@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     STREAM_RECONNECT_DELAY: int = 5  # segundos
     STREAM_PING_TIMEOUT: int = 30  # segundos
     
-    # Query settings
-    BACKFILL_ENABLED: bool = True
+    # Query settings - Backfill deshabilitado (usamos SEC-API.io directo)
+    BACKFILL_ENABLED: bool = False  # No guardamos en BD local, query directo a SEC API
     BACKFILL_BATCH_SIZE: int = 50
     BACKFILL_DAYS_BACK: int = 30  # días hacia atrás para backfill inicial
     

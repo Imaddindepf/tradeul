@@ -275,12 +275,20 @@ export function SECDilutionSection({
   // Usar datos pasados como prop
   const data = cachedData;
   
-  // Fetch risk ratings
+  // Use risk_assessment from profile if available, fallback to separate endpoint
   useEffect(() => {
-    if (ticker) {
-      getRiskRatings(ticker).then(setRiskRatings).catch(console.error);
+    // First, try to use risk_assessment from the profile response
+    if (data?.risk_assessment) {
+      console.log('Using risk_assessment from profile:', data.risk_assessment);
+      setRiskRatings(data.risk_assessment as DilutionRiskRatings);
+    } else if (ticker) {
+      // Fallback: fetch from separate endpoint
+      console.log('Fetching risk ratings from separate endpoint for', ticker);
+      getRiskRatings(ticker).then(setRiskRatings).catch((err) => {
+        console.error('Risk ratings not available for', ticker, err);
+      });
     }
-  }, [ticker]);
+  }, [ticker, data?.risk_assessment]);
 
   // Notificar al padre cuando hay datos (compatibilidad)
   useEffect(() => {

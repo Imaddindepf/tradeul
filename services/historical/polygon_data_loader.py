@@ -165,7 +165,9 @@ class PolygonDataLoader:
                 industry=details.sic_description,
                 market_cap=details.market_cap,
                 float_shares=details.weighted_shares_outstanding,
-                shares_outstanding=details.share_class_shares_outstanding,
+                # FIX: Usar weighted_shares_outstanding como fallback cuando share_class_shares_outstanding es None
+                # Esto es común en foreign issuers (ej: AZI) donde Polygon solo tiene weighted
+                shares_outstanding=details.share_class_shares_outstanding or details.weighted_shares_outstanding,
                 avg_volume_30d=avg_volume_30d,
                 avg_volume_10d=None,
                 avg_price_30d=None,

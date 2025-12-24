@@ -67,6 +67,9 @@ async def lifespan(app: FastAPI):
             await redis_client.ping()
             print("✅ Connected to Redis for SEC Stream")
             
+            # Guardar en app.state para acceso desde endpoints
+            app.state.redis_client = redis_client
+            
             # Crear e iniciar SEC Stream Manager
             if settings.STREAM_ENABLED:
                 print("📡 Starting SEC Stream API WebSocket...")
@@ -242,51 +245,110 @@ async def get_filings(
     )
 
 
+def build_lucene_query(
+    ticker: Optional[str] = None,
+    form_types: Optional[List[str]] = None,
+    items: Optional[List[str]] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> str:
+    """
+    Construye una query Lucene compleja para SEC-API.io
+    
+    Sintaxis Lucene soportada por SEC-API:
+    - ticker:(AAPL) - por ticker
+    - formType:"8-K" - por form type exacto
+    - formType:(8-K OR 10-K) - múltiples form types
+    - items:"1.01" - items de 8-K
+    - filedAt:[2024-01-01 TO 2024-12-31] - rango de fechas
+    """
+    query_parts = []
+    
+    # Ticker filter
+    if ticker:
+        # Soportar múltiples tickers separados por coma
+        tickers = [t.strip().upper() for t in ticker.split(',')]
+        if len(tickers) == 1:
+            query_parts.append(f'ticker:({tickers[0]})')
+        else:
+            ticker_query = ' OR '.join(tickers)
+            query_parts.append(f'ticker:({ticker_query})')
+    
+    # Form types filter - IMPORTANTE: usar OR para múltiples tipos
+    if form_types:
+        # Limpiar y filtrar tipos válidos
+        clean_types = [ft.strip() for ft in form_types if ft.strip()]
+        if clean_types:
+            if len(clean_types) == 1:
+                query_parts.append(f'formType:"{clean_types[0]}"')
+            else:
+                # Múltiples form types: formType:("8-K" OR "10-K" OR "10-Q")
+                types_query = ' OR '.join([f'"{ft}"' for ft in clean_types])
+                query_parts.append(f'formType:({types_query})')
+    
+    # 8-K Items filter
+    if items:
+        # Items vienen como ["1.01", "2.02", etc]
+        clean_items = [item.strip() for item in items if item.strip()]
+        if clean_items:
+            if len(clean_items) == 1:
+                query_parts.append(f'items:"{clean_items[0]}"')
+            else:
+                items_query = ' OR '.join([f'"{item}"' for item in clean_items])
+                query_parts.append(f'items:({items_query})')
+    
+    # Date range filter
+    # Formato SEC API: filedAt:[2021-09-15T00:00:00 TO 2021-09-15T23:59:59]
+    if date_from and date_to:
+        query_parts.append(f'filedAt:[{date_from}T00:00:00 TO {date_to}T23:59:59]')
+    elif date_from:
+        today = datetime.now().date()
+        query_parts.append(f'filedAt:[{date_from}T00:00:00 TO {today}T23:59:59]')
+    elif date_to:
+        query_parts.append(f'filedAt:[* TO {date_to}T23:59:59]')
+    
+    # Combinar con AND
+    return ' AND '.join(query_parts) if query_parts else '*'
+
+
 @app.get("/api/v1/filings/live", response_model=FilingsListResponse)
 async def get_filings_live(
-    ticker: Optional[str] = QueryParam(None, description="Ticker symbol"),
-    form_type: Optional[str] = QueryParam(None, description="Form type (8-K, 10-K, etc.)"),
+    ticker: Optional[str] = QueryParam(None, description="Ticker symbol (comma-separated for multiple)"),
+    form_types: Optional[str] = QueryParam(None, description="Form types comma-separated (8-K,10-K,10-Q)"),
+    items: Optional[str] = QueryParam(None, description="8-K Items comma-separated (1.01,2.02,5.02)"),
     date_from: Optional[date] = QueryParam(None, description="Start date (YYYY-MM-DD)"),
     date_to: Optional[date] = QueryParam(None, description="End date (YYYY-MM-DD)"),
     page_size: int = QueryParam(50, ge=1, le=200, description="Page size (max 200)"),
     from_index: int = QueryParam(0, ge=0, description="Starting index for pagination"),
 ):
     """
-    Búsqueda DIRECTA en SEC API (sin BD local)
+    Búsqueda DIRECTA en SEC API con queries Lucene complejas
     
-    Usa esto cuando:
-    - Necesitas datos inmediatos
-    - El backfill no ha procesado esas fechas aún
-    - Quieres datos frescos directo de SEC
+    Características:
+    - Soporta múltiples form types (ej: form_types=8-K,10-K,10-Q)
+    - Soporta filtro por items de 8-K (ej: items=1.01,2.02)
+    - Soporta rangos de fechas
+    - Paginación eficiente
     
     Ejemplos:
-    - `/api/v1/filings/live?ticker=MNDR`
-    - `/api/v1/filings/live?ticker=CMBM&form_type=8-K`
+    - `/api/v1/filings/live?ticker=TSLA&form_types=8-K,10-K`
+    - `/api/v1/filings/live?form_types=8-K&items=2.02,5.02` (earnings & management changes)
+    - `/api/v1/filings/live?form_types=S-1,424B5&date_from=2024-01-01` (offerings)
     """
+    # Parsear listas
+    form_types_list = [ft.strip() for ft in form_types.split(',')] if form_types else None
+    items_list = [item.strip() for item in items.split(',')] if items else None
+    
     # Construir query Lucene
-    query_parts = []
+    lucene_query = build_lucene_query(
+        ticker=ticker,
+        form_types=form_types_list,
+        items=items_list,
+        date_from=date_from,
+        date_to=date_to,
+    )
     
-    if ticker:
-        query_parts.append(f"ticker:({ticker})")
-    
-    if form_type:
-        query_parts.append(f"formType:\"{form_type}\"")
-    
-    # Filtro de fechas con timestamps para incluir todo el día
-    # Formato SEC API: filedAt:[2021-09-15T00:00:00 TO 2021-09-15T23:59:59]
-    if date_from and date_to:
-        # Incluir desde las 00:00:00 del date_from hasta las 23:59:59 del date_to
-        query_parts.append(f"filedAt:[{date_from}T00:00:00 TO {date_to}T23:59:59]")
-    elif date_from:
-        # Desde date_from hasta hoy
-        today = datetime.now().date()
-        query_parts.append(f"filedAt:[{date_from}T00:00:00 TO {today}T23:59:59]")
-    elif date_to:
-        # Todo hasta date_to
-        query_parts.append(f"filedAt:[* TO {date_to}T23:59:59]")
-    
-    # Si no hay filtros, traer todo (últimos 50)
-    lucene_query = " AND ".join(query_parts) if query_parts else "*"
+    print(f"📊 SEC Query: {lucene_query}")
     
     try:
         # Query directo a SEC API con paginación
@@ -325,6 +387,81 @@ async def get_filings_live(
         raise HTTPException(
             status_code=500,
             detail=f"Error fetching live filings: {str(e)}"
+        )
+
+
+@app.get("/api/v1/filings/realtime", response_model=FilingsListResponse)
+async def get_realtime_filings(
+    count: int = QueryParam(100, ge=1, le=500, description="Number of recent filings"),
+    ticker: Optional[str] = QueryParam(None, description="Filter by ticker"),
+):
+    """
+    Obtener filings recientes del cache Redis (real-time)
+    
+    Estos son los filings más recientes recibidos por el Stream API.
+    Ideal para mostrar actividad en tiempo real.
+    
+    Ejemplos:
+    - `/api/v1/filings/realtime` - últimos 100 filings
+    - `/api/v1/filings/realtime?ticker=TSLA&count=50` - últimos 50 de TSLA
+    """
+    try:
+        # Acceder al Redis client global (si está configurado)
+        redis_client = None
+        
+        # Intentar obtener Redis client del app state
+        if hasattr(app.state, 'redis_client') and app.state.redis_client:
+            redis_client = app.state.redis_client
+        else:
+            # Conectar a Redis si no está en app state
+            import redis.asyncio as aioredis
+            if settings.REDIS_PASSWORD:
+                redis_url = f"redis://:{settings.REDIS_PASSWORD}@{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+            else:
+                redis_url = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+            
+            redis_client = await aioredis.from_url(redis_url, decode_responses=True)
+        
+        import json
+        
+        if ticker:
+            # Obtener por ticker específico
+            key = f"cache:sec:filings:ticker:{ticker.upper()}"
+            results = await redis_client.zrevrange(key, 0, count - 1)
+        else:
+            # Obtener últimos globales
+            key = "cache:sec:filings:latest"
+            results = await redis_client.zrevrange(key, 0, count - 1)
+        
+        # Parsear JSON
+        filings = []
+        for result in results:
+            try:
+                filing_data = json.loads(result)
+                # Parsear a SECFiling para normalizar
+                filing = query_client.parse_filing(filing_data)
+                if filing:
+                    filings.append(filing.model_dump(by_alias=True))
+            except (json.JSONDecodeError, Exception):
+                continue
+        
+        return FilingsListResponse(
+            filings=filings,
+            total=len(filings),
+            page=1,
+            page_size=count,
+            message=f"Found {len(filings)} real-time filings from cache"
+        )
+        
+    except Exception as e:
+        print(f"⚠️ Error fetching realtime filings: {e}")
+        # Fallback: devolver lista vacía (no es crítico)
+        return FilingsListResponse(
+            filings=[],
+            total=0,
+            page=1,
+            page_size=count,
+            message="Real-time cache not available"
         )
 
 

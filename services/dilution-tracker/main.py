@@ -15,6 +15,7 @@ from shared.utils.logger import get_logger
 from shared.config.settings import settings
 from routers import analysis_router, sec_dilution_router, async_analysis_router
 from routers.websocket_router import router as websocket_router, manager as ws_manager
+from routers.extraction_router import router as extraction_router  # Debug only
 from http_clients import http_clients
 
 logger = get_logger(__name__)
@@ -73,9 +74,10 @@ app.add_middleware(
 
 # Include routers
 app.include_router(analysis_router)
-app.include_router(sec_dilution_router)
+app.include_router(sec_dilution_router)      # Principal: /api/sec-dilution/{ticker}/profile
 app.include_router(async_analysis_router)
 app.include_router(websocket_router)
+app.include_router(extraction_router)        # Debug: /api/extraction/{ticker}/...
 
 
 @app.get("/health")
@@ -101,4 +103,3 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

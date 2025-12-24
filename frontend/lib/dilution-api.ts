@@ -237,6 +237,9 @@ export interface SECDilutionProfileResponse {
   // Company type detection
   is_spac?: boolean;
   sic_code?: string;
+  
+  // Risk assessment (DilutionTracker-style ratings)
+  risk_assessment?: DilutionRiskRatings;
 }
 
 // ============================================================================
@@ -283,7 +286,7 @@ export async function getTickerAnalysis(symbol: string): Promise<TickerAnalysis>
 export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Unknown';
 
 export interface DilutionRiskRatings {
-  ticker: string;
+  ticker?: string;
   overall_risk: RiskLevel;
   offering_ability: RiskLevel;
   overhead_supply: RiskLevel;

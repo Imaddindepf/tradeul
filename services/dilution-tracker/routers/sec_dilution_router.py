@@ -20,12 +20,207 @@ from services.core.sec_dilution_service import SECDilutionService
 from services.analysis.spac_detector import SPACDetector
 from services.analysis.preliminary_analyzer import get_preliminary_analyzer
 from services.market.cash_runway_service import get_enhanced_cash_runway
+from calculators.dilution_tracker_risk_scorer import DilutionTrackerRiskScorer
 from models.sec_dilution_models import DilutionProfileResponse
 
 logger = get_logger(__name__)
 
 # SPAC Detector (singleton)
 spac_detector = SPACDetector()
+
+# Risk Scorer (singleton)
+risk_scorer = DilutionTrackerRiskScorer()
+
+
+async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) -> dict:
+    """
+    Calculate DilutionTracker-style risk ratings from profile data.
+    
+    This function obtains additional data (shares history, cash runway) to 
+    calculate all 5 risk ratings accurately like DilutionTracker.com.
+    
+    Returns dict with:
+    - overall_risk: Low/Medium/High
+    - offering_ability: Low/Medium/High
+    - overhead_supply: Low/Medium/High
+    - historical: Low/Medium/High
+    - cash_need: Low/Medium/High
+    """
+    try:
+        ticker = profile.ticker
+        shares_outstanding = profile.shares_outstanding or 0
+        
+        # Calculate shares from warrants
+        warrants_shares = sum(
+            int(w.outstanding or w.total_issued or 0)
+            for w in (profile.warrants or [])
+        )
+        
+        # Calculate shares from ATM at current price
+        atm_shares = 0
+        if profile.current_price and profile.current_price > 0:
+            for atm in (profile.atm_offerings or []):
+                remaining = float(atm.remaining_capacity or 0)
+                if remaining > 0:
+                    atm_shares += int(remaining / float(profile.current_price))
+        
+        # Calculate shares from convertible notes
+        convertible_shares = 0
+        for note in (profile.convertible_notes or []):
+            if note.remaining_shares_when_converted:
+                convertible_shares += int(note.remaining_shares_when_converted)
+            elif note.total_shares_when_converted:
+                convertible_shares += int(note.total_shares_when_converted)
+            elif note.conversion_price and note.conversion_price > 0:
+                principal = float(note.remaining_principal_amount or note.total_principal_amount or 0)
+                convertible_shares += int(principal / float(note.conversion_price))
+        
+        # Calculate shares from equity lines
+        equity_line_shares = 0
+        if profile.current_price and profile.current_price > 0:
+            for el in (profile.equity_lines or []):
+                remaining = float(el.remaining_capacity or 0)
+                if remaining > 0:
+                    equity_line_shares += int(remaining / float(profile.current_price))
+        
+        # Shelf capacity - consider Baby Shelf restriction
+        # If float value < $75M, company can only use 1/3 of float value per 12 months
+        shelf_capacity = 0
+        has_active_shelf = False
+        
+        # Calculate float value for Baby Shelf check
+        float_shares = profile.float_shares or profile.shares_outstanding or 0
+        current_price = float(profile.current_price or 0)
+        float_value = float_shares * current_price
+        is_baby_shelf_restricted = float_value < 75_000_000  # $75M threshold
+        
+        for shelf in (profile.shelf_registrations or []):
+            if shelf.status in ['Active', 'Effective', None]:
+                has_active_shelf = True
+                remaining = float(shelf.remaining_capacity or shelf.total_capacity or 0)
+                
+                # Apply Baby Shelf limitation if applicable
+                if is_baby_shelf_restricted:
+                    # Can only raise 1/3 of float value per 12 months
+                    baby_shelf_limit = float_value / 3
+                    remaining = min(remaining, baby_shelf_limit)
+                
+                shelf_capacity += remaining
+        
+        logger.debug("shelf_capacity_calculated", 
+                    ticker=ticker,
+                    raw_capacity=sum(float(s.remaining_capacity or s.total_capacity or 0) 
+                                    for s in (profile.shelf_registrations or []) 
+                                    if s.status in ['Active', 'Effective', None]),
+                    baby_shelf_restricted=is_baby_shelf_restricted,
+                    float_value=float_value,
+                    effective_capacity=shelf_capacity)
+        
+        # ===== HISTORICAL: Get shares current (from SEC history) and 3 years ago =====
+        # IMPORTANT: For Historical rating, use SEC-reported shares (not "fully diluted")
+        # This ensures we compare apples-to-apples: SEC current vs SEC 3yr ago
+        shares_3yr_ago = 0
+        shares_current_sec = 0  # Current shares from SEC filings (for Historical calc)
+        try:
+            from services.data.shares_data_service import SharesDataService
+            from datetime import timedelta
+            
+            shares_service = SharesDataService(redis)
+            shares_history = await shares_service.get_shares_history(ticker)
+            
+            if shares_history and shares_history.get("history"):
+                hist = shares_history["history"]
+                target_date = datetime.now() - timedelta(days=3*365)
+                
+                # Get MOST RECENT from SEC history (for "current" in Historical calc)
+                sorted_hist = sorted(hist, key=lambda x: x.get("date", ""), reverse=True)
+                if sorted_hist:
+                    shares_current_sec = sorted_hist[0].get("shares", 0)
+                    logger.debug("historical_current_from_sec", ticker=ticker,
+                               date=sorted_hist[0].get("date"), shares=shares_current_sec)
+                
+                # Find closest date <= 3 years ago
+                for h in sorted_hist:
+                    try:
+                        h_date = datetime.strptime(h.get("date", "")[:10], "%Y-%m-%d")
+                        if h_date <= target_date:
+                            shares_3yr_ago = h.get("shares", 0)
+                            logger.debug("historical_shares_found", ticker=ticker, 
+                                       date=h.get("date"), shares=shares_3yr_ago)
+                            break
+                    except:
+                        continue
+                        
+                # If no 3yr ago data, use earliest available
+                if shares_3yr_ago == 0 and hist:
+                    earliest = min(hist, key=lambda x: x.get("date", "9999"))
+                    shares_3yr_ago = earliest.get("shares", 0)
+                    logger.debug("using_earliest_shares", ticker=ticker, shares=shares_3yr_ago)
+        except Exception as e:
+            logger.debug("shares_history_fetch_failed", ticker=ticker, error=str(e))
+        
+        # For Historical rating, use SEC-reported current (not profile's fully diluted)
+        shares_for_historical = shares_current_sec if shares_current_sec > 0 else shares_outstanding
+        
+        # ===== CASH NEED: Get runway months =====
+        runway_months = None
+        has_positive_cf = False
+        try:
+            from services.sec.sec_cash_history import SECCashHistoryService
+            
+            cash_service = SECCashHistoryService(redis)
+            cash_data = await cash_service.get_full_cash_history(ticker, max_quarters=20)
+            
+            if cash_data and not cash_data.get("error"):
+                runway_days = cash_data.get("runway_days")
+                if runway_days is not None:
+                    runway_months = runway_days / 30
+                quarterly_cf = cash_data.get("quarterly_operating_cf", 0)
+                has_positive_cf = quarterly_cf > 0 if quarterly_cf else False
+                logger.debug("cash_runway_found", ticker=ticker, 
+                           runway_months=runway_months, has_positive_cf=has_positive_cf)
+        except Exception as e:
+            logger.debug("cash_history_fetch_failed", ticker=ticker, error=str(e))
+        
+        # Calculate ratings
+        ratings = risk_scorer.calculate_all_ratings(
+            # Offering Ability
+            shelf_capacity_remaining=shelf_capacity,
+            has_active_shelf=has_active_shelf,
+            has_pending_s1=len(profile.s1_offerings or []) > 0,
+            
+            # Overhead Supply (uses fully diluted shares_outstanding)
+            warrants_shares=warrants_shares,
+            atm_shares=atm_shares,
+            convertible_shares=convertible_shares,
+            equity_line_shares=equity_line_shares,
+            shares_outstanding=shares_outstanding,
+            
+            # Historical (uses SEC-reported shares, not fully diluted)
+            shares_outstanding_3yr_ago=shares_3yr_ago,
+            shares_outstanding_current_sec=shares_for_historical,  # From SEC filings
+            
+            # Cash Need
+            runway_months=runway_months,
+            has_positive_operating_cf=has_positive_cf,
+            
+            # Current price
+            current_price=float(profile.current_price or 0)
+        )
+        
+        return ratings.to_dict()
+        
+    except Exception as e:
+        logger.warning("risk_assessment_calculation_failed", error=str(e))
+        return {
+            "overall_risk": "Unknown",
+            "offering_ability": "Unknown",
+            "overhead_supply": "Unknown",
+            "historical": "Unknown",
+            "cash_need": "Unknown",
+            "error": str(e)
+        }
+
 
 router = APIRouter(prefix="/api/sec-dilution", tags=["sec-dilution"])
 
@@ -79,6 +274,15 @@ async def check_sec_dilution_cache(
             
             if profile:
                 # Hay datos en caché - devolverlos
+                
+                # RECALCULAR ATM potential_shares usando current_price y remaining_capacity
+                # (el valor guardado puede estar mal si se calculó con total_capacity)
+                current_price = float(profile.current_price or 0)
+                if current_price > 0:
+                    for atm in profile.atm_offerings:
+                        if atm.remaining_capacity:
+                            atm.potential_shares_at_current_price = int(float(atm.remaining_capacity) / current_price)
+                
                 dilution_analysis = profile.calculate_potential_dilution()
                 cache_age = None
                 if profile.metadata.last_scraped_at:
@@ -95,6 +299,9 @@ async def check_sec_dilution_cache(
                 except:
                     pass
                 
+                # Calculate risk assessment (same as /profile endpoint)
+                risk_assessment = await _calculate_risk_assessment(profile, dilution_analysis, redis)
+                
                 return {
                     "status": "cached",
                     "data": DilutionProfileResponse(
@@ -103,7 +310,8 @@ async def check_sec_dilution_cache(
                         cached=True,
                         cache_age_seconds=cache_age,
                         is_spac=is_spac,
-                        sic_code=None
+                        sic_code=None,
+                        risk_assessment=risk_assessment
                     )
                 }
             
@@ -209,6 +417,14 @@ async def get_sec_dilution_profile(
                     detail=f"Could not retrieve dilution profile for {ticker}. Ticker may not exist or SEC data unavailable."
                 )
             
+            # RECALCULAR ATM potential_shares usando current_price y remaining_capacity
+            # (el valor guardado puede estar mal si se calculó con total_capacity)
+            current_price = float(profile.current_price or 0)
+            if current_price > 0:
+                for atm in profile.atm_offerings:
+                    if atm.remaining_capacity:
+                        atm.potential_shares_at_current_price = int(float(atm.remaining_capacity) / current_price)
+            
             # Calcular análisis de dilución
             dilution_analysis = profile.calculate_potential_dilution()
             
@@ -244,13 +460,17 @@ async def get_sec_dilution_profile(
             except Exception as e:
                 logger.debug("spac_detection_skipped", ticker=ticker, error=str(e))
             
+            # Calculate risk assessment (DilutionTracker-style ratings)
+            risk_assessment = await _calculate_risk_assessment(profile, dilution_analysis, redis)
+            
             return DilutionProfileResponse(
                 profile=profile,
                 dilution_analysis=dilution_analysis,
                 cached=cached,
                 cache_age_seconds=cache_age,
                 is_spac=is_spac,
-                sic_code=sic_code
+                sic_code=sic_code,
+                risk_assessment=risk_assessment
             )
             
         finally:

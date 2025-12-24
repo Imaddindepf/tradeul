@@ -10,25 +10,91 @@ Este módulo maneja:
 - Filtrado de registros summary/históricos
 """
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from shared.utils.logger import get_logger
-from services.grok.grok_normalizers import (
-    GrokNormalizers,
-    normalize_grok_value,
-    safe_get_for_key,
-    to_hashable,
-)
 
 logger = get_logger(__name__)
 
 
-class DeduplicationService(GrokNormalizers):
+# ===========================================================================
+# HELPER FUNCTIONS (moved from grok_normalizers)
+# ===========================================================================
+
+def to_hashable(value: Any) -> Any:
+    """Convierte cualquier valor a un tipo hashable para usar en sets/dicts."""
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        try:
+            return json.dumps(value, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            return str(value)
+    if isinstance(value, (list, tuple)):
+        return tuple(to_hashable(item) for item in value)
+    return str(value)
+
+
+def normalize_grok_value(value: Any, expected_type: str = "string") -> Any:
+    """Normaliza un valor extrayendo el valor real de estructuras anidadas."""
+    if value is None:
+        return None
+        
+    if expected_type == "number" and isinstance(value, (int, float)):
+        return value
+    if expected_type == "string" and isinstance(value, str):
+        return value
+    if expected_type == "date" and isinstance(value, str):
+        return value
+    if expected_type == "any" and isinstance(value, (str, int, float, bool)):
+        return value
+        
+    if isinstance(value, dict):
+        value_fields = ['value', 'amount', 'price', 'date', 'count', 'number', 
+                       'shares', 'quantity', 'total', 'remaining', 'outstanding']
+        
+        for field in value_fields:
+            if field in value:
+                return normalize_grok_value(value[field], expected_type)
+        
+        if len(value) == 1:
+            only_value = list(value.values())[0]
+            return normalize_grok_value(only_value, expected_type)
+        
+        return str(value)
+        
+    if isinstance(value, list):
+        if len(value) == 1:
+            return normalize_grok_value(value[0], expected_type)
+        elif len(value) == 0:
+            return None
+        else:
+            return normalize_grok_value(value[0], expected_type)
+    
+    if expected_type == "number":
+        try:
+            cleaned = str(value).replace('$', '').replace(',', '').replace('%', '').strip()
+            return float(cleaned)
+        except (ValueError, TypeError):
+            return None
+    
+    return str(value)
+
+
+def safe_get_for_key(d: Dict, key: str, default: Any = None) -> Any:
+    """Obtiene un valor de dict de forma segura."""
+    if not isinstance(d, dict):
+        return default
+    return d.get(key, default)
+
+
+class DeduplicationService:
     """
     Servicio para deduplicar y clasificar instrumentos de dilución.
-    
-    Hereda de GrokNormalizers para tener acceso a métodos de normalización.
     """
     
     # ========================================================================
@@ -72,8 +138,8 @@ class DeduplicationService(GrokNormalizers):
         """
         # Paso 1: Normalizar todos los warrants
         for w in warrants:
-            outstanding = self.normalize_grok_value(w.get('outstanding'), 'number')
-            potential = self.normalize_grok_value(w.get('potential_new_shares'), 'number')
+            outstanding = normalize_grok_value(w.get('outstanding'), 'number')
+            potential = normalize_grok_value(w.get('potential_new_shares'), 'number')
             
             if outstanding is None and potential is not None:
                 w['outstanding'] = potential
@@ -84,9 +150,9 @@ class DeduplicationService(GrokNormalizers):
         groups = {}
         for w in warrants:
             try:
-                notes = self.normalize_grok_value(w.get('notes'), 'string') or ''
+                notes = normalize_grok_value(w.get('notes'), 'string') or ''
                 warrant_type = self.extract_warrant_type(notes)
-                exercise_price = self.safe_get_for_key(w, 'exercise_price', 'number')
+                exercise_price = safe_get_for_key(w, 'exercise_price', 'number')
                 
                 key = (warrant_type, exercise_price)
                 
@@ -118,7 +184,7 @@ class DeduplicationService(GrokNormalizers):
                 
                 def sort_key(w):
                     score = completeness_score(w)
-                    issue_date = self.safe_get_for_key(w, 'issue_date', 'date') or ''
+                    issue_date = safe_get_for_key(w, 'issue_date', 'date') or ''
                     return (score, str(issue_date))
                 
                 sorted_group = sorted(group, key=sort_key, reverse=True)
@@ -137,7 +203,7 @@ class DeduplicationService(GrokNormalizers):
                    input_count=len(warrants),
                    output_count=len(unique),
                    types_found=list(set(self.extract_warrant_type(
-                       self.normalize_grok_value(w.get('notes'), 'string') or ''
+                       normalize_grok_value(w.get('notes'), 'string') or ''
                    ) for w in unique)))
         
         return unique
@@ -153,7 +219,7 @@ class DeduplicationService(GrokNormalizers):
         excluded_count = 0
         
         for w in warrants:
-            notes_raw = self.normalize_grok_value(w.get('notes'), 'string')
+            notes_raw = normalize_grok_value(w.get('notes'), 'string')
             notes_lower = (notes_raw or '').lower()
             
             # Detectar si es un resumen agregado
@@ -202,9 +268,9 @@ class DeduplicationService(GrokNormalizers):
         for w in warrants:
             try:
                 key = (
-                    self.safe_get_for_key(w, 'issue_date', 'date'),
-                    self.safe_get_for_key(w, 'expiration_date', 'date'),
-                    self.to_hashable((self.normalize_grok_value(w.get('notes'), 'string') or '')[:60])
+                    safe_get_for_key(w, 'issue_date', 'date'),
+                    safe_get_for_key(w, 'expiration_date', 'date'),
+                    to_hashable((normalize_grok_value(w.get('notes'), 'string') or '')[:60])
                 )
                 by_key.setdefault(key, []).append(w)
             except Exception as e:
@@ -216,14 +282,14 @@ class DeduplicationService(GrokNormalizers):
             try:
                 prices = set()
                 for w in group:
-                    normalized_price = self.normalize_grok_value(w.get('exercise_price'), 'number')
+                    normalized_price = normalize_grok_value(w.get('exercise_price'), 'number')
                     if normalized_price is not None:
-                        prices.add(self.to_hashable(normalized_price))
+                        prices.add(to_hashable(normalized_price))
                 
                 if len(prices) == 1:
                     price = list(prices)[0]
                     for w in group:
-                        if self.normalize_grok_value(w.get('exercise_price'), 'number') is None:
+                        if normalize_grok_value(w.get('exercise_price'), 'number') is None:
                             w['exercise_price'] = price
                             if 'imputed_fields' not in w:
                                 w['imputed_fields'] = []
@@ -263,16 +329,16 @@ class DeduplicationService(GrokNormalizers):
         replacement_notes_keywords = ['inducement', 'replacement', 'in exchange for', 'existing warrants']
         
         for w in warrants:
-            notes_raw = self.normalize_grok_value(w.get('notes'), 'string')
+            notes_raw = normalize_grok_value(w.get('notes'), 'string')
             notes_lower = (notes_raw or '').lower()
             if any(keyword in notes_lower for keyword in replacement_notes_keywords):
-                issue_date = self.safe_get_for_key(w, 'issue_date', 'date')
+                issue_date = safe_get_for_key(w, 'issue_date', 'date')
                 if issue_date:
                     inducement_dates.add(issue_date)
         
         # Clasificar cada warrant
         for w in warrants:
-            notes_raw = self.normalize_grok_value(w.get('notes'), 'string')
+            notes_raw = normalize_grok_value(w.get('notes'), 'string')
             notes_lower = (notes_raw or '').lower()
             
             # 1. Historical Summary (ya detectado)
@@ -291,7 +357,7 @@ class DeduplicationService(GrokNormalizers):
                     continue
             
             # 3. Reemplazados
-            issue_date = self.safe_get_for_key(w, 'issue_date', 'date')
+            issue_date = safe_get_for_key(w, 'issue_date', 'date')
             if issue_date:
                 try:
                     later_inducements = [d for d in inducement_dates if str(d) > str(issue_date)]
@@ -305,7 +371,7 @@ class DeduplicationService(GrokNormalizers):
                         continue
             
             # 4. Pre-funded con ejercicio mínimo
-            exercise_price = self.normalize_grok_value(w.get('exercise_price'), 'number')
+            exercise_price = normalize_grok_value(w.get('exercise_price'), 'number')
             if exercise_price is not None:
                 try:
                     if float(exercise_price) <= 0.01:
@@ -457,9 +523,9 @@ class DeduplicationService(GrokNormalizers):
         shelfs_incomplete = []
         
         for s in shelfs:
-            remaining = self.normalize_grok_value(s.get('remaining_capacity'), 'number')
-            total = self.normalize_grok_value(s.get('total_capacity'), 'number')
-            reg_stmt = self.safe_get_for_key(s, 'registration_statement', 'string')
+            remaining = normalize_grok_value(s.get('remaining_capacity'), 'number')
+            total = normalize_grok_value(s.get('total_capacity'), 'number')
+            reg_stmt = safe_get_for_key(s, 'registration_statement', 'string')
             effect_date = s.get('effect_date') or s.get('filing_date')
             
             if remaining or total:
@@ -478,7 +544,7 @@ class DeduplicationService(GrokNormalizers):
         # Agrupar por registration_statement + effect_date
         groups = {}
         for s in all_shelfs:
-            reg_stmt = self.safe_get_for_key(s, 'registration_statement', 'string') or 'Unknown'
+            reg_stmt = safe_get_for_key(s, 'registration_statement', 'string') or 'Unknown'
             date_key = str(s.get('effect_date') or s.get('filing_date') or '')[:7]
             group_key = f"{reg_stmt}|{date_key}"
             if group_key not in groups:
@@ -583,9 +649,9 @@ class DeduplicationService(GrokNormalizers):
         atms_incomplete = []
         
         for a in atms:
-            remaining = self.normalize_grok_value(a.get('remaining_capacity'), 'number')
-            total = self.normalize_grok_value(a.get('total_capacity'), 'number')
-            agent = self.safe_get_for_key(a, 'placement_agent', 'string')
+            remaining = normalize_grok_value(a.get('remaining_capacity'), 'number')
+            total = normalize_grok_value(a.get('total_capacity'), 'number')
+            agent = safe_get_for_key(a, 'placement_agent', 'string')
             date = a.get('agreement_date') or a.get('filing_date')
             
             if remaining or total:
@@ -604,7 +670,7 @@ class DeduplicationService(GrokNormalizers):
         # Agrupar por placement_agent + agreement_date
         groups = {}
         for a in all_atms:
-            agent = self.safe_get_for_key(a, 'placement_agent', 'string') or 'Unknown'
+            agent = safe_get_for_key(a, 'placement_agent', 'string') or 'Unknown'
             date_key = str(a.get('agreement_date') or a.get('filing_date') or '')[:7]
             group_key = f"{agent}|{date_key}"
             if group_key not in groups:
@@ -671,8 +737,8 @@ class DeduplicationService(GrokNormalizers):
         without_data = 0
         
         for c in completed:
-            shares = self.normalize_grok_value(c.get('shares_issued'), 'number')
-            amount = self.normalize_grok_value(c.get('amount_raised'), 'number')
+            shares = normalize_grok_value(c.get('shares_issued'), 'number')
+            amount = normalize_grok_value(c.get('amount_raised'), 'number')
             
             if shares or amount:
                 with_data.append(c)
@@ -687,10 +753,10 @@ class DeduplicationService(GrokNormalizers):
         
         for c in with_data:
             try:
-                offering_type = self.safe_get_for_key(c, 'offering_type', 'string') or ''
-                offering_date = self.safe_get_for_key(c, 'offering_date', 'date')
-                amount = self.safe_get_for_key(c, 'amount_raised', 'number')
-                shares = self.safe_get_for_key(c, 'shares_issued', 'number')
+                offering_type = safe_get_for_key(c, 'offering_type', 'string') or ''
+                offering_date = safe_get_for_key(c, 'offering_date', 'date')
+                amount = safe_get_for_key(c, 'amount_raised', 'number')
+                shares = safe_get_for_key(c, 'shares_issued', 'number')
                 
                 key = (offering_type[:30], offering_date, amount or shares)
                 
@@ -717,9 +783,9 @@ class DeduplicationService(GrokNormalizers):
         unique = []
         for s1 in s1_offerings:
             try:
-                filing_date = self.safe_get_for_key(s1, 's1_filing_date', 'date')
-                final_size = self.safe_get_for_key(s1, 'final_deal_size', 'number')
-                anticipated_size = self.safe_get_for_key(s1, 'anticipated_deal_size', 'number')
+                filing_date = safe_get_for_key(s1, 's1_filing_date', 'date')
+                final_size = safe_get_for_key(s1, 'final_deal_size', 'number')
+                anticipated_size = safe_get_for_key(s1, 'anticipated_deal_size', 'number')
                 deal_size = final_size or anticipated_size
                 
                 key = (filing_date, deal_size)
@@ -874,7 +940,7 @@ class DeduplicationService(GrokNormalizers):
         filtered_reasons = {'zero_principal': 0, 'incremental': 0}
         
         for n in notes:
-            principal = self.normalize_grok_value(n.get('total_principal_amount'), 'number') or 0
+            principal = normalize_grok_value(n.get('total_principal_amount'), 'number') or 0
             
             if principal <= 0:
                 logger.debug("note_filtered_zero_principal", 
@@ -941,9 +1007,9 @@ class DeduplicationService(GrokNormalizers):
         unique = []
         for p in preferred:
             try:
-                series = self.safe_get_for_key(p, 'series', 'string')
-                issue_date = self.safe_get_for_key(p, 'issue_date', 'date')
-                amount = self.safe_get_for_key(p, 'total_dollar_amount_issued', 'number')
+                series = safe_get_for_key(p, 'series', 'string')
+                issue_date = safe_get_for_key(p, 'issue_date', 'date')
+                amount = safe_get_for_key(p, 'total_dollar_amount_issued', 'number')
                 
                 key = (series, issue_date, amount)
                 if not series or not issue_date:
@@ -968,8 +1034,8 @@ class DeduplicationService(GrokNormalizers):
         unique = []
         for el in equity_lines:
             try:
-                start_date = self.safe_get_for_key(el, 'agreement_start_date', 'date')
-                capacity = self.safe_get_for_key(el, 'total_capacity', 'number')
+                start_date = safe_get_for_key(el, 'agreement_start_date', 'date')
+                capacity = safe_get_for_key(el, 'total_capacity', 'number')
                     
                 key = (start_date, capacity)
                 if not start_date:

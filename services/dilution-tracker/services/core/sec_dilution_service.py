@@ -41,31 +41,13 @@ from services.data.enhanced_data_fetcher import (
     EnhancedDataFetcher,
     get_filing_tier,
     quick_dilution_scan,
-    should_process_with_grok,
     deduplicate_instruments,
     calculate_confidence_score,
     identify_risk_flags,
 )
 from services.data.shares_data_service import SharesDataService
 
-# Grok services
-from services.grok.grok_pool import GrokPool, get_grok_pool
-from services.grok.chunk_processor import ChunkProcessor, ChunkResult, ChunkStatus
-from services.grok.grok_extractor import GrokExtractor, get_grok_extractor
-from services.grok.grok_normalizers import (
-    normalize_grok_extraction_fields,
-    normalize_grok_value,
-    safe_get_for_key,
-    to_hashable,
-    normalize_warrant_fields,
-    normalize_atm_fields,
-    normalize_shelf_fields,
-    normalize_completed_fields,
-    normalize_s1_fields,
-    normalize_convertible_note_fields,
-    normalize_convertible_preferred_fields,
-    normalize_equity_line_fields,
-)
+# NOTE: Grok services removed - now using ContextualDilutionExtractor v4
 
 # Analysis services
 from services.analysis.deduplication_service import (
@@ -93,12 +75,10 @@ from services.market.market_data_calculator import MarketDataCalculator, get_mar
 # SEC services
 from services.sec.sec_filing_fetcher import SECFilingFetcher, get_sec_filing_fetcher
 from services.sec.sec_fulltext_search import SECFullTextSearch, get_fulltext_search
+# NOTE: filing_grouper removed - now using ContextualDilutionExtractor v4
 
-# Extraction services
-from services.extraction.html_section_extractor import HTMLSectionExtractor
-
-# Gemini services (para extracción precisa desde exhibits)
-from services.gemini.gemini_extractor import GeminiExtractor, get_gemini_extractor
+# Extraction services - v4 Contextual Extractor (Gemini long context)
+from services.extraction.contextual_extractor import ContextualDilutionExtractor
 
 # Cache services
 from services.cache.cache_service import CacheService
@@ -128,7 +108,6 @@ class SECDilutionService:
         self.db = db
         self.redis = redis
         self.repository = SECDilutionRepository(db)
-        self.grok_api_key = settings.GROK_API_KEY  # Mantener para compatibilidad
         
         # Enhanced data fetcher for SEC-API /float and FMP cash data
         self.enhanced_fetcher = EnhancedDataFetcher()
@@ -140,49 +119,136 @@ class SECDilutionService:
         # Semáforo global para limitar requests concurrentes a SEC
         self._sec_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_SCRAPES)
         
-        # GrokPool para múltiples API keys (procesamiento paralelo)
-        try:
-            self._grok_pool = get_grok_pool()
-            logger.info("grok_pool_ready", 
-                       num_keys=self._grok_pool.num_keys,
-                       max_parallel=self._grok_pool.num_keys * 2)
-        except Exception as e:
-            self._grok_pool = None
-            logger.warning("grok_pool_init_failed", error=str(e))
-        
         # Full-Text Search for comprehensive dilution discovery
         self._fulltext_search = get_fulltext_search()
-        
-        # Gemini Extractor para extracción precisa desde exhibits
-        try:
-            self._gemini_extractor = get_gemini_extractor()
-            logger.info("gemini_extractor_ready")
-        except Exception as e:
-            self._gemini_extractor = None
-            logger.warning("gemini_extractor_init_failed", error=str(e))
         
         # SEC Filing Fetcher con soporte para exhibits
         self._filing_fetcher = get_sec_filing_fetcher(db)
         
-        # Stats for pre-screening optimization
+        # Stats
         self._stats = {
-            "grok_calls": 0,
-            "grok_calls_parallel": 0,
-            "skipped_prescreening": 0,
+            "extractions": 0,
             "cache_hits": 0,
             "retries": 0,
             "timeouts": 0
         }
         
-        # Inicializar servicios refactorizados
+        # Inicializar servicios
         self.cache_service = CacheService(redis, self.repository)
         self.filing_fetcher = SECFilingFetcher(db)
-        self.html_extractor = HTMLSectionExtractor(self._grok_pool, self.grok_api_key)
         self.shares_service = SharesDataService(redis)
-        self.grok_extractor = get_grok_extractor(self._grok_pool, self.grok_api_key)
         
-        if not self.grok_api_key and not self._grok_pool:
-            logger.warning("grok_api_key_not_configured")
+        # Deduplication service
+        from services.analysis.deduplication_service import DeduplicationService
+        self.deduplication_service = DeduplicationService()
+        
+        # Checkpoints habilitados para debugging de pipeline
+        self._checkpoints_enabled = True
+        self._checkpoint_ttl = 3600 * 24  # 24 horas
+        
+        # Contextual Extractor v4 (arquitectura principal - usa contexto largo de Gemini)
+        sec_api_key = settings.SEC_API_IO_KEY or os.getenv('SEC_API_IO', '')
+        gemini_key = settings.GOOGL_API_KEY_V2 or os.getenv('GOOGL_API_KEY_V2', '')
+        if sec_api_key and gemini_key:
+            self._contextual_extractor = ContextualDilutionExtractor(
+                sec_api_key=sec_api_key,
+                gemini_api_key=gemini_key
+            )
+            logger.info("contextual_extractor_v4_ready")
+        else:
+            self._contextual_extractor = None
+            logger.error("contextual_extractor_v4_disabled - REQUIRED for dilution extraction", 
+                        has_sec_api=bool(sec_api_key), 
+                        has_gemini=bool(gemini_key))
+    
+    # ========================================================================
+    # CHECKPOINTS: Guardar estado intermedio de cada tier para debugging
+    # ========================================================================
+    
+    async def _save_checkpoint(self, ticker: str, tier: str, data: Dict):
+        """
+        Guarda el estado de un tier del pipeline para debugging.
+        
+        Tiers:
+        - discovery: filings y exhibits encontrados
+        - extraction_raw: datos raw de Gemini Flash
+        - pre_merge: datos después de pre-merge
+        - consolidated: datos después de Gemini Pro
+        - validated: datos después de validación
+        - split_adjusted: datos después de split adjustment
+        """
+        if not self._checkpoints_enabled:
+            return
+        
+        try:
+            import json
+            key = f"checkpoint:{ticker}:{tier}"
+            
+            # Serializar con timestamp
+            checkpoint = {
+                "ticker": ticker,
+                "tier": tier,
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "data": data
+            }
+            
+            await self.redis.set(
+                key, 
+                json.dumps(checkpoint, default=str),
+                ex=self._checkpoint_ttl
+            )
+            
+            # Log resumen del checkpoint
+            summary = {}
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    if isinstance(v, list):
+                        summary[k] = len(v)
+                    elif isinstance(v, dict):
+                        summary[k] = f"dict({len(v)} keys)"
+                    else:
+                        summary[k] = type(v).__name__
+            
+            logger.info("checkpoint_saved",
+                       ticker=ticker,
+                       tier=tier,
+                       summary=summary)
+                       
+        except Exception as e:
+            logger.warning("checkpoint_save_failed", 
+                          ticker=ticker, 
+                          tier=tier, 
+                          error=str(e))
+    
+    async def get_checkpoint(self, ticker: str, tier: str) -> Optional[Dict]:
+        """
+        Recupera un checkpoint guardado para análisis/debugging.
+        
+        Uso: await service.get_checkpoint("AZI", "extraction_raw")
+        """
+        try:
+            import json
+            key = f"checkpoint:{ticker}:{tier}"
+            data = await self.redis.get(key)
+            if data:
+                return json.loads(data)
+            return None
+        except Exception as e:
+            logger.warning("checkpoint_get_failed", ticker=ticker, tier=tier, error=str(e))
+            return None
+    
+    async def list_checkpoints(self, ticker: str) -> List[str]:
+        """Lista todos los checkpoints disponibles para un ticker."""
+        try:
+            pattern = f"checkpoint:{ticker}:*"
+            keys = []
+            async for key in self.redis.scan_iter(match=pattern):
+                tier = key.decode().split(":")[-1] if isinstance(key, bytes) else key.split(":")[-1]
+                keys.append(tier)
+            return sorted(keys)
+        except Exception as e:
+            logger.warning("checkpoint_list_failed", ticker=ticker, error=str(e))
+            return []
     
     # ========================================================================
     # DELEGADORES: Métodos que delegan a servicios refactorizados
@@ -208,14 +274,543 @@ class SECDilutionService:
         """Delegar a filing_fetcher"""
         return await self.filing_fetcher.download_filings(filings)
     
-    async def _extract_with_multipass_grok(
-        self, ticker: str, company_name: str, 
-        filing_contents: List[Dict], parsed_tables: Optional[Dict] = None
+    # ========================================================================
+    # ARQUITECTURA v4: CONTEXTUAL EXTRACTION (usa ContextualDilutionExtractor)
+    # ========================================================================
+    
+    async def _extract_with_contextual_v4(
+        self,
+        ticker: str,
+        cik: str
     ) -> Optional[Dict]:
-        """Delegar a grok_extractor"""
-        return await self.grok_extractor.extract_with_multipass_grok(
-            ticker, company_name, filing_contents, parsed_tables
-        )
+        """
+        Extracción v4 basada en contexto largo de Gemini.
+        
+        VENTAJAS:
+        - Contexto acumulado entre filings (mejor correlación)
+        - Descarga de archivos .txt completos (no PDFs)
+        - ATM detection desde material events
+        - Nombres consistentes con patrón [Month Year] [Type]
+        
+        Returns:
+            Dict con formato compatible con _build_profile
+        """
+        if not self._contextual_extractor:
+            logger.warning("contextual_extractor_not_available", ticker=ticker)
+            return None
+        
+        try:
+            logger.info("contextual_extraction_starting", ticker=ticker, cik=cik)
+            
+            # Ejecutar extracción v4
+            result = await self._contextual_extractor.extract_all(
+                ticker=ticker,
+                cik=cik
+            )
+            
+            if not result:
+                logger.warning("contextual_extraction_no_result", ticker=ticker)
+                return None
+            
+            # El resultado ya viene en formato dict
+            extracted_data = {
+                'warrants': result.get('warrants', []),
+                'atm_offerings': result.get('atm_offerings', []),
+                'shelf_registrations': result.get('shelf_registrations', []),
+                'completed_offerings': [],  # v4 no extrae completed offerings aún
+                's1_offerings': result.get('s1_offerings', []),
+                'convertible_notes': result.get('convertible_notes', []),
+                'convertible_preferred': result.get('convertible_preferred', []),
+                'equity_lines': [],
+            }
+            
+            # Logging detallado
+            logger.info("contextual_extraction_complete",
+                       ticker=ticker,
+                       warrants=len(extracted_data['warrants']),
+                       notes=len(extracted_data['convertible_notes']),
+                       preferred=len(extracted_data['convertible_preferred']),
+                       atm=len(extracted_data['atm_offerings']),
+                       shelf=len(extracted_data['shelf_registrations']),
+                       s1=len(extracted_data['s1_offerings']))
+            
+            return extracted_data
+            
+        except Exception as e:
+            logger.error("file_number_extraction_failed", ticker=ticker, error=str(e))
+            return None
+    
+    def _is_valid_note(self, note: Dict) -> bool:
+        """
+        Validación BÁSICA de nota convertible.
+        
+        Solo verifica datos mínimos necesarios.
+        La limpieza inteligente la hace Gemini 3 Pro en Consolidation Pass.
+        """
+        series_name = note.get('series_name', '')
+        principal = self.deduplication_service.normalize_grok_value(
+            note.get('total_principal_amount'), 'number'
+        ) or 0
+        conversion_price = self.deduplication_service.normalize_grok_value(
+            note.get('conversion_price'), 'number'
+        ) or 0
+        issue_date = note.get('issue_date')
+        
+        # LOG DETALLADO para debugging
+        logger.debug("note_validation_check",
+                    series=series_name,
+                    principal=principal,
+                    conversion_price=conversion_price,
+                    has_issue_date=bool(issue_date),
+                    raw_conv_price=note.get('conversion_price'))
+        
+        # Solo validación mínima: debe tener principal > 0
+        if principal <= 0:
+            logger.info("note_rejected",
+                       reason="zero_principal",
+                       series=series_name)
+            return False
+        
+        # Debe tener conversion_price numérico > 0
+        if conversion_price <= 0:
+            logger.info("note_rejected",
+                       reason="no_conversion_price",
+                       series=series_name,
+                       principal=principal,
+                       raw_value=str(note.get('conversion_price'))[:50])
+            return False
+        
+        # PASÓ validación básica
+        logger.info("note_accepted",
+                   series=series_name,
+                   principal=principal,
+                   conversion_price=conversion_price,
+                   has_issue_date=bool(issue_date))
+        return True
+    
+    def _is_valid_warrant(self, warrant: Dict) -> bool:
+        """
+        Validación de warrant.
+        
+        FILTRAR warrants que NO diluyen:
+        - underlying_type = 'convertible_notes' (warrants para comprar notas, no acciones)
+        - underlying_type = 'preferred_stock' (warrants para comprar preferred, no common)
+        """
+        series_name = warrant.get('series_name', '') or ''
+        underlying_type = warrant.get('underlying_type', 'shares') or 'shares'
+        exercise_price = self.deduplication_service.normalize_grok_value(
+            warrant.get('exercise_price'), 'number'
+        ) or 0
+        outstanding = self.deduplication_service.normalize_grok_value(
+            warrant.get('outstanding'), 'number'
+        ) or 0
+        total_issued = self.deduplication_service.normalize_grok_value(
+            warrant.get('total_issued'), 'number'
+        ) or 0
+        
+        # LOG DETALLADO para debugging
+        logger.debug("warrant_validation_check",
+                    series=series_name,
+                    underlying_type=underlying_type,
+                    exercise_price=exercise_price,
+                    outstanding=outstanding,
+                    total_issued=total_issued)
+        
+        # FILTRAR warrants que NO son para comprar shares (no diluyen directamente)
+        if underlying_type and underlying_type.lower() != 'shares':
+            logger.info("warrant_filtered_non_share",
+                       series=series_name,
+                       underlying_type=underlying_type,
+                       reason="Warrant to purchase notes/preferred, not common shares")
+            return False
+        
+        # Solo validación mínima: debe tener exercise_price > 0
+        if exercise_price <= 0:
+            logger.info("warrant_rejected",
+                       reason="no_exercise_price",
+                       series=series_name,
+                       raw_value=str(warrant.get('exercise_price'))[:50])
+            return False
+        
+        # Debe tener alguna cantidad O ser un warrant reciente con issue_date
+        # Los warrants recientes extraídos de exhibits pueden no tener quantity todavía
+        quantity = max(outstanding, total_issued)
+        issue_date = warrant.get('issue_date', '') or ''
+        
+        if quantity <= 0:
+            # Permitir warrants recientes (2025) sin quantity si tienen issue_date
+            # La quantity se puede obtener del 8-K principal o press release
+            if issue_date and issue_date.startswith('2025'):
+                logger.info("warrant_accepted_recent_no_quantity",
+                           series=series_name,
+                           exercise_price=exercise_price,
+                           issue_date=issue_date,
+                           reason="Recent warrant without quantity - will be enriched later")
+            else:
+                logger.info("warrant_rejected",
+                           reason="no_quantity",
+                           series=series_name,
+                           exercise_price=exercise_price,
+                           issue_date=issue_date)
+                return False
+        
+        # PASÓ validación
+        logger.info("warrant_accepted",
+                   series=series_name,
+                   underlying_type=underlying_type,
+                   exercise_price=exercise_price,
+                   outstanding=outstanding,
+                   total_issued=total_issued)
+        return True
+    
+    def _is_valid_shelf(self, shelf: Dict) -> bool:
+        """
+        Validar que un shelf registration tiene datos mínimos.
+        
+        FILTRAR:
+        - Shelfs sin total_capacity
+        - Shelfs de resale/conversion (no son nueva dilución, shares ya contadas en notas)
+        """
+        series_name = shelf.get('series_name', '') or ''
+        registration_purpose = shelf.get('registration_purpose', 'new_issuance') or 'new_issuance'
+        total_capacity = self.deduplication_service.normalize_grok_value(
+            shelf.get('total_capacity'), 'number'
+        ) or 0
+        
+        if total_capacity <= 0:
+            logger.debug("shelf_filtered_no_capacity", 
+                        series=series_name,
+                        form=shelf.get('registration_statement'))
+            return False
+        
+        # FILTRAR shelfs de resale/conversion (no son nueva dilución)
+        # Estas shares ya están contadas en las notas convertibles
+        if registration_purpose and registration_purpose.lower() in ['resale', 'conversion_shares']:
+            logger.info("shelf_filtered_non_dilutive",
+                       series=series_name,
+                       registration_purpose=registration_purpose,
+                       total_capacity=total_capacity,
+                       reason="Resale/conversion registration - shares already counted in convertible notes")
+            return False
+        
+        return True
+    
+    def _is_valid_atm(self, atm: Dict) -> bool:
+        """
+        Validar que un ATM tiene datos mínimos.
+        
+        Allow ATMs with valid name even if capacity is missing - 
+        capacity can be enriched later or calculated from market data.
+        """
+        series_name = str(atm.get('series_name', '') or '').lower()
+        total_capacity = self.deduplication_service.normalize_grok_value(
+            atm.get('total_capacity'), 'number'
+        ) or 0
+        
+        # Accept if has capacity
+        if total_capacity > 0:
+            return True
+        
+        # Accept if name clearly indicates ATM (even without capacity)
+        if 'atm' in series_name:
+            logger.debug("atm_accepted_by_name", series=atm.get('series_name'))
+            return True
+        
+        logger.debug("atm_filtered_no_capacity_or_name", series=atm.get('series_name'))
+        return False
+    
+    def _is_valid_equity_line(self, el: Dict) -> bool:
+        """Validar que un equity line tiene datos mínimos."""
+        total_capacity = self.deduplication_service.normalize_grok_value(
+            el.get('total_capacity'), 'number'
+        ) or 0
+        
+        if total_capacity <= 0:
+            logger.debug("equity_line_filtered_no_capacity", series=el.get('series_name'))
+            return False
+        
+        return True
+    
+    def _pre_merge_notes(self, notes: List[Dict]) -> List[Dict]:
+        """
+        Pre-merge SIMPLE: Solo agrupa por mes/año extraído del nombre.
+        
+        La consolidación inteligente la hace Gemini 3 Pro después.
+        Aquí solo hacemos agrupación básica para reducir duplicados obvios.
+        """
+        if not notes:
+            return []
+        
+        import re
+        
+        logger.info("pre_merge_notes_start", total_notes=len(notes))
+        
+        # Extraer mes/año del nombre para agrupar
+        def extract_date_key(name: str) -> str:
+            if not name:
+                return "unknown"
+            name_lower = name.lower()
+            # Buscar patrón "Month Year" (ej: "january 2025", "february 2025")
+            date_match = re.search(
+                r'(january|february|march|april|may|june|july|august|september|october|november|december)\s*\d{4}', 
+                name_lower
+            )
+            if date_match:
+                return date_match.group().strip()
+            return "unknown"
+        
+        # Agrupar notas
+        groups = {}
+        for note in notes:
+            key = extract_date_key(note.get('series_name', ''))
+            if key == "unknown":
+                # Usar issue_date como alternativa
+                key = note.get('issue_date') or "unknown"
+            
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(note)
+            
+            logger.debug("pre_merge_note_grouped",
+                        series=note.get('series_name'),
+                        key=key)
+        
+        logger.info("pre_merge_groups_formed", 
+                   groups=len(groups),
+                   group_keys=list(groups.keys()))
+        
+        # Combinar cada grupo: tomar la nota con conversion_price numérico válido
+        merged = []
+        for key, group in groups.items():
+            if len(group) == 1:
+                merged.append(group[0])
+                logger.debug("pre_merge_single_note", key=key)
+            else:
+                # Encontrar la nota con mejor conversion_price (numérico válido)
+                best_note = None
+                best_score = -1
+                
+                for note in group:
+                    score = 0
+                    # Tiene conversion_price numérico válido?
+                    try:
+                        conv = float(note.get('conversion_price', 0))
+                        if conv > 0:
+                            score += 10
+                    except:
+                        pass
+                    # Tiene issue_date?
+                    if note.get('issue_date'):
+                        score += 3
+                    # Tiene maturity_date?
+                    if note.get('maturity_date'):
+                        score += 3
+                    # Tiene pp_clause?
+                    if note.get('pp_clause'):
+                        score += 2
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_note = note
+                
+                # Enriquecer la mejor nota con datos de las demás
+                combined = dict(best_note)
+                for note in group:
+                    if note is best_note:
+                        continue
+                    for field in ['pp_clause', 'known_owners', 'maturity_date', 'floor_price']:
+                        if not combined.get(field) and note.get(field):
+                            combined[field] = note[field]
+                
+                logger.info("pre_merge_combined",
+                           key=key,
+                           count=len(group),
+                           best_score=best_score,
+                           series=combined.get('series_name'),
+                           has_conv_price=bool(combined.get('conversion_price')))
+                
+                merged.append(combined)
+        
+        logger.info("pre_merge_notes_complete",
+                   input=len(notes),
+                   output=len(merged))
+        
+        return merged
+    
+    def _pre_merge_warrants(self, warrants: List[Dict]) -> List[Dict]:
+        """
+        Pre-merge para warrants - combina duplicados que son claramente el mismo instrumento.
+        
+        IMPORTANTE: No combinar warrants diferentes del mismo mes (Series A vs Series B).
+        Solo combinar si son extracciones parciales del MISMO warrant.
+        """
+        if not warrants:
+            return []
+        
+        import re
+        
+        def extract_series_identifier(name: str) -> str:
+            """
+            Extrae identificador único del warrant incluyendo series/tipo.
+            'December 2025 PIPE Series A Common Warrants' -> 'december 2025|series a'
+            'December 2025 Pre-Funded Warrants' -> 'december 2025|pre-funded'
+            """
+            if not name:
+                return ""
+            name_lower = name.lower()
+            
+            # Extraer fecha (mes + año)
+            date_match = re.search(r'(january|february|march|april|may|june|july|august|september|october|november|december)\s*\d{4}', name_lower)
+            date_part = date_match.group().strip() if date_match else ""
+            
+            # Extraer identificador de serie/tipo
+            series_match = re.search(r'series\s*([a-z0-9]+)', name_lower)
+            prefunded_match = re.search(r'pre[-\s]?funded', name_lower)
+            
+            if series_match:
+                series_part = f"series {series_match.group(1)}"
+            elif prefunded_match:
+                series_part = "pre-funded"
+            else:
+                # Usar palabras distintivas
+                distinctive_words = []
+                for word in ['pipe', 'sermonix', 'placement', 'agent', 'underwriter']:
+                    if word in name_lower:
+                        distinctive_words.append(word)
+                series_part = '-'.join(distinctive_words) if distinctive_words else ""
+            
+            # Combinar en key única
+            if date_part and series_part:
+                return f"{date_part}|{series_part}"
+            elif date_part:
+                return date_part
+            return name_lower.strip()[:50]  # Fallback: primeros 50 chars
+        
+        # Agrupar por key única
+        groups = {}
+        for warrant in warrants:
+            key = extract_series_identifier(warrant.get('series_name', ''))
+            
+            # Añadir exercise_price a la key si es significativo
+            # Esto evita combinar warrants con diferentes precios
+            exercise = warrant.get('exercise_price')
+            if exercise:
+                try:
+                    # Limpiar símbolos de moneda (C$, $, USD, etc.)
+                    clean_exercise = str(exercise).replace('C$', '').replace('$', '').replace(',', '').strip()
+                    exercise_float = float(clean_exercise)
+                    if exercise_float > 0:
+                        key = f"{key}|{exercise_float:.2f}"
+                except (ValueError, TypeError):
+                    pass  # Si no es parseable, ignorar para el key
+            
+            if not key:
+                key = warrant.get('issue_date', 'unknown')
+            
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(warrant)
+        
+        # Combinar grupos (solo para el mismo warrant extraído de múltiples fuentes)
+        merged = []
+        for key, group in groups.items():
+            if len(group) == 1:
+                merged.append(group[0])
+            else:
+                # Combinar datos parciales del mismo warrant
+                combined = dict(group[0])
+                for field in ['exercise_price', 'outstanding', 'total_issued', 'expiration_date', 'known_owners', 'issue_date']:
+                    for warrant in group:
+                        val = warrant.get(field)
+                        if val is not None and val != '' and val != 0:
+                            if field == 'exercise_price':
+                                try:
+                                    if float(val) > 0:
+                                        combined[field] = val
+                                        break
+                                except:
+                                    pass
+                            else:
+                                combined[field] = val
+                                break
+                
+                merged.append(combined)
+        
+        return merged
+    
+    def _deduplicate_with_priority(self, data: Dict) -> Dict:
+        """
+        Deduplicar instrumentos dando prioridad a fuentes más confiables.
+        
+        Prioridad:
+        1. gemini_exhibit (contratos legales)
+        2. grok_424b (prospectus)
+        3. grok_filing (narrativo)
+        """
+        # Deduplicar convertible notes con prioridad
+        notes = data.get('convertible_notes', [])
+        if len(notes) > 1:
+            # Ordenar por prioridad (menor número = mayor prioridad)
+            notes.sort(key=lambda x: x.get('_source_priority', 5))
+            
+            # Usar deduplicación estándar que mantendrá el primero (mayor prioridad)
+            notes = deduplicate_convertible_notes(notes)
+        
+        data['convertible_notes'] = notes
+        
+        # Deduplicar warrants con prioridad
+        warrants = data.get('warrants', [])
+        if len(warrants) > 1:
+            warrants.sort(key=lambda x: x.get('_source_priority', 5))
+            warrants = deduplicate_warrants(warrants)
+        
+        data['warrants'] = warrants
+        
+        # Deduplicar otros instrumentos
+        if data.get('atm_offerings'):
+            data['atm_offerings'] = deduplicate_atm(data['atm_offerings'])
+        
+        if data.get('shelf_registrations'):
+            data['shelf_registrations'] = deduplicate_shelfs(data['shelf_registrations'])
+        
+        if data.get('completed_offerings'):
+            data['completed_offerings'] = deduplicate_completed(data['completed_offerings'])
+        
+        if data.get('equity_lines'):
+            data['equity_lines'] = deduplicate_equity_lines(data['equity_lines'])
+        
+        return data
+    
+    def _validate_extracted_data(self, data: Dict, ticker: str) -> Dict:
+        """
+        Validación final de datos extraídos.
+        Marca instrumentos con datos incompletos para revisión.
+        """
+        # Validar notas
+        for note in data.get('convertible_notes', []):
+            conversion_price = self.deduplication_service.normalize_grok_value(
+                note.get('conversion_price'), 'number'
+            ) or 0
+            
+            if conversion_price <= 0:
+                note['_needs_review'] = True
+                note['_review_reason'] = 'missing_conversion_price'
+                logger.warning("note_needs_review",
+                             ticker=ticker,
+                             series=note.get('series_name'),
+                             reason='missing_conversion_price')
+        
+        # Validar warrants
+        for warrant in data.get('warrants', []):
+            exercise_price = self.deduplication_service.normalize_grok_value(
+                warrant.get('exercise_price'), 'number'
+            ) or 0
+            
+            if exercise_price <= 0:
+                warrant['_needs_review'] = True
+                warrant['_review_reason'] = 'missing_exercise_price'
+        
+        return data
     
     async def _adjust_warrants_for_splits(self, ticker: str, warrants: List[Dict]) -> List[Dict]:
         """Delegar a shares_service"""
@@ -224,6 +819,10 @@ class SECDilutionService:
     async def _adjust_convertible_notes_for_splits(self, ticker: str, notes: List[Dict]) -> List[Dict]:
         """Delegar a shares_service para ajustar notas convertibles por splits"""
         return await self.shares_service.adjust_convertible_notes_for_splits(ticker, notes)
+    
+    async def _adjust_convertible_preferred_for_splits(self, ticker: str, preferred: List[Dict]) -> List[Dict]:
+        """Delegar a shares_service para ajustar convertible preferred por splits"""
+        return await self.shares_service.adjust_convertible_preferred_for_splits(ticker, preferred)
     
     async def get_shares_history(self, ticker: str, cik: Optional[str] = None) -> Dict[str, Any]:
         """Delegar a shares_service"""
@@ -408,176 +1007,6 @@ class SECDilutionService:
     # ========================================================================
     # GEMINI EXTRACTION - Para datos precisos desde exhibits
     # ========================================================================
-    
-    async def _enrich_with_gemini_from_exhibits(
-        self,
-        ticker: str,
-        cik: str,
-        extracted_data: Dict,
-        filing_contents: List[Dict]
-    ) -> Dict:
-        """
-        Enriquece datos extraídos usando Gemini para analizar exhibits.
-        
-        Los exhibits (ex4-X, ex10-X, ex99-X) contienen los contratos reales
-        con valores exactos de conversion_price, terms, etc.
-        
-        Se llama cuando:
-        1. Hay convertible_notes con conversion_price = 0
-        2. Hay warrants con exercise_price faltante
-        3. Foreign issuers (F-1, 20-F) que suelen tener datos en exhibits
-        """
-        if not self._gemini_extractor or not self._gemini_extractor.client:
-            logger.debug("gemini_enrichment_skipped_no_client", ticker=ticker)
-            return extracted_data
-        
-        # Detectar si necesitamos enriquecimiento
-        needs_enrichment = False
-        
-        # Check convertible notes
-        convertible_notes = extracted_data.get('convertible_notes', [])
-        notes_missing_price = [
-            n for n in convertible_notes 
-            if not n.get('conversion_price') or n.get('conversion_price', 0) <= 0
-        ]
-        
-        if notes_missing_price:
-            needs_enrichment = True
-            logger.info("gemini_enrichment_needed",
-                       ticker=ticker,
-                       reason="notes_missing_conversion_price",
-                       count=len(notes_missing_price))
-        
-        # Check for foreign issuers (F-1, 20-F)
-        has_foreign_filings = any(
-            f.get('form_type', '').upper() in ['F-1', 'F-1/A', '20-F', '20-F/A']
-            for f in filing_contents
-        )
-        
-        if has_foreign_filings and convertible_notes:
-            needs_enrichment = True
-            logger.info("gemini_enrichment_needed",
-                       ticker=ticker,
-                       reason="foreign_issuer_filings")
-        
-        if not needs_enrichment:
-            return extracted_data
-        
-        try:
-            # Descargar filings con exhibits
-            logger.info("gemini_downloading_exhibits", ticker=ticker)
-            
-            # Filtrar filings relevantes para enriquecimiento
-            relevant_filings = [
-                {'url': f.get('url'), 
-                 'form_type': f.get('form_type'),
-                 'filing_date': f.get('filing_date')}
-                for f in filing_contents
-                if f.get('form_type', '').upper() in [
-                    '6-K', '8-K', 'F-1', 'F-1/A', '20-F', '20-F/A',
-                    '10-K', '10-K/A', '10-Q', '424B5', '424B4'
-                ] and f.get('url')
-            ][:15]  # Max 15 filings para no sobrecargar
-            
-            if not relevant_filings:
-                return extracted_data
-            
-            # Descargar con exhibits
-            filings_with_exhibits = await self._filing_fetcher.download_filings_with_exhibits(
-                relevant_filings,
-                download_exhibits=True
-            )
-            
-            total_exhibits = sum(len(f.get('exhibits', [])) for f in filings_with_exhibits)
-            logger.info("gemini_exhibits_downloaded",
-                       ticker=ticker,
-                       filings=len(filings_with_exhibits),
-                       exhibits=total_exhibits)
-            
-            if total_exhibits == 0:
-                logger.debug("gemini_no_exhibits_found", ticker=ticker)
-                return extracted_data
-            
-            # Extraer con Gemini
-            gemini_data = await self._gemini_extractor.extract_all(
-                ticker=ticker,
-                filings=filings_with_exhibits
-            )
-            
-            # Merge datos de Gemini
-            extracted_data = self._merge_gemini_data(extracted_data, gemini_data)
-            
-            logger.info("gemini_enrichment_complete",
-                       ticker=ticker,
-                       new_notes=len(gemini_data.get('convertible_notes', [])),
-                       new_warrants=len(gemini_data.get('warrants', [])))
-            
-        except Exception as e:
-            logger.error("gemini_enrichment_failed",
-                        ticker=ticker,
-                        error=str(e))
-        
-        return extracted_data
-    
-    def _merge_gemini_data(self, extracted_data: Dict, gemini_data: Dict) -> Dict:
-        """
-        Merge datos extraídos por Gemini con datos existentes.
-        
-        ESTRATEGIA: Gemini (exhibits) es la fuente autoritativa para foreign issuers.
-        
-        Para notas convertibles:
-        - Si Gemini extrajo notas de exhibits, USAR ESAS como base
-        - Los exhibits son los contratos legales reales, más precisos que F-1 narrativo
-        - Solo mantener notas de Grok si Gemini no encontró ninguna
-        """
-        from services.analysis.deduplication_service import deduplicate_convertible_notes
-        
-        existing_notes = extracted_data.get('convertible_notes', [])
-        gemini_notes = [n for n in gemini_data.get('convertible_notes', []) 
-                       if n.get('conversion_price', 0) and n.get('conversion_price', 0) > 0]
-        
-        # Si Gemini encontró notas con precios válidos, usar esas como base
-        if gemini_notes:
-            logger.info("gemini_notes_replace_grok",
-                       grok_notes=len(existing_notes),
-                       gemini_notes=len(gemini_notes))
-            
-            # Marcar fuente
-            for n in gemini_notes:
-                n['_source'] = 'gemini_exhibit'
-            
-            # Gemini como base, deduplicar
-            final_notes = deduplicate_convertible_notes(gemini_notes)
-        else:
-            # No hay notas de Gemini, mantener las de Grok
-            final_notes = existing_notes
-        
-        extracted_data['convertible_notes'] = final_notes
-        
-        # Para warrants: COMBINAR Grok + Gemini (no reemplazar)
-        # Grok puede tener warrants especiales (note warrants) que Gemini no extrae bien
-        existing_warrants = extracted_data.get('warrants', [])
-        gemini_warrants = [w for w in gemini_data.get('warrants', [])
-                         if w.get('exercise_price') and w.get('outstanding')]
-        
-        if gemini_warrants:
-            logger.info("gemini_warrants_merge",
-                       grok_warrants=len(existing_warrants),
-                       gemini_warrants=len(gemini_warrants))
-            
-            for w in gemini_warrants:
-                w['_source'] = 'gemini_exhibit'
-            
-            # Combinar: Grok + Gemini, luego deduplicar
-            combined = existing_warrants + gemini_warrants
-            from services.analysis.deduplication_service import deduplicate_warrants
-            final_warrants = deduplicate_warrants(combined)
-        else:
-            final_warrants = existing_warrants
-        
-        extracted_data['warrants'] = final_warrants
-        
-        return extracted_data
     
     async def get_dilution_profile(self, ticker: str, force_refresh: bool = False) -> Optional[SECDilutionProfile]:
         """
@@ -1115,31 +1544,41 @@ class SECDilutionService:
             logger.info("filing_contents_downloaded", ticker=ticker, count=len(filing_contents),
                        total_chars=sum(len(f['content']) for f in filing_contents))
             
-            # 3.5. Pre-parsear tablas HTML para encontrar warrants (híbrido)
-            parsed_tables = await self._parse_warrant_tables(filing_contents)
+            # ================================================================
+            # 4. CONTEXTUAL EXTRACTION v4 (ÚNICO MÉTODO)
+            # ================================================================
+            # ContextualDilutionExtractor usa contexto largo de Gemini
+            # ================================================================
             
-            # 4. MULTI-PASS EXTRACTION: Analizar en múltiples pasadas enfocadas
-            logger.info("starting_multipass_extraction", ticker=ticker, total_filings=len(filing_contents))
-            
-            extracted_data = await self._extract_with_multipass_grok(
-                ticker=ticker,
-                company_name=company_name,
-                filing_contents=filing_contents,
-                parsed_tables=parsed_tables
-            )
-            
-            if not extracted_data:
-                logger.warning("multipass_extraction_failed", ticker=ticker)
+            if not self._contextual_extractor:
+                logger.error("contextual_extractor_not_configured", ticker=ticker)
                 return self._create_empty_profile(ticker, cik, company_name)
             
-            # 5. NUEVO: Enriquecer con datos estructurados de S-1/424B4 API
+            logger.info("starting_contextual_extraction_v4", ticker=ticker)
+            
+            try:
+                extracted_data = await self._extract_with_contextual_v4(
+                    ticker=ticker,
+                    cik=cik
+                )
+            except Exception as e:
+                logger.error("contextual_extraction_v4_failed", ticker=ticker, error=str(e))
+                return self._create_empty_profile(ticker, cik, company_name)
+            
+            if not extracted_data:
+                logger.warning("contextual_extraction_no_data", ticker=ticker)
+                return self._create_empty_profile(ticker, cik, company_name)
+            
+            logger.info("extraction_complete", ticker=ticker, source="contextual_v4")
+            
+            # Enriquecer con datos estructurados de S-1/424B4 API (si hay)
             if prospectus_data:
                 extracted_data = self._enrich_with_prospectus_data(
                     extracted_data, 
                     prospectus_data
                 )
             
-            # 5.5. NUEVO: Añadir metadata del Full-Text Discovery
+            # Añadir metadata del Full-Text Discovery
             if fulltext_discovery:
                 extracted_data['_fulltext_discovery'] = {
                     'categories_detected': fulltext_discovery.get('summary', {}).get('categories_detected', []),
@@ -1149,14 +1588,6 @@ class SECDilutionService:
                     'has_shelf': fulltext_discovery.get('summary', {}).get('has_shelf', False),
                     'has_convertibles': fulltext_discovery.get('summary', {}).get('has_convertibles', False),
                 }
-            
-            # 5.6. NUEVO: Enriquecer con Gemini desde exhibits (conversion_price precisos)
-            extracted_data = await self._enrich_with_gemini_from_exhibits(
-                ticker=ticker,
-                cik=cik,
-                extracted_data=extracted_data,
-                filing_contents=filing_contents
-            )
             
             # 6. Ajustar warrants por stock splits
             if extracted_data.get('warrants'):
@@ -1170,6 +1601,13 @@ class SECDilutionService:
                 extracted_data['convertible_notes'] = await self._adjust_convertible_notes_for_splits(
                     ticker, 
                     extracted_data['convertible_notes']
+                )
+            
+            # 6c. Ajustar convertible preferred por stock splits (precio RAW del doc, ajuste en Python)
+            if extracted_data.get('convertible_preferred'):
+                extracted_data['convertible_preferred'] = await self._adjust_convertible_preferred_for_splits(
+                    ticker, 
+                    extracted_data['convertible_preferred']
                 )
             
             # 7. Obtener precio actual y shares outstanding
@@ -1529,6 +1967,7 @@ class SECDilutionService:
                         shelf.price_to_exceed_baby_shelf = price_to_exceed
             
             # Enriquecer ATM Offerings
+            current_price = float(profile.current_price or 0)
             for atm in profile.atm_offerings:
                 atm.last_update_date = datetime.now().date()
                 
@@ -1550,6 +1989,10 @@ class SECDilutionService:
                         atm.remaining_capacity = current_raisable
                     else:
                         atm.atm_limited_by_baby_shelf = False
+                
+                # SIEMPRE recalcular potential_shares usando remaining_capacity y current_price
+                if current_price > 0 and atm.remaining_capacity:
+                    atm.potential_shares_at_current_price = int(float(atm.remaining_capacity) / current_price)
             
             return profile
             
@@ -1585,6 +2028,7 @@ class SECDilutionService:
         warrants = [
             WarrantModel(
                 ticker=ticker,
+                series_name=w.get('series_name'),  # CRITICAL: Pass series_name
                 issue_date=w.get('issue_date'),
                 outstanding=w.get('outstanding'),
                 exercise_price=w.get('exercise_price'),
@@ -1600,6 +2044,7 @@ class SECDilutionService:
                 split_factor=w.get('split_factor'),
                 original_exercise_price=w.get('original_exercise_price'),
                 original_outstanding=w.get('original_outstanding'),
+                original_total_issued=w.get('original_total_issued'),
                 # Exercise tracking fields
                 total_issued=w.get('total_issued'),
                 exercised=w.get('exercised_count') or w.get('exercised'),
@@ -1611,7 +2056,12 @@ class SECDilutionService:
                 underwriter_agent=w.get('underwriter_agent') or w.get('placement_agent'),
                 price_protection=w.get('price_protection'),
                 pp_clause=w.get('pp_clause'),
-                exercisable_date=w.get('exercisable_date')
+                exercisable_date=w.get('exercisable_date'),
+                # Trazabilidad de filings
+                source_filing=w.get('_source'),
+                source_filings=w.get('_sources'),
+                merged_from_count=w.get('_merged_from'),
+                filing_url=w.get('filing_url')
             )
             for w in extracted_data.get('warrants', [])
         ]
@@ -1620,10 +2070,11 @@ class SECDilutionService:
         
         # Parse ATM offerings (con nuevos campos)
         # Límites de campos string según Pydantic models
-        atm_limits = {'placement_agent': 255, 'status': 50}
+        atm_limits = {'placement_agent': 255, 'status': 50, 'series_name': 255}
         atm_offerings = [
             ATMOfferingModel(
                 ticker=ticker,
+                series_name=a.get('series_name'),  # CRITICAL: Pass series_name
                 total_capacity=a.get('total_capacity'),
                 remaining_capacity=a.get('remaining_capacity'),
                 placement_agent=a.get('placement_agent'),
@@ -1638,10 +2089,11 @@ class SECDilutionService:
         ]
         
         # Parse shelf registrations (con nuevos campos)
-        shelf_limits = {'security_type': 50, 'registration_statement': 50, 'last_banker': 255, 'status': 50}
+        shelf_limits = {'security_type': 50, 'registration_statement': 50, 'last_banker': 255, 'status': 50, 'series_name': 255}
         shelf_registrations = [
             ShelfRegistrationModel(
                 ticker=ticker,
+                series_name=s.get('series_name'),  # CRITICAL: Pass series_name
                 total_capacity=s.get('total_capacity'),
                 remaining_capacity=s.get('remaining_capacity'),
                 current_raisable_amount=s.get('current_raisable_amount'),
@@ -1681,10 +2133,11 @@ class SECDilutionService:
         
         # Parse S-1 offerings (NUEVO)
         from models.sec_dilution_models import S1OfferingModel
-        s1_limits = {'underwriter_agent': 255, 'status': 50}
+        s1_limits = {'underwriter_agent': 255, 'status': 50, 'series_name': 255}
         s1_offerings = [
             S1OfferingModel(
                 ticker=ticker,
+                series_name=s1.get('series_name') or s1.get('name'),  # Gemini may use 'name' or 'series_name'
                 anticipated_deal_size=s1.get('anticipated_deal_size'),
                 final_deal_size=s1.get('final_deal_size'),
                 final_pricing=s1.get('final_pricing'),
@@ -1743,6 +2196,7 @@ class SECDilutionService:
         convertible_preferred = [
             ConvertiblePreferredModel(
                 ticker=ticker,
+                series_name=cp.get('series_name'),  # CRITICAL: Pass series_name
                 series=cp.get('series'),
                 total_dollar_amount_issued=cp.get('total_dollar_amount_issued'),
                 remaining_dollar_amount=cp.get('remaining_dollar_amount'),
@@ -1760,7 +2214,15 @@ class SECDilutionService:
                 price_protection=cp.get('price_protection'),
                 pp_clause=cp.get('pp_clause'),
                 status=cp.get('status'),
-                last_update_date=cp.get('last_update_date')
+                last_update_date=cp.get('last_update_date'),
+                # Split adjustment tracking
+                split_adjusted=cp.get('split_adjusted'),
+                split_factor=cp.get('split_factor'),
+                original_conversion_price=cp.get('original_conversion_price'),
+                # Trazabilidad de filings
+                source_filing=cp.get('_source'),
+                source_filings=cp.get('_sources'),
+                merged_from_count=cp.get('_merged_from')
             )
             for cp in [self._sanitize_field_lengths(x, cp_limits) for x in extracted_data.get('convertible_preferred', [])]
         ]

@@ -121,6 +121,13 @@ class WarrantModel(BaseModel):
     has_cashless_exercise: Optional[bool] = Field(None, description="True if cashless exercise is permitted")
     warrant_coverage_ratio: Optional[Decimal] = Field(None, description="Warrant coverage ratio from offering")
     anti_dilution_provision: Optional[bool] = Field(None, description="True if has anti-dilution provision")
+    # Trazabilidad de filings
+    source_filing: Optional[str] = Field(None, description="Source filing (e.g., '6-K:2023-12-26')")
+    source_filings: Optional[list] = Field(None, description="All source filings if merged from multiple")
+    merged_from_count: Optional[int] = Field(None, description="Number of records merged into this one")
+    filing_url: Optional[str] = Field(None, description="URL of the source filing")
+    # Original values before split adjustment
+    original_total_issued: Optional[int] = Field(None, description="Original total_issued before split adjustment")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -130,11 +137,12 @@ class WarrantModel(BaseModel):
     def parse_dates(cls, v):
         return parse_flexible_date(v)
     
-    @validator('exercise_price', pre=True)
+    @validator('exercise_price', 'original_exercise_price', 'warrant_coverage_ratio', pre=True)
     def parse_decimal(cls, v):
         return parse_flexible_decimal(v)
     
-    @validator('outstanding', 'potential_new_shares', pre=True)
+    @validator('outstanding', 'potential_new_shares', 'total_issued', 'exercised', 
+                'expired', 'remaining', 'original_outstanding', pre=True)
     def parse_int(cls, v):
         return parse_flexible_int(v)
     
@@ -156,6 +164,7 @@ class ATMOfferingModel(BaseModel):
     """Model for At-The-Market offering data"""
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
+    series_name: Optional[str] = Field(None, max_length=255, description="ATM name (e.g., 'January 2023 Cantor ATM')")
     total_capacity: Optional[Decimal] = Field(None, description="Total ATM capacity in dollars")
     remaining_capacity: Optional[Decimal] = Field(None, description="Remaining capacity in dollars (may be limited by baby shelf)")
     placement_agent: Optional[str] = Field(None, max_length=255)
@@ -165,7 +174,10 @@ class ATMOfferingModel(BaseModel):
     filing_url: Optional[str] = None
     potential_shares_at_current_price: Optional[int] = None
     notes: Optional[str] = None
-    # NEW: Baby Shelf calculation fields
+    # Registration
+    is_registered: Optional[bool] = Field(None, description="True if ATM is registered (EDGAR)")
+    registration_type: Optional[str] = Field(None, description="EDGAR / Not Registered")
+    # Baby Shelf calculation fields
     atm_limited_by_baby_shelf: Optional[bool] = Field(None, description="True if ATM is limited by baby shelf restriction")
     remaining_capacity_without_restriction: Optional[Decimal] = Field(None, description="Remaining capacity without baby shelf limitation")
     last_update_date: Optional[date] = Field(None, description="Date of last update")
@@ -203,6 +215,7 @@ class ShelfRegistrationModel(BaseModel):
     """Model for shelf registration data"""
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
+    series_name: Optional[str] = Field(None, max_length=255, description="Shelf name (e.g., 'April 2022 Shelf')")
     total_capacity: Optional[Decimal] = Field(None, description="Total shelf capacity in dollars")
     remaining_capacity: Optional[Decimal] = Field(None, description="Remaining capacity in dollars")
     current_raisable_amount: Optional[Decimal] = Field(None, description="Current amount that can be raised (limited by baby shelf)")
@@ -219,7 +232,10 @@ class ShelfRegistrationModel(BaseModel):
     last_banker: Optional[str] = Field(None, max_length=255, description="Last investment banker used")
     status: Optional[str] = Field(None, max_length=50, description="Active, Expired, Replaced, etc.")
     notes: Optional[str] = None
-    # NEW: Baby Shelf calculation fields (calculated at runtime)
+    # Registration
+    is_registered: Optional[bool] = Field(None, description="True if shelf is registered (EDGAR)")
+    registration_type: Optional[str] = Field(None, description="EDGAR / Not Registered")
+    # Baby Shelf calculation fields (calculated at runtime)
     price_to_exceed_baby_shelf: Optional[Decimal] = Field(None, description="Price needed to exceed baby shelf restriction")
     ib6_float_value: Optional[Decimal] = Field(None, description="IB6 float value = Float × Highest60DayClose × (1/3)")
     highest_60_day_close: Optional[Decimal] = Field(None, description="Highest closing price in last 60 days")
@@ -306,6 +322,7 @@ class S1OfferingModel(BaseModel):
     """Model for S-1 offerings with detailed information"""
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
+    series_name: Optional[str] = Field(None, max_length=255, description="Name of the offering (e.g., 'December 2025 F-1 Offering')")
     anticipated_deal_size: Optional[Decimal] = Field(None, description="Anticipated deal size")
     final_deal_size: Optional[Decimal] = Field(None, description="Final deal size raised")
     final_pricing: Optional[Decimal] = Field(None, description="Final offering price per share")
@@ -376,7 +393,8 @@ class ConvertibleNoteModel(BaseModel):
     def parse_dates(cls, v):
         return parse_flexible_date(v)
     
-    @validator('total_principal_amount', 'remaining_principal_amount', 'conversion_price', pre=True)
+    @validator('total_principal_amount', 'remaining_principal_amount', 'conversion_price',
+                'original_conversion_price', 'conversion_ratio', 'interest_rate', 'floor_price', pre=True)
     def parse_decimal(cls, v):
         return parse_flexible_decimal(v)
     
@@ -389,6 +407,7 @@ class ConvertiblePreferredModel(BaseModel):
     """Model for convertible preferred stock"""
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
+    series_name: Optional[str] = Field(None, max_length=255, description="Full name (e.g., 'October 2025 Series B Convertible Preferred')")
     series: Optional[str] = Field(None, max_length=50, description="Series A, B, C, etc.")
     total_dollar_amount_issued: Optional[Decimal] = Field(None, description="Total dollar amount issued")
     remaining_dollar_amount: Optional[Decimal] = Field(None, description="Remaining dollar amount")
@@ -401,12 +420,26 @@ class ConvertiblePreferredModel(BaseModel):
     underwriter_agent: Optional[str] = Field(None, max_length=255)
     filing_url: Optional[str] = None
     notes: Optional[str] = None
-    # NEW: Additional fields from DilutionTracker
+    # Registration
+    is_registered: Optional[bool] = Field(None, description="True if registered (EDGAR)")
+    registration_type: Optional[str] = Field(None, description="EDGAR / Not Registered / Pending Effect")
+    # Additional fields from DilutionTracker
     known_owners: Optional[str] = Field(None, description="Known preferred holders (e.g., 'C/M Capital, WVP')")
-    price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet")
+    price_protection: Optional[str] = Field(None, description="Price protection type: Customary Anti-Dilution, Reset, Full Ratchet, Variable Rate")
     pp_clause: Optional[str] = Field(None, description="Full text of Price Protection clause")
+    floor_price: Optional[Decimal] = Field(None, description="Floor price for variable rate conversion")
+    variable_rate_adjustment: Optional[bool] = Field(None, description="True if has variable rate conversion (TOXIC)")
+    is_toxic: Optional[bool] = Field(None, description="True if death spiral or highly dilutive")
     status: Optional[str] = Field(None, max_length=50, description="Registered, Pending Effect, etc.")
     last_update_date: Optional[date] = Field(None, description="Date of last update")
+    # Trazabilidad de filings
+    source_filing: Optional[str] = Field(None, description="Source filing (e.g., '6-K:2023-12-26')")
+    source_filings: Optional[list] = Field(None, description="All source filings if merged from multiple")
+    merged_from_count: Optional[int] = Field(None, description="Number of records merged into this one")
+    # Split adjustment tracking
+    split_adjusted: Optional[bool] = Field(None, description="True if values were split-adjusted")
+    split_factor: Optional[float] = Field(None, description="Split factor applied")
+    original_conversion_price: Optional[Decimal] = Field(None, description="Original conversion price before split")
     
     @validator('ticker')
     def ticker_uppercase(cls, v):
@@ -416,7 +449,7 @@ class ConvertiblePreferredModel(BaseModel):
     def parse_dates(cls, v):
         return parse_flexible_date(v)
     
-    @validator('total_dollar_amount_issued', 'remaining_dollar_amount', 'conversion_price', pre=True)
+    @validator('total_dollar_amount_issued', 'remaining_dollar_amount', 'conversion_price', 'floor_price', 'original_conversion_price', pre=True)
     def parse_decimal(cls, v):
         return parse_flexible_decimal(v)
     
@@ -429,14 +462,18 @@ class EquityLineModel(BaseModel):
     """Model for Equity Line of Credit (ELOC)"""
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
+    series_name: Optional[str] = Field(None, max_length=255, description="ELOC name (e.g., 'September 2025 White Lion SPA')")
     total_capacity: Optional[Decimal] = Field(None, description="Total equity line capacity")
     remaining_capacity: Optional[Decimal] = Field(None, description="Remaining capacity")
     agreement_start_date: Optional[date] = None
     agreement_end_date: Optional[date] = None
     filing_url: Optional[str] = None
     notes: Optional[str] = None
-    # NEW: Additional fields
-    counterparty: Optional[str] = Field(None, max_length=255, description="Equity line counterparty (e.g., 'Lincoln Park', 'YA II')")
+    # Registration
+    is_registered: Optional[bool] = Field(None, description="True if ELOC is registered (EDGAR)")
+    registration_type: Optional[str] = Field(None, description="EDGAR / Not Registered")
+    # Counterparty
+    counterparty: Optional[str] = Field(None, max_length=255, description="Equity line counterparty (e.g., 'Lincoln Park', 'YA II', 'White Lion')")
     last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
@@ -593,21 +630,21 @@ class SECDilutionProfile(BaseModel):
         current_price_float = float(self.current_price)
         
         # Shares potenciales de warrants
-        # INCLUIR SOLO warrants con status="Active" para evitar doble conteo
+        # INCLUIR warrants con status="Active" o None (si no tienen status, asumir activos)
         # Excluir: Replaced, Exercised, Historical_Summary
         warrant_shares = sum(
-            w.potential_new_shares or 0 
+            w.potential_new_shares or w.outstanding or w.total_issued or 0 
             for w in self.warrants
-            if not w.exclude_from_dilution and w.status == 'Active'  # Solo Active
+            if not w.exclude_from_dilution and (w.status in ['Active', None])  # Active o None
         )
         
         # Shares potenciales de ATM (remaining capacity / current price)
         # ATM siempre es para common stock
-        # SOLO contar ATMs con status="Active" (excluir Terminated, Replaced)
+        # SOLO contar ATMs con status="Active" o None (excluir Terminated, Replaced)
         atm_shares = sum(
             int(float(a.remaining_capacity or 0) / current_price_float)
             for a in self.atm_offerings
-            if a.status == 'Active'
+            if a.status in ['Active', None]
         )
         
         # Shares potenciales de shelf - CRÍTICO: Solo common stock shelves
@@ -619,8 +656,8 @@ class SECDilutionProfile(BaseModel):
         shelf_capacity_preferred = 0
         
         for s in self.shelf_registrations:
-            # Solo contar shelfs activos
-            if s.status != 'Active':
+            # Solo contar shelfs activos (Active o None, excluir Expired)
+            if s.status not in ['Active', None]:
                 continue
                 
             remaining = float(s.remaining_capacity or 0)
@@ -718,5 +755,8 @@ class DilutionProfileResponse(BaseModel):
     # Company type detection
     is_spac: Optional[bool] = Field(None, description="True if company is a SPAC")
     sic_code: Optional[str] = Field(None, description="SIC Code (6770 = Blank Checks/SPAC)")
+    
+    # Risk Assessment (DilutionTracker-style ratings)
+    risk_assessment: Optional[dict] = Field(None, description="Risk ratings: overall, offering_ability, overhead_supply, historical, cash_need")
 
 
