@@ -50,7 +50,38 @@ body {
   }
 
   .animate-fadeIn {
-    animation: fadeIn 0.2s ease-out;
+    animation: fadeIn 0.8s ease-out forwards;
+    opacity: 0;
+  }
+  
+  .animate-slideUp {
+    animation: slideUp 0.8s ease-out forwards;
+    opacity: 0;
+  }
+  
+  .animate-shimmer {
+    animation: shimmer 3s ease-in-out infinite;
+  }
+}
+
+/* Landing Page Premium Animations */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
   }
 }
 
@@ -395,4 +426,379 @@ th {
 
 .animate-highlight-pulse {
   animation: highlight-pulse 0.8s ease-in-out infinite;
+}
+
+/* ============================================================================
+   🎄 CHRISTMAS THEME - Premium Holiday Design
+   ============================================================================ */
+
+/* Aurora boreal navideña - Fondo animado ultra sutil */
+.christmas-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: 
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(16, 185, 129, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 80% 10%, rgba(239, 68, 68, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 60% at 50% 100%, rgba(59, 130, 246, 0.04) 0%, transparent 40%);
+  animation: christmas-aurora-shift 20s ease-in-out infinite;
+}
+
+@keyframes christmas-aurora-shift {
+  0%, 100% {
+    opacity: 1;
+    filter: hue-rotate(0deg);
+  }
+  33% {
+    opacity: 0.8;
+    filter: hue-rotate(10deg);
+  }
+  66% {
+    opacity: 0.9;
+    filter: hue-rotate(-10deg);
+  }
+}
+
+/* Contenedor de nieve */
+.christmas-snow-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Copos de nieve */
+.christmas-snowflake {
+  position: absolute;
+  left: var(--x);
+  top: -20px;
+  width: var(--size);
+  height: var(--size);
+  background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,255,255,0.8) 40%, transparent 70%);
+  border-radius: 50%;
+  opacity: var(--opacity);
+  animation: christmas-snowfall var(--duration) linear infinite;
+  animation-delay: var(--delay);
+  filter: blur(0.5px);
+  box-shadow: 
+    0 0 4px rgba(255,255,255,0.8),
+    0 0 8px rgba(255,255,255,0.4);
+}
+
+/* Partículas brillantes */
+.christmas-sparkle {
+  position: absolute;
+  left: var(--x);
+  top: -10px;
+  width: var(--size);
+  height: var(--size);
+  background: radial-gradient(circle, rgba(255,215,0,1) 0%, rgba(255,215,0,0.6) 30%, transparent 70%);
+  border-radius: 50%;
+  opacity: var(--opacity);
+  animation: 
+    christmas-snowfall var(--duration) linear infinite,
+    christmas-sparkle-pulse 2s ease-in-out infinite;
+  animation-delay: var(--delay);
+  box-shadow: 
+    0 0 6px rgba(255,215,0,0.8),
+    0 0 12px rgba(255,215,0,0.4);
+}
+
+@keyframes christmas-snowfall {
+  0% {
+    transform: translateY(0) translateX(0) rotate(0deg);
+    opacity: var(--opacity);
+  }
+  10% {
+    opacity: var(--opacity);
+  }
+  90% {
+    opacity: var(--opacity);
+  }
+  100% {
+    transform: translateY(100vh) translateX(var(--drift)) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes christmas-sparkle-pulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.3);
+    filter: brightness(1.5);
+  }
+}
+
+/* Contenedor de luces navideñas */
+.christmas-lights-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  z-index: 10000;
+  pointer-events: none;
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-start;
+  padding: 0 10px;
+}
+
+.christmas-lights-cable {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  width: 100%;
+  height: 8px;
+  z-index: -1;
+}
+
+/* Bombilla de luz navideña */
+.christmas-light-bulb {
+  position: absolute;
+  left: var(--light-position);
+  top: 6px;
+  width: 8px;
+  height: 12px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: var(--light-color);
+  box-shadow: 
+    0 0 10px var(--light-color),
+    0 0 20px var(--light-color),
+    0 0 30px var(--light-color),
+    inset 0 -2px 4px rgba(0,0,0,0.2);
+  animation: christmas-light-glow 1.5s ease-in-out infinite;
+  animation-delay: var(--light-delay);
+  transform-origin: top center;
+}
+
+.christmas-light-bulb::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: #444;
+  border-radius: 2px 2px 0 0;
+}
+
+@keyframes christmas-light-glow {
+  0%, 100% {
+    opacity: 1;
+    filter: brightness(1.2);
+    box-shadow: 
+      0 0 10px var(--light-color),
+      0 0 20px var(--light-color),
+      0 0 30px var(--light-color);
+  }
+  50% {
+    opacity: 0.6;
+    filter: brightness(0.8);
+    box-shadow: 
+      0 0 5px var(--light-color),
+      0 0 10px var(--light-color);
+  }
+}
+
+/* Esquinas decorativas con acebo */
+.christmas-corner {
+  position: fixed;
+  z-index: 9998;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.christmas-corner-left {
+  top: 60px;
+  left: 0;
+  transform: rotate(0deg);
+}
+
+.christmas-corner-right {
+  top: 60px;
+  right: 0;
+  transform: scaleX(-1);
+}
+
+.christmas-holly-leaf {
+  animation: christmas-leaf-sway 4s ease-in-out infinite;
+}
+
+@keyframes christmas-leaf-sway {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
+.christmas-berry {
+  animation: christmas-berry-pulse 2s ease-in-out infinite;
+}
+
+@keyframes christmas-berry-pulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.1);
+    filter: brightness(1.2);
+  }
+}
+
+/* Saludo festivo */
+.christmas-greeting {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9998;
+  pointer-events: none;
+}
+
+.christmas-greeting-text {
+  display: inline-block;
+  font-family: 'Georgia', serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: transparent;
+  background: linear-gradient(
+    135deg,
+    #c41e3a 0%,
+    #ff6b6b 25%,
+    #ffd700 50%,
+    #2d5016 75%,
+    #c41e3a 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: christmas-text-shimmer 3s linear infinite;
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+}
+
+@keyframes christmas-text-shimmer {
+  0% {
+    background-position: 0% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+/* Efecto de escarcha en los bordes */
+.christmas-frost-border {
+  position: relative;
+}
+
+.christmas-frost-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid transparent;
+  border-image: linear-gradient(
+    135deg,
+    rgba(255,255,255,0.8) 0%,
+    rgba(200,230,255,0.6) 25%,
+    rgba(255,255,255,0.4) 50%,
+    rgba(200,230,255,0.6) 75%,
+    rgba(255,255,255,0.8) 100%
+  ) 1;
+  animation: christmas-frost-shimmer 4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes christmas-frost-shimmer {
+  0% {
+    opacity: 0.5;
+    filter: blur(0px);
+  }
+  50% {
+    opacity: 1;
+    filter: blur(1px);
+  }
+  100% {
+    opacity: 0.5;
+    filter: blur(0px);
+  }
+}
+
+/* Estrella de Navidad decorativa */
+.christmas-star {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 30px;
+  z-index: 9997;
+  pointer-events: none;
+}
+
+.christmas-star::before,
+.christmas-star::after {
+  content: '⭐';
+  position: absolute;
+  font-size: 24px;
+  animation: christmas-star-pulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.8));
+}
+
+@keyframes christmas-star-pulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2) rotate(10deg);
+    opacity: 0.9;
+  }
+}
+
+/* Media queries para reducir efectos en dispositivos de bajo rendimiento */
+@media (prefers-reduced-motion: reduce) {
+  .christmas-snowflake,
+  .christmas-sparkle,
+  .christmas-light-bulb,
+  .christmas-holly-leaf,
+  .christmas-berry,
+  .christmas-greeting-text,
+  .christmas-aurora {
+    animation: none !important;
+  }
+  
+  .christmas-snowflake,
+  .christmas-sparkle {
+    display: none;
+  }
+}
+
+/* Modo responsivo - menos partículas en móvil */
+@media (max-width: 768px) {
+  .christmas-snowflake:nth-child(n+30),
+  .christmas-sparkle:nth-child(n+55) {
+    display: none;
+  }
+  
+  .christmas-corner {
+    transform: scale(0.7);
+  }
+  
+  .christmas-corner-left {
+    top: 55px;
+    left: -15px;
+  }
+  
+  .christmas-corner-right {
+    top: 55px;
+    right: -15px;
+  }
 }

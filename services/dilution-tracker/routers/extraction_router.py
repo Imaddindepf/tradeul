@@ -1,38 +1,73 @@
 """
-Extraction Router - Endpoints de DEBUG para extracción de dilución
-==================================================================
-Solo para testing/desarrollo. El flujo principal es:
-  /api/sec-dilution/{ticker}/profile → SECDilutionService
+Extraction Router - Endpoints para extracción de dilución
+==========================================================
+Endpoint principal: /api/extraction/{ticker}/extract
+- Extrae instrumentos dilutivos usando ContextualExtractor v4
+- GUARDA resultados en Redis (TTL 24h)
+- Para debug sin guardar usar: save=false
 """
 
 import sys
 sys.path.append('/app')
 
+import json
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Query
 
 from shared.utils.logger import get_logger
+from shared.utils.redis_client import RedisClient
 from services.sec.sec_filing_fetcher import SECFilingFetcher
 
 logger = get_logger(__name__)
 
 # UN solo router, UN solo prefijo
-router = APIRouter(prefix="/api/extraction", tags=["extraction-debug"])
+router = APIRouter(prefix="/api/extraction", tags=["extraction"])
+
+# Cache key para resultados de extracción
+EXTRACTION_CACHE_KEY = "sec_dilution:extraction:{ticker}"
+EXTRACTION_CACHE_TTL = 86400  # 24 horas
 
 
 @router.get("/{ticker}/extract")
-async def extract_dilution_debug(ticker: str):
+async def extract_dilution(
+    ticker: str,
+    save: bool = Query(default=True, description="Guardar resultado en Redis cache"),
+    force: bool = Query(default=False, description="Forzar re-extracción ignorando cache")
+):
     """
-    🔧 DEBUG: Extracción directa sin caché ni guardado en DB.
+    Extracción de instrumentos dilutivos usando ContextualExtractor v4.
     
-    Para el flujo normal usar: /api/sec-dilution/{ticker}/profile
+    - Por defecto GUARDA en Redis (save=true)
+    - Use force=true para re-extraer ignorando cache
+    - Use save=false para debug sin guardar
+    
+    **Costo:** ~$0.10-0.50 USD por extracción (Gemini API)
     """
     ticker = ticker.upper()
+    redis = None
+    
     try:
+        # Conectar a Redis
+        redis = RedisClient()
+        await redis.connect()
+        cache_key = EXTRACTION_CACHE_KEY.format(ticker=ticker)
+        
+        # Verificar cache si no es force
+        if not force:
+            cached = await redis.get(cache_key, deserialize=True)
+            if cached:
+                logger.info("extraction_cache_hit", ticker=ticker)
+                cached["_from_cache"] = True
+                cached["_cache_key"] = cache_key
+                return cached
+        
+        # Obtener CIK
         fetcher = SECFilingFetcher()
         cik, company_name = await fetcher.get_cik_and_company_name(ticker)
         if not cik:
             raise HTTPException(status_code=404, detail=f"CIK not found for {ticker}")
 
+        # Obtener extractor
         from services.extraction.contextual_extractor import get_contextual_extractor
         extractor = get_contextual_extractor()
         if not extractor:
@@ -41,15 +76,18 @@ async def extract_dilution_debug(ticker: str):
                 detail="Contextual extractor not available (missing API keys)"
             )
 
-        logger.info("debug_extraction_start", ticker=ticker, cik=cik)
+        # Ejecutar extracción
+        logger.info("extraction_start", ticker=ticker, cik=cik, save=save, force=force)
         result = await extractor.extract_all(ticker, cik)
 
-        return {
+        # Construir respuesta
+        response = {
             "ticker": ticker,
             "cik": cik,
             "company_name": company_name,
-            "version": "contextual_v4",
+            "version": "contextual_v4.1",
             "status": "success",
+            "extracted_at": datetime.utcnow().isoformat(),
             "summary": {
                 "shelf_registrations": len(result.get('shelf_registrations', [])),
                 "atm_offerings": len(result.get('atm_offerings', [])),
@@ -58,19 +96,34 @@ async def extract_dilution_debug(ticker: str):
                 "convertible_notes": len(result.get('convertible_notes', [])),
                 "convertible_preferred": len(result.get('convertible_preferred', [])),
             },
-            "instruments": result,
+            **result,  # Incluir todos los instrumentos directamente
         }
+        
+        # Guardar en cache si save=true
+        if save:
+            await redis.set(cache_key, response, ttl=EXTRACTION_CACHE_TTL, serialize=True)
+            logger.info("extraction_saved_to_cache", ticker=ticker, cache_key=cache_key)
+            response["_saved_to_cache"] = True
+            response["_cache_key"] = cache_key
+        else:
+            response["_saved_to_cache"] = False
+        
+        return response
+        
     except HTTPException:
         raise
     except Exception as e:
         import traceback
         logger.error(
-            "debug_extraction_error",
+            "extraction_error",
             ticker=ticker,
             error=str(e),
             traceback=traceback.format_exc(),
         )
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
+    finally:
+        if redis:
+            await redis.close()
 
 
 @router.get("/{ticker}/chains")

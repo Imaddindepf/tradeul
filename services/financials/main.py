@@ -156,7 +156,7 @@ async def health():
 async def get_financials(
     symbol: str,
     period: str = Query("annual", description="annual o quarter"),
-    limit: int = Query(10, ge=1, le=30, description="Number of periods"),
+    limit: int = Query(10, ge=1, le=60, description="Number of periods (max 60 for quarterly ~15 years)"),
     refresh: bool = Query(False, description="Force refresh from API"),
 ):
     """
@@ -237,7 +237,8 @@ async def get_financials(
         return data
         
     except Exception as e:
-        logger.error(f"[{symbol}] Error: {e}")
+        import traceback
+        logger.error(f"[{symbol}] Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -340,6 +341,49 @@ async def clear_cache(symbol: Optional[str] = None):
         
     except Exception as e:
         logger.error(f"Cache clear error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/financials/mapping/stats")
+async def get_mapping_stats():
+    """
+    Obtener estadísticas del sistema de mapeo XBRL → Canonical.
+    
+    Returns:
+        Estadísticas del sistema de mapeo incluyendo:
+        - Total de mapeos en caché
+        - Distribución por fuente (direct, regex, fasb, fallback)
+        - Conceptos desconocidos pendientes
+    """
+    try:
+        from services.mapping.adapter import get_mapper
+        mapper = get_mapper()
+        
+        stats = mapper.get_stats()
+        
+        # Añadir stats de la base de datos si está disponible
+        if _redis_client:
+            try:
+                # Contar claves de caché de financials
+                keys = await _redis_client.keys("financials:*")
+                stats["redis_cache_entries"] = len(keys)
+            except Exception:
+                stats["redis_cache_entries"] = None
+        
+        return {
+            "status": "ok",
+            "mapping_engine": stats,
+            "quality_score_enabled": True,
+            "description": {
+                "direct": "Mapeo directo XBRL→Canonical (confianza=1.0)",
+                "regex": "Patrón regex coincidido (confianza=0.95)",
+                "fasb": "Etiqueta FASB US-GAAP (confianza=0.9)",
+                "fallback": "Generado automáticamente (confianza=0.5)"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Mapping stats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

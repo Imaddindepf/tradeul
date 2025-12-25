@@ -380,13 +380,23 @@ class SECAPIClient:
             logger.info("sec_api_filings_fetched", total=len(all_filings), cik=cik)
             return all_filings
     
-    async def fetch_filing_content(self, url: str, filing_data: Optional[Dict] = None) -> Optional[str]:
+    async def fetch_filing_content(self, url: str, filing_data: Optional[Dict] = None, 
+                                     extract_sections: bool = True) -> Optional[str]:
         """
         Descarga el contenido de un filing.
         Prioriza el archivo .txt completo que contiene todo el texto.
+        
+        Args:
+            url: URL del filing
+            filing_data: Metadatos del filing
+            extract_sections: Si True, extrae solo secciones relevantes para dilución
         """
         import re
         from bs4 import BeautifulSoup
+        from services.extraction.section_extractor import (
+            extract_sections_for_dilution,
+            clean_html_preserve_structure
+        )
         
         # Método 1: Buscar archivo .txt completo en los documentos del filing
         if filing_data:
@@ -422,15 +432,16 @@ class SECAPIClient:
                     # Detectar si es PDF binario
                     if content.startswith('%PDF') or '%PDF-' in content[:100]:
                         logger.debug("filing_is_pdf_skipping", url=url[:60])
-                        return None
+                        return self._try_pdf_fallback(url)
                     
-                    # Limpiar HTML
+                    # v4.1: Limpiar HTML preservando estructura de tablas
                     try:
-                        soup = BeautifulSoup(content, 'html.parser')
-                        for tag in soup(['script', 'style', 'head', 'meta', 'link']):
-                            tag.decompose()
-                        text = soup.get_text(separator=' ', strip=True)
-                        text = re.sub(r'\s+', ' ', text)
+                        text = clean_html_preserve_structure(content)
+                        
+                        # v4.1: Extraer solo secciones relevantes para dilución
+                        if extract_sections and len(text) > 50000:
+                            text = extract_sections_for_dilution(text)
+                        
                         return text[:200000]
                     except Exception:
                         content = re.sub(r'<[^>]+>', ' ', content)
@@ -458,6 +469,8 @@ class SECAPIClient:
     
     async def _fetch_sec_direct(self, url: str) -> Optional[str]:
         """Descarga contenido directamente de SEC.gov"""
+        from services.extraction.section_extractor import clean_html_preserve_structure
+        
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.get(url, headers=self.sec_headers)
@@ -467,10 +480,60 @@ class SECAPIClient:
                     if 'Request Originates from an Undeclared' in content:
                         logger.warning("sec_rate_limited", url=url[:60])
                         return None
+                    
+                    # v4.1: Limpiar preservando estructura si tiene HTML
+                    if '<html' in content.lower() or '<table' in content.lower():
+                        content = clean_html_preserve_structure(content)
+                    
                     return content[:200000]
         except Exception as e:
             logger.debug("sec_direct_fetch_error", url=url[:50], error=str(e))
         return None
+    
+    def _try_pdf_fallback(self, url: str) -> Optional[str]:
+        """
+        v4.1: Intenta extraer texto de PDF usando pypdf.
+        Fallback best-effort para no perder exhibits importantes.
+        """
+        try:
+            import pypdf
+            import io
+            import httpx
+            
+            # Descargar PDF
+            with httpx.Client(timeout=30) as client:
+                response = client.get(url, headers=self.sec_headers)
+                if response.status_code != 200:
+                    return None
+                
+                pdf_bytes = response.content
+            
+            # Extraer texto
+            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+            text_parts = []
+            
+            for page in reader.pages[:50]:  # Máximo 50 páginas
+                try:
+                    text = page.extract_text()
+                    if text:
+                        text_parts.append(text)
+                except Exception:
+                    continue
+            
+            if text_parts:
+                combined = '\n\n'.join(text_parts)
+                logger.info("pdf_text_extracted", url=url[:50], chars=len(combined))
+                return combined[:100000]
+            
+            logger.warning("pdf_no_text_extracted", url=url[:50])
+            return None
+            
+        except ImportError:
+            logger.debug("pypdf_not_installed_skip_pdf", url=url[:50])
+            return None
+        except Exception as e:
+            logger.warning("pdf_extraction_failed", url=url[:50], error=str(e))
+            return None
 
 
 # =============================================================================
@@ -485,10 +548,14 @@ class ContextualDilutionExtractor:
     
     def __init__(self, sec_api_key: str, gemini_api_key: str):
         self.sec_client = SECAPIClient(sec_api_key)
-        self.gemini = genai.Client(api_key=gemini_api_key)
+        
+        # v4.1: Configurar timeout de 120 segundos para evitar que se cuelgue
+        # con requests muy grandes (800K+ chars)
+        http_options = types.HttpOptions(timeout=120000)  # 120 segundos en ms
+        self.gemini = genai.Client(api_key=gemini_api_key, http_options=http_options)
         self.model = "gemini-2.5-flash"
         
-        logger.info("contextual_extractor_initialized", model=self.model)
+        logger.info("contextual_extractor_initialized", model=self.model, timeout_ms=120000)
     
     async def extract_all(self, ticker: str, cik: str) -> Dict:
         """
@@ -525,7 +592,43 @@ class ContextualDilutionExtractor:
         # PASO 4: Procesar transacciones (424B/8-K/6-K) por accessionNo CON CONTEXTO
         await self._process_transactions_with_context(transaction_filings, context)
         
-        # PASO 5: Filtrar warrants (remover underwriter/placement agent)
+        # DEBUG: Log estado antes de deduplicación
+        logger.info("pre_dedup_state",
+                   ticker=ticker,
+                   raw_warrants=len(context.warrants),
+                   raw_notes=len(context.convertible_notes),
+                   raw_preferred=len(context.convertible_preferred))
+        
+        # PASO 5: Validación two-pass (v4.1)
+        context.warrants = self._validate_instruments(context.warrants, 'warrant')
+        context.convertible_notes = self._validate_instruments(context.convertible_notes, 'note')
+        
+        # PASO 6: Deduplicación semántica con IDs deterministas (v4.1)
+        context.warrants = self._semantic_deduplicate(context.warrants, 'warrant')
+        context.convertible_notes = self._semantic_deduplicate(context.convertible_notes, 'note')
+        context.convertible_preferred = self._semantic_deduplicate(context.convertible_preferred, 'preferred')
+        
+        # DEBUG: Log estado después de deduplicación semántica
+        logger.info("post_semantic_dedup",
+                   ticker=ticker,
+                   dedup_warrants=len(context.warrants),
+                   dedup_notes=len(context.convertible_notes),
+                   dedup_preferred=len(context.convertible_preferred))
+        
+        # PASO 7: Event-Sourced Resolution (v4.2) - resuelve conflictos F-1 vs 6-K
+        # Agrupa por MES+TIPO y elige la fuente más confiable (6-K > 424B4 > F-1)
+        context.warrants = self._resolve_source_conflicts(context.warrants, 'warrant')
+        context.convertible_notes = self._resolve_source_conflicts(context.convertible_notes, 'note')
+        context.convertible_preferred = self._resolve_source_conflicts(context.convertible_preferred, 'preferred')
+        
+        # DEBUG: Log estado después de resolución de conflictos
+        logger.info("post_conflict_resolution",
+                   ticker=ticker,
+                   resolved_warrants=len(context.warrants),
+                   resolved_notes=len(context.convertible_notes),
+                   resolved_preferred=len(context.convertible_preferred))
+        
+        # PASO 8: Filtrar warrants (remover underwriter/placement agent)
         context.warrants = self._filter_warrants(context.warrants)
         
         logger.info("contextual_extraction_complete",
@@ -538,6 +641,151 @@ class ContextualDilutionExtractor:
                    atm=len(context.atm_offerings))
         
         return context.to_dict()
+    
+    def _semantic_deduplicate(self, instruments: List[Dict], inst_type: str) -> List[Dict]:
+        """
+        Deduplicación semántica usando embeddings.
+        Agrupa instrumentos similares y mergea tomando los mejores datos.
+        
+        Args:
+            instruments: Lista de instrumentos a deduplicar
+            inst_type: Tipo ('warrant', 'note', 'preferred')
+            
+        Returns:
+            Lista deduplicada
+        """
+        if not instruments or len(instruments) <= 1:
+            return instruments
+        
+        try:
+            from services.extraction.semantic_deduplicator import SemanticDeduplicator
+            
+            deduplicator = SemanticDeduplicator(similarity_threshold=0.85)
+            result = deduplicator.deduplicate(instruments, inst_type)
+            
+            logger.info("semantic_dedup_result",
+                       inst_type=inst_type,
+                       original=result.original_count,
+                       deduplicated=result.deduplicated_count,
+                       clusters=len(result.merged_clusters))
+            
+            return result.final_instruments
+            
+        except Exception as e:
+            logger.error("semantic_dedup_error", 
+                        inst_type=inst_type, 
+                        error=str(e))
+            # Fallback: devolver original sin deduplicar
+            return instruments
+    
+    def _resolve_source_conflicts(self, instruments: List[Dict], inst_type: str) -> List[Dict]:
+        """
+        v4.2: Event-Sourced Resolution - resuelve conflictos entre fuentes.
+        
+        Problema que resuelve:
+        - El F-1 prospectus tiene precio ESTIMADO ($0.6625)
+        - El 6-K closing tiene precio FINAL ($0.375)
+        - Ambos son el MISMO warrant pero con datos diferentes
+        
+        Solución:
+        - Agrupar por MES + TIPO (no por fileNo)
+        - Priorizar 6-K/8-K > 424B4 > F-1 para precios/cantidades
+        - Conservar términos del F-1 si no están en 6-K
+        
+        Returns:
+            Lista de instrumentos con conflictos resueltos
+        """
+        if not instruments or len(instruments) <= 1:
+            return instruments
+        
+        try:
+            from services.extraction.instrument_resolver import resolve_instrument_duplicates
+            
+            before_count = len(instruments)
+            resolved = resolve_instrument_duplicates(instruments)
+            after_count = len(resolved)
+            
+            if before_count != after_count:
+                logger.info("source_conflicts_resolved",
+                           inst_type=inst_type,
+                           before=before_count,
+                           after=after_count,
+                           merged=before_count - after_count)
+            
+            return resolved
+            
+        except Exception as e:
+            logger.error("source_conflict_resolution_error",
+                        inst_type=inst_type,
+                        error=str(e))
+            # Fallback: devolver sin resolver
+            return instruments
+    
+    def _validate_instruments(self, instruments: List[Dict], inst_type: str) -> List[Dict]:
+        """
+        v4.1: Two-pass validation - verifica y corrige datos extraídos.
+        
+        - Detecta precios alucinados (ej: pre-funded con $125)
+        - Agrega confidence scores
+        - Aplica correcciones automáticas de alta confianza
+        """
+        if not instruments:
+            return instruments
+        
+        try:
+            from services.extraction.validator import validate_warrant, apply_corrections
+            
+            validated = []
+            corrected_count = 0
+            flagged_count = 0
+            
+            for inst in instruments:
+                if inst_type == 'warrant':
+                    # Usar texto fuente si está disponible, o string vacío
+                    source_text = inst.get('_source_text', '')
+                    result = validate_warrant(inst, source_text)
+                    
+                    # Agregar metadata de validación
+                    inst['_validation_confidence'] = result.confidence_score
+                    
+                    if result.issues:
+                        inst['_validation_issues'] = [
+                            {'field': i.field, 'severity': i.severity, 'message': i.message}
+                            for i in result.issues
+                        ]
+                        flagged_count += 1
+                    
+                    # Aplicar correcciones automáticas
+                    if result.corrected_values:
+                        inst = apply_corrections(inst, result)
+                        corrected_count += 1
+                    
+                    # Solo incluir si no tiene errores críticos
+                    if result.is_valid or result.confidence_score >= 0.5:
+                        validated.append(inst)
+                    else:
+                        logger.warning("instrument_rejected_by_validation",
+                                     name=inst.get('series_name'),
+                                     issues=[i.message for i in result.issues if i.severity == 'error'])
+                else:
+                    validated.append(inst)
+            
+            if corrected_count > 0 or flagged_count > 0:
+                logger.info("validation_complete",
+                          inst_type=inst_type,
+                          total=len(instruments),
+                          flagged=flagged_count,
+                          corrected=corrected_count,
+                          rejected=len(instruments) - len(validated))
+            
+            return validated
+            
+        except ImportError as e:
+            logger.warning("validator_not_available", error=str(e))
+            return instruments
+        except Exception as e:
+            logger.error("validation_error", inst_type=inst_type, error=str(e))
+            return instruments
     
     def _filter_warrants(self, warrants: List[Dict]) -> List[Dict]:
         """
@@ -743,7 +991,9 @@ class ContextualDilutionExtractor:
             # Si no encontramos nada, tomar los más recientes
             key_filings = chain_filings[-2:] if len(chain_filings) > 1 else chain_filings
         
-        return key_filings[:4]  # Máximo 4 filings por cadena
+        # v4.1: Limitar a 3 filings por cadena (balance entre contexto y velocidad)
+        # Con timeout de 120s configurado en el cliente, podemos procesar más
+        return key_filings[:3]
     
     def _add_chain_to_context(self, result: Dict, file_no: str, context: ExtractionContext):
         """Agrega los resultados de una cadena al contexto"""

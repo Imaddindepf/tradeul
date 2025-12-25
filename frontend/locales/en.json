@@ -1,4 +1,83 @@
 {
+  "landing": {
+    "hero": {
+      "title1": "See what",
+      "title2": "others miss",
+      "subtitle": "Real-time market intelligence. Scanner, dilution tracking, SEC filings, and news — all in one workspace.",
+      "cta": "Start free",
+      "ctaSignedIn": "Open workspace",
+      "signIn": "Sign in",
+      "getStarted": "Get Started",
+      "openApp": "Open App"
+    },
+    "features": {
+      "title": "Everything in one place",
+      "subtitle": "No more switching between 20 tabs.",
+      "scanner": {
+        "name": "Market Scanner",
+        "desc": "8,000+ tickers, sub-50ms latency, custom filters"
+      },
+      "dilution": {
+        "name": "Dilution Tracker",
+        "desc": "AI-powered SEC analysis, risk scoring, alerts"
+      },
+      "sec": {
+        "name": "SEC Filings",
+        "desc": "Real-time alerts on 10-K, 8-K, S-3, and more"
+      },
+      "fundamentals": {
+        "name": "Fundamentals",
+        "desc": "Financial metrics, ratios, and deep analysis"
+      },
+      "news": {
+        "name": "Real-Time News",
+        "desc": "Breaking news aggregated from top sources"
+      },
+      "squawk": {
+        "name": "Live Squawk",
+        "desc": "Audio market updates (coming soon)",
+        "soon": "Soon"
+      }
+    },
+    "showcase": {
+      "scanner": {
+        "badge": "Real-time",
+        "title": "Scan the entire market in milliseconds",
+        "desc": "Pre-market gaps, volume spikes, momentum plays — all surfaced before the crowd. Custom filters let you find exactly what you're looking for.",
+        "bullet1": "Pre-market & after-hours data",
+        "bullet2": "Custom filter combinations",
+        "bullet3": "Instant alerts on your criteria"
+      },
+      "dilution": {
+        "badge": "AI-Powered",
+        "title": "Know the dilution risk before you buy",
+        "desc": "Our AI reads every SEC filing and extracts dilution signals — ATM shelves, warrant structures, S-3 registrations. You see the risk score before the market reacts.",
+        "bullet1": "Automatic SEC filing analysis",
+        "bullet2": "Risk scoring from LOW to CRITICAL",
+        "bullet3": "Historical dilution patterns"
+      }
+    },
+    "cta": {
+      "title": "Ready to trade smarter?",
+      "subtitle": "Join traders who refuse to trade blind.",
+      "button": "Get started free",
+      "note": "Free to start. No credit card required."
+    },
+    "cards": {
+      "scanner": "Market Scanner",
+      "live": "Live",
+      "dilution": "Dilution Tracker",
+      "atmShelf": "ATM Shelf",
+      "recentS3": "Recent S-3",
+      "secFilings": "SEC Filings",
+      "latest": "Latest",
+      "lastFiling": "Last Filing"
+    },
+    "auth": {
+      "signIn": "Sign in",
+      "createAccount": "Create account"
+    }
+  },
   "common": {
     "loading": "Loading...",
     "error": "Error",

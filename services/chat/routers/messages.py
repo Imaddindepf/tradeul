@@ -382,8 +382,16 @@ async def add_reaction(
     if not original:
         raise HTTPException(status_code=404, detail="Message not found")
     
-    # Update reactions
-    reactions = original["reactions"] or {}
+    # Update reactions - parse from JSON string if needed
+    raw_reactions = original["reactions"]
+    if isinstance(raw_reactions, str):
+        try:
+            reactions = json.loads(raw_reactions) or {}
+        except:
+            reactions = {}
+    else:
+        reactions = raw_reactions or {}
+    
     if emoji not in reactions:
         reactions[emoji] = []
     if user.user_id not in reactions[emoji]:
@@ -430,7 +438,16 @@ async def remove_reaction(
     if not original:
         raise HTTPException(status_code=404, detail="Message not found")
     
-    reactions = original["reactions"] or {}
+    # Parse reactions from JSON string if needed
+    raw_reactions = original["reactions"]
+    if isinstance(raw_reactions, str):
+        try:
+            reactions = json.loads(raw_reactions) or {}
+        except:
+            reactions = {}
+    else:
+        reactions = raw_reactions or {}
+    
     if emoji in reactions and user.user_id in reactions[emoji]:
         reactions[emoji].remove(user.user_id)
         if not reactions[emoji]:

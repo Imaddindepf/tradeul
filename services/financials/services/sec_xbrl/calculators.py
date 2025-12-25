@@ -124,7 +124,8 @@ class FinancialCalculator:
                 if ratio >= 0.03:
                     return FinancialCalculator._adjust_for_interest_income(fields, revenue, interest_inv)
         
-            return fields
+        # Default: return fields unchanged
+        return fields
         
     @staticmethod
     def _adjust_for_finance_division(fields: List[Dict], revenue: Dict, finance_div: Dict) -> List[Dict]:
@@ -1611,3 +1612,332 @@ class FinancialCalculator:
             balance_map['total_equity']['values'] = total_equity
             balance_map['total_equity']['corrected'] = True
 
+
+
+# =============================================================================
+# KNOWLEDGE GRAPH: Auto-derivación de campos faltantes
+# =============================================================================
+
+# Definición de relaciones entre campos financieros
+# Formato: target = source1 OP source2
+FIELD_RELATIONSHIPS = {
+    # Income Statement
+    'gross_profit': {'formula': 'subtract', 'sources': ['revenue', 'cost_of_revenue']},
+    'operating_income': {'formula': 'subtract', 'sources': ['gross_profit', 'total_operating_expenses']},
+    'income_before_tax': {'formula': 'add', 'sources': ['operating_income', 'net_other_income']},
+    'net_income': {'formula': 'subtract', 'sources': ['income_before_tax', 'income_tax']},
+    'total_operating_expenses': {'formula': 'sum', 'sources': ['rd_expenses', 'sga_expenses', 'depreciation_amortization']},
+    'ebitda': {'formula': 'add', 'sources': ['operating_income', 'depreciation_amortization']},
+    'ebit': {'formula': 'alias', 'sources': ['operating_income']},
+    
+    # Cash Flow
+    'free_cash_flow': {'formula': 'subtract', 'sources': ['operating_cf', 'capex']},
+    'net_change_cash': {'formula': 'sum', 'sources': ['operating_cf', 'investing_cf', 'financing_cf']},
+    
+    # Balance Sheet
+    'total_assets': {'formula': 'add', 'sources': ['current_assets', 'noncurrent_assets']},
+    'total_liabilities': {'formula': 'add', 'sources': ['current_liabilities', 'noncurrent_liabilities']},
+    'total_equity': {'formula': 'subtract', 'sources': ['total_assets', 'total_liabilities']},
+    'working_capital': {'formula': 'subtract', 'sources': ['current_assets', 'current_liabilities']},
+    'net_debt': {'formula': 'subtract', 'sources': ['total_debt', 'cash_and_equivalents']},
+}
+
+
+class KnowledgeGraph:
+    """
+    Sistema de auto-derivación de campos financieros faltantes.
+    
+    Usa relaciones conocidas entre campos para calcular valores
+    cuando faltan datos pero existen los componentes.
+    """
+    
+    @staticmethod
+    def derive_missing_fields(
+        fields: List[Dict[str, Any]],
+        relationships: Dict = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Derivar campos faltantes usando relaciones conocidas.
+        
+        Args:
+            fields: Lista de campos con sus valores
+            relationships: Relaciones personalizadas (opcional)
+            
+        Returns:
+            Lista de campos actualizada con campos derivados
+        """
+        if relationships is None:
+            relationships = FIELD_RELATIONSHIPS
+        
+        # Crear mapa de campos existentes
+        field_map = {f['key']: f for f in fields}
+        num_periods = len(fields[0]['values']) if fields else 0
+        
+        derived_count = 0
+        max_iterations = 3  # Evitar bucles infinitos
+        
+        for iteration in range(max_iterations):
+            derived_this_round = 0
+            
+            for target_key, relation in relationships.items():
+                # Skip si ya existe con datos válidos
+                if target_key in field_map:
+                    existing = field_map[target_key]['values']
+                    if any(v is not None for v in existing):
+                        continue
+                
+                formula = relation['formula']
+                sources = relation['sources']
+                
+                # Verificar que todos los sources existen
+                all_sources_exist = all(
+                    s in field_map and any(v is not None for v in field_map[s]['values'])
+                    for s in sources
+                )
+                
+                if not all_sources_exist:
+                    continue
+                
+                # Calcular valores derivados
+                derived_values = []
+                for i in range(num_periods):
+                    source_values = []
+                    for s in sources:
+                        src_values = field_map[s]['values']
+                        val = src_values[i] if i < len(src_values) else None
+                        source_values.append(val)
+                    
+                    result = KnowledgeGraph._apply_formula(formula, source_values)
+                    derived_values.append(result)
+                
+                # Solo añadir si hay datos válidos
+                if any(v is not None for v in derived_values):
+                    derived_field = {
+                        'key': target_key,
+                        'label': KnowledgeGraph._get_label(target_key),
+                        'values': derived_values,
+                        'importance': KnowledgeGraph._get_importance(target_key),
+                        'data_type': 'monetary',
+                        'source_fields': sources,
+                        'calculated': True,
+                        'derived': True,
+                        'confidence': 0.85,  # Campos derivados tienen alta confianza
+                        'mapping_source': 'derived'
+                    }
+                    
+                    if target_key in field_map:
+                        # Actualizar campo existente sin datos
+                        idx = next(i for i, f in enumerate(fields) if f['key'] == target_key)
+                        fields[idx] = derived_field
+                    else:
+                        fields.append(derived_field)
+                    
+                    field_map[target_key] = derived_field
+                    derived_this_round += 1
+                    derived_count += 1
+                    logger.debug(f"Derived {target_key} from {sources}")
+            
+            # Si no derivamos nada nuevo, terminar
+            if derived_this_round == 0:
+                break
+        
+        if derived_count > 0:
+            logger.info(f"KnowledgeGraph: derived {derived_count} missing fields")
+        
+        return fields
+    
+    @staticmethod
+    def _apply_formula(formula: str, values: List[Optional[float]]) -> Optional[float]:
+        """Aplicar fórmula a los valores."""
+        if any(v is None for v in values):
+            return None
+        
+        if formula == 'add' or formula == 'sum':
+            return sum(values)
+        elif formula == 'subtract':
+            result = values[0]
+            for v in values[1:]:
+                result -= v
+            return result
+        elif formula == 'alias':
+            return values[0]
+        elif formula == 'multiply':
+            result = 1
+            for v in values:
+                result *= v
+            return result
+        elif formula == 'divide':
+            if values[1] == 0:
+                return None
+            return values[0] / values[1]
+        
+        return None
+    
+    @staticmethod
+    def _get_label(key: str) -> str:
+        """Obtener label para un campo."""
+        LABELS = {
+            'gross_profit': 'Gross Profit',
+            'operating_income': 'Operating Income',
+            'income_before_tax': 'Income Before Tax',
+            'net_income': 'Net Income',
+            'total_operating_expenses': 'Total Operating Expenses',
+            'ebitda': 'EBITDA',
+            'ebit': 'EBIT',
+            'free_cash_flow': 'Free Cash Flow',
+            'net_change_cash': 'Net Change in Cash',
+            'total_assets': 'Total Assets',
+            'total_liabilities': 'Total Liabilities',
+            'total_equity': 'Total Equity',
+            'working_capital': 'Working Capital',
+            'net_debt': 'Net Debt',
+        }
+        return LABELS.get(key, key.replace('_', ' ').title())
+    
+    @staticmethod
+    def _get_importance(key: str) -> int:
+        """Obtener importancia para un campo."""
+        IMPORTANCE = {
+            'gross_profit': 9300,
+            'operating_income': 9100,
+            'income_before_tax': 8500,
+            'net_income': 8900,
+            'ebitda': 9000,
+            'ebit': 8800,
+            'free_cash_flow': 9200,
+            'total_assets': 9500,
+            'total_liabilities': 9400,
+            'total_equity': 9300,
+            'working_capital': 8700,
+            'net_debt': 8600,
+        }
+        return IMPORTANCE.get(key, 100)
+
+
+# =============================================================================
+# ANOMALY DETECTION: Validación de datos financieros
+# =============================================================================
+
+class AnomalyDetector:
+    """
+    Sistema de detección de anomalías y validación de datos financieros.
+    
+    Detecta:
+    - Valores atípicos (outliers)
+    - Signos incorrectos (expenses positivos, revenues negativos)
+    - Ratios imposibles (margin > 100%)
+    - Cambios año-a-año extremos
+    """
+    
+    # Campos que deben ser siempre positivos
+    POSITIVE_FIELDS = {
+        'revenue', 'cost_of_revenue', 'cost_of_goods_sold', 
+        'total_assets', 'current_assets', 'total_liabilities',
+        'shares_outstanding', 'shares_diluted'
+    }
+    
+    # Campos que deben ser siempre negativos (o cero)
+    NEGATIVE_FIELDS = {
+        'capex', 'dividends_paid', 'stock_repurchased'
+    }
+    
+    # Límites de variación YoY razonables (por defecto)
+    MAX_YOY_CHANGE = 5.0  # 500% de cambio
+    
+    # Límites de márgenes
+    MARGIN_LIMITS = {
+        'gross_margin': (-0.5, 1.0),  # -50% a 100%
+        'operating_margin': (-1.0, 1.0),
+        'net_margin': (-2.0, 1.0),
+        'ebitda_margin': (-1.0, 1.0),
+    }
+    
+    @staticmethod
+    def validate_fields(fields: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Validar campos y añadir flags de anomalía.
+        
+        Añade a cada campo:
+        - anomaly_flags: Lista de flags detectados
+        - data_quality: Score 0-1 de calidad
+        """
+        for field in fields:
+            key = field.get('key', '')
+            values = field.get('values', [])
+            anomalies = []
+            
+            # 1. Verificar signos
+            if key in AnomalyDetector.POSITIVE_FIELDS:
+                for i, v in enumerate(values):
+                    if v is not None and v < 0:
+                        anomalies.append(f"negative_value_period_{i}")
+            
+            if key in AnomalyDetector.NEGATIVE_FIELDS:
+                for i, v in enumerate(values):
+                    if v is not None and v > 0:
+                        anomalies.append(f"positive_value_period_{i}")
+            
+            # 2. Verificar cambios extremos YoY
+            for i in range(1, len(values)):
+                curr = values[i]
+                prev = values[i-1]
+                
+                if curr is not None and prev is not None and prev != 0:
+                    change = abs(curr - prev) / abs(prev)
+                    if change > AnomalyDetector.MAX_YOY_CHANGE:
+                        anomalies.append(f"extreme_yoy_change_period_{i}")
+            
+            # 3. Verificar márgenes fuera de rango
+            if key in AnomalyDetector.MARGIN_LIMITS:
+                min_val, max_val = AnomalyDetector.MARGIN_LIMITS[key]
+                for i, v in enumerate(values):
+                    if v is not None and (v < min_val or v > max_val):
+                        anomalies.append(f"margin_out_of_range_period_{i}")
+            
+            # 4. Verificar valores extremadamente grandes (posibles errores de escala)
+            non_null = [v for v in values if v is not None and v != 0]
+            if non_null:
+                median_val = sorted(non_null)[len(non_null)//2]
+                for i, v in enumerate(values):
+                    if v is not None and median_val != 0:
+                        if abs(v) > abs(median_val) * 100:
+                            anomalies.append(f"extreme_outlier_period_{i}")
+            
+            # Calcular score de calidad
+            total_values = len([v for v in values if v is not None])
+            if total_values > 0:
+                quality_score = 1.0 - (len(anomalies) / (total_values * 3))  # Max 3 checks per value
+                quality_score = max(0.0, min(1.0, quality_score))
+            else:
+                quality_score = 0.0
+            
+            field['anomaly_flags'] = anomalies
+            field['data_quality'] = round(quality_score, 2)
+        
+        return fields
+    
+    @staticmethod
+    def get_validation_summary(fields: List[Dict[str, Any]]) -> Dict:
+        """
+        Obtener resumen de validación de todos los campos.
+        """
+        total_fields = len(fields)
+        fields_with_anomalies = sum(1 for f in fields if f.get('anomaly_flags'))
+        
+        all_anomalies = []
+        for f in fields:
+            for a in f.get('anomaly_flags', []):
+                all_anomalies.append({
+                    'field': f['key'],
+                    'anomaly': a
+                })
+        
+        avg_quality = sum(f.get('data_quality', 1.0) for f in fields) / total_fields if total_fields > 0 else 0
+        
+        return {
+            'total_fields': total_fields,
+            'fields_with_anomalies': fields_with_anomalies,
+            'total_anomalies': len(all_anomalies),
+            'average_data_quality': round(avg_quality, 3),
+            'anomaly_details': all_anomalies[:20]  # Top 20 anomalies
+        }

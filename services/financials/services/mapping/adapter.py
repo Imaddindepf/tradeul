@@ -14,17 +14,42 @@ Usage in extractors.py:
     from services.mapping.adapter import XBRLMapper
     
     mapper = XBRLMapper()
-    key, label, importance, dtype = mapper.detect_concept(field_name)
+    key, label, importance, dtype, confidence, source = mapper.detect_concept(field_name)
+
+Quality Score System:
+    - confidence: 0.0-1.0 score indicating mapping reliability
+    - source: "direct" | "regex" | "fasb" | "fallback"
 """
 
 import re
 import logging
 import asyncio
 import threading
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, NamedTuple
+from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MappingResult:
+    """Result of a concept mapping with quality metadata."""
+    canonical_key: str
+    label: str
+    importance: int
+    data_type: str
+    confidence: float  # 0.0-1.0
+    source: str  # "direct", "regex", "fasb", "fallback"
+    
+    def to_tuple(self) -> Tuple[str, str, int, str]:
+        """Legacy tuple format for backwards compatibility."""
+        return (self.canonical_key, self.label, self.importance, self.data_type)
+    
+    def to_tuple_extended(self) -> Tuple[str, str, int, str, float, str]:
+        """Extended tuple with quality metadata."""
+        return (self.canonical_key, self.label, self.importance, self.data_type, 
+                self.confidence, self.source)
 
 # Thread pool for async operations in sync context
 _executor: Optional[ThreadPoolExecutor] = None
@@ -123,73 +148,93 @@ class XBRLMapper:
     def detect_concept(
         self,
         field_name: str,
-        statement_type: str = "income"
+        statement_type: str = "income",
+        extended: bool = False
     ) -> Tuple[str, str, int, str]:
         """
         Detect financial concept from XBRL field name.
         
         Uses sync-first approach for maximum reliability:
         1. Memory cache
-        2. Direct mappings
-        3. Regex patterns
-        4. FASB labels
-        5. Fallback generation
+        2. Direct mappings (confidence=1.0)
+        3. Regex patterns (confidence=0.95)
+        4. FASB labels (confidence=0.9)
+        5. Fallback generation (confidence=0.5)
         
         Args:
             field_name: XBRL field name (CamelCase or snake_case)
             statement_type: Statement type hint (income, balance, cashflow)
+            extended: If True, returns extended tuple with confidence/source
             
         Returns:
             Tuple of (canonical_key, display_label, importance_score, data_type)
+            If extended=True: adds (confidence, source)
         """
         # Stage 1: Memory cache (instant)
         cache_key = f"{field_name}:{statement_type}"
         if cache_key in self._cache:
-            return self._cache[cache_key]
+            cached = self._cache[cache_key]
+            if extended and isinstance(cached, MappingResult):
+                return cached.to_tuple_extended()
+            elif isinstance(cached, MappingResult):
+                return cached.to_tuple()
+            return cached
         
-        result = None
+        result: Optional[MappingResult] = None
         
-        # Stage 2: Direct XBRL_TO_CANONICAL lookup (instant)
+        # Stage 2: Direct XBRL_TO_CANONICAL lookup (instant, confidence=1.0)
         if field_name in self._direct_mappings:
             canonical_key = self._direct_mappings[field_name]
-            result = self._build_result(canonical_key)
+            result = self._build_result(canonical_key, confidence=1.0, source="direct")
             if result:
                 self._cache[cache_key] = result
-                return result
+                return result.to_tuple_extended() if extended else result.to_tuple()
         
-        # Stage 3: Regex patterns (fast)
+        # Stage 3: Regex patterns (fast, confidence=0.95)
         normalized = self._normalize_concept(field_name)
-        result = self._match_regex(normalized)
+        result = self._match_regex(normalized, confidence=0.95, source="regex")
         if result:
             self._cache[cache_key] = result
-            return result
+            return result.to_tuple_extended() if extended else result.to_tuple()
         
-        # Stage 4: FASB labels (fast)
+        # Stage 4: FASB labels (fast, confidence=0.9)
         if normalized in self._fasb_index:
             canonical_key = self._fasb_index[normalized]
-            result = self._build_result(canonical_key)
+            result = self._build_result(canonical_key, confidence=0.9, source="fasb")
             if result:
                 self._cache[cache_key] = result
-                return result
+                return result.to_tuple_extended() if extended else result.to_tuple()
         
-        # Stage 5: Fallback - generate from name
+        # Stage 5: Fallback - generate from name (confidence=0.5)
         result = self._generate_fallback(normalized, field_name)
         self._cache[cache_key] = result
-        return result
+        return result.to_tuple_extended() if extended else result.to_tuple()
     
-    def _build_result(self, canonical_key: str) -> Optional[Tuple[str, str, int, str]]:
-        """Build result tuple from canonical key."""
+    def _build_result(
+        self, 
+        canonical_key: str, 
+        confidence: float = 1.0, 
+        source: str = "direct"
+    ) -> Optional[MappingResult]:
+        """Build MappingResult from canonical key."""
         field = self._canonical_fields.get(canonical_key)
         if field:
-            return (
-                canonical_key,
-                field.label,
-                field.importance,
-                field.data_type.value if hasattr(field.data_type, 'value') else str(field.data_type)
+            return MappingResult(
+                canonical_key=canonical_key,
+                label=field.label,
+                importance=field.importance,
+                data_type=field.data_type.value if hasattr(field.data_type, 'value') else str(field.data_type),
+                confidence=confidence,
+                source=source
             )
         return None
     
-    def _match_regex(self, normalized_name: str) -> Optional[Tuple[str, str, int, str]]:
+    def _match_regex(
+        self, 
+        normalized_name: str, 
+        confidence: float = 0.95, 
+        source: str = "regex"
+    ) -> Optional[MappingResult]:
         """Match against regex patterns."""
         for pattern, canonical_key, label, importance in self._regex_patterns:
             if pattern.search(normalized_name):
@@ -197,25 +242,34 @@ class XBRLMapper:
                 data_type = "monetary"
                 if field and hasattr(field.data_type, 'value'):
                     data_type = field.data_type.value
-                return (canonical_key, label, importance, data_type)
+                return MappingResult(
+                    canonical_key=canonical_key,
+                    label=label,
+                    importance=importance,
+                    data_type=data_type,
+                    confidence=confidence,
+                    source=source
+                )
         return None
     
     def _generate_fallback(
         self,
         normalized_name: str,
         original_name: str
-    ) -> Tuple[str, str, int, str]:
+    ) -> MappingResult:
         """Generate fallback result for unknown concepts."""
         words = normalized_name.split('_')[:4]
         auto_label = ' '.join(
             w.capitalize() for w in words 
             if w not in {'and', 'the', 'of', 'to'}
         )
-        return (
-            normalized_name,
-            auto_label or original_name,
-            50,  # Low importance for unknown
-            "monetary"
+        return MappingResult(
+            canonical_key=normalized_name,
+            label=auto_label or original_name,
+            importance=50,  # Low importance for unknown
+            data_type="monetary",
+            confidence=0.5,  # Low confidence for fallback
+            source="fallback"
         )
     
     def detect_concepts_batch(

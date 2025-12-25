@@ -2,295 +2,438 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
-import { getMarketSession } from '@/lib/api';
-import type { MarketSession } from '@/lib/types';
-import { 
-  Activity,
-  ArrowRight,
-  Zap,
-  Eye,
-  Shield,
-  Bell,
-  Clock
-} from 'lucide-react';
+import { SignIn, SignUp, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
+import { ChristmasEffects } from '@/components/layout/ChristmasEffects';
+import { ArrowRight, TrendingUp, TrendingDown, X } from 'lucide-react';
+import { useAppTranslation } from '@/hooks/useAppTranslation';
+
+type AuthPanel = 'closed' | 'signin' | 'signup';
 
 export default function Home() {
-  const [session, setSession] = useState<MarketSession | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [authPanel, setAuthPanel] = useState<AuthPanel>('closed');
+  const { t } = useAppTranslation();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Cerrar panel con Escape
   useEffect(() => {
-    const fetchSession = async () => {
-      try {
-        const sessionData = await getMarketSession();
-        setSession(sessionData);
-      } catch (error) {
-        console.error('Error fetching session:', error);
-      }
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAuthPanel('closed');
     };
-
-    fetchSession();
-    const interval = setInterval(fetchSession, 30000);
-    return () => clearInterval(interval);
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
   }, []);
 
-  const getSessionStatus = () => {
-    if (!session) return { label: 'Loading...', color: 'bg-slate-200 text-slate-600', dot: 'bg-slate-400' };
-    const statusMap: Record<string, { label: string; color: string; dot: string }> = {
-      PRE_MARKET: { label: 'PRE-MARKET', color: 'bg-blue-50 text-blue-700', dot: 'bg-blue-500' },
-      MARKET_OPEN: { label: 'MARKET OPEN', color: 'bg-emerald-50 text-emerald-700', dot: 'bg-emerald-500' },
-      POST_MARKET: { label: 'POST-MARKET', color: 'bg-amber-50 text-amber-700', dot: 'bg-amber-500' },
-      CLOSED: { label: 'CLOSED', color: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' },
-    };
-    return statusMap[session.current_session] || { label: 'OFFLINE', color: 'bg-slate-100 text-slate-600', dot: 'bg-slate-400' };
-  };
+  // Datos de ejemplo para visualización
+  const scannerData = [
+    { ticker: 'NVDA', price: '142.58', change: '+8.42%', volume: '89.2M', trend: 'up' },
+    { ticker: 'SMCI', price: '38.74', change: '+12.15%', volume: '45.8M', trend: 'up' },
+    { ticker: 'MSTR', price: '412.30', change: '+5.67%', volume: '28.4M', trend: 'up' },
+    { ticker: 'PLTR', price: '78.92', change: '-2.31%', volume: '52.1M', trend: 'down' },
+  ];
 
-  const status = getSessionStatus();
+  const filings = [
+    { ticker: 'AAPL', type: '10-K', time: '2m ago' },
+    { ticker: 'TSLA', type: '8-K', time: '15m ago' },
+    { ticker: 'MSFT', type: 'S-3', time: '1h ago' },
+  ];
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      {/* Subtle Grid Background */}
-      <div className="fixed inset-0 opacity-[0.4]" style={{
-        backgroundImage: `radial-gradient(circle at 1px 1px, rgb(226 232 240) 1px, transparent 0)`,
-        backgroundSize: '32px 32px',
-      }} />
+    <main className="min-h-screen bg-[#0a0a12] text-white overflow-hidden">
+      <ChristmasEffects />
 
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          {/* Logo */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-sm">
-              <span className="text-white font-bold text-lg">T</span>
+      {/* Background gradient */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[150px]" />
+        <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px]" />
+      </div>
+
+      {/* Auth Side Panel */}
+      <div 
+        className={`fixed inset-0 z-[100] transition-all duration-500 ${
+          authPanel !== 'closed' ? 'pointer-events-auto' : 'pointer-events-none'
+        }`}
+      >
+        {/* Backdrop */}
+        <div 
+          className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-500 ${
+            authPanel !== 'closed' ? 'opacity-100' : 'opacity-0'
+          }`}
+          onClick={() => setAuthPanel('closed')}
+        />
+        
+        {/* Panel */}
+        <div 
+          className={`absolute right-0 top-0 h-full w-full max-w-md bg-[#0a0a12] border-l border-white/10 shadow-2xl transition-transform duration-500 ease-out ${
+            authPanel !== 'closed' ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
+          {/* Panel header */}
+          <div className="flex items-center justify-between p-6 border-b border-white/5">
+            <div className="flex gap-4">
+              <button
+                onClick={() => setAuthPanel('signin')}
+                className={`text-sm font-medium transition-colors ${
+                  authPanel === 'signin' ? 'text-white' : 'text-white/40 hover:text-white/60'
+                }`}
+              >
+                {t('landing.auth.signIn')}
+              </button>
+              <button
+                onClick={() => setAuthPanel('signup')}
+                className={`text-sm font-medium transition-colors ${
+                  authPanel === 'signup' ? 'text-white' : 'text-white/40 hover:text-white/60'
+                }`}
+              >
+                {t('landing.auth.createAccount')}
+              </button>
             </div>
-            <span className="text-xl font-semibold text-slate-900 tracking-tight">Tradeul</span>
+            <button 
+              onClick={() => setAuthPanel('closed')}
+              className="p-2 rounded-lg hover:bg-white/5 transition-colors text-white/40 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
-          {/* Market Status */}
-          {mounted && session && (
-            <div className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${status.color}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${status.dot} animate-pulse`} />
-              {status.label}
+          {/* Panel content */}
+          <div className="p-6 overflow-y-auto h-[calc(100%-73px)]">
+            <div className={`transition-all duration-300 ${authPanel === 'signin' ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'}`}>
+              {authPanel === 'signin' && (
+                <SignIn 
+                  appearance={{
+                    elements: {
+                      rootBox: 'w-full',
+                      card: 'bg-transparent shadow-none p-0',
+                      headerTitle: 'text-white text-2xl font-bold',
+                      headerSubtitle: 'text-white/50',
+                      socialButtonsBlockButton: 'bg-white/10 border-white/20 text-white hover:bg-white/20',
+                      socialButtonsBlockButtonText: 'text-white font-medium',
+                      socialButtonsProviderIcon__apple: 'invert',
+                      dividerLine: 'bg-white/10',
+                      dividerText: 'text-white/30',
+                      formFieldLabel: 'text-white/70',
+                      formFieldInput: 'bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-blue-500 focus:ring-blue-500/20',
+                      formButtonPrimary: 'bg-white text-black hover:bg-white/90 font-semibold',
+                      footerActionLink: 'text-blue-400 hover:text-blue-300',
+                      identityPreviewText: 'text-white',
+                      identityPreviewEditButton: 'text-blue-400',
+                      formFieldInputShowPasswordButton: 'text-white/50 hover:text-white',
+                      alert: 'bg-red-500/10 border-red-500/20 text-red-400',
+                      alertText: 'text-red-400',
+                    },
+                  }}
+                  routing="hash"
+                />
+              )}
             </div>
-          )}
+            <div className={`transition-all duration-300 ${authPanel === 'signup' ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'}`}>
+              {authPanel === 'signup' && (
+                <SignUp 
+                  appearance={{
+                    elements: {
+                      rootBox: 'w-full',
+                      card: 'bg-transparent shadow-none p-0',
+                      headerTitle: 'text-white text-2xl font-bold',
+                      headerSubtitle: 'text-white/50',
+                      socialButtonsBlockButton: 'bg-white/10 border-white/20 text-white hover:bg-white/20',
+                      socialButtonsBlockButtonText: 'text-white font-medium',
+                      socialButtonsProviderIcon__apple: 'invert',
+                      dividerLine: 'bg-white/10',
+                      dividerText: 'text-white/30',
+                      formFieldLabel: 'text-white/70',
+                      formFieldInput: 'bg-white/5 border-white/10 text-white placeholder:text-white/30 focus:border-blue-500 focus:ring-blue-500/20',
+                      formButtonPrimary: 'bg-white text-black hover:bg-white/90 font-semibold',
+                      footerActionLink: 'text-blue-400 hover:text-blue-300',
+                      identityPreviewText: 'text-white',
+                      identityPreviewEditButton: 'text-blue-400',
+                      formFieldInputShowPasswordButton: 'text-white/50 hover:text-white',
+                      alert: 'bg-red-500/10 border-red-500/20 text-red-400',
+                      alertText: 'text-red-400',
+                    },
+                  }}
+                  routing="hash"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
-          {/* Auth */}
-          <div className="flex items-center gap-2">
+      {/* Navigation */}
+      <nav className="fixed top-0 inset-x-0 z-50 bg-[#0a0a12]/80 backdrop-blur-xl border-b border-white/5">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center">
+              <span className="text-white font-black text-sm">T</span>
+            </div>
+            <span className="text-white font-semibold">Tradeul</span>
+          </Link>
+
+          <div className="flex items-center gap-3">
             <SignedOut>
-              <SignInButton mode="modal">
-                <button className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
-                  Sign In
-                </button>
-              </SignInButton>
-              <SignUpButton mode="modal">
-                <button className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all shadow-sm">
-                  Get Started
-                </button>
-              </SignUpButton>
-            </SignedOut>
-            
-            <SignedIn>
-              <Link 
-                href="/workspace"
-                className="px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors flex items-center gap-1.5"
+              <button 
+                onClick={() => setAuthPanel('signin')}
+                className="px-4 py-2 text-sm text-white/60 hover:text-white transition-colors"
               >
-                Go to Workspace <ArrowRight className="w-3.5 h-3.5" />
+                {t('landing.hero.signIn')}
+              </button>
+              <button 
+                onClick={() => setAuthPanel('signup')}
+                className="px-5 py-2 rounded-lg bg-white text-black font-medium text-sm hover:bg-white/90 transition-colors"
+              >
+                {t('landing.hero.getStarted')}
+              </button>
+            </SignedOut>
+            <SignedIn>
+              <Link href="/workspace" className="px-5 py-2 rounded-lg bg-white text-black font-medium text-sm hover:bg-white/90 transition-colors flex items-center gap-2">
+                {t('landing.hero.openApp')} <ArrowRight className="w-4 h-4" />
               </Link>
-              <UserButton afterSignOutUrl="/" />
+              <UserButton />
             </SignedIn>
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <section className="relative pt-32 pb-16 px-6">
-        <div className="max-w-4xl mx-auto text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border border-slate-200 bg-white shadow-sm">
-            <Zap className="w-3.5 h-3.5 text-blue-500" />
-            <span className="text-xs font-medium text-slate-600 uppercase tracking-wide">Real-Time Market Intelligence</span>
+      {/* Hero */}
+      <section className="relative pt-32 pb-20 px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h1 className="text-5xl sm:text-6xl md:text-7xl font-black tracking-tight mb-6">
+              <span className="text-white">{t('landing.hero.title1')} </span>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400">{t('landing.hero.title2')}</span>
+            </h1>
+            <p className="text-lg text-white/50 max-w-xl mx-auto mb-10">
+              {t('landing.hero.subtitle')}
+            </p>
+            <div className="flex items-center justify-center gap-4">
+              <SignedOut>
+                <button 
+                  onClick={() => setAuthPanel('signup')}
+                  className="px-8 py-3.5 rounded-xl bg-white text-black font-semibold hover:bg-white/90 transition-all flex items-center gap-2"
+                >
+                  {t('landing.hero.cta')} <ArrowRight className="w-4 h-4" />
+                </button>
+              </SignedOut>
+              <SignedIn>
+                <Link href="/workspace" className="px-8 py-3.5 rounded-xl bg-white text-black font-semibold hover:bg-white/90 transition-all flex items-center gap-2">
+                  {t('landing.hero.ctaSignedIn')} <ArrowRight className="w-4 h-4" />
+                </Link>
+              </SignedIn>
+            </div>
           </div>
 
-          {/* Main Headline */}
-          <h1 className="text-4xl md:text-6xl font-bold text-slate-900 tracking-tight mb-5 leading-tight">
-            Trade <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-blue-600">Smarter</span>
-            <br />
-            <span className="text-slate-400">Not Harder</span>
-          </h1>
-
-          {/* Minimal Tagline */}
-          <p className="text-lg text-slate-500 mb-10">
-            Scanner · Dilution Tracker · Real-Time Data
-          </p>
-
-          {/* CTA Buttons */}
-          <div className="flex items-center justify-center gap-3 flex-wrap">
-            <SignedOut>
-              <SignUpButton mode="modal">
-                <button className="group px-7 py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl flex items-center gap-2">
-                  Start Free
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                </button>
-              </SignUpButton>
-              <SignInButton mode="modal">
-                <button className="px-7 py-3.5 border border-slate-200 bg-white text-slate-700 font-medium rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
-                  I have an account
-                </button>
-              </SignInButton>
-            </SignedOut>
-            
-            <SignedIn>
-              <Link 
-                href="/workspace"
-                className="group px-7 py-3.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
-              >
-                Open Workspace
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-              </Link>
-            </SignedIn>
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Grid */}
-      <section className="relative py-12 px-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { value: '8K+', label: 'Tickers' },
-              { value: '<50ms', label: 'Latency' },
-              { value: '24/7', label: 'Monitoring' },
-              { value: 'Real-Time', label: 'Data Feed' },
-            ].map((stat) => (
-              <div 
-                key={stat.label}
-                className="p-5 rounded-xl border border-slate-200 bg-white text-center hover:border-blue-200 hover:shadow-md transition-all"
-              >
-                <p className="text-2xl md:text-3xl font-bold font-mono text-blue-600 mb-0.5">{stat.value}</p>
-                <p className="text-xs text-slate-500 uppercase tracking-wider">{stat.label}</p>
+          {/* Live preview cards */}
+          <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            {/* Scanner Card */}
+            <div className="bg-[#12121a] rounded-2xl border border-white/10 overflow-hidden">
+              <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-sm font-medium text-white">{t('landing.cards.scanner')}</span>
+                </div>
+                <span className="text-xs text-white/40">{t('landing.cards.live')}</span>
               </div>
-            ))}
+              <div className="p-4 space-y-2">
+                {scannerData.map((item) => (
+                  <div key={item.ticker} className="flex items-center justify-between p-3 rounded-lg bg-[#1a1a24] hover:bg-[#1f1f2a] transition-colors">
+                    <div className="flex items-center gap-3">
+                      <span className="px-2 py-0.5 rounded bg-blue-500/20 font-mono font-bold text-sm" style={{ color: '#60a5fa' }}>{item.ticker}</span>
+                      <span className="text-sm text-white/70">${item.price}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs text-white/50">{item.volume}</span>
+                      <span className={`flex items-center gap-1 text-sm font-semibold ${item.trend === 'up' ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {item.trend === 'up' ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                        {item.change}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Dilution + Filings Card */}
+            <div className="space-y-6">
+              {/* Dilution */}
+              <div className="bg-[#12121a] rounded-2xl border border-white/10 overflow-hidden">
+                <div className="px-5 py-4 border-b border-white/10">
+                  <span className="text-sm font-medium text-white">{t('landing.cards.dilution')}</span>
+                </div>
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="px-2 py-0.5 rounded bg-violet-500/20 font-mono font-bold" style={{ color: '#a78bfa' }}>SMCI</span>
+                    <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400">
+                      MEDIUM RISK
+                    </span>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-white/40">{t('landing.cards.atmShelf')}</span>
+                      <span className="text-white">$2.5B remaining</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/40">{t('landing.cards.recentS3')}</span>
+                      <span className="text-white">Dec 15, 2024</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Filings */}
+              <div className="bg-[#12121a] rounded-2xl border border-white/10 overflow-hidden">
+                <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+                  <span className="text-sm font-medium text-white">{t('landing.cards.secFilings')}</span>
+                  <span className="text-xs text-white/40">{t('landing.cards.latest')}</span>
+                </div>
+                <div className="p-4 space-y-2">
+                  {filings.map((f, i) => (
+                    <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-[#1a1a24] hover:bg-[#1f1f2a] transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="px-2 py-0.5 rounded bg-cyan-500/20 font-mono text-sm font-bold" style={{ color: '#22d3ee' }}>{f.ticker}</span>
+                        <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-500/20" style={{ color: '#93c5fd' }}>{f.type}</span>
+                      </div>
+                      <span className="text-xs text-white/60">{f.time}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       {/* Features */}
-      <section className="relative py-16 px-6">
-        <div className="max-w-4xl mx-auto">
-          {/* Section Header */}
-          <div className="text-center mb-12">
-            <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-2">Everything you need</h2>
-            <p className="text-slate-500">Professional tools. No complications.</p>
+      <section className="relative py-24 px-6 border-t border-white/5">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
+              {t('landing.features.title')}
+            </h2>
+            <p className="text-white/40">
+              {t('landing.features.subtitle')}
+            </p>
           </div>
 
-          {/* Feature Cards */}
-          <div className="grid md:grid-cols-3 gap-5">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {[
-              {
-                icon: Eye,
-                title: 'Market Scanner',
-                features: ['Pre/Post market', 'Gap analysis', 'Volume spikes', 'Custom filters'],
-                active: true,
-              },
-              {
-                icon: Shield,
-                title: 'Dilution Tracker',
-                features: ['SEC filings', 'Share structure', 'ATM offerings', 'Risk alerts'],
-                active: true,
-              },
-              {
-                icon: Bell,
-                title: 'Smart Alerts',
-                features: ['Price triggers', 'Volume alerts', 'Filing notifications', 'Custom rules'],
-                active: false,
-              },
-            ].map((feature) => (
-              <div 
-                key={feature.title}
-                className={`relative p-6 rounded-xl border transition-all ${
-                  feature.active 
-                    ? 'border-slate-200 bg-white hover:border-blue-200 hover:shadow-lg' 
-                    : 'border-slate-100 bg-slate-50/50 opacity-70'
-                }`}
-              >
-                {!feature.active && (
-                  <span className="absolute top-3 right-3 text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">
-                    SOON
-                  </span>
-                )}
-                <div className={`w-11 h-11 rounded-lg flex items-center justify-center mb-4 ${
-                  feature.active 
-                    ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-sm' 
-                    : 'bg-slate-200'
-                }`}>
-                  <feature.icon className={`w-5 h-5 ${feature.active ? 'text-white' : 'text-slate-400'}`} />
+              { key: 'scanner', name: t('landing.features.scanner.name'), desc: t('landing.features.scanner.desc') },
+              { key: 'dilution', name: t('landing.features.dilution.name'), desc: t('landing.features.dilution.desc') },
+              { key: 'sec', name: t('landing.features.sec.name'), desc: t('landing.features.sec.desc') },
+              { key: 'fundamentals', name: t('landing.features.fundamentals.name'), desc: t('landing.features.fundamentals.desc') },
+              { key: 'news', name: t('landing.features.news.name'), desc: t('landing.features.news.desc') },
+              { key: 'squawk', name: t('landing.features.squawk.name'), desc: t('landing.features.squawk.desc'), soon: true },
+            ].map((f) => (
+              <div key={f.key} className="group p-6 rounded-xl bg-[#12121a] border border-white/5 hover:border-white/10 transition-all">
+                <div className="flex items-start justify-between mb-3">
+                  <h3 className="font-semibold text-white group-hover:text-blue-400 transition-colors">{f.name}</h3>
+                  {f.soon && <span className="text-[10px] text-white/30 uppercase tracking-wider">{t('landing.features.squawk.soon')}</span>}
                 </div>
-                <h3 className="text-lg font-semibold text-slate-900 mb-3">{feature.title}</h3>
-                <ul className="space-y-2">
-                  {feature.features.map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-sm text-slate-600">
-                      <span className={`w-1 h-1 rounded-full ${feature.active ? 'bg-blue-500' : 'bg-slate-400'}`} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
+                <p className="text-sm text-white/40 leading-relaxed">{f.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Terminal Preview */}
-      <section className="relative py-16 px-6">
-        <div className="max-w-3xl mx-auto">
-          <div className="rounded-xl border border-slate-200 bg-white shadow-lg overflow-hidden">
-            {/* Terminal Header */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-slate-50">
-              <div className="flex gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-red-400" />
-                <span className="w-3 h-3 rounded-full bg-amber-400" />
-                <span className="w-3 h-3 rounded-full bg-emerald-400" />
+      {/* Value props with real content */}
+      <section className="relative py-24 px-6">
+        <div className="max-w-5xl mx-auto space-y-20">
+          {/* Scanner showcase */}
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <div className="inline-block px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-medium mb-4">
+                {t('landing.showcase.scanner.badge')}
               </div>
-              <span className="text-xs font-mono text-slate-400 ml-2">tradeul://workspace</span>
+              <h3 className="text-3xl font-bold text-white mb-4">
+                {t('landing.showcase.scanner.title')}
+              </h3>
+              <p className="text-white/40 leading-relaxed mb-6">
+                {t('landing.showcase.scanner.desc')}
+              </p>
+              <ul className="space-y-3 text-sm">
+                {[t('landing.showcase.scanner.bullet1'), t('landing.showcase.scanner.bullet2'), t('landing.showcase.scanner.bullet3')].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-white/60">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
             </div>
-            
-            {/* Terminal Content */}
-            <div className="p-5 font-mono text-sm bg-white">
+            <div className="bg-[#12121a] rounded-2xl border border-white/10 p-6">
               <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-blue-500">$</span>
-                  <span className="text-slate-400">scanning pre-market...</span>
-                </div>
-                <div className="grid grid-cols-4 gap-4 text-xs py-2 border-b border-slate-100">
-                  <div><span className="text-slate-400 font-medium">TICKER</span></div>
-                  <div className="text-right"><span className="text-slate-400 font-medium">PRICE</span></div>
-                  <div className="text-right"><span className="text-slate-400 font-medium">CHG%</span></div>
-                  <div className="text-right"><span className="text-slate-400 font-medium">VOL</span></div>
-                </div>
                 {[
-                  { ticker: 'NVDA', price: '142.50', change: '+4.2%', vol: '12.5M', up: true },
-                  { ticker: 'TSLA', price: '248.20', change: '+2.8%', vol: '8.3M', up: true },
-                  { ticker: 'AMD', price: '165.80', change: '-1.2%', vol: '5.1M', up: false },
-                  { ticker: 'AAPL', price: '178.90', change: '+0.5%', vol: '3.2M', up: true },
-                ].map((row) => (
-                  <div 
-                    key={row.ticker}
-                    className="grid grid-cols-4 gap-4 text-xs py-2 border-b border-slate-50"
-                  >
-                    <div className="font-semibold text-slate-900">{row.ticker}</div>
-                    <div className="text-right text-slate-700">${row.price}</div>
-                    <div className={`text-right font-medium ${row.up ? 'text-emerald-600' : 'text-red-500'}`}>{row.change}</div>
-                    <div className="text-right text-slate-500">{row.vol}</div>
+                  { t: 'NVDA', p: '142.58', c: '+8.42%', v: '89.2M', up: true },
+                  { t: 'AMD', p: '178.32', c: '+4.21%', v: '42.1M', up: true },
+                  { t: 'SMCI', p: '38.74', c: '+12.15%', v: '45.8M', up: true },
+                  { t: 'MSTR', p: '412.30', c: '+5.67%', v: '28.4M', up: true },
+                  { t: 'COIN', p: '298.45', c: '-1.23%', v: '18.7M', up: false },
+                ].map((s) => (
+                  <div key={s.t} className="flex items-center justify-between p-3 rounded-lg bg-[#1a1a24]">
+                    <div className="flex items-center gap-4">
+                      <span className="font-mono font-bold w-14" style={{ color: '#60a5fa' }}>{s.t}</span>
+                      <span className="text-white/70 text-sm">${s.p}</span>
+                    </div>
+                    <div className="flex items-center gap-6">
+                      <span className="text-white/50 text-xs">{s.v}</span>
+                      <span className={`font-semibold text-sm ${s.up ? 'text-emerald-400' : 'text-red-400'}`}>{s.c}</span>
+                    </div>
                   </div>
                 ))}
-                <div className="flex items-center gap-2 pt-2">
-                  <span className="text-emerald-500">✓</span>
-                  <span className="text-slate-400 text-xs">found 847 matches • filtered by: gap &gt; 3%</span>
-                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Dilution showcase */}
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            <div className="lg:order-2">
+              <div className="inline-block px-3 py-1 rounded-full bg-violet-500/10 text-violet-400 text-xs font-medium mb-4">
+                {t('landing.showcase.dilution.badge')}
+              </div>
+              <h3 className="text-3xl font-bold text-white mb-4">
+                {t('landing.showcase.dilution.title')}
+              </h3>
+              <p className="text-white/40 leading-relaxed mb-6">
+                {t('landing.showcase.dilution.desc')}
+              </p>
+              <ul className="space-y-3 text-sm">
+                {[t('landing.showcase.dilution.bullet1'), t('landing.showcase.dilution.bullet2'), t('landing.showcase.dilution.bullet3')].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-white/60">
+                    <div className="w-1.5 h-1.5 rounded-full bg-violet-400" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="lg:order-1 bg-[#12121a] rounded-2xl border border-white/10 p-6">
+              <div className="space-y-4">
+                {[
+                  { ticker: 'SMCI', risk: 'MEDIUM', riskColor: 'text-amber-400 bg-amber-500/20', shelf: '$2.5B', date: 'Dec 15' },
+                  { ticker: 'MARA', risk: 'HIGH', riskColor: 'text-red-400 bg-red-500/20', shelf: '$1.8B', date: 'Dec 18' },
+                  { ticker: 'NVDA', risk: 'LOW', riskColor: 'text-emerald-400 bg-emerald-500/20', shelf: 'None', date: '-' },
+                ].map((d) => (
+                  <div key={d.ticker} className="p-4 rounded-lg bg-[#1a1a24] border border-white/5">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="font-mono font-bold" style={{ color: '#a78bfa' }}>{d.ticker}</span>
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${d.riskColor}`}>
+                        {d.risk}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-white/40 text-xs block mb-1">{t('landing.cards.atmShelf')}</span>
+                        <span className="text-white font-medium">{d.shelf}</span>
+                      </div>
+                      <div>
+                        <span className="text-white/40 text-xs block mb-1">{t('landing.cards.lastFiling')}</span>
+                        <span className="text-white font-medium">{d.date}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -298,48 +441,41 @@ export default function Home() {
       </section>
 
       {/* Final CTA */}
-      <section className="relative py-20 px-6">
-        <div className="max-w-xl mx-auto text-center">
-          <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-4">
-Ready to get started?
+      <section className="relative py-24 px-6 border-t border-white/5">
+        <div className="max-w-2xl mx-auto text-center">
+          <h2 className="text-4xl sm:text-5xl font-bold text-white mb-6">
+            {t('landing.cta.title')}
           </h2>
-          <p className="text-slate-500 mb-8">
-            Join traders who demand better tools.
+          <p className="text-lg text-white/40 mb-10">
+            {t('landing.cta.subtitle')}
           </p>
-          
           <SignedOut>
-            <SignUpButton mode="modal">
-              <button className="group px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold text-lg rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl flex items-center gap-2 mx-auto">
-                Start Free
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
-              </button>
-            </SignUpButton>
-          </SignedOut>
-          
-          <SignedIn>
-            <Link 
-              href="/workspace"
-              className="group inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold text-lg rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl"
+            <button 
+              onClick={() => setAuthPanel('signup')}
+              className="px-10 py-4 rounded-xl bg-white text-black font-semibold text-lg hover:bg-white/90 transition-all flex items-center gap-2 mx-auto"
             >
-              Abrir Workspace
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
+              {t('landing.cta.button')} <ArrowRight className="w-5 h-5" />
+            </button>
+          </SignedOut>
+          <SignedIn>
+            <Link href="/workspace" className="inline-flex px-10 py-4 rounded-xl bg-white text-black font-semibold text-lg hover:bg-white/90 transition-all items-center gap-2">
+              {t('landing.hero.ctaSignedIn')} <ArrowRight className="w-5 h-5" />
             </Link>
           </SignedIn>
+          <p className="mt-6 text-sm text-white/30">{t('landing.cta.note')}</p>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-8 px-6">
-        <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+      <footer className="py-8 px-6 border-t border-white/5">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-md bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">T</span>
+            <div className="w-6 h-6 rounded-md bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center">
+              <span className="text-white font-bold text-xs">T</span>
             </div>
-            <span className="text-sm font-medium text-slate-700">Tradeul</span>
+            <span className="text-sm text-white/40">Tradeul</span>
           </div>
-          <p className="text-xs text-slate-400">
-            © {new Date().getFullYear()} Tradeul. Professional market intelligence.
-          </p>
+          <span className="text-xs text-white/30">{new Date().getFullYear()}</span>
         </div>
       </footer>
     </main>

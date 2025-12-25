@@ -20,6 +20,7 @@
     "clsx": "^2.1.0",
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
+    "emoji-picker-react": "^4.16.1",
     "framer-motion": "^12.23.24",
     "i18next": "^25.7.1",
     "i18next-browser-languagedetector": "^8.2.0",

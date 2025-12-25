@@ -8,10 +8,11 @@ import { useAuth } from '@clerk/nextjs';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { TickerMention } from './TickerMention';
 import { cn } from '@/lib/utils';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 
-// Common reactions
+// Quick reactions for fast access
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '🚀', '💯', '👀'];
 
 interface ChatMessageProps {
@@ -37,6 +38,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [showReactions, setShowReactions] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -46,13 +48,14 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false);
         setShowReactions(false);
+        setShowEmojiPicker(false);
       }
     };
-    if (showMenu || showReactions) {
+    if (showMenu || showReactions || showEmojiPicker) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMenu, showReactions]);
+  }, [showMenu, showReactions, showEmojiPicker]);
 
   // Handle right click
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -73,24 +76,30 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
     setShowMenu(false);
   }, [message]);
 
-  // Add reaction
+  // Toggle reaction (add/remove)
   const handleReaction = useCallback(async (emoji: string) => {
     try {
       const token = await getToken();
-      await fetch(`${CHAT_API_URL}/api/chat/messages/${message.id}/reactions`, {
-        method: 'POST',
+      const encodedEmoji = encodeURIComponent(emoji);
+      
+      // Check if user already reacted with this emoji
+      const hasReacted = message.reactions?.[emoji]?.includes(userId || '');
+      
+      // Toggle: DELETE if already reacted, POST if not
+      await fetch(`${CHAT_API_URL}/api/chat/messages/${message.id}/react/${encodedEmoji}`, {
+        method: hasReacted ? 'DELETE' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ emoji }),
       });
     } catch (error) {
-      console.error('Failed to add reaction:', error);
+      console.error('Failed to toggle reaction:', error);
     }
     setShowReactions(false);
+    setShowEmojiPicker(false);
     setShowMenu(false);
-  }, [message.id, getToken]);
+  }, [message.id, message.reactions, userId, getToken]);
 
   // Open DM with user
   const handleOpenDM = useCallback(async () => {
@@ -255,6 +264,35 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
         {' '}
         <span>{parsedContent}</span>
 
+        {/* Reactions display - clean, no background */}
+        {message.reactions && Object.keys(message.reactions).length > 0 && (
+          <span className="inline-flex items-center gap-0.5 ml-1">
+            {Object.entries(message.reactions).map(([emoji, userIds]) => {
+              const hasReacted = userIds.includes(userId || '');
+              return (
+                <button
+                  key={emoji}
+                  onClick={() => handleReaction(emoji)}
+                  className={cn(
+                    "inline-flex items-center text-sm transition-all cursor-pointer",
+                    "hover:scale-125 active:scale-95",
+                    hasReacted && "drop-shadow-[0_0_3px_rgba(59,130,246,0.5)]"
+                  )}
+                  title={hasReacted 
+                    ? `Clic para quitar tu reacción (${userIds.length} total)`
+                    : `${userIds.length} ${userIds.length === 1 ? 'reacción' : 'reacciones'}`
+                  }
+                >
+                  <span>{emoji}</span>
+                  {userIds.length > 1 && (
+                    <span className="text-[9px] text-muted-foreground/70 ml-0.5">{userIds.length}</span>
+                  )}
+                </button>
+              );
+            })}
+          </span>
+        )}
+
         {/* Three dots menu button */}
         <button
           onClick={(e) => {
@@ -318,18 +356,52 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
 
           {/* Quick reactions */}
           {showReactions && (
-            <div className="flex gap-1 px-2 py-1.5 border-t border-border mt-1">
-              {QUICK_REACTIONS.map((emoji) => (
+            <div className="border-t border-border mt-1">
+              <div className="flex items-center gap-1 px-2 py-1.5">
+                {QUICK_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleReaction(emoji)}
+                    className="p-1 hover:scale-125 transition-transform text-base"
+                  >
+                    {emoji}
+                  </button>
+                ))}
                 <button
-                  key={emoji}
-                  onClick={() => handleReaction(emoji)}
-                  className="p-1 hover:bg-muted rounded transition-colors text-sm"
+                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                  className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors ml-1"
+                  title="Más emojis"
                 >
-                  {emoji}
+                  <Smile className="w-4 h-4" />
                 </button>
-              ))}
+              </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Full emoji picker - minimal white design */}
+      {showEmojiPicker && (
+        <div 
+          className="fixed z-[100] rounded-xl overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.08)] border border-gray-100"
+          style={{
+            left: Math.min(Math.max(menuPosition.x - 100, 10), window.innerWidth - 270),
+            top: Math.min(Math.max(menuPosition.y - 50, 10), window.innerHeight - 300),
+          }}
+        >
+          <EmojiPicker
+            onEmojiClick={(emojiData) => {
+              handleReaction(emojiData.emoji);
+              setShowEmojiPicker(false);
+            }}
+            theme={Theme.LIGHT}
+            width={250}
+            height={280}
+            searchPlaceholder="Buscar..."
+            previewConfig={{ showPreview: false }}
+            skinTonesDisabled
+            lazyLoadEmojis
+          />
         </div>
       )}
     </>

@@ -3,6 +3,7 @@
 import { ReactNode } from 'react';
 import { Navbar } from './Navbar';
 import { AnnouncementBanner } from './AnnouncementBanner';
+import { ChristmasEffects } from './ChristmasEffects';
 import { FloatingWindowProvider } from '@/contexts/FloatingWindowContext';
 import { AuthWebSocketProvider } from '@/contexts/AuthWebSocketContext';
 import { SquawkProvider } from '@/contexts/SquawkContext';
@@ -36,7 +37,9 @@ export function AppShell({ children }: AppShellProps) {
         <NewsProvider>
           {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
           <CatalystDetectorProvider>
-            <div className="min-h-screen bg-slate-50">
+            <div className="min-h-screen bg-slate-50 relative">
+              {/* 🎄 Christmas Effects - Holiday Season Special */}
+              <ChristmasEffects />
               {/* Announcement Banner - floating toast */}
               <AnnouncementBanner />
               <Navbar />

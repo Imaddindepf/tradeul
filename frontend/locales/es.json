@@ -1,4 +1,83 @@
 {
+  "landing": {
+    "hero": {
+      "title1": "Ve lo que",
+      "title2": "otros no ven",
+      "subtitle": "Inteligencia de mercado en tiempo real. Scanner, seguimiento de dilución, filings SEC y noticias — todo en un workspace.",
+      "cta": "Empezar gratis",
+      "ctaSignedIn": "Abrir workspace",
+      "signIn": "Iniciar sesión",
+      "getStarted": "Comenzar",
+      "openApp": "Abrir App"
+    },
+    "features": {
+      "title": "Todo en un solo lugar",
+      "subtitle": "No más cambiar entre 20 pestañas.",
+      "scanner": {
+        "name": "Market Scanner",
+        "desc": "+8,000 tickers, latencia <50ms, filtros personalizados"
+      },
+      "dilution": {
+        "name": "Dilution Tracker",
+        "desc": "Análisis SEC con IA, scoring de riesgo, alertas"
+      },
+      "sec": {
+        "name": "SEC Filings",
+        "desc": "Alertas en tiempo real de 10-K, 8-K, S-3 y más"
+      },
+      "fundamentals": {
+        "name": "Fundamentales",
+        "desc": "Métricas financieras, ratios y análisis profundo"
+      },
+      "news": {
+        "name": "Noticias en Tiempo Real",
+        "desc": "Noticias de última hora de las mejores fuentes"
+      },
+      "squawk": {
+        "name": "Live Squawk",
+        "desc": "Actualizaciones de mercado en audio (próximamente)",
+        "soon": "Pronto"
+      }
+    },
+    "showcase": {
+      "scanner": {
+        "badge": "Tiempo real",
+        "title": "Escanea todo el mercado en milisegundos",
+        "desc": "Gaps pre-market, picos de volumen, jugadas de momentum — todo antes que el resto. Filtros personalizados para encontrar exactamente lo que buscas.",
+        "bullet1": "Datos pre-market y after-hours",
+        "bullet2": "Combinaciones de filtros personalizados",
+        "bullet3": "Alertas instantáneas según tus criterios"
+      },
+      "dilution": {
+        "badge": "Potenciado por IA",
+        "title": "Conoce el riesgo de dilución antes de comprar",
+        "desc": "Nuestra IA lee cada filing de la SEC y extrae señales de dilución — ATM shelves, estructuras de warrants, registros S-3. Ves el score de riesgo antes de que reaccione el mercado.",
+        "bullet1": "Análisis automático de filings SEC",
+        "bullet2": "Scoring de riesgo de LOW a CRITICAL",
+        "bullet3": "Patrones históricos de dilución"
+      }
+    },
+    "cta": {
+      "title": "¿Listo para operar más inteligente?",
+      "subtitle": "Únete a los traders que se niegan a operar a ciegas.",
+      "button": "Comenzar gratis",
+      "note": "Gratis para empezar. Sin tarjeta de crédito."
+    },
+    "cards": {
+      "scanner": "Market Scanner",
+      "live": "En vivo",
+      "dilution": "Dilution Tracker",
+      "atmShelf": "ATM Shelf",
+      "recentS3": "S-3 Reciente",
+      "secFilings": "SEC Filings",
+      "latest": "Último",
+      "lastFiling": "Último Filing"
+    },
+    "auth": {
+      "signIn": "Iniciar sesión",
+      "createAccount": "Crear cuenta"
+    }
+  },
   "common": {
     "loading": "Cargando...",
     "error": "Error",

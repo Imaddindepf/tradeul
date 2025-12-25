@@ -407,7 +407,7 @@ XBRL_TO_CANONICAL: Dict[str, str] = {
     "HardwareRevenues": "product_revenue",
     "HardwareProductsRevenues": "product_revenue",
     "ProductRevenue": "product_revenue",
-    "SalesRevenueGoodsNet": "product_revenue",
+    "SalesRevenueGoodsNet": "revenue",  # Primary revenue for legacy companies (ALCOA, etc.)
     
     # Finance Division Revenue (CAT, GE, etc.)
     "FinancialProductsRevenues": "finance_division_revenue",

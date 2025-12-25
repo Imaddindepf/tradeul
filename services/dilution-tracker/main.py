@@ -16,6 +16,7 @@ from shared.config.settings import settings
 from routers import analysis_router, sec_dilution_router, async_analysis_router
 from routers.websocket_router import router as websocket_router, manager as ws_manager
 from routers.extraction_router import router as extraction_router  # Debug only
+from routers.debug_router import router as debug_router  # Debug pipeline
 from http_clients import http_clients
 
 logger = get_logger(__name__)
@@ -78,6 +79,7 @@ app.include_router(sec_dilution_router)      # Principal: /api/sec-dilution/{tic
 app.include_router(async_analysis_router)
 app.include_router(websocket_router)
 app.include_router(extraction_router)        # Debug: /api/extraction/{ticker}/...
+app.include_router(debug_router)             # Debug: /api/debug/{ticker}/...
 
 
 @app.get("/health")

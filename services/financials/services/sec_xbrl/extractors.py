@@ -441,13 +441,21 @@ class XBRLExtractor:
         xbrl_data: Dict, 
         section_name: str,
         fiscal_year: str
-    ) -> Dict[str, Tuple[float, str]]:
+    ) -> Dict[str, Tuple[float, str, int]]:
         """
         Extraer todos los campos de una sección XBRL.
         
-        Returns: {normalized_name: (value, original_name)}
+        Returns: {normalized_name: (value, original_name, section_priority)}
+        
+        Section priority (lower = higher priority):
+        - 1-5: Primary statements (Income, Balance, Cash Flow)
+        - 10-15: Disclosures
+        - 20+: Notes and other
         """
+        from .value_selector import ValueSelector
+        
         section_data = xbrl_data.get(section_name, {})
+        section_priority = ValueSelector.get_section_priority(section_name)
         results = {}
         
         for field_name, values in section_data.items():
@@ -460,7 +468,7 @@ class XBRLExtractor:
                 if isinstance(item, dict) and "segment" not in item and item.get("value") is not None
             ]
             
-            # Prioridad 2: Valores segmentados
+            # Prioridad 2: Valores segmentados (only if no consolidated)
             if not consolidated:
                 consolidated = self._aggregate_segmented_values(values)
             
@@ -472,7 +480,7 @@ class XBRLExtractor:
             
             if best_value is not None:
                 normalized = self._camel_to_snake(field_name)
-                results[normalized] = (best_value, field_name)
+                results[normalized] = (best_value, field_name, section_priority)
         
         return results
     
@@ -842,12 +850,21 @@ class XBRLExtractor:
         return None
     
     # Campos donde preferimos el valor más grande (totales)
+    # NOTA: 'revenue' removido - usar ValueSelector para selección inteligente
+    # El criterio "más grande" causaba bugs (ej: ASTS tomaba 13.8M en lugar de 4.4M)
     PREFER_LARGER_VALUE_FIELDS = {
-        'revenue', 'cost_of_revenue', 'gross_profit', 'total_operating_expenses',
-        'operating_income', 'net_income', 'ebitda', 'income_before_tax',
-        'total_assets', 'total_liabilities', 'total_equity', 'current_assets',
-        'current_liabilities', 'total_debt', 'operating_cf', 'investing_cf',
-        'financing_cf', 'free_cash_flow'
+        'total_operating_expenses',  # Suma de gastos operativos
+        'total_assets', 'total_liabilities', 'total_equity',  # Balance totals
+        'current_assets', 'current_liabilities', 'total_debt',
+        'operating_cf', 'investing_cf', 'financing_cf',  # Cash flow totals
+    }
+    
+    # Campos que requieren selección inteligente (no "más grande")
+    # Estos usan ValueSelector para priorizar por sección y concepto
+    INTELLIGENT_SELECTION_FIELDS = {
+        'revenue', 'cost_of_revenue', 'gross_profit',
+        'operating_income', 'net_income', 'income_before_tax',
+        'ebitda', 'free_cash_flow'
     }
     
     def consolidate_fields(
@@ -858,16 +875,49 @@ class XBRLExtractor:
         """
         Consolidar campos semánticamente relacionados.
         Para campos de tipo "total", preferimos el valor más grande.
+        
+        Incluye Quality Score:
+        - confidence: 0.0-1.0 indicando fiabilidad del mapeo
+        - mapping_source: "direct" | "regex" | "fasb" | "fallback"
         """
         concept_groups: Dict[str, Dict] = {}
         
         for period_idx, period_data in enumerate(all_periods_data):
-            for normalized_name, (value, original) in period_data.items():
+            # Validar que period_data es un diccionario
+            if not isinstance(period_data, dict):
+                logger.warning(f"Period {period_idx} data is not a dict: {type(period_data)}")
+                continue
+            
+            for normalized_name, item in period_data.items():
+                # Validar estructura de tupla (value, original) o (value, original, section_priority)
+                if not isinstance(item, (tuple, list)) or len(item) < 2:
+                    logger.debug(f"Skipping malformed item for {normalized_name}: {type(item)}")
+                    continue
+                
+                if len(item) == 3:
+                    value, original, section_priority = item
+                else:
+                    value, original = item
+                    section_priority = 99  # Default low priority
                 if self._should_skip_field(normalized_name):
                     continue
                 
                 # Pasar el nombre original (CamelCase) para mapeo directo XBRL
-                canonical_key, label, importance, data_type = self.detect_concept(original)
+                # Usar modo extendido para obtener confidence y source
+                if MAPPING_ENGINE_AVAILABLE and hasattr(self, '_mapper') and self._mapper:
+                    mapping_result = self._mapper.detect_concept(original, extended=True)
+                    if len(mapping_result) == 6:
+                        canonical_key, label, importance, data_type, confidence, mapping_source = mapping_result
+                    else:
+                        canonical_key, label, importance, data_type = mapping_result
+                        confidence, mapping_source = 0.8, "legacy"
+                else:
+                    canonical_key, label, importance, data_type = self.detect_concept(original)
+                    confidence, mapping_source = 0.8, "legacy"
+                
+                if canonical_key is None:
+                    logger.error(f"detect_concept returned None for canonical_key: {original}")
+                    continue
                 
                 # Skip campos marcados para exclusión (ej: _skip_shares, _skip_balance_sheet)
                 if canonical_key.startswith('_skip'):
@@ -879,22 +929,59 @@ class XBRLExtractor:
                         'label': label,
                         'importance': importance,
                         'data_type': data_type,
+                        'confidence': confidence,
+                        'mapping_source': mapping_source,
                         'values': [None] * len(all_periods_data),
                         'sources': []
                     }
+                else:
+                    # Si encontramos un mapeo con mayor confianza, actualizar
+                    if confidence > concept_groups[canonical_key].get('confidence', 0):
+                        concept_groups[canonical_key]['confidence'] = confidence
+                        concept_groups[canonical_key]['mapping_source'] = mapping_source
                 
                 current_value = concept_groups[canonical_key]['values'][period_idx]
+                current_source = concept_groups[canonical_key].get('_period_sources', {}).get(period_idx)
+                current_section_pri = concept_groups[canonical_key].get('_section_priorities', {}).get(period_idx, 99)
                 
-                # Para campos de tipo "total", preferir el valor más grande (absoluto)
-                if canonical_key in self.PREFER_LARGER_VALUE_FIELDS:
-                    if current_value is None:
-                        concept_groups[canonical_key]['values'][period_idx] = value
-                    elif value is not None and abs(value) > abs(current_value):
-                        concept_groups[canonical_key]['values'][period_idx] = value
-                else:
-                    # Comportamiento original: primer valor encontrado
-                    if current_value is None:
-                        concept_groups[canonical_key]['values'][period_idx] = value
+                # Inicializar tracking de fuentes por período si no existe
+                if '_period_sources' not in concept_groups[canonical_key]:
+                    concept_groups[canonical_key]['_period_sources'] = {}
+                if '_section_priorities' not in concept_groups[canonical_key]:
+                    concept_groups[canonical_key]['_section_priorities'] = {}
+                
+                # Determinar si debemos actualizar el valor
+                should_update = False
+                
+                if current_value is None:
+                    should_update = True
+                elif canonical_key in self.INTELLIGENT_SELECTION_FIELDS:
+                    # Selección inteligente profesional:
+                    # 1. Preferir secciones primarias (Income Statement) sobre disclosures
+                    # 2. Preferir conceptos primarios sobre alternativos
+                    from .value_selector import ValueSelector
+                    
+                    current_concept_pri = ValueSelector.get_concept_priority(current_source or '')
+                    new_concept_pri = ValueSelector.get_concept_priority(original)
+                    
+                    # Calcular prioridad total: section + concept
+                    current_total_pri = current_section_pri + current_concept_pri
+                    new_total_pri = section_priority + new_concept_pri
+                    
+                    # Solo actualizar si el nuevo tiene mejor prioridad total (número menor)
+                    if new_total_pri < current_total_pri:
+                        should_update = True
+                        logger.debug(f"Intelligent selection: {canonical_key} updating from {current_source} (total_pri={current_total_pri}) to {original} (total_pri={new_total_pri})")
+                elif canonical_key in self.PREFER_LARGER_VALUE_FIELDS:
+                    # Para totales, preferir el valor más grande (absoluto)
+                    if value is not None and abs(value) > abs(current_value):
+                        should_update = True
+                # else: Comportamiento original - mantener primer valor
+                
+                if should_update and value is not None:
+                    concept_groups[canonical_key]['values'][period_idx] = value
+                    concept_groups[canonical_key]['_period_sources'][period_idx] = original
+                    concept_groups[canonical_key]['_section_priorities'][period_idx] = section_priority
                 
                 if original not in concept_groups[canonical_key]['sources']:
                     concept_groups[canonical_key]['sources'].append(original)
@@ -915,8 +1002,12 @@ class XBRLExtractor:
                     'values': group['values'],
                     'importance': group['importance'],
                     'data_type': group.get('data_type', 'monetary'),
-                    'source_fields': group['sources']
+                    'source_fields': group['sources'],
+                    # Quality Score metadata
+                    'confidence': group.get('confidence', 0.8),
+                    'mapping_source': group.get('mapping_source', 'unknown')
                 }
+                # No incluir campos internos de tracking (_period_sources, _section_priorities)
                 consolidated_fields.append(field_data)
         
         consolidated_fields.sort(key=lambda x: x['importance'], reverse=True)

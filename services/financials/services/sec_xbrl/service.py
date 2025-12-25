@@ -17,9 +17,10 @@ from collections import Counter
 from shared.utils.logger import get_logger
 
 from .extractors import XBRLExtractor
-from .calculators import FinancialCalculator
+from .calculators import FinancialCalculator, KnowledgeGraph, AnomalyDetector
 from .structures import get_structure, CUSTOM_LABELS
 from .splits import SplitAdjuster
+from .field_aggregations import FieldAggregator
 
 logger = get_logger(__name__)
 
@@ -49,9 +50,11 @@ class SECXBRLService:
         self.extractor = XBRLExtractor()
         self.calculator = FinancialCalculator()
         self.split_adjuster = SplitAdjuster(polygon_api_key)
+        self.aggregator = FieldAggregator()
         
-        # Caché de industria
+        # Caché de industria/sector
         self._industry_cache: Dict[str, Optional[str]] = {}
+        self._sector_cache: Dict[str, Optional[str]] = {}
     
     async def close(self):
         await self.client.aclose()
@@ -105,7 +108,7 @@ class SECXBRLService:
         logger.info(f"[{ticker}] Got {len(filings)} filings, {len(splits)} splits")
         
         # 2. Fetch XBRL data en paralelo
-        is_quarterly = (period == "quarterly")
+        is_quarterly = (period in ("quarterly", "quarter"))
         xbrl_tasks = [
             self._fetch_xbrl_with_semaphore(filing, is_quarterly) 
             for filing in filings[:limit]
@@ -135,6 +138,23 @@ class SECXBRLService:
         income_consolidated = self.extractor.consolidate_fields(income_data, fiscal_years)
         balance_consolidated = self.extractor.consolidate_fields(balance_data, fiscal_years)
         cashflow_consolidated = self.extractor.consolidate_fields(cashflow_data, fiscal_years)
+        
+        # 4.0.0 Aplicar agregaciones de campos por sector/industria
+        # Esto suma campos relacionados (e.g., OtherGeneralExpense → R&D para tech)
+        sector = await self._get_sector_from_xbrl(ticker, raw_xbrl_latest)
+        income_consolidated = self._apply_field_aggregations(
+            income_consolidated, ticker, sector, num_periods
+        )
+        
+        # 4.0.1 Derivar campos faltantes usando Knowledge Graph
+        income_consolidated = KnowledgeGraph.derive_missing_fields(income_consolidated)
+        balance_consolidated = KnowledgeGraph.derive_missing_fields(balance_consolidated)
+        cashflow_consolidated = KnowledgeGraph.derive_missing_fields(cashflow_consolidated)
+        
+        # 4.0.2 Validar anomalías y añadir quality scores
+        income_consolidated = AnomalyDetector.validate_fields(income_consolidated)
+        balance_consolidated = AnomalyDetector.validate_fields(balance_consolidated)
+        cashflow_consolidated = AnomalyDetector.validate_fields(cashflow_consolidated)
         
         # 4.1 Extraer segmentos especiales (Finance Division para CAT, GE, etc.)
         if raw_xbrl_latest:
@@ -304,7 +324,9 @@ class SECXBRLService:
     ) -> List[Dict[str, Any]]:
         """Obtener filings por CIK (preferido) o ticker."""
         # Aumentar tamaño de búsqueda para obtener más histórico
-        search_size = max(limit + 10, 25)
+        # Para quarterly (10-Q) necesitamos 4x más filings por año
+        is_quarterly = form_type in ["10-Q", "6-K"]
+        search_size = max(limit + 15, 40) if is_quarterly else max(limit + 10, 25)
         
         try:
             # 1. Buscar por CIK si está disponible (método más confiable)
@@ -414,26 +436,234 @@ class SECXBRLService:
     # INTERNAL METHODS
     # =========================================================================
     
-    def _deduplicate_filings(self, all_filings: List[Dict], period: str) -> List[Dict]:
-        """Deduplicar filings por año/período."""
-        if period == "annual":
-            seen_years = set()
-            filings = []
-            for f in all_filings:
-                fiscal_year = f.get("filedAt", "")[:4]
-                form = f.get("formType", "")
+    async def _get_sector_from_xbrl(
+        self, 
+        ticker: str, 
+        xbrl_data: Optional[Dict]
+    ) -> Optional[str]:
+        """
+        Extrae el sector/industria de la empresa desde el XBRL o caché.
+        
+        Busca en:
+        1. Caché interno
+        2. CoverPage del XBRL (EntityRegistrantName, EntityDescription)
+        3. SIC Code si está disponible
+        """
+        # Check caché primero
+        if ticker in self._sector_cache:
+            return self._sector_cache[ticker]
+        
+        sector = None
+        
+        if xbrl_data:
+            cover = xbrl_data.get("CoverPage", {})
+            
+            # Buscar descripción de la empresa
+            description = ""
+            desc_fields = [
+                "EntityRegistrantName", "EntityDescription", 
+                "DocumentDescription", "EntityInformation"
+            ]
+            for field_name in desc_fields:
+                field_data = cover.get(field_name)
+                if isinstance(field_data, list) and field_data:
+                    for item in field_data:
+                        if isinstance(item, dict) and item.get("value"):
+                            description += str(item.get("value", "")) + " "
+                elif isinstance(field_data, str):
+                    description += field_data + " "
+            
+            # Detectar sector por keywords
+            description_lower = description.lower()
+            sector_keywords = {
+                "Aerospace": ["space", "satellite", "aerospace", "rocket", "spacecraft"],
+                "Technology": ["software", "tech", "digital", "cloud", "platform"],
+                "Biotechnology": ["biotech", "gene", "therapy", "biopharmaceutical"],
+                "Pharmaceuticals": ["pharma", "drug", "medicine", "therapeutic"],
+                "Semiconductors": ["semiconductor", "chip", "foundry"],
+                "Healthcare": ["health", "medical", "hospital"],
+                "Defense": ["defense", "military", "security"],
+            }
+            
+            for s, keywords in sector_keywords.items():
+                if any(kw in description_lower for kw in keywords):
+                    sector = s
+                    break
+            
+            # También buscar SIC code
+            sic_field = cover.get("EntitySicCode")
+            if isinstance(sic_field, list) and sic_field:
+                for item in sic_field:
+                    if isinstance(item, dict):
+                        sic = item.get("value", "")
+                        # Mapear SIC codes comunes
+                        if sic.startswith("376"):  # Aerospace
+                            sector = sector or "Aerospace"
+                        elif sic.startswith("283"):  # Pharma/Biotech
+                            sector = sector or "Biotechnology"
+                        elif sic.startswith("737"):  # Software
+                            sector = sector or "Technology"
+        
+        # Guardar en caché
+        self._sector_cache[ticker] = sector
+        if sector:
+            logger.debug(f"[{ticker}] Detected sector: {sector}")
+        
+        return sector
+    
+    def _apply_field_aggregations(
+        self,
+        fields: List[Dict[str, Any]],
+        ticker: str,
+        sector: Optional[str],
+        num_periods: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Aplica reglas de agregación a campos consolidados.
+        
+        Por ejemplo, para empresas de tech/aerospace, suma OtherGeneralExpense a R&D
+        ya que muchas empresas reportan R&D parcialmente en ese campo.
+        """
+        from .field_aggregations import AGGREGATION_RULES, AggregationCondition
+        
+        # Crear índice de campos por key
+        field_index = {f.get("key"): f for f in fields}
+        
+        aggregations_applied = []
+        
+        for target_key, rules in AGGREGATION_RULES.items():
+            target_field = field_index.get(target_key)
+            
+            for rule in rules:
+                source_field = field_index.get(rule.source_field)
                 
-                if fiscal_year not in seen_years:
-                    filings.append(f)
-                    seen_years.add(fiscal_year)
-                elif form == "10-K":
-                    for i, existing in enumerate(filings):
-                        if existing.get("filedAt", "")[:4] == fiscal_year:
-                            if existing.get("formType") == "20-F":
-                                filings[i] = f
-                            break
+                # Verificar si debemos aplicar la regla
+                if not source_field:
+                    continue
+                
+                source_values = source_field.get("values", [])
+                if not any(v for v in source_values if v):
+                    continue
+                
+                # Evaluar condición
+                should_apply = False
+                
+                if rule.condition == AggregationCondition.ALWAYS:
+                    should_apply = True
+                    
+                elif rule.condition == AggregationCondition.SECTOR_MATCH:
+                    should_apply = sector in rule.sectors if rule.sectors else True
+                    
+                elif rule.condition == AggregationCondition.FIELD_MISSING:
+                    if not target_field:
+                        should_apply = True
+                    else:
+                        target_values = target_field.get("values", [])
+                        should_apply = not any(v for v in target_values if v)
+                
+                if not should_apply:
+                    continue
+                
+                # Aplicar agregación
+                if not target_field:
+                    # Crear campo nuevo basado en source
+                    target_field = {
+                        "key": target_key,
+                        "label": rule.target_field.replace("_", " ").title(),
+                        "values": [0.0] * num_periods,
+                        "importance": 5000,
+                        "data_type": "monetary",
+                        "source_fields": [],
+                        "confidence": 0.8,
+                        "mapping_source": "aggregation"
+                    }
+                    fields.append(target_field)
+                    field_index[target_key] = target_field
+                
+                # Sumar valores
+                original_values = list(target_field.get("values", []))
+                new_values = []
+                for i in range(num_periods):
+                    target_val = (target_field.get("values", []) + [0.0] * num_periods)[i] or 0.0
+                    source_val = (source_values + [0.0] * num_periods)[i] or 0.0
+                    new_values.append(target_val + source_val)
+                
+                target_field["values"] = new_values
+                
+                # Registrar la agregación
+                if "aggregated_from" not in target_field:
+                    target_field["aggregated_from"] = []
+                target_field["aggregated_from"].append({
+                    "source": rule.source_field,
+                    "condition": rule.condition.value,
+                    "description": rule.description
+                })
+                
+                # Agregar source_field al registro
+                if rule.source_field not in target_field.get("source_fields", []):
+                    target_field.setdefault("source_fields", []).append(rule.source_field)
+                
+                aggregations_applied.append(f"{rule.source_field} → {target_key}")
+                
+                logger.info(
+                    f"[{ticker}] Aggregation: {rule.source_field} → {target_key} "
+                    f"(sector: {sector}, condition: {rule.condition.value})"
+                )
+        
+        if aggregations_applied:
+            logger.info(f"[{ticker}] Applied {len(aggregations_applied)} aggregations: {aggregations_applied}")
+        
+        return fields
+    
+    def _deduplicate_filings(self, all_filings: List[Dict], period: str) -> List[Dict]:
+        """
+        Deduplicar filings por año/período.
+        
+        Prioridades:
+        1. Usa periodOfReport (no filedAt) para determinar el año fiscal
+        2. Prefiere 10-K/20-F originales sobre enmiendas (10-K/A) ya que
+           las enmiendas a veces solo tienen CoverPage sin datos XBRL
+        3. Si hay múltiples filings del mismo período, toma el original primero
+        """
+        if period == "annual":
+            # Agrupar por año fiscal usando periodOfReport
+            by_fiscal_year: Dict[str, List[Dict]] = {}
+            for f in all_filings:
+                period_report = f.get("periodOfReport", "")[:4]  # Año del período reportado
+                if not period_report:
+                    continue
+                if period_report not in by_fiscal_year:
+                    by_fiscal_year[period_report] = []
+                by_fiscal_year[period_report].append(f)
+            
+            filings = []
+            for fiscal_year in sorted(by_fiscal_year.keys(), reverse=True):
+                candidates = by_fiscal_year[fiscal_year]
+                
+                # Ordenar: 10-K primero, luego 20-F, luego enmiendas
+                def sort_priority(f: Dict) -> tuple:
+                    form = f.get("formType", "")
+                    is_amendment = "/A" in form
+                    if "10-K" in form and not is_amendment:
+                        return (0, f.get("filedAt", ""))
+                    elif "20-F" in form and not is_amendment:
+                        return (1, f.get("filedAt", ""))
+                    elif "10-K" in form:  # 10-K/A
+                        return (2, f.get("filedAt", ""))
+                    elif "20-F" in form:  # 20-F/A
+                        return (3, f.get("filedAt", ""))
+                    else:
+                        return (4, f.get("filedAt", ""))
+                
+                candidates.sort(key=sort_priority)
+                # Tomar el mejor candidato (original preferido sobre enmienda)
+                chosen = candidates[0]
+                logger.debug(f"FY{fiscal_year}: Chosen {chosen.get('formType')} (acc: {chosen.get('accessionNo')}) over {len(candidates)-1} other(s)")
+                filings.append(chosen)
+                
             return filings
         else:
+            # Para quarterly, mantener lógica actual por periodOfReport
             seen_periods = set()
             filings = []
             for f in all_filings:
@@ -678,6 +908,8 @@ class SECXBRLService:
         
         for section in income_sections:
             section_data = xbrl.get(section, {})
+            if not isinstance(section_data, dict):
+                continue
             for field_name, values in section_data.items():
                 if not isinstance(values, list):
                     continue
@@ -721,7 +953,15 @@ class SECXBRLService:
         from datetime import datetime
         
         quarterly_periods = set()
-        income_sections = ["StatementsOfIncome", "StatementsOfComprehensiveIncome", "StatementsOfOperations"]
+        # Buscar dinámicamente secciones de income (algunas empresas usan nombres alternativos)
+        income_sections = [
+            name for name in xbrl.keys()
+            if any(kw in name.lower() for kw in ['income', 'operations', 'earnings'])
+            and 'comprehensive' not in name.lower()  # Evitar StatementsOfComprehensiveIncome primero
+            and 'note' not in name.lower() and 'table' not in name.lower()
+        ]
+        # Agregar comprehensive income como fallback
+        income_sections.extend(["StatementsOfComprehensiveIncome"])
         
         for section in income_sections:
             section_data = xbrl.get(section, {})
