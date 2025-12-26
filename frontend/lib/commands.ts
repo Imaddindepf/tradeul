@@ -18,6 +18,7 @@ import {
   MessageCircle,
   StickyNote,
   Sparkles,
+  GitCompareArrows,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -48,6 +49,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'chat', label: 'CHAT', description: 'commands.chat.description', icon: MessageCircle, shortcut: 'Ctrl+Shift+C' },
   { id: 'notes', label: 'NOTE', description: 'commands.notes.description', icon: StickyNote, shortcut: 'Ctrl+Shift+N' },
   { id: 'patterns', label: 'PM', description: 'commands.patterns.description', icon: Sparkles, shortcut: 'Ctrl+P' },
+  { id: 'ratio', label: 'GR', description: 'commands.ratio.description', icon: GitCompareArrows, shortcut: 'Ctrl+G' },
 ];
 
 /**

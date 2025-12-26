@@ -92,3 +92,4 @@ htmlcov/
 *.pid
 *.seed
 *.pid.lock
+docs/pattern-build-key.pem

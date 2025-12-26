@@ -178,6 +178,10 @@
       "name": "Pattern Matching",
       "description": "AI pattern similarity search"
     },
+    "ratio": {
+      "name": "Ratio Analysis",
+      "description": "Asset correlation and regression"
+    },
     "help": {
       "name": "Help",
       "description": "Show terminal help"
@@ -511,6 +515,9 @@
       },
       "PM": {
         "description": "AI pattern similarity search"
+      },
+      "GR": {
+        "description": "Asset ratio, correlation and regression"
       }
     }
   }

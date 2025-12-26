@@ -36,6 +36,7 @@ from routes.user_filters import router as user_filters_router, set_timescale_cli
 from routes.financials import router as financials_router
 from routes.proxy import router as proxy_router
 from routes.realtime import router as realtime_router, set_redis_client as set_realtime_redis
+from routes.ratio_analysis import router as ratio_analysis_router
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
@@ -181,6 +182,7 @@ app.include_router(financials_router)
 app.include_router(watchlist_router)
 app.include_router(proxy_router)  # Incluye endpoints de dilution, SEC filings, etc.
 app.include_router(realtime_router)  # Real-time ticker data for charts
+app.include_router(ratio_analysis_router)  # Ratio analysis entre dos activos
 
 
 # ============================================================================
@@ -1268,15 +1270,20 @@ async def proxy_patterns_search_historical(request: Request):
     """Proxy para búsqueda histórica de patrones - funciona sin mercado abierto"""
     try:
         body = await request.json()
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{PATTERN_MATCHING_URL}/api/search/historical",
                 json=body
             )
-            return response.json()
+            if response.status_code != 200:
+                logger.error("patterns_historical_upstream_error", status=response.status_code, text=response.text[:200])
+                raise HTTPException(status_code=response.status_code, detail=response.text[:500])
+            return Response(content=response.content, media_type="application/json")
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("patterns_historical_search_error", error=str(e))
-        raise HTTPException(status_code=502, detail="Historical pattern search failed")
+        logger.error("patterns_historical_search_error", error=str(e), error_type=type(e).__name__)
+        raise HTTPException(status_code=502, detail=f"Historical pattern search failed: {type(e).__name__}")
 
 
 @app.get("/patterns/api/historical/prices/{symbol}")

@@ -20,6 +20,7 @@ import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/
 import { ChatContent } from '@/components/chat';
 import { NotesContent } from '@/components/notes/NotesContent';
 import { PatternMatchingContent } from '@/components/pattern-matching';
+import { RatioAnalysisContent } from '@/components/ratio-analysis';
 
 // Wrapper para TickerStrip que obtiene onClose del contexto de ventana
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -332,6 +333,20 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 325),
                     minWidth: 550,
                     minHeight: 500,
+                });
+                return null;
+
+            case 'ratio':
+            case 'gr':
+                openWindow({
+                    title: 'Ratio Analysis',
+                    content: <RatioAnalysisContent />,
+                    width: 800,
+                    height: 750,
+                    x: Math.max(50, screenWidth / 2 - 400),
+                    y: Math.max(70, screenHeight / 2 - 375),
+                    minWidth: 650,
+                    minHeight: 600,
                 });
                 return null;
 

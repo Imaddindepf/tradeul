@@ -178,6 +178,10 @@
       "name": "Pattern Matching",
       "description": "Búsqueda de patrones con IA"
     },
+    "ratio": {
+      "name": "Ratio Analysis",
+      "description": "Correlación y regresión entre activos"
+    },
     "help": {
       "name": "Help",
       "description": "Mostrar ayuda del terminal"
@@ -511,6 +515,9 @@
       },
       "PM": {
         "description": "Búsqueda de patrones con IA"
+      },
+      "GR": {
+        "description": "Ratio, correlación y regresión entre activos"
       }
     }
   }

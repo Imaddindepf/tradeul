@@ -180,6 +180,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.PM.description',
         shortcut: 'Ctrl+P'
     },
+    GR: {
+        id: 'ratio',
+        label: 'GR',
+        name: 'Ratio Analysis',
+        descriptionKey: 'terminalCommands.globalCommands.GR.description',
+        shortcut: 'Ctrl+G'
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;
