@@ -170,6 +170,14 @@
       "name": "Community Chat",
       "description": "Chat con la comunidad de traders"
     },
+    "notes": {
+      "name": "Notas",
+      "description": "Editor de notas personal"
+    },
+    "patterns": {
+      "name": "Pattern Matching",
+      "description": "Búsqueda de patrones con IA"
+    },
     "help": {
       "name": "Help",
       "description": "Mostrar ayuda del terminal"
@@ -419,6 +427,18 @@
     "noWindowsOpen": "No hay ventanas abiertas",
     "useCommandToOpen": "Usa Ctrl+K o escribe un comando para abrir tablas del scanner"
   },
+  "notes": {
+    "title": "Notas",
+    "noNotes": "Sin notas aún",
+    "createFirst": "Crea tu primera nota para empezar",
+    "newNote": "Nueva Nota",
+    "placeholder": "Escribe algo...",
+    "saved": "Guardado",
+    "saving": "Guardando...",
+    "autoSave": "Auto-guardado activo",
+    "deleteNote": "Eliminar nota",
+    "renameNote": "Renombrar nota"
+  },
   "terminalCommands": {
     "tickerCommands": {
       "Q": {
@@ -482,6 +502,9 @@
       },
       "CHAT": {
         "description": "Chat con la comunidad de traders"
+      },
+      "NOTE": {
+        "description": "Editor de notas personal"
       }
     }
   }

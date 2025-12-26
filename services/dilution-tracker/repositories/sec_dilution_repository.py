@@ -243,7 +243,105 @@ class SECDilutionRepository:
     # ========================================================================
     
     async def _get_warrants(self, ticker: str) -> List[WarrantModel]:
-        """Obtener warrants de un ticker con todos los campos"""
+        """Obtener warrants de un ticker con todos los campos incluido lifecycle v5"""
+        # Query con todos los campos nuevos de lifecycle
+        query = """
+        SELECT id, ticker, series_name, issue_date, outstanding, exercise_price,
+               expiration_date, potential_new_shares, notes,
+               status, is_summary_row, exclude_from_dilution, imputed_fields,
+               split_adjusted, split_factor, original_exercise_price, original_outstanding,
+               total_issued, exercised, expired, remaining, last_update_date,
+               known_owners, underwriter_agent, price_protection, pp_clause,
+               exercisable_date, is_registered, registration_type, is_prefunded,
+               has_cashless_exercise, warrant_coverage_ratio, anti_dilution_provision,
+               source_filing, filing_url,
+               -- v5 lifecycle fields
+               warrant_type, underlying_type,
+               ownership_blocker_pct, blocker_clause,
+               potential_proceeds, actual_proceeds_to_date,
+               warrant_agreement_exhibit, warrant_agreement_url,
+               replaced_by_id, replaces_id, amendment_of_id,
+               has_alternate_cashless, forced_exercise_provision,
+               forced_exercise_price, forced_exercise_days,
+               price_adjustment_count, original_issue_price, last_price_adjustment_date,
+               exercise_events_count, last_exercise_date, last_exercise_quantity
+        FROM sec_warrants
+        WHERE ticker = $1
+        ORDER BY expiration_date DESC NULLS LAST
+        """
+        
+        try:
+            rows = await self.db.fetch(query, ticker)
+        except Exception:
+            # Fallback sin campos nuevos de lifecycle v5 (para backwards compatibility)
+            logger.debug("warrant_query_fallback_no_lifecycle", ticker=ticker)
+            return await self._get_warrants_legacy(ticker)
+        
+        return [
+            WarrantModel(
+                id=row['id'],
+                ticker=row['ticker'],
+                series_name=row.get('series_name'),
+                issue_date=row['issue_date'],
+                outstanding=row['outstanding'],
+                exercise_price=row['exercise_price'],
+                expiration_date=row['expiration_date'],
+                potential_new_shares=row['potential_new_shares'],
+                notes=row['notes'],
+                status=row.get('status'),
+                is_summary_row=row.get('is_summary_row'),
+                exclude_from_dilution=row.get('exclude_from_dilution'),
+                imputed_fields=row.get('imputed_fields', '').split(',') if row.get('imputed_fields') else None,
+                split_adjusted=row.get('split_adjusted'),
+                split_factor=row.get('split_factor'),
+                original_exercise_price=row.get('original_exercise_price'),
+                original_outstanding=row.get('original_outstanding'),
+                total_issued=row.get('total_issued'),
+                exercised=row.get('exercised'),
+                expired=row.get('expired'),
+                remaining=row.get('remaining'),
+                last_update_date=row.get('last_update_date'),
+                known_owners=row.get('known_owners'),
+                underwriter_agent=row.get('underwriter_agent'),
+                price_protection=row.get('price_protection'),
+                pp_clause=row.get('pp_clause'),
+                exercisable_date=row.get('exercisable_date'),
+                is_registered=row.get('is_registered'),
+                registration_type=row.get('registration_type'),
+                is_prefunded=row.get('is_prefunded'),
+                has_cashless_exercise=row.get('has_cashless_exercise'),
+                warrant_coverage_ratio=row.get('warrant_coverage_ratio'),
+                anti_dilution_provision=row.get('anti_dilution_provision'),
+                source_filing=row.get('source_filing'),
+                filing_url=row.get('filing_url'),
+                # v5 lifecycle fields
+                warrant_type=row.get('warrant_type'),
+                underlying_type=row.get('underlying_type'),
+                ownership_blocker_pct=row.get('ownership_blocker_pct'),
+                blocker_clause=row.get('blocker_clause'),
+                potential_proceeds=row.get('potential_proceeds'),
+                actual_proceeds_to_date=row.get('actual_proceeds_to_date'),
+                warrant_agreement_exhibit=row.get('warrant_agreement_exhibit'),
+                warrant_agreement_url=row.get('warrant_agreement_url'),
+                replaced_by_id=row.get('replaced_by_id'),
+                replaces_id=row.get('replaces_id'),
+                amendment_of_id=row.get('amendment_of_id'),
+                has_alternate_cashless=row.get('has_alternate_cashless'),
+                forced_exercise_provision=row.get('forced_exercise_provision'),
+                forced_exercise_price=row.get('forced_exercise_price'),
+                forced_exercise_days=row.get('forced_exercise_days'),
+                price_adjustment_count=row.get('price_adjustment_count'),
+                original_issue_price=row.get('original_issue_price'),
+                last_price_adjustment_date=row.get('last_price_adjustment_date'),
+                exercise_events_count=row.get('exercise_events_count'),
+                last_exercise_date=row.get('last_exercise_date'),
+                last_exercise_quantity=row.get('last_exercise_quantity')
+            )
+            for row in rows
+        ]
+    
+    async def _get_warrants_legacy(self, ticker: str) -> List[WarrantModel]:
+        """Fallback para obtener warrants sin campos v5 lifecycle"""
         query = """
         SELECT id, ticker, issue_date, outstanding, exercise_price,
                expiration_date, potential_new_shares, notes,
@@ -599,7 +697,7 @@ class SECDilutionRepository:
         except: pass
     
     async def _insert_warrant(self, ticker: str, warrant: WarrantModel):
-        """Insertar un warrant con todos los campos incluyendo split adjustment y ejercicios"""
+        """Insertar un warrant con todos los campos incluyendo split adjustment, ejercicios y lifecycle v5"""
         
         # Validate exercise_price to avoid DB overflow (max 10^8 - 1)
         MAX_PRICE = 99_999_999.9999
@@ -614,6 +712,109 @@ class SECDilutionRepository:
         if original_ex_price > MAX_PRICE:
             original_ex_price = MAX_PRICE
         
+        # Try with v5 lifecycle fields first
+        try:
+            await self._insert_warrant_v5(ticker, warrant, exercise_price, original_ex_price)
+        except Exception as e:
+            # Fallback to legacy insert if v5 columns don't exist yet
+            logger.debug("warrant_insert_fallback_legacy", ticker=ticker, error=str(e)[:100])
+            await self._insert_warrant_legacy(ticker, warrant, exercise_price, original_ex_price)
+    
+    async def _insert_warrant_v5(self, ticker: str, warrant: WarrantModel, exercise_price: float, original_ex_price: float):
+        """Insert warrant with v5 lifecycle fields"""
+        query = """
+        INSERT INTO sec_warrants (
+            ticker, series_name, issue_date, outstanding, exercise_price,
+            expiration_date, potential_new_shares, notes,
+            status, is_summary_row, exclude_from_dilution, imputed_fields,
+            split_adjusted, split_factor, original_exercise_price, original_outstanding,
+            total_issued, exercised, expired, remaining, last_update_date,
+            known_owners, underwriter_agent, price_protection, pp_clause,
+            exercisable_date, is_registered, registration_type, is_prefunded,
+            has_cashless_exercise, warrant_coverage_ratio, anti_dilution_provision,
+            source_filing, filing_url,
+            warrant_type, underlying_type,
+            ownership_blocker_pct, blocker_clause,
+            potential_proceeds, actual_proceeds_to_date,
+            warrant_agreement_exhibit, warrant_agreement_url,
+            replaced_by_id, replaces_id, amendment_of_id,
+            has_alternate_cashless, forced_exercise_provision,
+            forced_exercise_price, forced_exercise_days,
+            price_adjustment_count, original_issue_price, last_price_adjustment_date,
+            exercise_events_count, last_exercise_date, last_exercise_quantity
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 
+            $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, 
+            $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44,
+            $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55
+        )
+        """
+        
+        # Convert imputed_fields list to string
+        imputed_str = ','.join(warrant.imputed_fields) if warrant.imputed_fields else None
+        
+        await self.db.execute(
+            query,
+            ticker,                                     # $1
+            warrant.series_name,                        # $2
+            warrant.issue_date,                         # $3
+            warrant.outstanding,                        # $4
+            exercise_price,                             # $5
+            warrant.expiration_date,                    # $6
+            warrant.potential_new_shares,               # $7
+            warrant.notes,                              # $8
+            warrant.status,                             # $9
+            warrant.is_summary_row,                     # $10
+            warrant.exclude_from_dilution,              # $11
+            imputed_str,                                # $12
+            warrant.split_adjusted,                     # $13
+            warrant.split_factor,                       # $14
+            original_ex_price,                          # $15
+            warrant.original_outstanding,               # $16
+            warrant.total_issued,                       # $17
+            warrant.exercised,                          # $18
+            warrant.expired,                            # $19
+            warrant.remaining,                          # $20
+            warrant.last_update_date,                   # $21
+            warrant.known_owners,                       # $22
+            warrant.underwriter_agent,                  # $23
+            warrant.price_protection,                   # $24
+            warrant.pp_clause,                          # $25
+            warrant.exercisable_date,                   # $26
+            warrant.is_registered,                      # $27
+            warrant.registration_type,                  # $28
+            warrant.is_prefunded,                       # $29
+            warrant.has_cashless_exercise,              # $30
+            float(warrant.warrant_coverage_ratio) if warrant.warrant_coverage_ratio else None,  # $31
+            warrant.anti_dilution_provision,            # $32
+            warrant.source_filing,                      # $33
+            warrant.filing_url,                         # $34
+            warrant.warrant_type,                       # $35
+            warrant.underlying_type,                    # $36
+            float(warrant.ownership_blocker_pct) if warrant.ownership_blocker_pct else None,  # $37
+            warrant.blocker_clause,                     # $38
+            float(warrant.potential_proceeds) if warrant.potential_proceeds else None,  # $39
+            float(warrant.actual_proceeds_to_date) if warrant.actual_proceeds_to_date else None,  # $40
+            warrant.warrant_agreement_exhibit,          # $41
+            warrant.warrant_agreement_url,              # $42
+            warrant.replaced_by_id,                     # $43
+            warrant.replaces_id,                        # $44
+            warrant.amendment_of_id,                    # $45
+            warrant.has_alternate_cashless,             # $46
+            warrant.forced_exercise_provision,          # $47
+            float(warrant.forced_exercise_price) if warrant.forced_exercise_price else None,  # $48
+            warrant.forced_exercise_days,               # $49
+            warrant.price_adjustment_count,             # $50
+            float(warrant.original_issue_price) if warrant.original_issue_price else None,  # $51
+            warrant.last_price_adjustment_date,         # $52
+            warrant.exercise_events_count,              # $53
+            warrant.last_exercise_date,                 # $54
+            warrant.last_exercise_quantity,             # $55
+        )
+    
+    async def _insert_warrant_legacy(self, ticker: str, warrant: WarrantModel, exercise_price: float, original_ex_price: float):
+        """Fallback insert for databases without v5 lifecycle columns"""
         query = """
         INSERT INTO sec_warrants (
             ticker, series_name, issue_date, outstanding, exercise_price,
@@ -634,7 +835,7 @@ class SECDilutionRepository:
             warrant.series_name,
             warrant.issue_date,
             warrant.outstanding,
-            exercise_price,  # Use validated price
+            exercise_price,
             warrant.expiration_date,
             warrant.potential_new_shares,
             warrant.notes,
@@ -644,7 +845,7 @@ class SECDilutionRepository:
             imputed_str,
             warrant.split_adjusted,
             warrant.split_factor,
-            original_ex_price,  # Use validated original price
+            original_ex_price,
             warrant.original_outstanding,
             warrant.total_issued,
             warrant.exercised,

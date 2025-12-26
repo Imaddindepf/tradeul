@@ -18,6 +18,8 @@ import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/QuoteMonitor';
 import { ChatContent } from '@/components/chat';
+import { NotesContent } from '@/components/notes/NotesContent';
+import { PatternMatchingContent } from '@/components/pattern-matching';
 
 // Wrapper para TickerStrip que obtiene onClose del contexto de ventana
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -306,6 +308,33 @@ export function useCommandExecutor() {
                 });
                 return null;
 
+            case 'notes':
+                openWindow({
+                    title: 'Notes',
+                    content: <NotesContent />,
+                    width: 500,
+                    height: 450,
+                    x: Math.max(50, screenWidth - 550),
+                    y: Math.max(80, screenHeight / 2 - 225),
+                    minWidth: 350,
+                    minHeight: 300,
+                });
+                return null;
+
+            case 'patterns':
+            case 'pm':
+                openWindow({
+                    title: 'Pattern Matching',
+                    content: <PatternMatchingContent />,
+                    width: 700,
+                    height: 650,
+                    x: Math.max(50, screenWidth / 2 - 350),
+                    y: Math.max(80, screenHeight / 2 - 325),
+                    minWidth: 550,
+                    minHeight: 500,
+                });
+                return null;
+
             case 'sc':
                 // SC es especial - abre el command palette
                 return 'sc';
@@ -434,6 +463,21 @@ export function useCommandExecutor() {
                     minHeight: 48,
                     maxHeight: 48,
                     hideHeader: true,
+                });
+                break;
+
+            case 'patterns':
+            case 'pm':
+                // Pattern Matching con ticker específico
+                openWindow({
+                    title: `Patterns: ${normalizedTicker}`,
+                    content: <PatternMatchingContent initialTicker={normalizedTicker} />,
+                    width: 700,
+                    height: 650,
+                    x: Math.max(50, screenWidth / 2 - 350),
+                    y: Math.max(80, screenHeight / 2 - 325),
+                    minWidth: 550,
+                    minHeight: 500,
                 });
                 break;
 

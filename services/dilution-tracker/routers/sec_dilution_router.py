@@ -1564,3 +1564,449 @@ async def get_queue_stats():
             detail=f"Failed to get queue stats: {str(e)}"
         )
 
+
+# =============================================================================
+# WARRANT LIFECYCLE ENDPOINTS (v5)
+# =============================================================================
+
+@router.get("/{ticker}/warrant-lifecycle")
+async def get_warrant_lifecycle(
+    ticker: str,
+    force_extract: bool = Query(default=False, description="Force re-extraction of lifecycle events")
+):
+    """
+    🔄 WARRANT LIFECYCLE ANALYSIS
+    
+    Obtiene el análisis completo del ciclo de vida de warrants:
+    - Ejercicios (cash y cashless)
+    - Ajustes de precio (splits, resets, anti-dilution)
+    - Expiraciones y cancelaciones
+    - Proceeds recibidos
+    
+    **Fuentes:**
+    - 10-Q/10-K: Tablas de warrants con ejercicios/outstanding
+    - 8-K Item 3.02: Ejercicios materiales
+    - 8-K Item 5.03: Amendments
+    
+    **Parámetros:**
+    - `ticker`: Símbolo de la acción
+    - `force_extract`: True para re-extraer eventos (ignorando caché)
+    
+    **Respuesta:**
+    ```json
+    {
+        "ticker": "VMAR",
+        "lifecycle_summary": {
+            "total_active_outstanding": 2000000,
+            "total_exercised_to_date": 500000,
+            "total_expired_cancelled": 100000,
+            "exercise_rate_pct": 19.23
+        },
+        "proceeds": {
+            "potential_if_all_exercised": 1000000,
+            "actual_received_to_date": 250000,
+            "realization_rate_pct": 25.0
+        },
+        "lifecycle_events": [...],
+        "price_adjustments": [...],
+        "by_type": {
+            "Common": { "count": 2, "outstanding": 1500000 },
+            "Pre-Funded": { "count": 1, "outstanding": 500000 }
+        }
+    }
+    ```
+    
+    **Caché:** 24 horas (lifecycle events son relativamente estables)
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            # 1. Obtener profile existente
+            service = SECDilutionService(db, redis)
+            profile = await service.get_dilution_profile(ticker, force_refresh=False)
+            
+            if not profile:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No dilution profile found for {ticker}. Try /profile first."
+                )
+            
+            # 2. Check cache (unless force_extract)
+            cache_key = f"warrant_lifecycle:{ticker}"
+            if not force_extract:
+                cached = await redis.get(cache_key, deserialize=True)
+                if cached:
+                    logger.info("warrant_lifecycle_cache_hit", ticker=ticker)
+                    cached["cached"] = True
+                    return cached
+            
+            # 3. Extract lifecycle events
+            from services.extraction.lifecycle_extractor import get_lifecycle_extractor
+            
+            extractor = get_lifecycle_extractor()
+            if not extractor:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Lifecycle extractor not available. Check API keys."
+                )
+            
+            # Convert warrants to dict format
+            known_warrants = [w.dict() for w in profile.warrants]
+            
+            # Extract lifecycle
+            result = await extractor.extract_lifecycle(
+                ticker=ticker,
+                cik=profile.cik,
+                known_warrants=known_warrants
+            )
+            
+            # 4. Calculate lifecycle summary from profile method
+            lifecycle_summary = profile.calculate_warrant_lifecycle_summary()
+            
+            # 5. Build response
+            response = {
+                "ticker": ticker,
+                "company_name": profile.company_name,
+                "lifecycle_summary": lifecycle_summary.get("summary", {}),
+                "proceeds": lifecycle_summary.get("proceeds", {}),
+                "by_type": lifecycle_summary.get("by_type", {}),
+                "by_status": lifecycle_summary.get("by_status", {}),
+                "in_the_money": lifecycle_summary.get("in_the_money", {}),
+                "out_of_money": lifecycle_summary.get("out_of_money", {}),
+                "lifecycle_activity": lifecycle_summary.get("lifecycle_activity", {}),
+                "lifecycle_events": result.lifecycle_events,
+                "price_adjustments": result.price_adjustments,
+                "updated_totals": result.updated_totals,
+                "current_price": float(profile.current_price) if profile.current_price else None,
+                "extracted_at": datetime.now().isoformat(),
+                "cached": False
+            }
+            
+            # 6. Cache result (24 hours)
+            await redis.set(cache_key, response, ttl=86400, serialize=True)
+            
+            return response
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        logger.error("get_warrant_lifecycle_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n{tb}")
+
+
+@router.get("/{ticker}/warrant-agreements")
+async def get_warrant_agreements(ticker: str):
+    """
+    📜 WARRANT AGREEMENTS (Exhibit 4.x)
+    
+    Obtiene los Warrant Agreements presentados en los SEC filings.
+    Incluye términos detallados extraídos de los documentos.
+    
+    **Busca en:**
+    - Exhibit 4.1, 4.2, etc. en S-1, F-1, 8-K
+    - Warrant Agreements adjuntos a offerings
+    
+    **Respuesta:**
+    ```json
+    {
+        "ticker": "VMAR",
+        "warrant_agreements": [
+            {
+                "exhibit_number": "4.1",
+                "filing_date": "2024-08-15",
+                "form_type": "F-1",
+                "description": "Form of Common Warrant",
+                "exhibit_url": "https://...",
+                "terms": {
+                    "exercise_price": 0.50,
+                    "expiration_date": "2029-08-15",
+                    "ownership_blocker": {
+                        "has_blocker": true,
+                        "blocker_percentage": 4.99
+                    },
+                    "anti_dilution": {
+                        "has_anti_dilution": true,
+                        "protection_type": "Weighted Average"
+                    }
+                }
+            }
+        ]
+    }
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            # 1. Get profile for CIK
+            service = SECDilutionService(db, redis)
+            profile = await service.get_dilution_profile(ticker, force_refresh=False)
+            
+            if not profile or not profile.cik:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No profile or CIK found for {ticker}"
+                )
+            
+            # 2. Check cache
+            cache_key = f"warrant_agreements:{ticker}"
+            cached = await redis.get(cache_key, deserialize=True)
+            if cached:
+                cached["cached"] = True
+                return cached
+            
+            # 3. Find warrant agreement exhibits
+            from services.extraction.lifecycle_extractor import (
+                find_warrant_agreement_exhibits,
+                get_lifecycle_extractor
+            )
+            from services.extraction.contextual_extractor import SECAPIClient
+            from shared.config.settings import settings
+            import os
+            
+            sec_api_key = settings.SEC_API_IO_KEY or os.getenv('SEC_API_IO', '')
+            if not sec_api_key:
+                raise HTTPException(
+                    status_code=503,
+                    detail="SEC API key not configured"
+                )
+            
+            sec_client = SECAPIClient(sec_api_key)
+            exhibits = await find_warrant_agreement_exhibits(sec_client, profile.cik, ticker)
+            
+            # 4. Extract terms from each exhibit (limit to 5 most recent)
+            extractor = get_lifecycle_extractor()
+            
+            warrant_agreements = []
+            for exhibit in exhibits[:5]:  # Limit to 5 to avoid rate limits
+                agreement = {
+                    **exhibit,
+                    "terms": None
+                }
+                
+                # Try to extract terms
+                if extractor and exhibit.get('exhibit_url'):
+                    try:
+                        terms = await extractor.extract_warrant_agreement(
+                            filing_url=exhibit.get('filing_url', ''),
+                            exhibit_url=exhibit.get('exhibit_url')
+                        )
+                        agreement["terms"] = terms
+                    except Exception as e:
+                        logger.warning("warrant_agreement_extract_failed", 
+                                      exhibit=exhibit.get('exhibit_number'),
+                                      error=str(e))
+                
+                warrant_agreements.append(agreement)
+            
+            # 5. Build response
+            response = {
+                "ticker": ticker,
+                "company_name": profile.company_name,
+                "warrant_agreements": warrant_agreements,
+                "total_found": len(exhibits),
+                "analyzed": len(warrant_agreements),
+                "extracted_at": datetime.now().isoformat(),
+                "cached": False
+            }
+            
+            # 6. Cache (7 days - warrant agreements don't change often)
+            await redis.set(cache_key, response, ttl=604800, serialize=True)
+            
+            return response
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_warrant_agreements_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{ticker}/warrants/{warrant_id}/history")
+async def get_warrant_history(
+    ticker: str,
+    warrant_id: str
+):
+    """
+    📊 WARRANT SERIES HISTORY
+    
+    Obtiene el historial completo de un warrant específico:
+    - Todos los eventos (ejercicios, ajustes, etc.)
+    - Timeline cronológico
+    - Running totals
+    
+    **Parámetros:**
+    - `ticker`: Símbolo de la acción
+    - `warrant_id`: ID o series_name del warrant (ej: "August 2024 Common Warrants")
+    
+    **Respuesta:**
+    ```json
+    {
+        "ticker": "VMAR",
+        "warrant": {
+            "series_name": "August 2024 Common Warrants",
+            "current_outstanding": 1500000,
+            "current_exercise_price": 0.50,
+            "expiration_date": "2029-08-15"
+        },
+        "timeline": [
+            {
+                "date": "2024-08-15",
+                "event_type": "Issuance",
+                "warrants_affected": 2000000,
+                "outstanding_after": 2000000
+            },
+            {
+                "date": "2024-10-15",
+                "event_type": "Exercise",
+                "warrants_affected": 500000,
+                "shares_issued": 500000,
+                "proceeds": 250000,
+                "outstanding_after": 1500000
+            }
+        ]
+    }
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            # 1. Get profile
+            service = SECDilutionService(db, redis)
+            profile = await service.get_dilution_profile(ticker, force_refresh=False)
+            
+            if not profile:
+                raise HTTPException(status_code=404, detail=f"Profile not found for {ticker}")
+            
+            # 2. Find the warrant by ID or series_name
+            target_warrant = None
+            for w in profile.warrants:
+                # Match by ID (if numeric) or series_name (if string)
+                if warrant_id.isdigit():
+                    if w.id == int(warrant_id):
+                        target_warrant = w
+                        break
+                else:
+                    # Fuzzy match on series_name
+                    if w.series_name and warrant_id.lower() in w.series_name.lower():
+                        target_warrant = w
+                        break
+            
+            if not target_warrant:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Warrant '{warrant_id}' not found. Available: {[w.series_name for w in profile.warrants]}"
+                )
+            
+            # 3. Get lifecycle events for this warrant
+            cache_key = f"warrant_lifecycle:{ticker}"
+            lifecycle_data = await redis.get(cache_key, deserialize=True)
+            
+            timeline = []
+            
+            # Add issuance event
+            if target_warrant.issue_date and target_warrant.total_issued:
+                timeline.append({
+                    "date": str(target_warrant.issue_date),
+                    "event_type": "Issuance",
+                    "warrants_affected": target_warrant.total_issued,
+                    "outstanding_after": target_warrant.total_issued,
+                    "details": {
+                        "exercise_price": float(target_warrant.exercise_price) if target_warrant.exercise_price else None,
+                        "expiration_date": str(target_warrant.expiration_date) if target_warrant.expiration_date else None
+                    }
+                })
+            
+            # Add events from lifecycle data
+            if lifecycle_data:
+                events = lifecycle_data.get('lifecycle_events', [])
+                adjustments = lifecycle_data.get('price_adjustments', [])
+                
+                # Filter for this warrant
+                for e in events:
+                    if (target_warrant.series_name and 
+                        e.get('series_name', '').lower() in target_warrant.series_name.lower()):
+                        timeline.append({
+                            "date": e.get('event_date'),
+                            "event_type": e.get('event_type'),
+                            "warrants_affected": e.get('warrants_affected'),
+                            "shares_issued": e.get('shares_issued'),
+                            "proceeds": e.get('proceeds_received'),
+                            "outstanding_after": e.get('outstanding_after'),
+                            "source": e.get('source_filing')
+                        })
+                
+                for a in adjustments:
+                    if (target_warrant.series_name and 
+                        a.get('series_name', '').lower() in target_warrant.series_name.lower()):
+                        timeline.append({
+                            "date": a.get('adjustment_date'),
+                            "event_type": f"Price_Adjustment ({a.get('adjustment_type')})",
+                            "details": {
+                                "price_before": a.get('price_before'),
+                                "price_after": a.get('price_after'),
+                                "trigger": a.get('trigger_event')
+                            },
+                            "source": a.get('source_filing')
+                        })
+            
+            # Sort by date
+            timeline.sort(key=lambda x: x.get('date', '') or '')
+            
+            # 4. Build response
+            return {
+                "ticker": ticker,
+                "warrant": {
+                    "id": target_warrant.id,
+                    "series_name": target_warrant.series_name,
+                    "warrant_type": target_warrant.warrant_type,
+                    "current_outstanding": target_warrant.outstanding or target_warrant.remaining,
+                    "current_exercise_price": float(target_warrant.exercise_price) if target_warrant.exercise_price else None,
+                    "issue_date": str(target_warrant.issue_date) if target_warrant.issue_date else None,
+                    "expiration_date": str(target_warrant.expiration_date) if target_warrant.expiration_date else None,
+                    "total_issued": target_warrant.total_issued,
+                    "exercised": target_warrant.exercised,
+                    "expired": target_warrant.expired,
+                    "status": target_warrant.status
+                },
+                "timeline": timeline,
+                "total_events": len(timeline)
+            }
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("get_warrant_history_failed", ticker=ticker, warrant_id=warrant_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+

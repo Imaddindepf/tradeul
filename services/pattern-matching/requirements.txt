@@ -1,0 +1,43 @@
+# Pattern Matching Service - Requirements
+# Professional FAISS-based pattern matching for financial time series
+
+# Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# FAISS - Facebook AI Similarity Search
+faiss-cpu==1.7.4
+# faiss-gpu==1.7.4  # Uncomment for GPU support
+
+# Data Processing
+numpy==1.26.3
+pandas==2.1.4
+scipy==1.11.4
+
+# S3/Polygon Flat Files
+boto3==1.34.14
+botocore==1.34.14
+
+# Async HTTP
+httpx==0.26.0
+aiofiles==23.2.1
+
+# Redis
+redis==5.0.1
+
+# Database
+asyncpg==0.29.0
+
+# Compression
+gzip-stream==1.0.0
+
+# Logging
+structlog==24.1.0
+
+# Utils
+python-dateutil==2.8.2
+pytz==2024.1
+orjson==3.9.10
+

@@ -1217,6 +1217,53 @@ async def proxy_news_article(url: str = Query(..., description="News article URL
 
 
 # ============================================================================
+# Pattern Matching Proxy
+# ============================================================================
+
+PATTERN_MATCHING_URL = "http://pattern_matching:8025"
+
+@app.get("/patterns/health")
+async def proxy_patterns_health():
+    """Proxy para health check del servicio Pattern Matching"""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{PATTERN_MATCHING_URL}/health")
+            return response.json()
+    except Exception as e:
+        logger.error("patterns_proxy_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Pattern Matching service unavailable")
+
+@app.get("/patterns/api/index/stats")
+async def proxy_patterns_index_stats():
+    """Proxy para stats del índice FAISS"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{PATTERN_MATCHING_URL}/api/index/stats")
+            return response.json()
+    except Exception as e:
+        logger.error("patterns_proxy_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Pattern Matching service unavailable")
+
+@app.get("/patterns/api/search/{symbol}")
+async def proxy_patterns_search(
+    symbol: str,
+    k: int = Query(30, ge=1, le=200),
+    cross_asset: bool = Query(True)
+):
+    """Proxy para búsqueda de patrones similares"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{PATTERN_MATCHING_URL}/api/search/{symbol}",
+                params={"k": k, "cross_asset": cross_asset}
+            )
+            return response.json()
+    except Exception as e:
+        logger.error("patterns_search_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=502, detail="Pattern search failed")
+
+
+# ============================================================================
 # IPO Endpoints (Initial Public Offerings)
 # ============================================================================
 

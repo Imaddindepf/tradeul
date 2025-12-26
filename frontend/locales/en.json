@@ -170,6 +170,14 @@
       "name": "Community Chat",
       "description": "Chat with the trader community"
     },
+    "notes": {
+      "name": "Notes",
+      "description": "Personal notes editor"
+    },
+    "patterns": {
+      "name": "Pattern Matching",
+      "description": "AI pattern similarity search"
+    },
     "help": {
       "name": "Help",
       "description": "Show terminal help"
@@ -419,6 +427,18 @@
     "noWindowsOpen": "No windows open",
     "useCommandToOpen": "Use Ctrl+K or type a command to open scanner tables"
   },
+  "notes": {
+    "title": "Notes",
+    "noNotes": "No notes yet",
+    "createFirst": "Create your first note to get started",
+    "newNote": "New Note",
+    "placeholder": "Enter some text...",
+    "saved": "Saved",
+    "saving": "Saving...",
+    "autoSave": "Auto-save enabled",
+    "deleteNote": "Delete note",
+    "renameNote": "Rename note"
+  },
   "terminalCommands": {
     "tickerCommands": {
       "Q": {
@@ -482,6 +502,9 @@
       },
       "CHAT": {
         "description": "Community chat for traders"
+      },
+      "NOTE": {
+        "description": "Personal notes editor"
       }
     }
   }

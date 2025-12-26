@@ -208,6 +208,26 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           centered: true
         }
       );
+    } else if (window.title === 'Notes') {
+      // Abrir Notes en about:blank
+      const { openNotesWindow } = require('@/lib/window-injector');
+      
+      // Obtener las notas actuales del store
+      const { useNotesStore } = require('@/stores/useNotesStore');
+      const notesState = useNotesStore.getState();
+      
+      popOutWindow = openNotesWindow(
+        {
+          notes: notesState.notes,
+          activeNoteId: notesState.activeNoteId,
+        },
+        {
+          title: 'Notes - Tradeul',
+          width: 600,
+          height: 550,
+          centered: true
+        }
+      );
     } else if (window.title.startsWith('Scanner:')) {
       // Abrir Scanner en about:blank con WebSocket
       const { openScannerWindow } = require('@/lib/window-injector');

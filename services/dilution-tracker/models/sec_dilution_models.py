@@ -83,7 +83,7 @@ def parse_flexible_int(value):
 
 
 class WarrantModel(BaseModel):
-    """Model for warrant data"""
+    """Model for warrant data with full lifecycle tracking"""
     id: Optional[int] = None
     ticker: str = Field(..., max_length=10)
     issue_date: Optional[date] = None
@@ -129,20 +129,132 @@ class WarrantModel(BaseModel):
     # Original values before split adjustment
     original_total_issued: Optional[int] = Field(None, description="Original total_issued before split adjustment")
     
+    # ===========================================================================
+    # NEW: Warrant Lifecycle Fields (v5)
+    # ===========================================================================
+    
+    # Warrant Type Classification
+    warrant_type: Optional[str] = Field(
+        None, 
+        max_length=50,
+        description="Type: Common, Pre-Funded, Penny, Placement Agent, Underwriter, SPAC Public, SPAC Private, Inducement"
+    )
+    underlying_type: Optional[str] = Field(
+        None,
+        max_length=50, 
+        description="Underlying security: shares (default), convertible_notes, preferred_stock"
+    )
+    
+    # Ownership Blocker (important for large holders)
+    ownership_blocker_pct: Optional[Decimal] = Field(
+        None, 
+        description="Beneficial ownership blocker percentage (e.g., 4.99, 9.99, 19.99)"
+    )
+    blocker_clause: Optional[str] = Field(
+        None,
+        description="Full text of ownership blocker clause"
+    )
+    
+    # Proceeds Tracking
+    potential_proceeds: Optional[Decimal] = Field(
+        None, 
+        description="Total potential proceeds if all warrants exercised (outstanding × exercise_price)"
+    )
+    actual_proceeds_to_date: Optional[Decimal] = Field(
+        None, 
+        description="Actual proceeds received from warrant exercises to date"
+    )
+    
+    # Warrant Agreement / Exhibit Reference
+    warrant_agreement_exhibit: Optional[str] = Field(
+        None, 
+        max_length=50,
+        description="Exhibit number where warrant agreement is filed (e.g., '4.1', '4.2', '10.1')"
+    )
+    warrant_agreement_url: Optional[str] = Field(
+        None, 
+        description="Direct URL to warrant agreement exhibit"
+    )
+    
+    # Series Linking (for replacements/amendments)
+    replaced_by_id: Optional[int] = Field(
+        None, 
+        description="ID of the warrant series that replaced this one"
+    )
+    replaces_id: Optional[int] = Field(
+        None, 
+        description="ID of the warrant series that this one replaced"
+    )
+    amendment_of_id: Optional[int] = Field(
+        None, 
+        description="ID of the original warrant if this is an amendment"
+    )
+    
+    # Alternate Exercise Options
+    has_alternate_cashless: Optional[bool] = Field(
+        None, 
+        description="Has alternate cashless exercise formula (used when no registration)"
+    )
+    forced_exercise_provision: Optional[bool] = Field(
+        None, 
+        description="Has forced exercise if stock trades above threshold"
+    )
+    forced_exercise_price: Optional[Decimal] = Field(
+        None, 
+        description="Stock price threshold that triggers forced exercise"
+    )
+    forced_exercise_days: Optional[int] = Field(
+        None,
+        description="Number of trading days above threshold before forced exercise"
+    )
+    
+    # Price Adjustment History Reference
+    price_adjustment_count: Optional[int] = Field(
+        None, 
+        description="Number of price adjustments since issuance"
+    )
+    original_issue_price: Optional[Decimal] = Field(
+        None, 
+        description="Original exercise price at issuance (before any adjustments)"
+    )
+    last_price_adjustment_date: Optional[date] = Field(
+        None, 
+        description="Date of most recent price adjustment"
+    )
+    
+    # Lifecycle Events Summary
+    exercise_events_count: Optional[int] = Field(
+        None, 
+        description="Total number of exercise events"
+    )
+    last_exercise_date: Optional[date] = Field(
+        None, 
+        description="Date of most recent exercise"
+    )
+    last_exercise_quantity: Optional[int] = Field(
+        None, 
+        description="Quantity exercised in most recent exercise"
+    )
+    
     @validator('ticker')
     def ticker_uppercase(cls, v):
         return v.upper() if v else v
     
-    @validator('issue_date', 'expiration_date', 'exercisable_date', 'last_update_date', pre=True)
+    @validator('issue_date', 'expiration_date', 'exercisable_date', 'last_update_date', 
+               'last_price_adjustment_date', 'last_exercise_date', pre=True)
     def parse_dates(cls, v):
         return parse_flexible_date(v)
     
-    @validator('exercise_price', 'original_exercise_price', 'warrant_coverage_ratio', pre=True)
+    @validator('exercise_price', 'original_exercise_price', 'warrant_coverage_ratio',
+               'ownership_blocker_pct', 'potential_proceeds', 'actual_proceeds_to_date',
+               'forced_exercise_price', 'original_issue_price', pre=True)
     def parse_decimal(cls, v):
         return parse_flexible_decimal(v)
     
     @validator('outstanding', 'potential_new_shares', 'total_issued', 'exercised', 
-                'expired', 'remaining', 'original_outstanding', pre=True)
+               'expired', 'remaining', 'original_outstanding', 'replaced_by_id',
+               'replaces_id', 'amendment_of_id', 'price_adjustment_count',
+               'exercise_events_count', 'last_exercise_quantity', 'forced_exercise_days', pre=True)
     def parse_int(cls, v):
         return parse_flexible_int(v)
     
@@ -150,12 +262,186 @@ class WarrantModel(BaseModel):
         json_schema_extra = {
             "example": {
                 "ticker": "SOUN",
+                "series_name": "May 2023 Public Warrants",
+                "warrant_type": "Common",
                 "issue_date": "2023-05-15",
                 "outstanding": 15000000,
                 "exercise_price": 11.50,
                 "expiration_date": "2028-05-15",
                 "potential_new_shares": 15000000,
+                "ownership_blocker_pct": 4.99,
+                "has_cashless_exercise": True,
                 "notes": "Public warrants, cashless exercise permitted"
+            }
+        }
+
+
+class WarrantLifecycleEvent(BaseModel):
+    """
+    Model for warrant lifecycle events (exercises, price adjustments, expirations, etc.)
+    
+    Tracks the complete history of a warrant series from issuance to expiration.
+    """
+    id: Optional[int] = None
+    ticker: str = Field(..., max_length=10)
+    warrant_id: Optional[int] = Field(None, description="FK to sec_warrants.id")
+    series_name: Optional[str] = Field(None, max_length=255, description="Warrant series name for matching")
+    
+    # Event Type
+    event_type: str = Field(
+        ...,
+        max_length=50,
+        description="Type: Exercise, Cashless_Exercise, Price_Adjustment, Expiration, Amendment, Redemption, Cancellation, Split_Adjustment"
+    )
+    event_date: date = Field(..., description="Date of the event")
+    
+    # For Exercise Events
+    warrants_affected: Optional[int] = Field(None, description="Number of warrants exercised/expired/cancelled")
+    shares_issued: Optional[int] = Field(None, description="Number of common shares issued (for exercises)")
+    proceeds_received: Optional[Decimal] = Field(None, description="Cash proceeds from exercise")
+    exercise_method: Optional[str] = Field(
+        None, 
+        max_length=50,
+        description="Cash, Cashless, or Combination"
+    )
+    
+    # For Price Adjustment Events
+    old_price: Optional[Decimal] = Field(None, description="Exercise price before adjustment")
+    new_price: Optional[Decimal] = Field(None, description="Exercise price after adjustment")
+    adjustment_reason: Optional[str] = Field(
+        None,
+        max_length=100,
+        description="Reason: Stock_Split, Reverse_Split, Reset_Provision, Anti_Dilution, Amendment"
+    )
+    adjustment_factor: Optional[Decimal] = Field(None, description="Adjustment multiplier if applicable")
+    
+    # For Amendment Events
+    amendment_description: Optional[str] = Field(None, description="Description of what was amended")
+    
+    # Running Totals (after this event)
+    outstanding_after: Optional[int] = Field(None, description="Warrants outstanding after event")
+    exercised_cumulative: Optional[int] = Field(None, description="Cumulative warrants exercised")
+    expired_cumulative: Optional[int] = Field(None, description="Cumulative warrants expired/cancelled")
+    
+    # Source
+    source_filing: Optional[str] = Field(None, description="Source filing (e.g., '10-Q:2024-08-14')")
+    filing_url: Optional[str] = Field(None, description="URL of the source filing")
+    created_at: Optional[datetime] = Field(None, description="When this record was created")
+    
+    @validator('ticker')
+    def ticker_uppercase(cls, v):
+        return v.upper() if v else v
+    
+    @validator('event_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('proceeds_received', 'old_price', 'new_price', 'adjustment_factor', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('warrants_affected', 'shares_issued', 'outstanding_after', 
+               'exercised_cumulative', 'expired_cumulative', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "ticker": "VMAR",
+                "series_name": "August 2024 Common Warrants",
+                "event_type": "Exercise",
+                "event_date": "2024-10-15",
+                "warrants_affected": 500000,
+                "shares_issued": 500000,
+                "proceeds_received": 250000,
+                "exercise_method": "Cash",
+                "outstanding_after": 1500000,
+                "source_filing": "10-Q:2024-11-14"
+            }
+        }
+
+
+class WarrantPriceAdjustment(BaseModel):
+    """
+    Model for warrant price adjustment history
+    
+    Tracks all price adjustments due to stock splits, reverse splits, 
+    anti-dilution provisions, amendments, etc.
+    """
+    id: Optional[int] = None
+    ticker: str = Field(..., max_length=10)
+    warrant_id: Optional[int] = Field(None, description="FK to sec_warrants.id")
+    series_name: Optional[str] = Field(None, max_length=255, description="Warrant series name for matching")
+    
+    # Adjustment Details
+    adjustment_date: date = Field(..., description="Date adjustment became effective")
+    adjustment_type: str = Field(
+        ...,
+        max_length=50,
+        description="Type: Stock_Split, Reverse_Split, Reset_Provision, Full_Ratchet, Weighted_Average, Amendment, Anti_Dilution"
+    )
+    
+    # Price Change
+    price_before: Decimal = Field(..., description="Exercise price before adjustment")
+    price_after: Decimal = Field(..., description="Exercise price after adjustment")
+    price_change_pct: Optional[Decimal] = Field(None, description="Percentage change in price")
+    
+    # Quantity Change (if applicable, e.g., for splits)
+    quantity_before: Optional[int] = Field(None, description="Warrants outstanding before adjustment")
+    quantity_after: Optional[int] = Field(None, description="Warrants outstanding after adjustment")
+    quantity_multiplier: Optional[Decimal] = Field(None, description="Quantity adjustment multiplier")
+    
+    # Trigger Information
+    trigger_event: Optional[str] = Field(
+        None,
+        description="Event that triggered adjustment (e.g., 'Reverse split 1:10', 'Offering at $0.50')"
+    )
+    trigger_price: Optional[Decimal] = Field(
+        None, 
+        description="Stock price that triggered reset/anti-dilution"
+    )
+    trigger_filing: Optional[str] = Field(
+        None, 
+        description="Filing that triggered (e.g., '8-K:2024-05-15')"
+    )
+    
+    # Source
+    source_filing: Optional[str] = Field(None, description="Filing where adjustment is disclosed")
+    filing_url: Optional[str] = Field(None, description="URL of the source filing")
+    created_at: Optional[datetime] = Field(None, description="When this record was created")
+    
+    @validator('ticker')
+    def ticker_uppercase(cls, v):
+        return v.upper() if v else v
+    
+    @validator('adjustment_date', pre=True)
+    def parse_dates(cls, v):
+        return parse_flexible_date(v)
+    
+    @validator('price_before', 'price_after', 'price_change_pct', 
+               'quantity_multiplier', 'trigger_price', pre=True)
+    def parse_decimal(cls, v):
+        return parse_flexible_decimal(v)
+    
+    @validator('quantity_before', 'quantity_after', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "ticker": "VMAR",
+                "series_name": "August 2024 Common Warrants",
+                "adjustment_date": "2024-09-01",
+                "adjustment_type": "Reverse_Split",
+                "price_before": 0.50,
+                "price_after": 5.00,
+                "quantity_before": 20000000,
+                "quantity_after": 2000000,
+                "quantity_multiplier": 0.1,
+                "trigger_event": "Reverse split 1:10",
+                "source_filing": "8-K:2024-09-01"
             }
         }
 
@@ -516,6 +802,16 @@ class SECDilutionProfile(BaseModel):
     convertible_preferred: List[ConvertiblePreferredModel] = Field(default_factory=list)
     equity_lines: List[EquityLineModel] = Field(default_factory=list)
     
+    # NEW: Warrant Lifecycle (v5)
+    warrant_lifecycle_events: List[WarrantLifecycleEvent] = Field(
+        default_factory=list,
+        description="Historical warrant events (exercises, adjustments, etc.)"
+    )
+    warrant_price_adjustments: List[WarrantPriceAdjustment] = Field(
+        default_factory=list,
+        description="Historical price adjustments for warrants"
+    )
+    
     # Context
     current_price: Optional[Decimal] = None
     shares_outstanding: Optional[int] = None
@@ -610,6 +906,154 @@ class SECDilutionProfile(BaseModel):
             "total_shares_with_nasdaq_limit": total_shares_with_nasdaq_limit,
             "nasdaq_20_pct_cap": nasdaq_20_pct_limit,
             "note": "20% NASDAQ rule limits ELOC usage without shareholder approval"
+        }
+    
+    def calculate_warrant_lifecycle_summary(self) -> dict:
+        """
+        Calculate comprehensive warrant lifecycle analysis.
+        
+        Returns:
+            Dict with lifecycle metrics:
+            - Total proceeds potential
+            - Actual proceeds received
+            - Exercise velocity
+            - Price adjustments impact
+            - By warrant type breakdown
+        """
+        if not self.warrants:
+            return {"error": "No warrants found", "has_data": False}
+        
+        current_price_float = float(self.current_price or 0)
+        
+        # Aggregate metrics
+        total_outstanding = 0
+        total_exercised = 0
+        total_expired = 0
+        total_potential_proceeds = Decimal('0')
+        total_actual_proceeds = Decimal('0')
+        
+        # By type
+        by_type = {}
+        by_status = {"Active": 0, "Exercised": 0, "Replaced": 0, "Expired": 0, "Historical_Summary": 0}
+        
+        # In-the-money analysis
+        itm_warrants = []
+        otm_warrants = []
+        
+        for w in self.warrants:
+            # Skip excluded warrants
+            if w.exclude_from_dilution:
+                continue
+            
+            # By type aggregation
+            w_type = w.warrant_type or "Unknown"
+            if w_type not in by_type:
+                by_type[w_type] = {"count": 0, "outstanding": 0, "potential_proceeds": Decimal('0')}
+            
+            outstanding = w.outstanding or w.remaining or 0
+            by_type[w_type]["count"] += 1
+            by_type[w_type]["outstanding"] += outstanding
+            
+            # By status
+            status = w.status or "Active"
+            if status in by_status:
+                by_status[status] += outstanding
+            
+            # Only count Active warrants for totals
+            if status == "Active":
+                total_outstanding += outstanding
+                
+                # Potential proceeds
+                if w.exercise_price and outstanding:
+                    proceeds = Decimal(str(outstanding)) * w.exercise_price
+                    total_potential_proceeds += proceeds
+                    by_type[w_type]["potential_proceeds"] += proceeds
+                    
+                    # ITM/OTM analysis
+                    ex_price = float(w.exercise_price)
+                    if current_price_float > 0 and ex_price <= current_price_float:
+                        itm_warrants.append({
+                            "series": w.series_name,
+                            "type": w_type,
+                            "outstanding": outstanding,
+                            "exercise_price": ex_price,
+                            "intrinsic_value": (current_price_float - ex_price) * outstanding
+                        })
+                    else:
+                        otm_warrants.append({
+                            "series": w.series_name,
+                            "type": w_type,
+                            "outstanding": outstanding,
+                            "exercise_price": ex_price,
+                            "distance_from_itm": (ex_price - current_price_float) if current_price_float > 0 else None
+                        })
+                
+                # Actual proceeds
+                if w.actual_proceeds_to_date:
+                    total_actual_proceeds += w.actual_proceeds_to_date
+            
+            # Exercise tracking
+            total_exercised += w.exercised or 0
+            total_expired += w.expired or 0
+        
+        # Lifecycle events summary
+        exercise_events = [e for e in self.warrant_lifecycle_events if e.event_type in ('Exercise', 'Cashless_Exercise')]
+        price_adjustments = len(self.warrant_price_adjustments)
+        
+        # Calculate exercise velocity (exercises per quarter)
+        if exercise_events:
+            from datetime import timedelta
+            dates = sorted([e.event_date for e in exercise_events if e.event_date])
+            if len(dates) >= 2:
+                span_days = (dates[-1] - dates[0]).days
+                quarters = max(span_days / 90, 1)
+                exercise_velocity = len(exercise_events) / quarters
+            else:
+                exercise_velocity = None
+        else:
+            exercise_velocity = None
+        
+        return {
+            "has_data": True,
+            "summary": {
+                "total_active_outstanding": total_outstanding,
+                "total_exercised_to_date": total_exercised,
+                "total_expired_cancelled": total_expired,
+                "total_original_issued": total_outstanding + total_exercised + total_expired,
+                "exercise_rate_pct": round(
+                    (total_exercised / (total_outstanding + total_exercised + total_expired) * 100) 
+                    if (total_outstanding + total_exercised + total_expired) > 0 else 0, 2
+                ),
+            },
+            "proceeds": {
+                "potential_if_all_exercised": float(total_potential_proceeds),
+                "actual_received_to_date": float(total_actual_proceeds),
+                "realization_rate_pct": round(
+                    float(total_actual_proceeds / total_potential_proceeds * 100) 
+                    if total_potential_proceeds > 0 else 0, 2
+                ),
+            },
+            "by_type": {k: {"count": v["count"], "outstanding": v["outstanding"], 
+                          "potential_proceeds": float(v["potential_proceeds"])} 
+                       for k, v in by_type.items()},
+            "by_status": by_status,
+            "in_the_money": {
+                "count": len(itm_warrants),
+                "total_outstanding": sum(w["outstanding"] for w in itm_warrants),
+                "total_intrinsic_value": sum(w["intrinsic_value"] for w in itm_warrants),
+                "details": itm_warrants[:5],  # Top 5
+            },
+            "out_of_money": {
+                "count": len(otm_warrants),
+                "total_outstanding": sum(w["outstanding"] for w in otm_warrants),
+                "details": otm_warrants[:5],  # Top 5
+            },
+            "lifecycle_activity": {
+                "exercise_events": len(exercise_events),
+                "price_adjustments": price_adjustments,
+                "exercise_velocity_per_quarter": round(exercise_velocity, 2) if exercise_velocity else None,
+            },
+            "current_price": current_price_float,
         }
     
     def calculate_potential_dilution(self) -> dict:
