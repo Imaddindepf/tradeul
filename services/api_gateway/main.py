@@ -1263,6 +1263,54 @@ async def proxy_patterns_search(
         raise HTTPException(status_code=502, detail="Pattern search failed")
 
 
+@app.post("/patterns/api/search/historical")
+async def proxy_patterns_search_historical(request: Request):
+    """Proxy para búsqueda histórica de patrones - funciona sin mercado abierto"""
+    try:
+        body = await request.json()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{PATTERN_MATCHING_URL}/api/search/historical",
+                json=body
+            )
+            return response.json()
+    except Exception as e:
+        logger.error("patterns_historical_search_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Historical pattern search failed")
+
+
+@app.get("/patterns/api/historical/prices/{symbol}")
+async def proxy_patterns_historical_prices(
+    symbol: str,
+    date: str = Query(...),
+    start_time: str = Query("09:30"),
+    end_time: str = Query("16:00")
+):
+    """Proxy para obtener precios históricos de flat files"""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{PATTERN_MATCHING_URL}/api/historical/prices/{symbol}",
+                params={"date": date, "start_time": start_time, "end_time": end_time}
+            )
+            return response.json()
+    except Exception as e:
+        logger.error("patterns_historical_prices_error", symbol=symbol, error=str(e))
+        raise HTTPException(status_code=502, detail="Failed to fetch historical prices")
+
+
+@app.get("/patterns/api/available-dates")
+async def proxy_patterns_available_dates():
+    """Proxy para obtener fechas disponibles en los flat files"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{PATTERN_MATCHING_URL}/api/available-dates")
+            return response.json()
+    except Exception as e:
+        logger.error("patterns_available_dates_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Failed to fetch available dates")
+
+
 # ============================================================================
 # IPO Endpoints (Initial Public Offerings)
 # ============================================================================

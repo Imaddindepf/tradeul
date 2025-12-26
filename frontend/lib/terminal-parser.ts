@@ -66,6 +66,13 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.NEWS.description',
         shortcut: 'Ctrl+N'
     },
+    PM: {
+        id: 'patterns',
+        label: 'PM',
+        name: 'Pattern Matching',
+        descriptionKey: 'terminalCommands.tickerCommands.PM.description',
+        shortcut: 'Ctrl+P'
+    },
 } as const;
 
 export type TickerCommandKey = keyof typeof TICKER_COMMANDS;
@@ -165,6 +172,13 @@ export const GLOBAL_COMMANDS = {
         name: 'Notes',
         descriptionKey: 'terminalCommands.globalCommands.NOTE.description',
         shortcut: 'Ctrl+Shift+N'
+    },
+    PM: {
+        id: 'patterns',
+        label: 'PM',
+        name: 'Pattern Matching',
+        descriptionKey: 'terminalCommands.globalCommands.PM.description',
+        shortcut: 'Ctrl+P'
     },
 } as const;
 

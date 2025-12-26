@@ -61,6 +61,16 @@ class SearchByPricesRequest(BaseModel):
     k: int = Field(default=50, ge=1, le=200, description="Number of neighbors")
 
 
+class HistoricalSearchRequest(BaseModel):
+    """Request to search using historical data"""
+    symbol: str = Field(..., description="Ticker symbol")
+    date: str = Field(..., description="Date (YYYY-MM-DD)")
+    time: str = Field(..., description="Time (HH:MM) in market hours ET")
+    k: int = Field(default=50, ge=1, le=200, description="Number of neighbors")
+    cross_asset: bool = Field(default=True, description="Search across all tickers")
+    window_minutes: int = Field(default=45, ge=15, le=120, description="Pattern window size")
+
+
 class BuildIndexRequest(BaseModel):
     """Request to build/rebuild index"""
     start_date: str = Field(..., description="Start date (YYYY-MM-DD)")
@@ -227,6 +237,79 @@ async def search_symbol(
         raise HTTPException(status_code=400, detail=result.get("error"))
     
     return result
+
+
+@app.post("/api/search/historical")
+async def search_historical(request: HistoricalSearchRequest):
+    """
+    Search for similar patterns using historical data
+    
+    Perfect for backtesting or when market is closed.
+    Fetches historical minute bars from our downloaded flat files.
+    """
+    if not matcher or not matcher.is_ready:
+        raise HTTPException(status_code=503, detail="Index not ready")
+    
+    result = await matcher.search_historical(
+        symbol=request.symbol.upper(),
+        date=request.date,
+        time=request.time,
+        k=request.k,
+        cross_asset=request.cross_asset,
+        window_minutes=request.window_minutes,
+    )
+    
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    
+    return result
+
+
+@app.get("/api/historical/prices/{symbol}")
+async def get_historical_prices(
+    symbol: str,
+    date: str = Query(..., description="Date YYYY-MM-DD"),
+    start_time: str = Query(default="09:30", description="Start time HH:MM"),
+    end_time: str = Query(default="16:00", description="End time HH:MM"),
+):
+    """
+    Get historical minute-bar prices for a symbol on a specific date
+    
+    Useful for the frontend to display chart data.
+    """
+    if not matcher:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    
+    result = await matcher.get_historical_minute_data(
+        symbol=symbol.upper(),
+        date=date,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result
+
+
+@app.get("/api/available-dates")
+async def get_available_dates():
+    """Get list of dates with available historical data"""
+    from glob import glob
+    import os
+    
+    data_dir = f"{settings.data_dir}/minute_aggs"
+    files = sorted(glob(f"{data_dir}/*.csv.gz"))
+    
+    dates = [os.path.basename(f).replace('.csv.gz', '') for f in files]
+    
+    return {
+        "dates": dates,
+        "count": len(dates),
+        "first": dates[0] if dates else None,
+        "last": dates[-1] if dates else None,
+    }
 
 
 # ============================================================================

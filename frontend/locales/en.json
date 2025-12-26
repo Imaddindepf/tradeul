@@ -461,6 +461,9 @@
       },
       "NEWS": {
         "description": "Ticker news"
+      },
+      "PM": {
+        "description": "AI pattern similarity search for this ticker"
       }
     },
     "globalCommands": {
@@ -505,6 +508,9 @@
       },
       "NOTE": {
         "description": "Personal notes editor"
+      },
+      "PM": {
+        "description": "AI pattern similarity search"
       }
     }
   }

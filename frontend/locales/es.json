@@ -461,6 +461,9 @@
       },
       "NEWS": {
         "description": "Noticias del ticker"
+      },
+      "PM": {
+        "description": "Búsqueda de patrones similares con IA"
       }
     },
     "globalCommands": {
@@ -505,6 +508,9 @@
       },
       "NOTE": {
         "description": "Editor de notas personal"
+      },
+      "PM": {
+        "description": "Búsqueda de patrones con IA"
       }
     }
   }

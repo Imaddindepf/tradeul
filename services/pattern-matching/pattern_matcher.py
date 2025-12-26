@@ -304,6 +304,191 @@ class PatternMatcher:
             nprobe=nprobe
         )
     
+    async def get_historical_minute_data(
+        self,
+        symbol: str,
+        date: str,
+        start_time: str = "09:30",
+        end_time: str = "16:00",
+    ) -> Dict:
+        """
+        Get historical minute data from flat files
+        
+        Args:
+            symbol: Ticker symbol
+            date: Date string (YYYY-MM-DD)
+            start_time: Start time (HH:MM) in ET (Eastern Time)
+            end_time: End time (HH:MM) in ET (Eastern Time)
+            
+        Returns:
+            Dict with prices, timestamps, and OHLCV data
+        """
+        import gzip
+        import csv
+        from datetime import datetime as dt, timezone, timedelta
+        
+        file_path = f"{settings.data_dir}/minute_aggs/{date}.csv.gz"
+        
+        try:
+            # Parse time range (input is in ET)
+            start_h, start_m = map(int, start_time.split(':'))
+            end_h, end_m = map(int, end_time.split(':'))
+            
+            # Determine if date is in DST (Eastern Time)
+            # Simple heuristic: March-November is EDT (UTC-4), else EST (UTC-5)
+            date_parts = date.split('-')
+            month = int(date_parts[1])
+            is_dst = 3 <= month <= 11  # Rough DST approximation
+            utc_offset = 4 if is_dst else 5  # Hours to add to ET to get UTC
+            
+            bars = []
+            
+            with gzip.open(file_path, 'rt') as f:
+                reader = csv.DictReader(f)
+                
+                for row in reader:
+                    if row['ticker'] != symbol:
+                        continue
+                    
+                    # Parse timestamp (nanoseconds) - data is in UTC
+                    ts = int(row['window_start']) // 1_000_000_000
+                    bar_time_utc = dt.fromtimestamp(ts, tz=timezone.utc)
+                    
+                    # Convert to ET
+                    bar_time_et = bar_time_utc - timedelta(hours=utc_offset)
+                    bar_hour = bar_time_et.hour
+                    bar_min = bar_time_et.minute
+                    
+                    # Filter by time range (in ET)
+                    if (bar_hour > start_h or (bar_hour == start_h and bar_min >= start_m)) and \
+                       (bar_hour < end_h or (bar_hour == end_h and bar_min <= end_m)):
+                        bars.append({
+                            'timestamp': ts * 1000,  # Convert to ms for JS
+                            'time': bar_time_et.strftime('%H:%M'),
+                            'open': float(row['open']),
+                            'high': float(row['high']),
+                            'low': float(row['low']),
+                            'close': float(row['close']),
+                            'volume': int(row['volume']),
+                        })
+            
+            if not bars:
+                return {"error": f"No data found for {symbol} on {date}"}
+            
+            # Sort by timestamp
+            bars.sort(key=lambda x: x['timestamp'])
+            
+            return {
+                "symbol": symbol,
+                "date": date,
+                "bars": bars,
+                "prices": [b['close'] for b in bars],
+                "times": [b['time'] for b in bars],
+                "count": len(bars),
+            }
+            
+        except FileNotFoundError:
+            return {"error": f"No data file for {date}"}
+        except Exception as e:
+            logger.error("Failed to load historical data", error=str(e))
+            return {"error": str(e)}
+    
+    async def search_historical(
+        self,
+        symbol: str,
+        date: str,
+        time: str,
+        k: int = None,
+        cross_asset: bool = True,
+        window_minutes: int = None,
+    ) -> Dict:
+        """
+        Search using historical data from flat files
+        
+        Args:
+            symbol: Ticker symbol
+            date: Date string (YYYY-MM-DD)
+            time: End time of pattern (HH:MM)
+            k: Number of neighbors
+            cross_asset: Search all tickers
+            window_minutes: Pattern window size
+            
+        Returns:
+            Search results with forecast and pattern context
+        """
+        if not self.is_ready:
+            return {"error": "Index not loaded", "status": "not_ready"}
+        
+        window_minutes = window_minutes or settings.window_size
+        k = min(k or settings.default_k, settings.max_k)
+        
+        try:
+            # Parse end time
+            end_h, end_m = map(int, time.split(':'))
+            
+            # Calculate start time (window_minutes before)
+            total_mins = end_h * 60 + end_m - window_minutes
+            start_h = total_mins // 60
+            start_m = total_mins % 60
+            start_time = f"{start_h:02d}:{start_m:02d}"
+            
+            # Get historical prices
+            hist_data = await self.get_historical_minute_data(
+                symbol=symbol,
+                date=date,
+                start_time=start_time,
+                end_time=time,
+            )
+            
+            if "error" in hist_data:
+                return {"status": "error", "error": hist_data["error"]}
+            
+            prices = hist_data["prices"]
+            
+            if len(prices) < 15:  # Minimum viable pattern
+                return {
+                    "status": "error",
+                    "error": f"Insufficient data: got {len(prices)} bars, need at least 15"
+                }
+            
+            # Get full day context for charting (before and after pattern)
+            full_day = await self.get_historical_minute_data(
+                symbol=symbol,
+                date=date,
+                start_time="09:30",
+                end_time="16:00",
+            )
+            
+            # Perform search
+            result = await self.search(
+                symbol=symbol,
+                prices=prices,
+                k=k,
+                cross_asset=cross_asset,
+            )
+            
+            # Enrich with historical context
+            if result.get("status") == "success":
+                result["historical_context"] = {
+                    "mode": "historical",
+                    "date": date,
+                    "pattern_start": start_time,
+                    "pattern_end": time,
+                    "pattern_prices": prices,
+                    "pattern_times": hist_data.get("times", []),
+                    "full_day_prices": full_day.get("prices", []) if "error" not in full_day else [],
+                    "full_day_times": full_day.get("times", []) if "error" not in full_day else [],
+                }
+                result["query"]["mode"] = "historical"
+                result["query"]["date"] = date
+                result["query"]["pattern_time"] = time
+            
+            return result
+            
+        except Exception as e:
+            logger.error("Historical search failed", error=str(e))
+            return {"status": "error", "error": str(e)}
+    
     def get_stats(self) -> Dict:
         """Get matcher statistics"""
         return {
