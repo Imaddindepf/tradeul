@@ -42,6 +42,7 @@ from shared.utils.logger import get_logger
 from daily_maintenance_scheduler import DailyMaintenanceScheduler
 from maintenance_orchestrator import MaintenanceOrchestrator
 from realtime_ticker_monitor import RealtimeTickerMonitor
+from pattern_matching_updater import PatternMatchingUpdater
 
 logger = get_logger(__name__)
 
@@ -49,6 +50,7 @@ logger = get_logger(__name__)
 redis_client: RedisClient = None
 timescale_client: TimescaleClient = None
 daily_scheduler: DailyMaintenanceScheduler = None
+pattern_updater: PatternMatchingUpdater = None
 
 
 @asynccontextmanager
@@ -78,9 +80,16 @@ async def lifespan(app: FastAPI):
     realtime_monitor = RealtimeTickerMonitor(redis_client, timescale_client)
     monitor_task = asyncio.create_task(realtime_monitor.start())
     
+    # Iniciar updater de pattern matching (8:00 PM ET, después del cierre)
+    global pattern_updater
+    pattern_updater = PatternMatchingUpdater()
+    pattern_updater_task = asyncio.create_task(pattern_updater.run(redis_client))
+    
     logger.info("=" * 60)
     logger.info("📅 Schedule: Daily maintenance at 3:00 AM ET")
     logger.info("   (1 hour before pre-market opens at 4:00 AM ET)")
+    logger.info("📊 Schedule: Pattern matching update at 8:00 PM ET")
+    logger.info("   (after market close)")
     logger.info("=" * 60)
     
     yield
@@ -91,11 +100,19 @@ async def lifespan(app: FastAPI):
     await realtime_monitor.stop()
     monitor_task.cancel()
     
+    pattern_updater.stop()
+    pattern_updater_task.cancel()
+    
     daily_scheduler.stop()
     scheduler_task.cancel()
     
     try:
         await monitor_task
+    except asyncio.CancelledError:
+        pass
+    
+    try:
+        await pattern_updater_task
     except asyncio.CancelledError:
         pass
     
@@ -294,23 +311,69 @@ async def clear_caches():
 async def get_next_run():
     """Get info about next scheduled run"""
     from zoneinfo import ZoneInfo
+    from datetime import timedelta
     
     now_et = datetime.now(ZoneInfo("America/New_York"))
     
-    # Calcular próxima ejecución (3:00 AM ET)
-    next_run = now_et.replace(hour=3, minute=0, second=0, microsecond=0)
+    # Calcular próxima ejecución mantenimiento (3:00 AM ET)
+    next_maintenance = now_et.replace(hour=3, minute=0, second=0, microsecond=0)
     if now_et.hour >= 3:
-        from datetime import timedelta
-        next_run += timedelta(days=1)
+        next_maintenance += timedelta(days=1)
     
-    time_until = next_run - now_et
+    # Calcular próxima ejecución pattern update (8:00 PM ET)
+    next_pattern = now_et.replace(hour=20, minute=0, second=0, microsecond=0)
+    if now_et.hour >= 20:
+        next_pattern += timedelta(days=1)
     
     return {
         "current_time_et": now_et.strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "next_run_et": next_run.strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "time_until": str(time_until).split(".")[0],  # Sin microsegundos
-        "scheduler_running": daily_scheduler.is_running if daily_scheduler else False
+        "maintenance": {
+            "next_run_et": next_maintenance.strftime("%Y-%m-%d %H:%M:%S %Z"),
+            "time_until": str(next_maintenance - now_et).split(".")[0],
+            "running": daily_scheduler.is_running if daily_scheduler else False
+        },
+        "pattern_matching": {
+            "next_run_et": next_pattern.strftime("%Y-%m-%d %H:%M:%S %Z"),
+            "time_until": str(next_pattern - now_et).split(".")[0],
+            "running": pattern_updater.is_running if pattern_updater else False,
+            "last_update": str(pattern_updater.last_update_date) if pattern_updater and pattern_updater.last_update_date else None
+        }
     }
+
+
+class PatternUpdateRequest(BaseModel):
+    target_date: Optional[str] = None  # ISO format: "2025-12-26"
+
+
+@app.post("/trigger-pattern-update")
+async def trigger_pattern_update(request: Optional[PatternUpdateRequest] = None):
+    """
+    Trigger pattern matching update manually
+    
+    Args:
+        target_date: Fecha específica (ISO format: "2025-12-26")
+                     Si no se proporciona, actualiza los días faltantes
+    """
+    try:
+        target = request.target_date if request else None
+        
+        logger.info(
+            "Manual pattern update trigger requested",
+            target_date=target or "auto"
+        )
+        
+        if pattern_updater:
+            result = await pattern_updater.trigger_update(target)
+            return result
+        
+        return {
+            "status": "error",
+            "message": "Pattern updater not initialized"
+        }
+        
+    except Exception as e:
+        logger.error("manual_pattern_trigger_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
 
 
 if __name__ == "__main__":

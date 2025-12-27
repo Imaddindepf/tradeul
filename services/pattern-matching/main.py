@@ -517,6 +517,87 @@ async def get_data_stats():
     return downloader.get_download_stats()
 
 
+class DailyUpdateRequest(BaseModel):
+    """Request for daily incremental update"""
+    date: Optional[str] = Field(None, description="Specific date (YYYY-MM-DD) or None for auto")
+
+
+@app.post("/api/data/update-daily")
+async def update_daily(request: Optional[DailyUpdateRequest] = None):
+    """
+    Incremental daily update of the pattern index.
+    Called by the data_maintenance service after market close.
+    
+    Process:
+    1. Download new flat files if needed
+    2. Extract patterns from new day(s)
+    3. Add to existing FAISS index
+    4. Update SQLite metadata
+    5. Update trajectories file
+    """
+    global matcher
+    
+    from daily_updater import DailyUpdater
+    
+    start_time = datetime.now()
+    updater = DailyUpdater()
+    
+    try:
+        if request and request.date:
+            # Update specific date
+            logger.info("daily_update_started", date=request.date)
+            added = updater.update_date(request.date)
+            processed_dates = [request.date] if added > 0 else []
+        else:
+            # Auto update (download new flats and process missing dates)
+            logger.info("daily_update_started", mode="auto")
+            result = updater.run_daily_update()
+            added = result.get("patterns_added", 0)
+            processed_dates = result.get("processed_dates", [])
+        
+        # Reload matcher to use updated index
+        if added > 0 and matcher:
+            logger.info("reloading_matcher_after_update", patterns_added=added)
+            await matcher.close()
+            matcher = PatternMatcher()
+            await matcher.initialize()
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        
+        response = {
+            "success": True,
+            "patterns_added": added,
+            "processed_dates": processed_dates,
+            "duration_seconds": round(duration, 2),
+            "new_total": matcher.get_stats().get("n_vectors", 0) if matcher else 0
+        }
+        
+        logger.info("daily_update_completed", **response)
+        return response
+        
+    except Exception as e:
+        logger.error("daily_update_failed", error=str(e))
+        return {
+            "success": False,
+            "error": str(e),
+            "patterns_added": 0
+        }
+
+
+@app.get("/api/index/indexed-dates")
+async def get_indexed_dates():
+    """Get list of dates already in the index"""
+    from daily_updater import DailyUpdater
+    
+    updater = DailyUpdater()
+    indexed = updater.get_indexed_dates()
+    
+    return {
+        "dates": sorted(list(indexed)),
+        "count": len(indexed)
+    }
+
+
 # ============================================================================
 # Entry Point
 # ============================================================================
