@@ -223,7 +223,7 @@ class ScreenerEngine:
         logger.info("refresh_starting")
         
         try:
-            # 1. Reload raw data from CSV files
+            # 1. Reload raw data from CSV files into new tables
             data_pattern = self.data_path / settings.daily_data_pattern
             
             self.conn.execute("DROP TABLE IF EXISTS daily_prices_new")
@@ -245,18 +245,21 @@ class ScreenerEngine:
             self.conn.execute("DROP TABLE IF EXISTS screener_data_new")
             self._precompute_indicators_into("daily_prices_new", "screener_data_new")
             
-            # 3. Atomic swap
-            self.conn.execute("DROP TABLE IF EXISTS daily_prices_old")
-            self.conn.execute("DROP TABLE IF EXISTS screener_data_old")
-            self.conn.execute("ALTER TABLE daily_prices RENAME TO daily_prices_old")
-            self.conn.execute("ALTER TABLE screener_data RENAME TO screener_data_old")
+            # 3. Drop old tables and indexes
+            self.conn.execute("DROP INDEX IF EXISTS idx_screener_symbol")
+            self.conn.execute("DROP TABLE IF EXISTS screener_data")
+            self.conn.execute("DROP INDEX IF EXISTS idx_daily_symbol")
+            self.conn.execute("DROP INDEX IF EXISTS idx_daily_date")
+            self.conn.execute("DROP TABLE IF EXISTS daily_prices")
+            
+            # 4. Rename new tables to production names
             self.conn.execute("ALTER TABLE daily_prices_new RENAME TO daily_prices")
             self.conn.execute("ALTER TABLE screener_data_new RENAME TO screener_data")
-            self.conn.execute("DROP TABLE IF EXISTS daily_prices_old")
-            self.conn.execute("DROP TABLE IF EXISTS screener_data_old")
             
-            # 4. Recreate indexes
-            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_screener_symbol ON screener_data(symbol)")
+            # 5. Create indexes on renamed tables
+            self.conn.execute("CREATE INDEX idx_daily_symbol ON daily_prices(symbol)")
+            self.conn.execute("CREATE INDEX idx_daily_date ON daily_prices(date)")
+            self.conn.execute("CREATE INDEX idx_screener_symbol ON screener_data(symbol)")
             
             elapsed = time.time() - start
             count = self.conn.execute("SELECT COUNT(*) FROM screener_data").fetchone()[0]

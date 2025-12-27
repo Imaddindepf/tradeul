@@ -1,11 +1,16 @@
 """
 FAISS Pattern Indexer
 Builds and manages the FAISS index for ultra-fast pattern similarity search
+
+Supports:
+- IVFPQ index with SQLite metadata (new, memory efficient)
+- Pickle metadata (legacy fallback)
 """
 
 import os
 import json
 import pickle
+import sqlite3
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 
@@ -27,6 +32,10 @@ class PatternIndexer:
     - IVF: Inverted file index (medium datasets)
     - IVF+PQ: Product quantization (large datasets, compressed)
     - HNSW: Hierarchical navigable small world (high recall)
+    
+    Metadata storage:
+    - SQLite: For large datasets (362M+ patterns) - memory efficient
+    - Pickle: Legacy format for smaller datasets
     """
     
     def __init__(
@@ -42,7 +51,9 @@ class PatternIndexer:
         self.use_gpu = use_gpu if use_gpu is not None else settings.use_gpu
         
         self.index: Optional[faiss.Index] = None
-        self.metadata: List[Dict] = []
+        self.metadata: List[Dict] = []  # For pickle-based metadata
+        self.metadata_db: Optional[sqlite3.Connection] = None  # For SQLite metadata
+        self.use_sqlite = False
         self.is_trained = False
         
         os.makedirs(self.index_dir, exist_ok=True)
@@ -229,11 +240,40 @@ class PatternIndexer:
         
         # Get metadata for results
         neighbors_metadata = []
-        for idx in indices[0]:
-            if idx >= 0 and idx < len(self.metadata):
-                neighbors_metadata.append(self.metadata[idx])
+        
+        if self.use_sqlite and self.metadata_db:
+            # Fetch from SQLite (batch query for efficiency)
+            valid_indices = [int(idx) for idx in indices[0] if idx >= 0]
+            if valid_indices:
+                placeholders = ','.join('?' * len(valid_indices))
+                cursor = self.metadata_db.execute(
+                    f"SELECT id, ticker, date, time, future_return FROM patterns WHERE id IN ({placeholders})",
+                    valid_indices
+                )
+                rows = {row[0]: row for row in cursor.fetchall()}
+                
+                for idx in indices[0]:
+                    if idx >= 0 and idx in rows:
+                        row = rows[idx]
+                        neighbors_metadata.append({
+                            'id': row[0],
+                            'symbol': row[1],
+                            'date': row[2],
+                            'start_time': row[3],
+                            'end_time': row[3],  # Same as start for now
+                            'future_returns': [row[4]] if row[4] else [],
+                        })
+                    else:
+                        neighbors_metadata.append(None)
             else:
-                neighbors_metadata.append(None)
+                neighbors_metadata = [None] * len(indices[0])
+        else:
+            # Use in-memory metadata (legacy)
+            for idx in indices[0]:
+                if idx >= 0 and idx < len(self.metadata):
+                    neighbors_metadata.append(self.metadata[idx])
+                else:
+                    neighbors_metadata.append(None)
         
         return distances[0], indices[0], neighbors_metadata
     
@@ -284,17 +324,67 @@ class PatternIndexer:
         """
         Load index and metadata from disk
         
+        Tries in order:
+        1. IVFPQ index + SQLite metadata (new format, memory efficient)
+        2. Standard index + pickle metadata (legacy format)
+        
         Args:
             name: Base name for files
             
         Returns:
             True if loaded successfully
         """
+        # Try new IVFPQ + SQLite format first
+        ivfpq_index_path = os.path.join(self.index_dir, f"{name}_ivfpq.index")
+        sqlite_metadata_path = os.path.join(self.index_dir, f"{name}_metadata.db")
+        
+        if os.path.exists(ivfpq_index_path) and os.path.exists(sqlite_metadata_path):
+            try:
+                logger.info("Loading IVFPQ index with SQLite metadata...")
+                
+                # Load FAISS IVFPQ index
+                self.index = faiss.read_index(ivfpq_index_path)
+                
+                # Move to GPU if configured
+                if self.use_gpu and faiss.get_num_gpus() > 0:
+                    res = faiss.StandardGpuResources()
+                    self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+                
+                # Open SQLite connection (read-only)
+                self.metadata_db = sqlite3.connect(
+                    f"file:{sqlite_metadata_path}?mode=ro",
+                    uri=True,
+                    check_same_thread=False
+                )
+                self.use_sqlite = True
+                self.is_trained = True
+                
+                # Get count from SQLite
+                cursor = self.metadata_db.execute("SELECT COUNT(*) FROM patterns")
+                n_metadata = cursor.fetchone()[0]
+                
+                logger.info(
+                    "IVFPQ index loaded with SQLite metadata",
+                    n_vectors=self.index.ntotal,
+                    n_metadata=n_metadata,
+                    index_type="IVFPQ",
+                    metadata_type="SQLite"
+                )
+                
+                return True
+                
+            except Exception as e:
+                logger.error("Failed to load IVFPQ index", error=str(e))
+                # Fall through to try legacy format
+        
+        # Try legacy format (standard index + pickle)
         index_path = os.path.join(self.index_dir, f"{name}.index")
         metadata_path = os.path.join(self.index_dir, f"{name}_metadata.pkl")
         
         if not os.path.exists(index_path) or not os.path.exists(metadata_path):
-            logger.warning("Index files not found", index_path=index_path)
+            logger.warning("No index files found", 
+                         ivfpq_path=ivfpq_index_path,
+                         legacy_path=index_path)
             return False
         
         try:
@@ -306,18 +396,21 @@ class PatternIndexer:
                 res = faiss.StandardGpuResources()
                 self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
             
-            # Load metadata
+            # Load metadata from pickle
             with open(metadata_path, 'rb') as f:
                 data = pickle.load(f)
                 self.metadata = data['metadata']
                 self.dimension = data.get('dimension', self.dimension)
             
+            self.use_sqlite = False
             self.is_trained = True
             
             logger.info(
-                "Index loaded",
+                "Legacy index loaded",
                 n_vectors=self.index.ntotal,
-                n_metadata=len(self.metadata)
+                n_metadata=len(self.metadata),
+                index_type=type(self.index).__name__,
+                metadata_type="pickle"
             )
             
             return True
@@ -331,22 +424,32 @@ class PatternIndexer:
         if self.index is None:
             return {"status": "not_initialized"}
         
+        # Get metadata count
+        if self.use_sqlite and self.metadata_db:
+            cursor = self.metadata_db.execute("SELECT COUNT(*) FROM patterns")
+            n_metadata = cursor.fetchone()[0]
+        else:
+            n_metadata = len(self.metadata)
+        
         stats = {
             "status": "ready",
             "n_vectors": self.index.ntotal,
-            "n_metadata": len(self.metadata),
+            "n_metadata": n_metadata,
             "dimension": self.dimension,
             "index_type": type(self.index).__name__,
+            "metadata_type": "SQLite" if self.use_sqlite else "pickle",
             "is_trained": self.is_trained,
         }
         
         # Memory estimation
         if hasattr(self.index, 'sa_code_size'):
-            # PQ index
+            # PQ index - compressed
             stats["memory_mb"] = (self.index.ntotal * self.index.sa_code_size()) / (1024**2)
+            stats["compression"] = "IVFPQ"
         else:
             # Flat index
             stats["memory_mb"] = (self.index.ntotal * self.dimension * 4) / (1024**2)
+            stats["compression"] = "none"
         
         return stats
 
