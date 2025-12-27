@@ -251,13 +251,13 @@ function FilterBuilder({
     const updateFilter = (index: number, updates: Partial<FilterCondition>) => {
         const newFilters = [...filters];
         newFilters[index] = { ...newFilters[index], ...updates };
-        
+
         if (updates.operator === 'between' && !Array.isArray(newFilters[index].value)) {
             newFilters[index].value = [0, 100];
         } else if (updates.operator && updates.operator !== 'between' && Array.isArray(newFilters[index].value)) {
             newFilters[index].value = 0;
         }
-        
+
         onFiltersChange(newFilters);
     };
 
@@ -296,8 +296,8 @@ function FilterBuilder({
                                 <input
                                     type="number"
                                     value={Array.isArray(filter.value) ? filter.value[0] : 0}
-                                    onChange={(e) => updateFilter(index, { 
-                                        value: [parseFloat(e.target.value) || 0, Array.isArray(filter.value) ? filter.value[1] : 100] 
+                                    onChange={(e) => updateFilter(index, {
+                                        value: [parseFloat(e.target.value) || 0, Array.isArray(filter.value) ? filter.value[1] : 100]
                                     })}
                                     className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
                                     style={{ fontSize: '10px' }}
@@ -306,8 +306,8 @@ function FilterBuilder({
                                 <input
                                     type="number"
                                     value={Array.isArray(filter.value) ? filter.value[1] : 100}
-                                    onChange={(e) => updateFilter(index, { 
-                                        value: [Array.isArray(filter.value) ? filter.value[0] : 0, parseFloat(e.target.value) || 100] 
+                                    onChange={(e) => updateFilter(index, {
+                                        value: [Array.isArray(filter.value) ? filter.value[0] : 0, parseFloat(e.target.value) || 100]
                                     })}
                                     className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
                                     style={{ fontSize: '10px' }}
@@ -416,8 +416,8 @@ function ResultsTable({
                 </thead>
                 <tbody>
                     {results.map((r, i) => (
-                        <tr 
-                            key={r.symbol} 
+                        <tr
+                            key={r.symbol}
                             className={`border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
                             onClick={() => onSymbolClick?.(r.symbol)}
                         >
@@ -470,12 +470,12 @@ export function ScreenerContent() {
     const [sortBy, setSortBy] = useState('relative_volume');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [limit, setLimit] = useState(50);
-    
+
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [results, setResults] = useState<ScreenerResult[]>([]);
     const [queryTime, setQueryTime] = useState<number | null>(null);
-    
+
     const [activePreset, setActivePreset] = useState<string | null>(null);
     const [showFilters, setShowFilters] = useState(true);
 
@@ -491,7 +491,7 @@ export function ScreenerContent() {
                 sort_order: sortOrder,
                 limit,
             };
-            
+
             if (symbols.length > 0) {
                 body.symbols = symbols;
             }
@@ -612,11 +612,10 @@ export function ScreenerContent() {
                             <button
                                 key={preset.id}
                                 onClick={() => applyPreset(preset)}
-                                className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border transition-all ${
-                                    isActive 
-                                        ? 'border-blue-400 bg-blue-50 text-blue-700 shadow-sm' 
-                                        : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50/50'
-                                }`}
+                                className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border transition-all ${isActive
+                                    ? 'border-blue-400 bg-blue-50 text-blue-700 shadow-sm'
+                                    : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50/50'
+                                    }`}
                                 style={{ fontSize: '10px' }}
                                 title={preset.description}
                             >
@@ -632,7 +631,7 @@ export function ScreenerContent() {
             {showFilters && (
                 <div className="flex-shrink-0 px-2 py-2 border-b border-slate-100 bg-slate-50/50">
                     <FilterBuilder filters={filters} onFiltersChange={handleFiltersChange} />
-                    
+
                     {/* Sort controls */}
                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200">
                         <span className="text-slate-400" style={{ fontSize: '9px' }}>Sort:</span>
@@ -648,9 +647,8 @@ export function ScreenerContent() {
                         </select>
                         <button
                             onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-                            className={`px-1.5 py-0.5 rounded border text-slate-600 hover:bg-slate-100 ${
-                                sortOrder === 'asc' ? 'border-blue-300 bg-blue-50' : 'border-slate-200'
-                            }`}
+                            className={`px-1.5 py-0.5 rounded border text-slate-600 hover:bg-slate-100 ${sortOrder === 'asc' ? 'border-blue-300 bg-blue-50' : 'border-slate-200'
+                                }`}
                             style={{ fontSize: '10px' }}
                         >
                             {sortOrder === 'desc' ? 'DESC' : 'ASC'}
