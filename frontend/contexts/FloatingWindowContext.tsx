@@ -84,27 +84,22 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => {
-    // Usar ref para ver el estado actual (no el del momento de crear el callback)
-    const currentWindows = windowsRef.current;
-    const existingWindow = currentWindows.find((w) => w.title === config.title);
-
-    if (existingWindow) {
-      // Si existe, traerla al frente y restaurarla
-      const zIndex = floatingZIndexManager.getNext();
-      setWindows((prev) =>
-        prev.map((w) => (w.id === existingWindow.id ? { ...w, zIndex, isMinimized: false } : w))
-      );
-      return existingWindow.id;
-    }
-
-    // Si no existe, crear una nueva
+    // Siempre crear una nueva ventana (permite múltiples instancias del mismo tipo)
+    // El usuario puede tener varios Screeners, Ratio Analysis, etc. con datos diferentes
     const id = generateWindowId();
     const zIndex = floatingZIndexManager.getNext();
+
+    // Offset para ventanas con el mismo título (cascade effect)
+    const currentWindows = windowsRef.current;
+    const sameTypeCount = currentWindows.filter((w) => w.title === config.title).length;
+    const offset = sameTypeCount * 30; // 30px offset por cada ventana del mismo tipo
 
     const newWindow: FloatingWindow = {
       ...config,
       id,
       zIndex,
+      x: config.x + offset,
+      y: config.y + offset,
       isMinimized: false,
       isMaximized: false,
     };
