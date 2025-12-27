@@ -303,22 +303,35 @@ async def get_historical_prices(
     return result
 
 
+# Cache for available dates (changes only once per day)
+_dates_cache = {"dates": [], "timestamp": 0}
+
 @app.get("/api/available-dates")
-async def get_available_dates():
-    """Get list of dates with available historical data"""
+async def get_available_dates(limit: int = Query(60, ge=1, le=2000, description="Number of recent dates to return")):
+    """Get list of dates with available historical data (cached, returns recent dates by default)"""
+    import time
     from glob import glob
     import os
     
-    data_dir = f"{settings.data_dir}/minute_aggs"
-    files = sorted(glob(f"{data_dir}/*.csv.gz"))
+    global _dates_cache
     
-    dates = [os.path.basename(f).replace('.csv.gz', '') for f in files]
+    # Cache for 1 hour (dates don't change frequently)
+    if time.time() - _dates_cache["timestamp"] > 3600 or not _dates_cache["dates"]:
+        data_dir = f"{settings.data_dir}/minute_aggs"
+        files = sorted(glob(f"{data_dir}/*.csv.gz"))
+        _dates_cache["dates"] = [os.path.basename(f).replace('.csv.gz', '') for f in files]
+        _dates_cache["timestamp"] = time.time()
+    
+    all_dates = _dates_cache["dates"]
+    # Return only the last N dates (most recent)
+    dates = all_dates[-limit:] if limit < len(all_dates) else all_dates
     
     return {
         "dates": dates,
         "count": len(dates),
-        "first": dates[0] if dates else None,
-        "last": dates[-1] if dates else None,
+        "total_available": len(all_dates),
+        "first": all_dates[0] if all_dates else None,
+        "last": all_dates[-1] if all_dates else None,
     }
 
 

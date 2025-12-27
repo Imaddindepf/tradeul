@@ -58,13 +58,35 @@ class ForecastGenerator:
         # Closer (lower distance) = higher weight
         weights = softmax(-distances_valid / temperature)
         
-        # Extract final returns (slim format: only final return stored)
-        # Each future_returns is now [final_return] (single element list)
-        final_returns = np.array([n['future_returns'][0] for n in neighbors_valid])
+        # Extract future returns - supports both full trajectories and single final_return
+        futures_list = [n['future_returns'] for n in neighbors_valid]
+        trajectory_length = len(futures_list[0])
         
-        # Weighted statistics
-        mean_return = float(np.average(final_returns, weights=weights))
-        std_return = float(np.sqrt(np.average((final_returns - mean_return)**2, weights=weights)))
+        # Check if we have full trajectories (15 points) or just final returns (1 point)
+        if trajectory_length >= 15:
+            # Full 15-point trajectories available
+            futures = np.array(futures_list)  # Shape: (n_neighbors, 15)
+            
+            # Weighted mean trajectory
+            mean_trajectory = np.average(futures, axis=0, weights=weights)
+            std_trajectory = np.sqrt(np.average((futures - mean_trajectory)**2, axis=0, weights=weights))
+            
+            # Final returns for probability calculation
+            final_returns = futures[:, -1]
+            mean_return = float(mean_trajectory[-1])
+            std_return = float(std_trajectory[-1])
+            
+            mean_trajectory_list = [round(float(x), 4) for x in mean_trajectory]
+            std_trajectory_list = [round(float(x), 4) for x in std_trajectory]
+        else:
+            # Only final return available - interpolate simple trajectory
+            final_returns = np.array([fr[0] if isinstance(fr, list) else fr for fr in futures_list])
+            mean_return = float(np.average(final_returns, weights=weights))
+            std_return = float(np.sqrt(np.average((final_returns - mean_return)**2, weights=weights)))
+            
+            # Interpolate linear trajectory from 0 to final return
+            mean_trajectory_list = [round(mean_return * (i / 14), 4) for i in range(15)]
+            std_trajectory_list = [round(std_return * (i / 14), 4) for i in range(15)]
         
         # Calculate probabilities
         prob_up = float((final_returns > 0).sum() / len(final_returns))
@@ -75,17 +97,18 @@ class ForecastGenerator:
         confidence = "high" if consistency > 0.7 else "medium" if consistency > 0.4 else "low"
         
         return {
-            "horizon_minutes": 15,  # Standard horizon
-            "mean_return": round(mean_return, 3),
-            "mean_trajectory": [round(mean_return, 3)],  # Simplified: only final point
-            "std_trajectory": [round(std_return, 3)],
+            "horizon_minutes": 15,
+            "mean_return": round(mean_return, 4),
+            "mean_trajectory": mean_trajectory_list,
+            "std_trajectory": std_trajectory_list,
             "prob_up": round(prob_up, 3),
             "prob_down": round(prob_down, 3),
             "confidence": confidence,
-            "best_case": round(float(np.percentile(final_returns, 90)), 3),
-            "worst_case": round(float(np.percentile(final_returns, 10)), 3),
-            "median_return": round(float(np.median(final_returns)), 3),
+            "best_case": round(float(np.percentile(final_returns, 90)), 4),
+            "worst_case": round(float(np.percentile(final_returns, 10)), 4),
+            "median_return": round(float(np.median(final_returns)), 4),
             "n_neighbors": len(neighbors_valid),
+            "trajectory_points": trajectory_length,
         }
 
 

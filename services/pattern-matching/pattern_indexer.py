@@ -36,6 +36,9 @@ class PatternIndexer:
     Metadata storage:
     - SQLite: For large datasets (362M+ patterns) - memory efficient
     - Pickle: Legacy format for smaller datasets
+    
+    Trajectories:
+    - trajectories.npy: Memory-mapped NumPy array with 15-point future returns
     """
     
     def __init__(
@@ -53,6 +56,7 @@ class PatternIndexer:
         self.index: Optional[faiss.Index] = None
         self.metadata: List[Dict] = []  # For pickle-based metadata
         self.metadata_db: Optional[sqlite3.Connection] = None  # For SQLite metadata
+        self.trajectories: Optional[np.ndarray] = None  # Memory-mapped trajectories
         self.use_sqlite = False
         self.is_trained = False
         
@@ -255,13 +259,22 @@ class PatternIndexer:
                 for idx in indices[0]:
                     if idx >= 0 and idx in rows:
                         row = rows[idx]
+                        pattern_id = row[0]
+                        
+                        # Get full 15-point trajectory if available
+                        if self.trajectories is not None and pattern_id < len(self.trajectories):
+                            future_returns = self.trajectories[pattern_id].tolist()
+                        else:
+                            # Fallback to final_return only
+                            future_returns = [row[4]] if row[4] else []
+                        
                         neighbors_metadata.append({
-                            'id': row[0],
+                            'id': pattern_id,
                             'symbol': row[1],
                             'date': row[2],
                             'start_time': row[3],
                             'end_time': row[3],  # Same as start for now
-                            'future_returns': [row[4]] if row[4] else [],  # final_return as single-element list
+                            'future_returns': future_returns,
                         })
                     else:
                         neighbors_metadata.append(None)
@@ -359,6 +372,31 @@ class PatternIndexer:
                 self.use_sqlite = True
                 self.is_trained = True
                 
+                # Load trajectories (memory-mapped raw binary file)
+                trajectories_path = os.path.join(self.index_dir, f"{name}_trajectories.npy")
+                if os.path.exists(trajectories_path):
+                    try:
+                        # File was created with np.memmap, so load as memmap
+                        # Shape: (n_patterns, 15) float32
+                        n_patterns = self.index.ntotal
+                        self.trajectories = np.memmap(
+                            trajectories_path, 
+                            dtype='float32', 
+                            mode='r',  # read-only
+                            shape=(n_patterns, 15)
+                        )
+                        logger.info(
+                            "Trajectories loaded (memmap)",
+                            shape=self.trajectories.shape,
+                            path=trajectories_path
+                        )
+                    except Exception as e:
+                        logger.error("Failed to load trajectories", error=str(e))
+                        self.trajectories = None
+                else:
+                    logger.warning("Trajectories file not found", path=trajectories_path)
+                    self.trajectories = None
+                
                 # Get count from SQLite
                 cursor = self.metadata_db.execute("SELECT COUNT(*) FROM patterns")
                 n_metadata = cursor.fetchone()[0]
@@ -367,6 +405,7 @@ class PatternIndexer:
                     "IVFPQ index loaded with SQLite metadata",
                     n_vectors=self.index.ntotal,
                     n_metadata=n_metadata,
+                    n_trajectories=self.trajectories.shape[0] if self.trajectories is not None else 0,
                     index_type="IVFPQ",
                     metadata_type="SQLite"
                 )
@@ -439,6 +478,8 @@ class PatternIndexer:
             "index_type": type(self.index).__name__,
             "metadata_type": "SQLite" if self.use_sqlite else "pickle",
             "is_trained": self.is_trained,
+            "has_trajectories": self.trajectories is not None,
+            "trajectory_points": self.trajectories.shape[1] if self.trajectories is not None else 0,
         }
         
         # Memory estimation

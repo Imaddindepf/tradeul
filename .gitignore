@@ -102,3 +102,10 @@ services/pattern-matching/data/patterns_*
 # Next.js cache
 frontend/.next/cache/
 frontend/.next/trace
+
+# Pattern Matching - Large files (stored in R2)
+services/pattern-matching/data/
+*.index
+*.npy
+patterns_metadata.db
+trajectories.npy
