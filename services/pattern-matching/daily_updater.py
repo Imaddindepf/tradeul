@@ -44,6 +44,7 @@ class DailyUpdater:
         
         self.index_path = f"{self.index_dir}/patterns_ivfpq.index"
         self.metadata_path = f"{self.index_dir}/patterns_metadata.db"
+        self.trajectories_path = f"{self.index_dir}/patterns_trajectories.npy"
         self.flats_dir = f"{self.data_dir}/minute_aggs"
         
         self.downloader = FlatFilesDownloader()
@@ -153,10 +154,12 @@ class DailyUpdater:
                 if np.any(np.isnan(pattern)) or np.all(pattern == 0):
                     continue
                 
-                # Calculate future return
-                if len(future_prices) > 0 and window_prices[-1] > 0:
-                    final_return = (future_prices[-1] / window_prices[-1] - 1) * 100
+                # Calculate future returns (15 points)
+                if len(future_prices) >= 15 and window_prices[-1] > 0:
+                    future_returns = ((future_prices / window_prices[-1]) - 1) * 100
+                    final_return = float(future_returns[-1])
                 else:
+                    future_returns = np.zeros(15, dtype=np.float32)
                     final_return = 0.0
                 
                 # Get time from timestamp (convert to ET)
@@ -172,6 +175,7 @@ class DailyUpdater:
                     'date': date_str,
                     'start_time': time_str,
                     'final_return': final_return,
+                    'future_returns': future_returns.astype(np.float32),
                 })
         
         if vectors:
@@ -229,6 +233,32 @@ class DailyUpdater:
         conn.close()
         
         logger.info("Updated SQLite metadata", new_entries=len(metadata))
+        
+        # Add trajectories to .npy file (append to memmap)
+        if os.path.exists(self.trajectories_path):
+            # Get current size
+            existing = np.memmap(self.trajectories_path, dtype='float32', mode='r')
+            current_count = len(existing) // 15
+            del existing
+            
+            # Expand file and add new trajectories
+            new_trajectories = np.array([m['future_returns'] for m in metadata], dtype='float32')
+            
+            expanded = np.memmap(
+                self.trajectories_path, 
+                dtype='float32', 
+                mode='r+',
+                shape=(current_count + len(metadata), 15)
+            )
+            expanded[current_count:] = new_trajectories
+            expanded.flush()
+            del expanded
+            
+            logger.info("Updated trajectories file", 
+                       new_entries=len(metadata),
+                       total_entries=current_count + len(metadata))
+        else:
+            logger.warning("Trajectories file not found, skipping", path=self.trajectories_path)
         
         return len(vectors)
     
