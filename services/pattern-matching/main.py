@@ -19,6 +19,7 @@ from pattern_matcher import PatternMatcher, get_matcher
 from pattern_indexer import PatternIndexer
 from data_processor import DataProcessor
 from flat_files_downloader import FlatFilesDownloader
+from r2_downloader import ensure_index_files
 
 # Configure logging
 structlog.configure(
@@ -104,6 +105,15 @@ async def lifespan(app: FastAPI):
     global matcher
     
     logger.info("Starting Pattern Matching Service", port=settings.service_port)
+    
+    # Download index files from R2 if not present
+    logger.info("Checking for index files...")
+    files_ready = ensure_index_files()
+    
+    if files_ready:
+        logger.info("Index files ready")
+    else:
+        logger.warning("Index files not available - will need to build index")
     
     # Initialize matcher
     matcher = PatternMatcher()

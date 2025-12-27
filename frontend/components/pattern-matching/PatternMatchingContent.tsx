@@ -1025,7 +1025,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                 )}
                             </div>
                             <span className="text-slate-400" style={{ fontSize: '10px' }}>
-                                {result.stats.query_time_ms.toFixed(1)}ms · {result.forecast.n_neighbors} matches
+                                {result.stats?.query_time_ms?.toFixed(1) || '0'}ms · {result.forecast.n_neighbors || 0} matches
                             </span>
                         </div>
 
@@ -1116,7 +1116,9 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                             </div>
                             <div className="flex flex-wrap gap-1.5">
                                 {result.neighbors.slice(0, 20).map((n, i) => {
-                                    const ret = n.future_returns[n.future_returns.length - 1];
+                                    const ret = n.future_returns && n.future_returns.length > 0
+                                        ? n.future_returns[n.future_returns.length - 1]
+                                        : 0;
                                     const isUp = ret > 0;
                                     return (
                                         <div

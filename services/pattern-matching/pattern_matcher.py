@@ -42,7 +42,7 @@ class ForecastGenerator:
         # Filter valid neighbors
         valid = [
             (n, d) for n, d in zip(neighbors, distances)
-            if n is not None and 'future_returns' in n
+            if n is not None and 'future_returns' in n and len(n['future_returns']) > 0
         ]
         
         if not valid:
@@ -58,29 +58,27 @@ class ForecastGenerator:
         # Closer (lower distance) = higher weight
         weights = softmax(-distances_valid / temperature)
         
-        # Extract future returns
-        futures = np.array([n['future_returns'] for n in neighbors_valid])
+        # Extract final returns (slim format: only final return stored)
+        # Each future_returns is now [final_return] (single element list)
+        final_returns = np.array([n['future_returns'][0] for n in neighbors_valid])
         
-        # Weighted average forecast
-        mean_forecast = np.average(futures, axis=0, weights=weights)
-        std_forecast = np.sqrt(np.average((futures - mean_forecast)**2, axis=0, weights=weights))
-        
-        # Final return statistics (last point of forecast)
-        final_returns = futures[:, -1]
+        # Weighted statistics
+        mean_return = float(np.average(final_returns, weights=weights))
+        std_return = float(np.sqrt(np.average((final_returns - mean_return)**2, weights=weights)))
         
         # Calculate probabilities
         prob_up = float((final_returns > 0).sum() / len(final_returns))
         prob_down = float((final_returns < 0).sum() / len(final_returns))
         
-        # Confidence based on consistency
-        consistency = 1 - (std_forecast[-1] / (np.abs(mean_forecast[-1]) + 1e-6))
+        # Confidence based on consistency (agreement among neighbors)
+        consistency = 1 - (std_return / (np.abs(mean_return) + 1e-6))
         confidence = "high" if consistency > 0.7 else "medium" if consistency > 0.4 else "low"
         
         return {
-            "horizon_minutes": len(mean_forecast),
-            "mean_return": round(float(mean_forecast[-1]), 3),
-            "mean_trajectory": [round(float(x), 3) for x in mean_forecast],
-            "std_trajectory": [round(float(x), 3) for x in std_forecast],
+            "horizon_minutes": 15,  # Standard horizon
+            "mean_return": round(mean_return, 3),
+            "mean_trajectory": [round(mean_return, 3)],  # Simplified: only final point
+            "std_trajectory": [round(std_return, 3)],
             "prob_up": round(prob_up, 3),
             "prob_down": round(prob_down, 3),
             "confidence": confidence,
