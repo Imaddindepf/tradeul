@@ -64,6 +64,13 @@ interface SearchResult {
         pattern_start?: string;
         pattern_end?: string;
     };
+    actual?: {
+        returns: number[];
+        final_return: number;
+        direction: string;
+        direction_correct: boolean;
+        error_vs_forecast: number | null;
+    };
 }
 
 interface IndexStats {
@@ -1080,6 +1087,52 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                 </span>
                             </div>
                         </div>
+
+                        {/* Actual vs Forecast (only in historical mode) */}
+                        {result.actual && (
+                            <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-slate-500 font-medium" style={{ fontSize: '11px' }}>
+                                        Actual Result
+                                    </span>
+                                    {result.actual.direction_correct ? (
+                                        <span className="text-emerald-600 font-medium flex items-center gap-1" style={{ fontSize: '10px' }}>
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                            Direction correct
+                                        </span>
+                                    ) : (
+                                        <span className="text-red-500 font-medium flex items-center gap-1" style={{ fontSize: '10px' }}>
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                            Direction missed
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-8" style={{ fontSize: '11px' }}>
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-slate-400">Forecast:</span>
+                                        <span className={`font-mono font-semibold ${result.forecast.mean_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                            {result.forecast.mean_return >= 0 ? '+' : ''}{result.forecast.mean_return.toFixed(2)}%
+                                        </span>
+                                    </div>
+                                    <div className="text-slate-300">vs</div>
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-slate-400">Actual:</span>
+                                        <span className={`font-mono font-bold ${result.actual.final_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                            {result.actual.final_return >= 0 ? '+' : ''}{result.actual.final_return.toFixed(2)}%
+                                        </span>
+                                    </div>
+                                    {result.actual.error_vs_forecast != null && (
+                                        <div className="text-slate-400">
+                                            Error: <span className="font-mono">{result.actual.error_vs_forecast.toFixed(2)}%</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Chart */}
                         <div className="relative py-2">

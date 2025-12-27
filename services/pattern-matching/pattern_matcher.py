@@ -498,6 +498,36 @@ class PatternMatcher:
                 end_time="16:00",
             )
             
+            # Get ACTUAL future prices (15 min after the pattern end)
+            # This is what actually happened after the pattern
+            actual_future_end_mins = end_h * 60 + end_m + 15
+            actual_future_end_h = actual_future_end_mins // 60
+            actual_future_end_m = actual_future_end_mins % 60
+            actual_future_end_time = f"{actual_future_end_h:02d}:{actual_future_end_m:02d}"
+            
+            actual_data = await self.get_historical_minute_data(
+                symbol=symbol,
+                date=date,
+                start_time=time,  # Start from pattern end
+                end_time=actual_future_end_time,
+            )
+            
+            # Calculate actual returns
+            actual_returns = None
+            actual_final_return = None
+            
+            if "error" not in actual_data and len(actual_data.get("prices", [])) > 1:
+                actual_prices = actual_data["prices"]
+                base_price = prices[-1]  # Last price of pattern
+                
+                if base_price > 0:
+                    actual_returns = [
+                        round((p / base_price - 1) * 100, 4) 
+                        for p in actual_prices[1:]  # Skip first (same as pattern end)
+                    ]
+                    if actual_returns:
+                        actual_final_return = actual_returns[-1] if len(actual_returns) >= 15 else actual_returns[-1]
+            
             # Perform search
             result = await self.search(
                 symbol=symbol,
@@ -521,6 +551,20 @@ class PatternMatcher:
                 result["query"]["mode"] = "historical"
                 result["query"]["date"] = date
                 result["query"]["pattern_time"] = time
+                
+                # Add ACTUAL (what really happened)
+                if actual_returns is not None:
+                    forecast_return = result.get("forecast", {}).get("mean_return", 0)
+                    forecast_direction = "up" if forecast_return > 0 else "down" if forecast_return < 0 else "neutral"
+                    actual_direction = "up" if actual_final_return > 0 else "down" if actual_final_return < 0 else "neutral"
+                    
+                    result["actual"] = {
+                        "returns": actual_returns,
+                        "final_return": actual_final_return,
+                        "direction": actual_direction,
+                        "direction_correct": forecast_direction == actual_direction,
+                        "error_vs_forecast": round(abs(forecast_return - actual_final_return), 4) if actual_final_return else None,
+                    }
             
             return result
             
