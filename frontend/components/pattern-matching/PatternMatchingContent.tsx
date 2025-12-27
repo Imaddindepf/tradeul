@@ -14,6 +14,7 @@ import {
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import { CandlestickSelector } from './CandlestickSelector';
 
 // ============================================================================
 // Types
@@ -305,6 +306,9 @@ function GodelChart({
     const totalLength = beforeLength + afterLength;
     const t0Index = beforeLength; // Index where t₀ is
 
+    // Offset for continuity: value at t₀ (end of query pattern)
+    const t0Offset = queryPattern ? queryPattern[queryPattern.length - 1] : 0;
+
     const { maxAbs, xScale, yScale } = useMemo(() => {
         const allVals: number[] = [];
 
@@ -313,16 +317,16 @@ function GodelChart({
             allVals.push(...queryPattern);
         }
 
-        // After values (neighbors + forecast)
+        // After values (neighbors + forecast) - WITH OFFSET for continuity
         neighbors.slice(0, 30).forEach(n => {
-            allVals.push(...n.future_returns);
+            allVals.push(...n.future_returns.map(v => v + t0Offset));
         });
-        allVals.push(...forecast.mean_trajectory.map((m, i) => m + forecast.std_trajectory[i]));
-        allVals.push(...forecast.mean_trajectory.map((m, i) => m - forecast.std_trajectory[i]));
+        allVals.push(...forecast.mean_trajectory.map((m, i) => m + forecast.std_trajectory[i] + t0Offset));
+        allVals.push(...forecast.mean_trajectory.map((m, i) => m - forecast.std_trajectory[i] + t0Offset));
 
-        // Include actual returns if showing
+        // Include actual returns if showing - WITH OFFSET
         if (showActual && actual?.returns) {
-            allVals.push(...actual.returns);
+            allVals.push(...actual.returns.map(v => v + t0Offset));
         }
 
         const mAbs = Math.max(
@@ -335,22 +339,24 @@ function GodelChart({
         const yS = (v: number) => padding.top + chartHeight / 2 - (v / mAbs) * (chartHeight / 2);
 
         return { maxAbs: mAbs, xScale: xS, yScale: yS };
-    }, [forecast, neighbors, queryPattern, totalLength, chartWidth, chartHeight, showActual, actual]);
+    }, [forecast, neighbors, queryPattern, totalLength, chartWidth, chartHeight, showActual, actual, t0Offset]);
 
     // Generate paths
     const queryLine = queryPattern
         ? queryPattern.map((v, i) => `${xScale(i)},${yScale(v)}`).join(' ')
         : '';
 
+    // Forecast line WITH OFFSET for continuity
     const forecastLine = forecast.mean_trajectory
-        .map((v, i) => `${xScale(t0Index + i)},${yScale(v)}`)
+        .map((v, i) => `${xScale(t0Index + i)},${yScale(v + t0Offset)}`)
         .join(' ');
 
+    // Confidence band WITH OFFSET
     const upperBand = forecast.mean_trajectory
-        .map((m, i) => `${xScale(t0Index + i)},${yScale(m + forecast.std_trajectory[i])}`)
+        .map((m, i) => `${xScale(t0Index + i)},${yScale(m + forecast.std_trajectory[i] + t0Offset)}`)
         .join(' ');
     const lowerBand = forecast.mean_trajectory
-        .map((m, i) => `${xScale(t0Index + i)},${yScale(m - forecast.std_trajectory[i])}`)
+        .map((m, i) => `${xScale(t0Index + i)},${yScale(m - forecast.std_trajectory[i] + t0Offset)}`)
         .reverse()
         .join(' ');
     const bandPath = `M${upperBand} L${lowerBand} Z`;
@@ -452,12 +458,12 @@ function GodelChart({
                     after
                 </text>
 
-                {/* Neighbor trajectories (after t₀) */}
+                {/* Neighbor trajectories (after t₀) - WITH OFFSET for continuity */}
                 {neighbors.slice(0, 30).map((n, idx) => {
-                    // Connect from t₀ (value 0) to future returns
+                    // Connect from t₀ (at t0Offset) to future returns + offset
                     const pts = [
-                        `${xScale(t0Index)},${yScale(0)}`,
-                        ...n.future_returns.map((v, i) => `${xScale(t0Index + i + 1)},${yScale(v)}`)
+                        `${xScale(t0Index)},${yScale(t0Offset)}`,
+                        ...n.future_returns.map((v, i) => `${xScale(t0Index + i + 1)},${yScale(v + t0Offset)}`)
                     ].join(' ');
                     const finalReturn = n.future_returns[n.future_returns.length - 1];
                     const isUp = finalReturn > 0;
@@ -487,9 +493,9 @@ function GodelChart({
                     />
                 )}
 
-                {/* Forecast mean line (after t₀) - dashed blue */}
+                {/* Forecast mean line (after t₀) - dashed blue, WITH OFFSET for continuity */}
                 <polyline
-                    points={`${xScale(t0Index)},${yScale(0)} ${forecastLine}`}
+                    points={`${xScale(t0Index)},${yScale(t0Offset)} ${forecastLine}`}
                     fill="none"
                     stroke="#3b82f6"
                     strokeWidth="2"
@@ -497,13 +503,13 @@ function GodelChart({
                     strokeLinecap="round"
                 />
 
-                {/* Actual line (after t₀) - solid green/red */}
+                {/* Actual line (after t₀) - solid green/red, WITH OFFSET for continuity */}
                 {showActual && actual?.returns && actual.returns.length > 0 && (
                     <>
                         <polyline
                             points={[
-                                `${xScale(t0Index)},${yScale(0)}`,
-                                ...actual.returns.map((v, i) => `${xScale(t0Index + i + 1)},${yScale(v)}`)
+                                `${xScale(t0Index)},${yScale(t0Offset)}`,
+                                ...actual.returns.map((v, i) => `${xScale(t0Index + i + 1)},${yScale(v + t0Offset)}`)
                             ].join(' ')}
                             fill="none"
                             stroke={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
@@ -513,7 +519,7 @@ function GodelChart({
                         {/* Actual end marker */}
                         <circle
                             cx={xScale(t0Index + actual.returns.length)}
-                            cy={yScale(actual.final_return)}
+                            cy={yScale(actual.final_return + t0Offset)}
                             r="5"
                             fill={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
                             stroke="white"
@@ -522,7 +528,7 @@ function GodelChart({
                         {/* Actual end value label */}
                         <text
                             x={xScale(t0Index + actual.returns.length) + 10}
-                            y={yScale(actual.final_return) - 8}
+                            y={yScale(actual.final_return + t0Offset) - 8}
                             fill={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
                             fontWeight="700"
                             style={{ fontSize: '11px' }}
@@ -532,10 +538,10 @@ function GodelChart({
                     </>
                 )}
 
-                {/* Forecast end marker */}
+                {/* Forecast end marker - WITH OFFSET */}
                 <circle
                     cx={xScale(totalLength - 1)}
-                    cy={yScale(forecast.mean_return)}
+                    cy={yScale(forecast.mean_return + t0Offset)}
                     r="4"
                     fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
                     stroke="white"
@@ -546,7 +552,7 @@ function GodelChart({
                 {/* Forecast end value label */}
                 <text
                     x={xScale(totalLength - 1) + 8}
-                    y={yScale(forecast.mean_return) + 4}
+                    y={yScale(forecast.mean_return + t0Offset) + 4}
                     fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
                     fontWeight="600"
                     style={{ fontSize: '11px' }}
@@ -829,6 +835,8 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
     const [indexStats, setIndexStats] = useState<IndexStats | null>(null);
     const [showSettings, setShowSettings] = useState(false);
     const [showActual, setShowActual] = useState(false);
+    const [showVisualSelector, setShowVisualSelector] = useState(false);
+    const [visualSelection, setVisualSelection] = useState<{ start: string | null, end: string | null, minutes: number }>({ start: null, end: null, minutes: 0 });
 
     useEffect(() => {
         const fetchData = async () => {
@@ -943,6 +951,15 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
         });
     }, [result, openWindow]);
 
+    // Handler for visual selection change (doesn't search, just updates state)
+    const handleVisualSelectionChange = useCallback((startTime: string | null, endTime: string | null, minutes: number) => {
+        setVisualSelection({ start: startTime, end: endTime, minutes });
+        if (startTime) {
+            setHistoricalTime(startTime);
+            setWindowMinutes(minutes);
+        }
+    }, []);
+
     return (
         <div className="h-full flex flex-col bg-white text-slate-800" style={{ fontFamily }}>
             {/* Search Bar */}
@@ -960,46 +977,61 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                     </div>
 
                     {mode === 'historical' && (
-                        <>
+                        <div className="flex items-center text-slate-500" style={{ fontSize: '10px', fontFamily }}>
                             <select
                                 value={historicalDate}
                                 onChange={(e) => setHistoricalDate(e.target.value)}
-                                className="px-2 py-1.5 rounded border border-slate-200 bg-white min-w-[120px]"
-                                style={{ fontSize: '11px' }}
+                                className="bg-transparent border-none outline-none cursor-pointer text-slate-600 hover:text-slate-800 appearance-none pr-1"
+                                style={{ fontSize: '10px', fontFamily }}
                                 disabled={!availableDates}
                             >
                                 {!availableDates ? (
-                                    <option value="">Loading...</option>
+                                    <option value="">...</option>
                                 ) : !historicalDate ? (
-                                    <option value="">Select date...</option>
+                                    <option value="">date</option>
                                 ) : null}
                                 {availableDates?.dates?.slice(-60).reverse().map((d) => (
                                     <option key={d} value={d}>{d}</option>
                                 ))}
                             </select>
+                            <span className="text-slate-300 mx-0.5">@</span>
                             <input
-                                type="time"
+                                type="text"
                                 value={historicalTime}
                                 onChange={(e) => setHistoricalTime(e.target.value)}
-                                className="px-2 py-1.5 rounded border border-slate-200 bg-white w-[75px]"
-                                style={{ fontSize: '11px' }}
+                                placeholder="15:00"
+                                className="bg-transparent border-none outline-none text-slate-600 hover:text-slate-800 w-[38px] text-center"
+                                style={{ fontSize: '10px', fontFamily }}
                             />
-                        </>
+                        </div>
                     )}
 
-                    <div className="flex border border-slate-200 rounded overflow-hidden" style={{ fontSize: '10px' }}>
+                    <div className="flex items-center gap-1 text-slate-400" style={{ fontSize: '9px', fontFamily }}>
                         <button
                             onClick={() => setMode('realtime')}
-                            className={`px-2 py-1.5 ${mode === 'realtime' ? 'bg-blue-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                            className={`px-1.5 py-0.5 rounded ${mode === 'realtime' ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
                         >
-                            Live
+                            live
                         </button>
+                        <span className="text-slate-200">|</span>
                         <button
                             onClick={() => setMode('historical')}
-                            className={`px-2 py-1.5 ${mode === 'historical' ? 'bg-blue-500 text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                            className={`px-1.5 py-0.5 rounded ${mode === 'historical' ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
                         >
-                            Hist
+                            hist
                         </button>
+                        {mode === 'historical' && (
+                            <>
+                                <span className="text-slate-200">|</span>
+                                <button
+                                    onClick={() => setShowVisualSelector(!showVisualSelector)}
+                                    className={`px-1.5 py-0.5 rounded ${showVisualSelector ? 'bg-slate-100 text-slate-700' : 'hover:text-slate-600'}`}
+                                    title="Visual selector"
+                                >
+                                    chart
+                                </button>
+                            </>
+                        )}
                     </div>
 
                     <button
@@ -1047,6 +1079,18 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                         >
                             {crossAsset ? 'Cross-asset' : 'Same ticker'}
                         </button>
+                    </div>
+                )}
+
+                {/* Visual Pattern Selector */}
+                {showVisualSelector && mode === 'historical' && ticker && historicalDate && (
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                        <CandlestickSelector
+                            symbol={ticker.toUpperCase()}
+                            date={historicalDate}
+                            onSelectionChange={handleVisualSelectionChange}
+                            fontFamily={fontFamily}
+                        />
                     </div>
                 )}
             </div>
@@ -1142,7 +1186,35 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                         </div>
 
                         {/* Chart */}
-                        <div className="relative py-2">
+                        <div className="py-2">
+                            {/* Controls row - above chart */}
+                            <div className="flex items-center justify-end gap-2 mb-2">
+                                {/* Show Actual toggle - only when actual data exists */}
+                                {result.actual && result.historical_context && (
+                                    <label className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-slate-200 bg-white cursor-pointer hover:border-blue-300 transition-colors" style={{ fontSize: '10px' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={showActual}
+                                            onChange={(e) => setShowActual(e.target.checked)}
+                                            className="w-3 h-3 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                                        />
+                                        <span className="text-slate-500">Actual</span>
+                                        {showActual && (
+                                            <span className={`font-mono font-semibold ${result.actual.final_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                {result.actual.final_return >= 0 ? '+' : ''}{result.actual.final_return.toFixed(2)}%
+                                            </span>
+                                        )}
+                                    </label>
+                                )}
+                                <button
+                                    onClick={handleExpandChart}
+                                    className="p-1 rounded border border-slate-200 bg-white text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors"
+                                    title="Expand chart"
+                                >
+                                    <Maximize2 className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                            {/* Chart */}
                             <div className="flex justify-center">
                                 {result.historical_context ? (
                                     <GodelChart
@@ -1161,32 +1233,6 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                         symbol={result.query.symbol}
                                     />
                                 )}
-                            </div>
-                            <div className="absolute top-2 right-0 flex items-center gap-2">
-                                {/* Show Actual toggle - only when actual data exists */}
-                                {result.actual && result.historical_context && (
-                                    <label className="flex items-center gap-1.5 px-2 py-1 rounded border border-slate-200 bg-white cursor-pointer hover:border-blue-300 transition-colors" style={{ fontSize: '10px' }}>
-                                        <input
-                                            type="checkbox"
-                                            checked={showActual}
-                                            onChange={(e) => setShowActual(e.target.checked)}
-                                            className="w-3 h-3 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
-                                        />
-                                        <span className="text-slate-500">Actual</span>
-                                        {showActual && (
-                                            <span className={`font-mono font-semibold ${result.actual.final_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                                {result.actual.final_return >= 0 ? '+' : ''}{result.actual.final_return.toFixed(2)}%
-                                            </span>
-                                        )}
-                                    </label>
-                                )}
-                                <button
-                                    onClick={handleExpandChart}
-                                    className="p-1.5 rounded border border-slate-200 bg-white text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors"
-                                    title="Expand chart"
-                                >
-                                    <Maximize2 className="w-4 h-4" />
-                                </button>
                             </div>
                         </div>
 
