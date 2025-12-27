@@ -94,10 +94,10 @@ class VolatilityIndicators(IndicatorGroup):
             IndicatorDefinition(
                 name="bb_squeeze",
                 display_name="BB Squeeze",
-                description="Bollinger Band squeeze (width < 10%)",
+                description="Bollinger Band squeeze (width < 5%) - very low volatility",
                 category=self.category,
                 data_type=DataType.BOOLEAN,
-                sql_expression="CASE WHEN bb_width < 10 THEN 1 ELSE 0 END",
+                sql_expression="CASE WHEN bb_width < 5 THEN 1 ELSE 0 END",
                 operators=[OperatorType.EQ],
             ),
             IndicatorDefinition(

@@ -14,6 +14,10 @@ import {
     ChevronDown,
     ArrowUpDown,
     RefreshCw,
+    Zap,
+    Target,
+    BarChart3,
+    Activity,
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
@@ -53,6 +57,7 @@ interface ScreenerResult {
     atr_percent: number | null;
     bb_upper: number | null;
     bb_lower: number | null;
+    bb_width: number | null;
     bb_position: number | null;
 }
 
@@ -70,6 +75,7 @@ interface Preset {
     id: string;
     name: string;
     description: string;
+    icon: any;
     filters: FilterCondition[];
     sort_by: string;
     sort_order: string;
@@ -90,23 +96,24 @@ const API_BASE = 'https://screener.tradeul.com/api/v1/screener';
 // ============================================================================
 
 const AVAILABLE_FIELDS = [
-    { value: 'price', label: 'Price', type: 'number' },
-    { value: 'change_1d', label: 'Change 1D %', type: 'percent' },
-    { value: 'change_5d', label: 'Change 5D %', type: 'percent' },
-    { value: 'change_20d', label: 'Change 20D %', type: 'percent' },
-    { value: 'gap_percent', label: 'Gap %', type: 'percent' },
+    { value: 'price', label: 'Price', type: 'number', unit: '$' },
+    { value: 'change_1d', label: 'Change 1D', type: 'percent', unit: '%' },
+    { value: 'change_5d', label: 'Change 5D', type: 'percent', unit: '%' },
+    { value: 'change_20d', label: 'Change 20D', type: 'percent', unit: '%' },
+    { value: 'gap_percent', label: 'Gap', type: 'percent', unit: '%' },
     { value: 'rsi_14', label: 'RSI (14)', type: 'number', min: 0, max: 100 },
-    { value: 'relative_volume', label: 'Rel. Volume', type: 'number' },
+    { value: 'relative_volume', label: 'Rel. Volume', type: 'number', unit: 'x' },
     { value: 'volume', label: 'Volume', type: 'number' },
-    { value: 'sma_20', label: 'SMA 20', type: 'number' },
-    { value: 'sma_50', label: 'SMA 50', type: 'number' },
-    { value: 'sma_200', label: 'SMA 200', type: 'number' },
-    { value: 'dist_sma_20', label: 'Dist. SMA 20 %', type: 'percent' },
-    { value: 'dist_sma_50', label: 'Dist. SMA 50 %', type: 'percent' },
-    { value: 'from_52w_high', label: 'From 52W High %', type: 'percent' },
-    { value: 'from_52w_low', label: 'From 52W Low %', type: 'percent' },
-    { value: 'atr_percent', label: 'ATR %', type: 'percent' },
-    { value: 'bb_position', label: 'BB Position %', type: 'percent' },
+    { value: 'sma_20', label: 'SMA 20', type: 'number', unit: '$' },
+    { value: 'sma_50', label: 'SMA 50', type: 'number', unit: '$' },
+    { value: 'sma_200', label: 'SMA 200', type: 'number', unit: '$' },
+    { value: 'dist_sma_20', label: 'Dist SMA 20', type: 'percent', unit: '%' },
+    { value: 'dist_sma_50', label: 'Dist SMA 50', type: 'percent', unit: '%' },
+    { value: 'from_52w_high', label: 'From 52W High', type: 'percent', unit: '%' },
+    { value: 'from_52w_low', label: 'From 52W Low', type: 'percent', unit: '%' },
+    { value: 'atr_percent', label: 'ATR', type: 'percent', unit: '%' },
+    { value: 'bb_width', label: 'BB Width', type: 'percent', unit: '%' },
+    { value: 'bb_position', label: 'BB Position', type: 'percent', unit: '%' },
 ];
 
 const OPERATORS = [
@@ -124,7 +131,99 @@ const SORT_OPTIONS = [
     { value: 'rsi_14', label: 'RSI' },
     { value: 'price', label: 'Price' },
     { value: 'volume', label: 'Volume' },
-    { value: 'from_52w_high', label: '52W High Dist.' },
+    { value: 'from_52w_high', label: '52W High' },
+    { value: 'bb_width', label: 'BB Width' },
+    { value: 'atr_percent', label: 'ATR %' },
+];
+
+// ============================================================================
+// Presets - Editable Templates
+// ============================================================================
+
+const PRESETS: Preset[] = [
+    {
+        id: 'oversold-bounce',
+        name: 'Oversold Bounce',
+        description: 'RSI oversold with recent bounce',
+        icon: TrendingUp,
+        filters: [
+            { field: 'rsi_14', operator: 'lt', value: 35 },
+            { field: 'change_1d', operator: 'gt', value: 2 },
+            { field: 'volume', operator: 'gt', value: 500000 },
+            { field: 'price', operator: 'between', value: [2, 100] },
+        ],
+        sort_by: 'change_1d',
+        sort_order: 'desc',
+    },
+    {
+        id: 'momentum-breakout',
+        name: 'Momentum Breakout',
+        description: 'Strong momentum with high relative volume',
+        icon: Zap,
+        filters: [
+            { field: 'change_1d', operator: 'gt', value: 5 },
+            { field: 'relative_volume', operator: 'gt', value: 2 },
+            { field: 'rsi_14', operator: 'between', value: [50, 80] },
+            { field: 'volume', operator: 'gt', value: 1000000 },
+        ],
+        sort_by: 'relative_volume',
+        sort_order: 'desc',
+    },
+    {
+        id: 'high-volume-gappers',
+        name: 'High Volume Gappers',
+        description: 'Gap up/down with volume spike',
+        icon: BarChart3,
+        filters: [
+            { field: 'gap_percent', operator: 'gt', value: 3 },
+            { field: 'relative_volume', operator: 'gt', value: 1.5 },
+            { field: 'volume', operator: 'gt', value: 500000 },
+            { field: 'price', operator: 'between', value: [1, 200] },
+        ],
+        sort_by: 'gap_percent',
+        sort_order: 'desc',
+    },
+    {
+        id: '52w-high-breakout',
+        name: '52W High Breakout',
+        description: 'Near or breaking 52-week highs',
+        icon: Target,
+        filters: [
+            { field: 'from_52w_high', operator: 'gt', value: -3 },
+            { field: 'change_1d', operator: 'gt', value: 0 },
+            { field: 'relative_volume', operator: 'gt', value: 1 },
+            { field: 'volume', operator: 'gt', value: 500000 },
+        ],
+        sort_by: 'from_52w_high',
+        sort_order: 'desc',
+    },
+    {
+        id: 'bollinger-squeeze',
+        name: 'Bollinger Squeeze',
+        description: 'Low volatility compression',
+        icon: Activity,
+        filters: [
+            { field: 'bb_width', operator: 'lt', value: 8 },
+            { field: 'volume', operator: 'gt', value: 500000 },
+            { field: 'price', operator: 'between', value: [5, 500] },
+        ],
+        sort_by: 'bb_width',
+        sort_order: 'asc',
+    },
+    {
+        id: 'bullish-trend',
+        name: 'Bullish Trend',
+        description: 'Price above all major SMAs',
+        icon: TrendingUp,
+        filters: [
+            { field: 'dist_sma_20', operator: 'gt', value: 0 },
+            { field: 'dist_sma_50', operator: 'gt', value: 0 },
+            { field: 'rsi_14', operator: 'between', value: [40, 70] },
+            { field: 'volume', operator: 'gt', value: 500000 },
+        ],
+        sort_by: 'change_5d',
+        sort_order: 'desc',
+    },
 ];
 
 // ============================================================================
@@ -162,75 +261,91 @@ function FilterBuilder({
         onFiltersChange(newFilters);
     };
 
+    const getFieldInfo = (fieldName: string) => {
+        return AVAILABLE_FIELDS.find(f => f.value === fieldName);
+    };
+
     return (
-        <div className="flex flex-wrap gap-1.5 items-center">
-            {filters.map((filter, index) => (
-                <div key={index} className="flex items-center gap-0.5 bg-slate-50 rounded px-1 py-0.5">
-                    <select
-                        value={filter.field}
-                        onChange={(e) => updateFilter(index, { field: e.target.value })}
-                        className="px-1 py-0.5 rounded border-0 bg-transparent text-slate-700"
-                        style={{ fontSize: '9px' }}
-                    >
-                        {AVAILABLE_FIELDS.map((f) => (
-                            <option key={f.value} value={f.value}>{f.label}</option>
-                        ))}
-                    </select>
-                    <select
-                        value={filter.operator}
-                        onChange={(e) => updateFilter(index, { operator: e.target.value })}
-                        className="px-0.5 py-0.5 rounded border-0 bg-transparent text-slate-600 w-[40px]"
-                        style={{ fontSize: '9px' }}
-                    >
-                        {OPERATORS.map((op) => (
-                            <option key={op.value} value={op.value}>{op.label}</option>
-                        ))}
-                    </select>
-                    {filter.operator === 'between' ? (
-                        <>
-                            <input
-                                type="number"
-                                value={Array.isArray(filter.value) ? filter.value[0] : 0}
-                                onChange={(e) => updateFilter(index, { 
-                                    value: [parseFloat(e.target.value) || 0, Array.isArray(filter.value) ? filter.value[1] : 100] 
-                                })}
-                                className="w-[40px] px-1 py-0.5 rounded border border-slate-200 bg-white text-slate-700"
-                                style={{ fontSize: '9px' }}
-                            />
-                            <span className="text-slate-400" style={{ fontSize: '8px' }}>-</span>
-                            <input
-                                type="number"
-                                value={Array.isArray(filter.value) ? filter.value[1] : 100}
-                                onChange={(e) => updateFilter(index, { 
-                                    value: [Array.isArray(filter.value) ? filter.value[0] : 0, parseFloat(e.target.value) || 100] 
-                                })}
-                                className="w-[40px] px-1 py-0.5 rounded border border-slate-200 bg-white text-slate-700"
-                                style={{ fontSize: '9px' }}
-                            />
-                        </>
-                    ) : (
-                        <input
-                            type="number"
-                            value={typeof filter.value === 'number' ? filter.value : 0}
-                            onChange={(e) => updateFilter(index, { value: parseFloat(e.target.value) || 0 })}
-                            className="w-[50px] px-1 py-0.5 rounded border border-slate-200 bg-white text-slate-700"
-                            style={{ fontSize: '9px' }}
-                        />
-                    )}
-                    <button
-                        onClick={() => removeFilter(index)}
-                        className="p-0.5 text-slate-400 hover:text-red-500"
-                    >
-                        <X className="w-2.5 h-2.5" />
-                    </button>
-                </div>
-            ))}
+        <div className="space-y-1">
+            {filters.map((filter, index) => {
+                const fieldInfo = getFieldInfo(filter.field);
+                return (
+                    <div key={index} className="flex items-center gap-1 bg-white rounded border border-slate-200 px-1.5 py-1">
+                        <select
+                            value={filter.field}
+                            onChange={(e) => updateFilter(index, { field: e.target.value })}
+                            className="px-1 py-0.5 rounded border-0 bg-transparent text-slate-700 font-medium"
+                            style={{ fontSize: '10px' }}
+                        >
+                            {AVAILABLE_FIELDS.map((f) => (
+                                <option key={f.value} value={f.value}>{f.label}</option>
+                            ))}
+                        </select>
+                        <select
+                            value={filter.operator}
+                            onChange={(e) => updateFilter(index, { operator: e.target.value })}
+                            className="px-1 py-0.5 rounded bg-slate-100 text-slate-600 w-[60px]"
+                            style={{ fontSize: '10px' }}
+                        >
+                            {OPERATORS.map((op) => (
+                                <option key={op.value} value={op.value}>{op.label}</option>
+                            ))}
+                        </select>
+                        {filter.operator === 'between' ? (
+                            <div className="flex items-center gap-1">
+                                <input
+                                    type="number"
+                                    value={Array.isArray(filter.value) ? filter.value[0] : 0}
+                                    onChange={(e) => updateFilter(index, { 
+                                        value: [parseFloat(e.target.value) || 0, Array.isArray(filter.value) ? filter.value[1] : 100] 
+                                    })}
+                                    className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    style={{ fontSize: '10px' }}
+                                />
+                                <span className="text-slate-400" style={{ fontSize: '9px' }}>to</span>
+                                <input
+                                    type="number"
+                                    value={Array.isArray(filter.value) ? filter.value[1] : 100}
+                                    onChange={(e) => updateFilter(index, { 
+                                        value: [Array.isArray(filter.value) ? filter.value[0] : 0, parseFloat(e.target.value) || 100] 
+                                    })}
+                                    className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    style={{ fontSize: '10px' }}
+                                />
+                                {fieldInfo?.unit && (
+                                    <span className="text-slate-400" style={{ fontSize: '9px' }}>{fieldInfo.unit}</span>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-1">
+                                <input
+                                    type="number"
+                                    value={typeof filter.value === 'number' ? filter.value : 0}
+                                    onChange={(e) => updateFilter(index, { value: parseFloat(e.target.value) || 0 })}
+                                    className="w-[65px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    style={{ fontSize: '10px' }}
+                                />
+                                {fieldInfo?.unit && (
+                                    <span className="text-slate-400" style={{ fontSize: '9px' }}>{fieldInfo.unit}</span>
+                                )}
+                            </div>
+                        )}
+                        <button
+                            onClick={() => removeFilter(index)}
+                            className="p-0.5 text-slate-300 hover:text-red-500 ml-auto"
+                        >
+                            <X className="w-3 h-3" />
+                        </button>
+                    </div>
+                );
+            })}
             <button
                 onClick={addFilter}
-                className="flex items-center gap-0.5 px-1.5 py-0.5 text-blue-600 hover:bg-blue-50 rounded"
-                style={{ fontSize: '9px' }}
+                className="flex items-center gap-1 px-2 py-1 text-blue-600 hover:bg-blue-50 rounded border border-dashed border-blue-200"
+                style={{ fontSize: '10px' }}
             >
-                <Plus className="w-2.5 h-2.5" />
+                <Plus className="w-3 h-3" />
+                Add Filter
             </button>
         </div>
     );
@@ -247,7 +362,6 @@ function ResultsTable({
     results: ScreenerResult[];
     onSymbolClick?: (symbol: string) => void;
 }) {
-    // Format price with $ symbol
     const formatPrice = (value: number | null) => {
         if (value === null || value === undefined) return '-';
         if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
@@ -255,14 +369,12 @@ function ResultsTable({
         return `$${value.toFixed(4)}`;
     };
 
-    // Format percentage with +/- and % symbol
     const formatPercent = (value: number | null) => {
         if (value === null || value === undefined) return '-';
         const sign = value >= 0 ? '+' : '';
         return `${sign}${value.toFixed(2)}%`;
     };
 
-    // Format volume with K/M/B suffixes
     const formatVolume = (value: number | null) => {
         if (value === null || value === undefined) return '-';
         if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
@@ -271,13 +383,11 @@ function ResultsTable({
         return value.toString();
     };
 
-    // Format multiplier (relative volume)
     const formatMultiplier = (value: number | null) => {
         if (value === null || value === undefined) return '-';
         return `${value.toFixed(2)}x`;
     };
 
-    // Format RSI (0-100 scale, no decimals)
     const formatRSI = (value: number | null) => {
         if (value === null || value === undefined) return '-';
         return value.toFixed(0);
@@ -300,7 +410,7 @@ function ResultsTable({
                         <th className="px-2 py-1 font-semibold text-slate-600 text-right">RSI</th>
                         <th className="px-2 py-1 font-semibold text-slate-600 text-right">RVol</th>
                         <th className="px-2 py-1 font-semibold text-slate-600 text-right">52W</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">ATR%</th>
+                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">BB%</th>
                         <th className="px-2 py-1 font-semibold text-slate-600 text-right">Vol</th>
                     </tr>
                 </thead>
@@ -329,7 +439,7 @@ function ResultsTable({
                                 {formatPercent(r.from_52w_high)}
                             </td>
                             <td className="px-2 py-1 text-right text-slate-500">
-                                {formatPercent(r.atr_percent)}
+                                {r.bb_width !== null ? `${r.bb_width.toFixed(1)}%` : '-'}
                             </td>
                             <td className="px-2 py-1 text-right text-slate-500">
                                 {formatVolume(r.volume)}
@@ -353,7 +463,7 @@ export function ScreenerContent() {
     // State
     const [filters, setFilters] = useState<FilterCondition[]>([
         { field: 'price', operator: 'between', value: [5, 500] },
-        { field: 'relative_volume', operator: 'gt', value: 1 },
+        { field: 'volume', operator: 'gt', value: 500000 },
     ]);
     const [symbols, setSymbols] = useState<string[]>([]);
     const [symbolInput, setSymbolInput] = useState('');
@@ -366,24 +476,8 @@ export function ScreenerContent() {
     const [results, setResults] = useState<ScreenerResult[]>([]);
     const [queryTime, setQueryTime] = useState<number | null>(null);
     
-    const [presets, setPresets] = useState<Preset[]>([]);
+    const [activePreset, setActivePreset] = useState<string | null>(null);
     const [showFilters, setShowFilters] = useState(true);
-
-    // Load presets
-    useEffect(() => {
-        const loadPresets = async () => {
-            try {
-                const res = await fetch(`${API_BASE}/screen/presets`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setPresets(data.presets || []);
-                }
-            } catch (e) {
-                console.error('Failed to load presets:', e);
-            }
-        };
-        loadPresets();
-    }, []);
 
     // Search handler
     const handleSearch = useCallback(async () => {
@@ -436,16 +530,29 @@ export function ScreenerContent() {
         setSymbols(symbols.filter(s => s !== symbol));
     };
 
-    // Apply preset
+    // Apply preset - loads filters as editable template
     const applyPreset = (preset: Preset) => {
-        setFilters(preset.filters);
+        // Deep clone filters so modifications don't affect the original preset
+        const clonedFilters = preset.filters.map(f => ({
+            ...f,
+            value: Array.isArray(f.value) ? [...f.value] : f.value
+        }));
+        setFilters(clonedFilters);
         setSortBy(preset.sort_by);
         setSortOrder(preset.sort_order as 'asc' | 'desc');
+        setActivePreset(preset.id);
+        setShowFilters(true); // Always show filters when selecting a preset
+    };
+
+    // Clear preset selection when filters are manually modified
+    const handleFiltersChange = (newFilters: FilterCondition[]) => {
+        setFilters(newFilters);
+        // Don't clear activePreset here - let user see which preset they started from
     };
 
     return (
         <div className="h-full flex flex-col bg-white text-slate-800" style={{ fontFamily }}>
-            {/* Compact Header - Symbol search + controls */}
+            {/* Compact Header */}
             <div className="flex-shrink-0 px-2 py-1.5 border-b border-slate-100 flex items-center gap-2">
                 <div className="w-[140px]">
                     <TickerSearch
@@ -487,41 +594,53 @@ export function ScreenerContent() {
                 <button
                     onClick={handleSearch}
                     disabled={loading}
-                    className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-                    style={{ fontSize: '9px' }}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    style={{ fontSize: '10px' }}
                 >
                     {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
                     Scan
                 </button>
             </div>
 
-            {/* Presets row */}
-            <div className="flex-shrink-0 px-2 py-1 border-b border-slate-50 flex items-center gap-1 overflow-x-auto">
-                {presets.slice(0, 6).map((preset) => (
-                    <button
-                        key={preset.id}
-                        onClick={() => applyPreset(preset)}
-                        className="flex-shrink-0 px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 whitespace-nowrap"
-                        style={{ fontSize: '9px' }}
-                        title={preset.description}
-                    >
-                        {preset.name}
-                    </button>
-                ))}
+            {/* Presets Row - Click to load as editable template */}
+            <div className="flex-shrink-0 px-2 py-1.5 border-b border-slate-100 bg-slate-50/30">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                    {PRESETS.map((preset) => {
+                        const Icon = preset.icon;
+                        const isActive = activePreset === preset.id;
+                        return (
+                            <button
+                                key={preset.id}
+                                onClick={() => applyPreset(preset)}
+                                className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border transition-all ${
+                                    isActive 
+                                        ? 'border-blue-400 bg-blue-50 text-blue-700 shadow-sm' 
+                                        : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50/50'
+                                }`}
+                                style={{ fontSize: '10px' }}
+                                title={preset.description}
+                            >
+                                <Icon className="w-3 h-3" />
+                                {preset.name}
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
 
-            {/* Filters Panel - Compact */}
+            {/* Filters Panel - Always editable */}
             {showFilters && (
-                <div className="flex-shrink-0 px-2 py-1.5 border-b border-slate-100 bg-slate-50/50">
-                    <FilterBuilder filters={filters} onFiltersChange={setFilters} />
+                <div className="flex-shrink-0 px-2 py-2 border-b border-slate-100 bg-slate-50/50">
+                    <FilterBuilder filters={filters} onFiltersChange={handleFiltersChange} />
                     
-                    {/* Sort row */}
-                    <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-slate-100">
+                    {/* Sort controls */}
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-200">
+                        <span className="text-slate-400" style={{ fontSize: '9px' }}>Sort:</span>
                         <select
                             value={sortBy}
                             onChange={(e) => setSortBy(e.target.value)}
-                            className="px-1 py-0.5 rounded border border-slate-200 bg-white text-slate-600"
-                            style={{ fontSize: '9px' }}
+                            className="px-1.5 py-0.5 rounded border border-slate-200 bg-white text-slate-600"
+                            style={{ fontSize: '10px' }}
                         >
                             {SORT_OPTIONS.map((opt) => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -529,21 +648,23 @@ export function ScreenerContent() {
                         </select>
                         <button
                             onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-                            className="px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-100"
-                            style={{ fontSize: '9px' }}
+                            className={`px-1.5 py-0.5 rounded border text-slate-600 hover:bg-slate-100 ${
+                                sortOrder === 'asc' ? 'border-blue-300 bg-blue-50' : 'border-slate-200'
+                            }`}
+                            style={{ fontSize: '10px' }}
                         >
                             {sortOrder === 'desc' ? 'DESC' : 'ASC'}
                         </button>
-                        <span className="text-slate-300">|</span>
+                        <div className="flex-1" />
                         <select
                             value={limit}
                             onChange={(e) => setLimit(parseInt(e.target.value))}
-                            className="px-1 py-0.5 rounded border border-slate-200 bg-white text-slate-600"
-                            style={{ fontSize: '9px' }}
+                            className="px-1.5 py-0.5 rounded border border-slate-200 bg-white text-slate-500"
+                            style={{ fontSize: '10px' }}
                         >
-                            <option value={25}>25</option>
-                            <option value={50}>50</option>
-                            <option value={100}>100</option>
+                            <option value={25}>25 results</option>
+                            <option value={50}>50 results</option>
+                            <option value={100}>100 results</option>
                         </select>
                     </div>
                 </div>
@@ -571,8 +692,9 @@ export function ScreenerContent() {
                         </div>
                     ) : (
                         <div className="text-center">
-                            <Search className="w-5 h-5 mx-auto mb-1 opacity-30" />
-                            <p>Click Scan</p>
+                            <Filter className="w-6 h-6 mx-auto mb-2 opacity-30" />
+                            <p className="mb-1">Select a preset or customize filters</p>
+                            <p className="text-slate-300">Then click Scan</p>
                         </div>
                     )}
                 </div>
@@ -583,11 +705,10 @@ export function ScreenerContent() {
                 <div className="flex-shrink-0 px-2 py-1 border-t border-slate-100 bg-slate-50/50">
                     <div className="flex items-center justify-between text-slate-400" style={{ fontSize: '8px' }}>
                         <span>{results.length} results</span>
-                        <span>Polygon</span>
+                        <span>Polygon Daily Data</span>
                     </div>
                 </div>
             )}
         </div>
     );
 }
-

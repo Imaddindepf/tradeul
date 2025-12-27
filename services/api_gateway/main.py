@@ -1243,7 +1243,7 @@ async def proxy_patterns_index_stats():
             response = await client.get(f"{PATTERN_MATCHING_URL}/api/index/stats")
             return response.json()
     except Exception as e:
-        logger.error("patterns_proxy_error", error=str(e))
+        logger.error("patterns_proxy_error", error=str(e), error_type=type(e).__name__)
         raise HTTPException(status_code=502, detail="Pattern Matching service unavailable")
 
 @app.get("/patterns/api/search/{symbol}")
