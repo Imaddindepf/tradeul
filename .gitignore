@@ -93,3 +93,12 @@ htmlcov/
 *.seed
 *.pid.lock
 docs/pattern-build-key.pem
+
+# Pattern matching data (large files)
+services/pattern-matching/data/*.db
+services/pattern-matching/data/*.index
+services/pattern-matching/data/patterns_*
+
+# Next.js cache
+frontend/.next/cache/
+frontend/.next/trace
