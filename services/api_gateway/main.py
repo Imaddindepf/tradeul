@@ -1306,14 +1306,47 @@ async def proxy_patterns_historical_prices(
         raise HTTPException(status_code=502, detail="Failed to fetch historical prices")
 
 
+PATTERNS_DATES_CACHE_KEY = "cache:patterns:available_dates"
+PATTERNS_DATES_CACHE_TTL = 3600  # 1 hour - dates don't change often
+
 @app.get("/patterns/api/available-dates")
-async def proxy_patterns_available_dates():
-    """Proxy para obtener fechas disponibles en los flat files"""
+async def proxy_patterns_available_dates(force_refresh: bool = Query(False)):
+    """Proxy para obtener fechas disponibles en los flat files (cached)"""
+    # Try cache first (fast path)
+    if not force_refresh:
+        try:
+            cached = await redis_client.get(PATTERNS_DATES_CACHE_KEY)
+            if cached:
+                import json
+                return json.loads(cached)
+        except Exception:
+            pass  # Cache miss or error, continue to fetch
+    
+    # Fetch from service
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(f"{PATTERN_MATCHING_URL}/api/available-dates")
-            return response.json()
+            data = response.json()
+            
+            # Cache the result
+            try:
+                import json
+                await redis_client.setex(PATTERNS_DATES_CACHE_KEY, PATTERNS_DATES_CACHE_TTL, json.dumps(data))
+            except Exception:
+                pass  # Don't fail if cache write fails
+            
+            return data
     except Exception as e:
+        # Try to return stale cache on error
+        try:
+            cached = await redis_client.get(PATTERNS_DATES_CACHE_KEY)
+            if cached:
+                import json
+                logger.warning("patterns_available_dates_stale_cache", error=str(e))
+                return json.loads(cached)
+        except Exception:
+            pass
+        
         logger.error("patterns_available_dates_error", error=str(e))
         raise HTTPException(status_code=502, detail="Failed to fetch available dates")
 
