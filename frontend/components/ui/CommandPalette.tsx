@@ -107,7 +107,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         }
 
         // Comandos que abren ventanas flotantes (principales)
-        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'filters', 'watchlist', 'chat', 'notes', 'patterns', 'ratio'].includes(value)) {
+        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'filters', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);

@@ -3,7 +3,7 @@ Pattern Matcher - Main search and forecast engine
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 import numpy as np
 from scipy.special import softmax
@@ -243,6 +243,16 @@ class PatternMatcher:
             # Build response
             query_time = (datetime.now() - start_time).total_seconds() * 1000
             
+            # Get the pattern prices used for search (last window_size prices)
+            pattern_prices = prices[-settings.window_size:] if len(prices) >= settings.window_size else prices
+            
+            # Generate pattern times (relative minutes from now)
+            now = datetime.now()
+            pattern_times = [
+                (now - timedelta(minutes=(len(pattern_prices) - i - 1))).strftime('%H:%M')
+                for i in range(len(pattern_prices))
+            ]
+            
             return {
                 "status": "success",
                 "query": {
@@ -250,6 +260,7 @@ class PatternMatcher:
                     "window_minutes": settings.window_size,
                     "timestamp": start_time.isoformat(),
                     "cross_asset": cross_asset,
+                    "mode": "realtime",
                 },
                 "forecast": forecast,
                 "neighbors": [
@@ -264,6 +275,13 @@ class PatternMatcher:
                     for n, d in zip(neighbors[:k], distances[:k])
                     if n is not None
                 ],
+                "historical_context": {
+                    "mode": "realtime",
+                    "pattern_prices": pattern_prices,
+                    "pattern_times": pattern_times,
+                    "pattern_start": pattern_times[0] if pattern_times else None,
+                    "pattern_end": pattern_times[-1] if pattern_times else None,
+                },
                 "stats": {
                     "query_time_ms": round(query_time, 2),
                     "index_size": self.indexer.index.ntotal if self.indexer.index else 0,

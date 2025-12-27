@@ -19,6 +19,7 @@ import {
   StickyNote,
   Sparkles,
   GitCompareArrows,
+  ScanSearch,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -50,6 +51,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'notes', label: 'NOTE', description: 'commands.notes.description', icon: StickyNote, shortcut: 'Ctrl+Shift+N' },
   { id: 'patterns', label: 'PM', description: 'commands.patterns.description', icon: Sparkles, shortcut: 'Ctrl+P' },
   { id: 'ratio', label: 'GR', description: 'commands.ratio.description', icon: GitCompareArrows, shortcut: 'Ctrl+G' },
+  { id: 'screener', label: 'SCREEN', description: 'commands.screener.description', icon: ScanSearch, shortcut: 'Ctrl+Shift+S' },
 ];
 
 /**

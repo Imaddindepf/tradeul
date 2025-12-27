@@ -182,6 +182,10 @@
       "name": "Ratio Analysis",
       "description": "Asset correlation and regression"
     },
+    "screener": {
+      "name": "Stock Screener",
+      "description": "Filter stocks by technical criteria"
+    },
     "help": {
       "name": "Help",
       "description": "Show terminal help"
@@ -518,6 +522,9 @@
       },
       "GR": {
         "description": "Asset ratio, correlation and regression"
+      },
+      "SCREEN": {
+        "description": "Filter stocks by RSI, volume, price..."
       }
     }
   }

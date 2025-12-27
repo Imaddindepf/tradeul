@@ -182,6 +182,10 @@
       "name": "Ratio Analysis",
       "description": "Correlación y regresión entre activos"
     },
+    "screener": {
+      "name": "Stock Screener",
+      "description": "Filtrar acciones por criterios técnicos"
+    },
     "help": {
       "name": "Help",
       "description": "Mostrar ayuda del terminal"
@@ -518,6 +522,9 @@
       },
       "GR": {
         "description": "Ratio, correlación y regresión entre activos"
+      },
+      "SCREEN": {
+        "description": "Filtrar acciones por RSI, volumen, precio..."
       }
     }
   }

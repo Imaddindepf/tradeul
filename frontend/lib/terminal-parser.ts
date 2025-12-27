@@ -187,6 +187,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.GR.description',
         shortcut: 'Ctrl+G'
     },
+    SCREEN: {
+        id: 'screener',
+        label: 'SCREEN',
+        name: 'Stock Screener',
+        descriptionKey: 'terminalCommands.globalCommands.SCREEN.description',
+        shortcut: 'Ctrl+Shift+S'
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

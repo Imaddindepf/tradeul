@@ -510,58 +510,238 @@ function GodelChart({
     );
 }
 
-// Legacy simple chart for fallback
-function ForecastChart({
+// Live Forecast Chart - Enhanced design for realtime mode
+function LiveForecastChart({
     forecast,
     neighbors,
+    symbol,
 }: {
     forecast: PatternForecast;
     neighbors: PatternNeighbor[];
+    symbol: string;
 }) {
-    const width = 500;
-    const height = 180;
-    const padding = { top: 25, right: 50, bottom: 30, left: 50 };
+    const width = 600;
+    const height = 220;
+    const padding = { top: 35, right: 55, bottom: 35, left: 55 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
-    const { maxAbs, xScale, yScale } = useMemo(() => {
-        const mean = forecast.mean_trajectory;
-        const std = forecast.std_trajectory;
-        const allVals = [
-            ...neighbors.slice(0, 15).flatMap(n => n.future_returns),
-            ...mean.map((m, i) => m + std[i] * 1.5),
-            ...mean.map((m, i) => m - std[i] * 1.5)
-        ];
-        const mAbs = Math.max(Math.abs(Math.min(...allVals)), Math.abs(Math.max(...allVals)), 0.5);
-        const xS = (i: number) => padding.left + (i / (mean.length - 1)) * chartWidth;
-        const yS = (v: number) => padding.top + chartHeight / 2 - (v / mAbs) * (chartHeight / 2);
-        return { maxAbs: mAbs, xScale: xS, yScale: yS };
-    }, [forecast, neighbors, chartWidth, chartHeight]);
+    const afterLength = forecast.mean_trajectory.length;
+    const t0Index = 0; // Start from now
 
-    const meanLine = forecast.mean_trajectory.map((v, i) => `${xScale(i)},${yScale(v)}`).join(' ');
+    const { maxAbs, xScale, yScale } = useMemo(() => {
+        const allVals: number[] = [];
+
+        // Neighbor values
+        neighbors.slice(0, 30).forEach(n => {
+            allVals.push(...n.future_returns);
+        });
+        // Forecast + std band
+        allVals.push(...forecast.mean_trajectory.map((m, i) => m + forecast.std_trajectory[i]));
+        allVals.push(...forecast.mean_trajectory.map((m, i) => m - forecast.std_trajectory[i]));
+
+        const mAbs = Math.max(
+            Math.abs(Math.min(...allVals, -0.5)),
+            Math.abs(Math.max(...allVals, 0.5)),
+            0.5
+        );
+
+        const xS = (i: number) => padding.left + (i / (afterLength - 1)) * chartWidth;
+        const yS = (v: number) => padding.top + chartHeight / 2 - (v / mAbs) * (chartHeight / 2);
+
+        return { maxAbs: mAbs, xScale: xS, yScale: yS };
+    }, [forecast, neighbors, afterLength, chartWidth, chartHeight]);
+
+    // Generate paths
+    const forecastLine = forecast.mean_trajectory
+        .map((v, i) => `${xScale(i)},${yScale(v)}`)
+        .join(' ');
+
+    const upperBand = forecast.mean_trajectory
+        .map((m, i) => `${xScale(i)},${yScale(m + forecast.std_trajectory[i])}`)
+        .join(' ');
+    const lowerBand = forecast.mean_trajectory
+        .map((m, i) => `${xScale(i)},${yScale(m - forecast.std_trajectory[i])}`)
+        .reverse()
+        .join(' ');
+    const bandPath = `M${upperBand} L${lowerBand} Z`;
+
+    // Current time string
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 
     return (
-        <svg width={width} height={height} className="block">
-            {/* Grid */}
-            {[-maxAbs, 0, maxAbs].map((v, i) => (
-                <g key={i}>
-                    <line
-                        x1={padding.left} y1={yScale(v)}
-                        x2={padding.left + chartWidth} y2={yScale(v)}
-                        stroke={v === 0 ? '#94a3b8' : '#e2e8f0'}
-                        strokeWidth={v === 0 ? 1 : 0.5}
-                    />
-                </g>
-            ))}
-            {/* Neighbors */}
-            {neighbors.slice(0, 15).map((n, idx) => {
-                const pts = n.future_returns.map((v, i) => `${xScale(i)},${yScale(v)}`).join(' ');
-                return <polyline key={idx} points={pts} fill="none" stroke="#64748b" strokeWidth="1" opacity="0.2" />;
-            })}
-            {/* Mean */}
-            <polyline points={meanLine} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeDasharray="5,3" />
-            <circle cx={xScale(forecast.mean_trajectory.length - 1)} cy={yScale(forecast.mean_return)} r="4" fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'} />
-        </svg>
+        <div className="relative">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-2 px-1">
+                <span className="text-slate-600 font-medium" style={{ fontSize: '11px' }}>
+                    {symbol} — Live pattern @ {timeStr}
+                </span>
+                <div className="flex items-center gap-4" style={{ fontSize: '10px' }}>
+                    <span className="flex items-center gap-1">
+                        <span className="w-3 h-0.5 bg-blue-500 inline-block"></span>
+                        <span className="text-slate-500">Forecast</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-3 h-0.5 bg-slate-400 inline-block opacity-50"></span>
+                        <span className="text-slate-500">Neighbors</span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="text-emerald-600 font-medium">Live</span>
+                    </span>
+                </div>
+            </div>
+
+            <svg width={width} height={height} className="block">
+                {/* Background gradient - subtle future projection area */}
+                <defs>
+                    <linearGradient id="futureGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="#f8fafc" />
+                        <stop offset="100%" stopColor="#fefefe" />
+                    </linearGradient>
+                </defs>
+                <rect
+                    x={padding.left}
+                    y={padding.top}
+                    width={chartWidth}
+                    height={chartHeight}
+                    fill="url(#futureGradient)"
+                />
+
+                {/* Grid lines */}
+                {[-maxAbs, -maxAbs / 2, 0, maxAbs / 2, maxAbs].map((v, i) => (
+                    <g key={i}>
+                        <line
+                            x1={padding.left}
+                            y1={yScale(v)}
+                            x2={padding.left + chartWidth}
+                            y2={yScale(v)}
+                            stroke={v === 0 ? '#94a3b8' : '#e2e8f0'}
+                            strokeWidth={v === 0 ? 1 : 0.5}
+                        />
+                        <text
+                            x={padding.left - 8}
+                            y={yScale(v) + 3}
+                            textAnchor="end"
+                            fill="#94a3b8"
+                            style={{ fontSize: '9px' }}
+                        >
+                            {v > 0 ? '+' : ''}{v.toFixed(2)}%
+                        </text>
+                    </g>
+                ))}
+
+                {/* t₀ "NOW" vertical line at start */}
+                <line
+                    x1={padding.left}
+                    y1={padding.top - 5}
+                    x2={padding.left}
+                    y2={padding.top + chartHeight + 5}
+                    stroke="#3b82f6"
+                    strokeWidth="2"
+                />
+                <text
+                    x={padding.left}
+                    y={padding.top - 10}
+                    textAnchor="middle"
+                    fill="#3b82f6"
+                    fontWeight="600"
+                    style={{ fontSize: '10px' }}
+                >
+                    NOW
+                </text>
+
+                {/* X axis time labels */}
+                {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => {
+                    const min = Math.round(pct * forecast.horizon_minutes);
+                    const idx = Math.floor(pct * (afterLength - 1));
+                    return (
+                        <text
+                            key={i}
+                            x={xScale(idx)}
+                            y={height - 10}
+                            textAnchor="middle"
+                            fill="#94a3b8"
+                            style={{ fontSize: '9px' }}
+                        >
+                            {pct === 0 ? 't₀' : `+${min}m`}
+                        </text>
+                    );
+                })}
+
+                {/* Neighbor trajectories */}
+                {neighbors.slice(0, 30).map((n, idx) => {
+                    const pts = n.future_returns.map((v, i) => `${xScale(i)},${yScale(v)}`).join(' ');
+                    const finalReturn = n.future_returns[n.future_returns.length - 1];
+                    const isUp = finalReturn > 0;
+                    return (
+                        <polyline
+                            key={idx}
+                            points={pts}
+                            fill="none"
+                            stroke={isUp ? '#10b981' : '#ef4444'}
+                            strokeWidth="1"
+                            opacity="0.2"
+                        />
+                    );
+                })}
+
+                {/* Confidence band */}
+                <path d={bandPath} fill="rgba(59, 130, 246, 0.1)" />
+
+                {/* Forecast mean line - solid blue */}
+                <polyline
+                    points={forecastLine}
+                    fill="none"
+                    stroke="#3b82f6"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                />
+
+                {/* Start marker at t₀ */}
+                <circle
+                    cx={xScale(0)}
+                    cy={yScale(0)}
+                    r="4"
+                    fill="#3b82f6"
+                    stroke="white"
+                    strokeWidth="2"
+                />
+
+                {/* End marker */}
+                <circle
+                    cx={xScale(afterLength - 1)}
+                    cy={yScale(forecast.mean_return)}
+                    r="5"
+                    fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
+                    stroke="white"
+                    strokeWidth="2"
+                />
+
+                {/* End value label */}
+                <text
+                    x={xScale(afterLength - 1) + 10}
+                    y={yScale(forecast.mean_return) + 4}
+                    fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
+                    fontWeight="600"
+                    style={{ fontSize: '12px' }}
+                >
+                    {forecast.mean_return >= 0 ? '+' : ''}{forecast.mean_return.toFixed(2)}%
+                </text>
+
+                {/* Horizon label */}
+                <text
+                    x={padding.left + chartWidth}
+                    y={padding.top - 10}
+                    textAnchor="end"
+                    fill="#64748b"
+                    style={{ fontSize: '10px' }}
+                >
+                    +{forecast.horizon_minutes}min forecast
+                </text>
+            </svg>
+        </div>
     );
 }
 
@@ -658,10 +838,10 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                 }
                 throw new Error(msg);
             }
-            if (data.status === 'error') {
+            if (data.status === 'error' || data.status === 'insufficient_data' || data.status === 'not_ready') {
                 const msg = data.error || 'Search failed';
                 if (msg.includes('insufficient') || msg.includes('Insufficient') || msg.includes('Need at least')) {
-                    throw new Error(`Not enough data on ${historicalDate}. Try earlier time or different date.`);
+                    throw new Error(`Not enough data on ${historicalDate}. Try earlier time (before 16:00) or different date.`);
                 }
                 if (msg.includes('No')) {
                     throw new Error(mode === 'realtime' ? 'Market closed. Use Historical mode.' : `No data for ${ticker} on ${historicalDate}`);
@@ -913,7 +1093,11 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                         date={result.query.date}
                                     />
                                 ) : (
-                                    <ForecastChart forecast={result.forecast} neighbors={result.neighbors} />
+                                    <LiveForecastChart
+                                        forecast={result.forecast}
+                                        neighbors={result.neighbors}
+                                        symbol={result.query.symbol}
+                                    />
                                 )}
                             </div>
                             <button

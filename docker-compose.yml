@@ -626,8 +626,8 @@ services:
       - DB_USER=${POSTGRES_USER:-tradeul_user}
       - DB_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
-      - pattern_data:/app/data        # Flat files storage
-      - pattern_indexes:/app/indexes  # FAISS indexes
+      - polygon_data:/app/data # Shared Polygon flat files
+      - pattern_indexes:/app/indexes # FAISS indexes
     logging:
       driver: "json-file"
       options:
@@ -642,7 +642,7 @@ services:
     ports:
       - "127.0.0.1:8025:8025"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8025/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8025/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -651,9 +651,91 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 8G  # FAISS index needs RAM
+          memory: 8G # FAISS index needs RAM
         reservations:
           memory: 2G
+
+  # Centralized Polygon data service
+  polygon_data:
+    build:
+      context: ./services/polygon-data
+      dockerfile: Dockerfile
+    container_name: tradeul_polygon_data
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=polygon-data
+      - POLYGON_DATA_POLYGON_S3_ACCESS_KEY=${POLYGON_S3_ACCESS_KEY:-}
+      - POLYGON_DATA_POLYGON_S3_SECRET_KEY=${POLYGON_S3_SECRET_KEY:-}
+      - POLYGON_DATA_DATA_DIR=/data/polygon
+      - POLYGON_DATA_DAILY_UPDATE_HOUR=6
+    volumes:
+      - polygon_data:/data/polygon
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8027:8000"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  screener:
+    build:
+      context: ./services/screener
+      dockerfile: Dockerfile
+    container_name: tradeul_screener
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=screener
+      - SCREENER_DATA_PATH=/data/polygon
+      - SCREENER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - SCREENER_CACHE_ENABLED=true
+      - SCREENER_DEBUG=false
+    volumes:
+      - polygon_data:/data/polygon:ro # Read-only access to shared data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8026:8000"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 6G # DuckDB needs RAM for queries
+        reservations:
+          memory: 1G
   # admin_panel:
   #   build:
   #     context: .
@@ -695,7 +777,7 @@ volumes:
     driver: local
   timescale_data:
     driver: local
-  pattern_data:
+  polygon_data:
     driver: local
   pattern_indexes:
     driver: local
