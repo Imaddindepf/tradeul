@@ -47,6 +47,11 @@ export interface UserPreferences {
   // Layout de ventanas (snapshot)
   windowLayouts: WindowLayout[];
   
+  // Flag para saber si el usuario ya ha interactuado con layouts
+  // true = ya usó el sistema (aunque tenga 0 ventanas)
+  // false/undefined = primera vez, abrir tablas por defecto
+  layoutInitialized: boolean;
+  
   // Filtros guardados por lista
   savedFilters: Record<string, any>;
   
@@ -73,6 +78,7 @@ interface UserPreferencesState extends UserPreferences {
   // Actions - Layout
   saveWindowLayouts: (layouts: WindowLayout[]) => void;
   clearWindowLayouts: () => void;
+  setLayoutInitialized: (initialized: boolean) => void;
   
   // Actions - Filters
   saveFilters: (listName: string, filters: any) => void;
@@ -109,6 +115,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   colors: DEFAULT_COLORS,
   theme: DEFAULT_THEME,
   windowLayouts: [],
+  layoutInitialized: false,
   savedFilters: {},
   columnVisibility: {},
   columnOrder: {},
@@ -171,10 +178,13 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       // Layout Actions
       // ========================================
       saveWindowLayouts: (layouts) =>
-        set({ windowLayouts: layouts }),
+        set({ windowLayouts: layouts, layoutInitialized: true }),
 
       clearWindowLayouts: () =>
-        set({ windowLayouts: [] }),
+        set({ windowLayouts: [], layoutInitialized: true }),
+
+      setLayoutInitialized: (initialized) =>
+        set({ layoutInitialized: initialized }),
 
       // ========================================
       // Filters Actions
@@ -214,6 +224,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           colors: state.colors,
           theme: state.theme,
           windowLayouts: state.windowLayouts,
+          layoutInitialized: state.layoutInitialized,
           savedFilters: state.savedFilters,
           columnVisibility: state.columnVisibility,
           columnOrder: state.columnOrder,
@@ -227,6 +238,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             colors: data.colors || DEFAULT_COLORS,
             theme: data.theme || DEFAULT_THEME,
             windowLayouts: data.windowLayouts || [],
+            layoutInitialized: data.layoutInitialized ?? false,
             savedFilters: data.savedFilters || {},
             columnVisibility: data.columnVisibility || {},
             columnOrder: data.columnOrder || {},
@@ -244,6 +256,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         colors: state.colors,
         theme: state.theme,
         windowLayouts: state.windowLayouts,
+        layoutInitialized: state.layoutInitialized,
         savedFilters: state.savedFilters,
         columnVisibility: state.columnVisibility,
         columnOrder: state.columnOrder,

@@ -125,7 +125,10 @@ export function useClerkSync() {
                     }
                 }
 
-                if (data.windowLayouts && data.windowLayouts.length > 0) {
+                // Solo cargar layouts del servidor si NO hay layouts locales activos
+                // Esto evita sobrescribir ventanas que el usuario acaba de abrir/cerrar
+                const currentLocalLayouts = useUserPreferencesStore.getState().windowLayouts;
+                if (data.windowLayouts && data.windowLayouts.length > 0 && currentLocalLayouts.length === 0) {
                     // Convertir formato API a formato del store
                     const layouts = data.windowLayouts.map((w) => ({
                         id: w.id,

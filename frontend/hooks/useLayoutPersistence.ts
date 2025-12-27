@@ -14,16 +14,19 @@ export function useLayoutPersistence() {
   const saveWindowLayouts = useUserPreferencesStore((s) => s.saveWindowLayouts);
   const windowLayouts = useUserPreferencesStore((s) => s.windowLayouts);
   const clearWindowLayouts = useUserPreferencesStore((s) => s.clearWindowLayouts);
+  const layoutInitialized = useUserPreferencesStore((s) => s.layoutInitialized);
 
   /**
    * Guardar el layout actual de todas las ventanas
+   * NOTA: Usamos un ID único para cada ventana (no el título)
+   * para permitir múltiples ventanas del mismo tipo
    */
   const saveLayout = useCallback(() => {
     const layout = exportLayout();
 
-    // Convertir a formato del store
-    const layouts = layout.map((w) => ({
-      id: w.title,
+    // Convertir a formato del store con ID único
+    const layouts = layout.map((w, index) => ({
+      id: `${w.title}-${index}-${Date.now()}`, // ID único para múltiples ventanas del mismo tipo
       type: getWindowType(w.title),
       title: w.title,
       position: { x: w.x, y: w.y },
@@ -51,9 +54,15 @@ export function useLayoutPersistence() {
   }, [windowLayouts]);
 
   /**
-   * Verificar si hay un layout guardado
+   * Verificar si hay un layout guardado con ventanas
    */
   const hasLayout = windowLayouts.length > 0;
+
+  /**
+   * Verificar si el usuario ya ha interactuado con el sistema de layouts
+   * (true = ya usó, aunque tenga 0 ventanas. false = primera vez)
+   */
+  const isLayoutInitialized = layoutInitialized;
 
   /**
    * Limpiar el layout guardado
@@ -67,6 +76,7 @@ export function useLayoutPersistence() {
     saveLayout,
     getSavedLayout,
     hasLayout,
+    isLayoutInitialized,
     clearLayout,
     savedCount: windowLayouts.length,
   };

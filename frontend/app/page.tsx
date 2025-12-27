@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { SignIn, SignUp, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
-import { ChristmasEffects } from '@/components/layout/ChristmasEffects';
 import { ArrowRight, TrendingUp, TrendingDown, X } from 'lucide-react';
 import { useAppTranslation } from '@/hooks/useAppTranslation';
 
@@ -43,8 +42,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0a0a12] text-white overflow-hidden">
-      <ChristmasEffects />
-
       {/* Background gradient */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-blue-500/10 rounded-full blur-[150px]" />

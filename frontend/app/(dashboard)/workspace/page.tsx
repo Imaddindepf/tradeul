@@ -17,7 +17,7 @@ import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
-import TickersWithNewsTable from '@/components/scanner/TickersWithNewsTable';
+import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
@@ -25,6 +25,15 @@ import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { NewsContent } from '@/components/news/NewsContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { ChatContent } from '@/components/chat/ChatContent';
+import { CatalystAlertsConfig } from '@/components/catalyst-alerts';
+import { IPOContent } from '@/components/ipos/IPOContent';
+import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/QuoteMonitor';
+import { NotesContent } from '@/components/notes/NotesContent';
+import { PatternMatchingContent } from '@/components/pattern-matching';
+import { RatioAnalysisContent } from '@/components/ratio-analysis';
+import { ScreenerContent } from '@/components/screener';
+import { ChartContent } from '@/components/chart/ChartContent';
+import { DescriptionContent } from '@/components/description/DescriptionContent';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -70,7 +79,7 @@ export default function ScannerPage() {
 
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, getScannerCategory } = useCommandExecutor();
-  const { getSavedLayout, hasLayout } = useLayoutPersistence();
+  const { getSavedLayout, hasLayout, isLayoutInitialized } = useLayoutPersistence();
 
   // WebSocket (ya autenticado desde AuthWebSocketProvider)
   const ws = useWebSocket();
@@ -80,6 +89,7 @@ export default function ScannerPage() {
 
   // Función para reconstruir contenido de ventana por título
   const getWindowContent = useCallback((title: string) => {
+    // === Ventanas generales (sin ticker específico) ===
     if (title === 'Settings') return <SettingsContent />;
     if (title === 'Filter Manager' || title === 'Filtros') return <FilterManagerContent />;
     if (title === 'Dilution Tracker') return <DilutionTrackerContent />;
@@ -87,18 +97,61 @@ export default function ScannerPage() {
     if (title === 'News') return <NewsContent />;
     if (title === 'Financial Analysis') return <FinancialsContent />;
     if (title === 'Community Chat') return <ChatContent />;
+    if (title === 'Catalyst Alerts') return <CatalystAlertsConfig />;
+    if (title === 'IPOs') return <IPOContent />;
+    if (title === 'Quote Monitor') return <QuoteMonitorContent />;
+    if (title === 'Notes') return <NotesContent />;
+    if (title === 'Pattern Matching') return <PatternMatchingContent />;
+    if (title === 'Ratio Analysis') return <RatioAnalysisContent />;
+    if (title === 'Stock Screener') return <ScreenerContent />;
 
-    // Verificar si es una tabla del scanner
+    // === Ventanas con ticker específico ===
+    // Chart: TICKER
+    if (title.startsWith('Chart: ')) {
+      const ticker = title.replace('Chart: ', '');
+      return <ChartContent ticker={ticker} exchange="US" />;
+    }
+    // Description: TICKER
+    if (title.startsWith('Description: ')) {
+      const ticker = title.replace('Description: ', '');
+      return <DescriptionContent ticker={ticker} exchange="US" />;
+    }
+    // DT: TICKER (Dilution Tracker con ticker)
+    if (title.startsWith('DT: ')) {
+      const ticker = title.replace('DT: ', '');
+      return <DilutionTrackerContent initialTicker={ticker} />;
+    }
+    // FA: TICKER (Financial Analysis con ticker)
+    if (title.startsWith('FA: ')) {
+      const ticker = title.replace('FA: ', '');
+      return <FinancialsContent initialTicker={ticker} />;
+    }
+    // SEC: TICKER
+    if (title.startsWith('SEC: ')) {
+      const ticker = title.replace('SEC: ', '');
+      return <SECFilingsContent initialTicker={ticker} />;
+    }
+    // News: TICKER
+    if (title.startsWith('News: ')) {
+      const ticker = title.replace('News: ', '');
+      return <NewsContent initialTicker={ticker} />;
+    }
+    // Patterns: TICKER
+    if (title.startsWith('Patterns: ')) {
+      const ticker = title.replace('Patterns: ', '');
+      return <PatternMatchingContent initialTicker={ticker} />;
+    }
+    // Quote: TICKER (tira de precio) - NO restauramos porque es muy específico
+
+    // === Tablas del scanner ===
     if (title.startsWith('Scanner: ')) {
       const categoryName = title.replace('Scanner: ', '');
-      // Buscar el categoryId que corresponde a este nombre traducido
       const categoryIds = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 'winners', 'losers', 'new_highs', 'new_lows', 'anomalies', 'high_volume', 'reversals', 'with_news'];
       for (const categoryId of categoryIds) {
         const category = getScannerCategory(categoryId);
         if (category && category.name === categoryName) {
-          // Caso especial: tabla de intersección Scanner + News
           if (categoryId === 'with_news') {
-            return <TickersWithNewsTable title={`Scanner: ${category.name}`} />;
+            return <TickersWithNewsContent title={category.name} />;
           }
           return (
             <ScannerTableContent
@@ -109,6 +162,7 @@ export default function ScannerPage() {
         }
       }
     }
+
     return null;
   }, [getScannerCategory]);
 
@@ -116,9 +170,10 @@ export default function ScannerPage() {
   useEffect(() => {
     if (!mounted) return;
 
-    // Restaurar layout si existe
+    // Caso 1: Hay ventanas guardadas → restaurarlas
     if (hasLayout && !layoutRestoredRef.current) {
       layoutRestoredRef.current = true;
+      initialTablesOpenedRef.current = true;
       const savedLayout = getSavedLayout();
 
       setTimeout(() => {
@@ -142,8 +197,17 @@ export default function ScannerPage() {
       return;
     }
 
-    // Si no hay layout guardado, abrir tablas por defecto
-    if (!hasLayout && !initialTablesOpenedRef.current) {
+    // Caso 2: Usuario ya usó el sistema pero cerró todas las ventanas
+    // NO abrir nada (respetar su decisión)
+    if (isLayoutInitialized && !hasLayout) {
+      layoutRestoredRef.current = true;
+      initialTablesOpenedRef.current = true;
+      return;
+    }
+
+    // Caso 3: Primera vez (nunca ha usado el sistema)
+    // Abrir tablas por defecto
+    if (!isLayoutInitialized && !hasLayout && !initialTablesOpenedRef.current) {
       initialTablesOpenedRef.current = true;
 
       // Cargar categorías de localStorage o usar default
@@ -169,7 +233,7 @@ export default function ScannerPage() {
         });
       }, 100);
     }
-  }, [mounted, hasLayout, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
+  }, [mounted, hasLayout, isLayoutInitialized, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
 
   // Montaje inicial y keyboard shortcuts
   useEffect(() => {
