@@ -463,10 +463,10 @@ class PatternIndexer:
         if self.index is None:
             return {"status": "not_initialized"}
         
-        # Get metadata count
-        if self.use_sqlite and self.metadata_db:
-            cursor = self.metadata_db.execute("SELECT COUNT(*) FROM patterns")
-            n_metadata = cursor.fetchone()[0]
+        # Get metadata count - use index.ntotal as proxy (much faster than COUNT(*))
+        # SQLite COUNT(*) on 362M rows takes ~20 seconds
+        if self.use_sqlite:
+            n_metadata = self.index.ntotal  # Same as vectors, avoid slow COUNT(*)
         else:
             n_metadata = len(self.metadata)
         
