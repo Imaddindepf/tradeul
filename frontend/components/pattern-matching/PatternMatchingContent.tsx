@@ -273,12 +273,16 @@ function GodelChart({
     historicalContext,
     symbol,
     date,
+    actual,
+    showActual,
 }: {
     forecast: PatternForecast;
     neighbors: PatternNeighbor[];
     historicalContext?: HistoricalContext;
     symbol: string;
     date?: string;
+    actual?: { returns: number[]; final_return: number; direction: string; direction_correct: boolean };
+    showActual?: boolean;
 }) {
     const width = 600;
     const height = 220;
@@ -316,6 +320,11 @@ function GodelChart({
         allVals.push(...forecast.mean_trajectory.map((m, i) => m + forecast.std_trajectory[i]));
         allVals.push(...forecast.mean_trajectory.map((m, i) => m - forecast.std_trajectory[i]));
 
+        // Include actual returns if showing
+        if (showActual && actual?.returns) {
+            allVals.push(...actual.returns);
+        }
+
         const mAbs = Math.max(
             Math.abs(Math.min(...allVals, -0.5)),
             Math.abs(Math.max(...allVals, 0.5)),
@@ -326,7 +335,7 @@ function GodelChart({
         const yS = (v: number) => padding.top + chartHeight / 2 - (v / mAbs) * (chartHeight / 2);
 
         return { maxAbs: mAbs, xScale: xS, yScale: yS };
-    }, [forecast, neighbors, queryPattern, totalLength, chartWidth, chartHeight]);
+    }, [forecast, neighbors, queryPattern, totalLength, chartWidth, chartHeight, showActual, actual]);
 
     // Generate paths
     const queryLine = queryPattern
@@ -366,6 +375,12 @@ function GodelChart({
                         <span className="w-3 h-0.5 bg-slate-400 inline-block opacity-50"></span>
                         <span className="text-slate-500">Neighbors</span>
                     </span>
+                    {showActual && actual && (
+                        <span className="flex items-center gap-1">
+                            <span className={`w-3 h-0.5 inline-block ${actual.final_return >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                            <span className="text-slate-500">Actual</span>
+                        </span>
+                    )}
                 </div>
             </div>
 
@@ -482,7 +497,42 @@ function GodelChart({
                     strokeLinecap="round"
                 />
 
-                {/* End marker */}
+                {/* Actual line (after t₀) - solid green/red */}
+                {showActual && actual?.returns && actual.returns.length > 0 && (
+                    <>
+                        <polyline
+                            points={[
+                                `${xScale(t0Index)},${yScale(0)}`,
+                                ...actual.returns.map((v, i) => `${xScale(t0Index + i + 1)},${yScale(v)}`)
+                            ].join(' ')}
+                            fill="none"
+                            stroke={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                        />
+                        {/* Actual end marker */}
+                        <circle
+                            cx={xScale(t0Index + actual.returns.length)}
+                            cy={yScale(actual.final_return)}
+                            r="5"
+                            fill={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
+                            stroke="white"
+                            strokeWidth="2"
+                        />
+                        {/* Actual end value label */}
+                        <text
+                            x={xScale(t0Index + actual.returns.length) + 10}
+                            y={yScale(actual.final_return) - 8}
+                            fill={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
+                            fontWeight="700"
+                            style={{ fontSize: '11px' }}
+                        >
+                            {actual.final_return >= 0 ? '+' : ''}{actual.final_return.toFixed(2)}%
+                        </text>
+                    </>
+                )}
+
+                {/* Forecast end marker */}
                 <circle
                     cx={xScale(totalLength - 1)}
                     cy={yScale(forecast.mean_return)}
@@ -490,15 +540,17 @@ function GodelChart({
                     fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
                     stroke="white"
                     strokeWidth="2"
+                    opacity={showActual && actual ? 0.5 : 1}
                 />
 
-                {/* End value label */}
+                {/* Forecast end value label */}
                 <text
                     x={xScale(totalLength - 1) + 8}
                     y={yScale(forecast.mean_return) + 4}
                     fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
                     fontWeight="600"
                     style={{ fontSize: '11px' }}
+                    opacity={showActual && actual ? 0.5 : 1}
                 >
                     {forecast.mean_return >= 0 ? '+' : ''}{forecast.mean_return.toFixed(2)}%
                 </text>
@@ -776,6 +828,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
     const [result, setResult] = useState<SearchResult | null>(null);
     const [indexStats, setIndexStats] = useState<IndexStats | null>(null);
     const [showSettings, setShowSettings] = useState(false);
+    const [showActual, setShowActual] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -1088,52 +1141,6 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                             </div>
                         </div>
 
-                        {/* Actual vs Forecast (only in historical mode) */}
-                        {result.actual && (
-                            <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-slate-500 font-medium" style={{ fontSize: '11px' }}>
-                                        Actual Result
-                                    </span>
-                                    {result.actual.direction_correct ? (
-                                        <span className="text-emerald-600 font-medium flex items-center gap-1" style={{ fontSize: '10px' }}>
-                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                            </svg>
-                                            Direction correct
-                                        </span>
-                                    ) : (
-                                        <span className="text-red-500 font-medium flex items-center gap-1" style={{ fontSize: '10px' }}>
-                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                            Direction missed
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex items-center gap-8" style={{ fontSize: '11px' }}>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-slate-400">Forecast:</span>
-                                        <span className={`font-mono font-semibold ${result.forecast.mean_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                            {result.forecast.mean_return >= 0 ? '+' : ''}{result.forecast.mean_return.toFixed(2)}%
-                                        </span>
-                                    </div>
-                                    <div className="text-slate-300">vs</div>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-slate-400">Actual:</span>
-                                        <span className={`font-mono font-bold ${result.actual.final_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                            {result.actual.final_return >= 0 ? '+' : ''}{result.actual.final_return.toFixed(2)}%
-                                        </span>
-                                    </div>
-                                    {result.actual.error_vs_forecast != null && (
-                                        <div className="text-slate-400">
-                                            Error: <span className="font-mono">{result.actual.error_vs_forecast.toFixed(2)}%</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
                         {/* Chart */}
                         <div className="relative py-2">
                             <div className="flex justify-center">
@@ -1144,6 +1151,8 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                         historicalContext={result.historical_context}
                                         symbol={result.query.symbol}
                                         date={result.query.date}
+                                        actual={result.actual}
+                                        showActual={showActual}
                                     />
                                 ) : (
                                     <LiveForecastChart
@@ -1153,13 +1162,32 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                                     />
                                 )}
                             </div>
-                            <button
-                                onClick={handleExpandChart}
-                                className="absolute top-2 right-0 p-1.5 rounded border border-slate-200 bg-white text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors"
-                                title="Expand chart"
-                            >
-                                <Maximize2 className="w-4 h-4" />
-                            </button>
+                            <div className="absolute top-2 right-0 flex items-center gap-2">
+                                {/* Show Actual toggle - only when actual data exists */}
+                                {result.actual && result.historical_context && (
+                                    <label className="flex items-center gap-1.5 px-2 py-1 rounded border border-slate-200 bg-white cursor-pointer hover:border-blue-300 transition-colors" style={{ fontSize: '10px' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={showActual}
+                                            onChange={(e) => setShowActual(e.target.checked)}
+                                            className="w-3 h-3 rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                                        />
+                                        <span className="text-slate-500">Actual</span>
+                                        {showActual && (
+                                            <span className={`font-mono font-semibold ${result.actual.final_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                {result.actual.final_return >= 0 ? '+' : ''}{result.actual.final_return.toFixed(2)}%
+                                            </span>
+                                        )}
+                                    </label>
+                                )}
+                                <button
+                                    onClick={handleExpandChart}
+                                    className="p-1.5 rounded border border-slate-200 bg-white text-slate-400 hover:text-blue-500 hover:border-blue-300 transition-colors"
+                                    title="Expand chart"
+                                >
+                                    <Maximize2 className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Similar Patterns */}

@@ -10,7 +10,7 @@ import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
 import { CatalystAlertsConfig } from '@/components/catalyst-alerts';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
-import TickersWithNewsTable from '@/components/scanner/TickersWithNewsTable';
+import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
 import { ChartContent } from '@/components/chart/ChartContent';
@@ -97,7 +97,7 @@ export function useCommandExecutor() {
             return openWindow({
                 title,
                 content: (
-                    <TickersWithNewsTable
+                    <TickersWithNewsContent
                         title={category.name}
                     />
                 ),

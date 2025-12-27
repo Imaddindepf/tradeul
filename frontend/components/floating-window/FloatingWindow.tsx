@@ -382,22 +382,6 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           </div>
         )}
 
-        {/* Floating Close Button for hideHeader windows */}
-        {window.hideHeader && (
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleClose();
-            }}
-            className="absolute top-1 right-1 z-10 p-1 rounded bg-white/80 hover:bg-red-100 transition-colors group shadow-sm border border-slate-200"
-            aria-label={t('common.close')}
-            title={t('common.close')}
-          >
-            <X className="w-3.5 h-3.5 text-slate-500 group-hover:text-red-600" />
-          </button>
-        )}
-
         {/* Content */}
         <div className={`flex-1 overflow-auto bg-white ${window.hideHeader ? 'h-full' : ''}`}>
           {window.isPoppedOut ? (
