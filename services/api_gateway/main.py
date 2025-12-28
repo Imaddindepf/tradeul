@@ -1222,7 +1222,10 @@ async def proxy_news_article(url: str = Query(..., description="News article URL
 # Pattern Matching Proxy
 # ============================================================================
 
-PATTERN_MATCHING_URL = "http://pattern_matching:8025"
+# Pattern Matching runs on dedicated server (37.27.183.194)
+# Firewall allows only this server's IP
+import os
+PATTERN_MATCHING_URL = os.getenv("PATTERN_MATCHING_URL", "http://37.27.183.194:8025")
 
 @app.get("/patterns/health")
 async def proxy_patterns_health():
