@@ -1134,23 +1134,29 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                             </span>
                         </div>
 
-                        {/* Probability Bar */}
+                        {/* Probability Bar - only show if we have valid forecast data */}
+                        {'error' in result.forecast ? (
+                            <div className="text-center py-4 text-slate-400" style={{ fontSize: '12px' }}>
+                                <span>No se encontraron patrones similares con datos históricos completos</span>
+                            </div>
+                        ) : (
+                        <>
                         <div>
                             <div className="flex items-center justify-between mb-1.5">
                                 <div className="flex items-center gap-1.5 text-emerald-600" style={{ fontSize: '12px' }}>
                                     <TrendingUp className="w-4 h-4" />
-                                    <span className="font-semibold">{(result.forecast.prob_up * 100).toFixed(0)}%</span>
+                                    <span className="font-semibold">{((result.forecast.prob_up ?? 0) * 100).toFixed(0)}%</span>
                                     <span className="text-slate-400 font-normal">bullish</span>
                                 </div>
                                 <div className="flex items-center gap-1.5 text-red-500" style={{ fontSize: '12px' }}>
                                     <span className="text-slate-400 font-normal">bearish</span>
-                                    <span className="font-semibold">{(result.forecast.prob_down * 100).toFixed(0)}%</span>
+                                    <span className="font-semibold">{((result.forecast.prob_down ?? 0) * 100).toFixed(0)}%</span>
                                     <TrendingDown className="w-4 h-4" />
                                 </div>
                             </div>
                             <div className="h-2.5 rounded-full overflow-hidden bg-slate-100 flex">
-                                <div className="bg-emerald-500 transition-all" style={{ width: `${result.forecast.prob_up * 100}%` }} />
-                                <div className="bg-red-500 transition-all" style={{ width: `${result.forecast.prob_down * 100}%` }} />
+                                <div className="bg-emerald-500 transition-all" style={{ width: `${(result.forecast.prob_up ?? 0) * 100}%` }} />
+                                <div className="bg-red-500 transition-all" style={{ width: `${(result.forecast.prob_down ?? 0) * 100}%` }} />
                             </div>
                         </div>
 
@@ -1158,33 +1164,35 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                         <div className="flex gap-6" style={{ fontSize: '11px' }}>
                             <div>
                                 <span className="text-slate-400">Mean</span>
-                                <span className={`ml-1.5 font-mono font-semibold ${result.forecast.mean_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                    {result.forecast.mean_return >= 0 ? '+' : ''}{result.forecast.mean_return.toFixed(2)}%
+                                <span className={`ml-1.5 font-mono font-semibold ${(result.forecast.mean_return ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    {(result.forecast.mean_return ?? 0) >= 0 ? '+' : ''}{(result.forecast.mean_return ?? 0).toFixed(2)}%
                                 </span>
                             </div>
                             <div>
                                 <span className="text-slate-400">Median</span>
-                                <span className={`ml-1.5 font-mono font-semibold ${result.forecast.median_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                                    {result.forecast.median_return >= 0 ? '+' : ''}{result.forecast.median_return.toFixed(2)}%
+                                <span className={`ml-1.5 font-mono font-semibold ${(result.forecast.median_return ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                    {(result.forecast.median_return ?? 0) >= 0 ? '+' : ''}{(result.forecast.median_return ?? 0).toFixed(2)}%
                                 </span>
                             </div>
                             <div>
                                 <span className="text-slate-400">Best</span>
-                                <span className="ml-1.5 font-mono font-semibold text-emerald-600">+{result.forecast.best_case.toFixed(2)}%</span>
+                                <span className="ml-1.5 font-mono font-semibold text-emerald-600">+{(result.forecast.best_case ?? 0).toFixed(2)}%</span>
                             </div>
                             <div>
                                 <span className="text-slate-400">Worst</span>
-                                <span className="ml-1.5 font-mono font-semibold text-red-500">{result.forecast.worst_case.toFixed(2)}%</span>
+                                <span className="ml-1.5 font-mono font-semibold text-red-500">{(result.forecast.worst_case ?? 0).toFixed(2)}%</span>
                             </div>
                             <div>
                                 <span className="text-slate-400">Confidence</span>
                                 <span className={`ml-1.5 font-semibold ${result.forecast.confidence === 'high' ? 'text-emerald-600' :
                                     result.forecast.confidence === 'medium' ? 'text-amber-500' : 'text-slate-500'
                                     }`}>
-                                    {result.forecast.confidence}
+                                    {result.forecast.confidence ?? 'N/A'}
                                 </span>
                             </div>
                         </div>
+                        </>
+                        )}
 
                         {/* Chart */}
                         <div className="py-2">
