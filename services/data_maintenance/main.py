@@ -42,9 +42,6 @@ from shared.utils.logger import get_logger
 from daily_maintenance_scheduler import DailyMaintenanceScheduler
 from maintenance_orchestrator import MaintenanceOrchestrator
 from realtime_ticker_monitor import RealtimeTickerMonitor
-# Pattern Matching now runs on dedicated server (37.27.183.194)
-# with its own cron job at 8:00 PM ET
-# from pattern_matching_updater import PatternMatchingUpdater
 
 logger = get_logger(__name__)
 
@@ -52,7 +49,6 @@ logger = get_logger(__name__)
 redis_client: RedisClient = None
 timescale_client: TimescaleClient = None
 daily_scheduler: DailyMaintenanceScheduler = None
-# pattern_updater: PatternMatchingUpdater = None  # Moved to dedicated server
 
 
 @asynccontextmanager
@@ -82,17 +78,10 @@ async def lifespan(app: FastAPI):
     realtime_monitor = RealtimeTickerMonitor(redis_client, timescale_client)
     monitor_task = asyncio.create_task(realtime_monitor.start())
     
-    # Pattern Matching now runs on dedicated server (37.27.183.194)
-    # with its own cron job at 8:00 PM ET - no need to update from here
-    # global pattern_updater
-    # pattern_updater = PatternMatchingUpdater()
-    # pattern_updater_task = asyncio.create_task(pattern_updater.run(redis_client))
-    
     logger.info("=" * 60)
     logger.info("📅 Schedule: Daily maintenance at 3:00 AM ET")
     logger.info("   (1 hour before pre-market opens at 4:00 AM ET)")
-    logger.info("📊 Pattern Matching: Runs on dedicated server 37.27.183.194")
-    logger.info("   (updates daily at 8:00 PM ET via cron)")
+    logger.info("📊 Pattern Matching: Dedicated server 37.27.183.194:8025")
     logger.info("=" * 60)
     
     yield
@@ -103,10 +92,6 @@ async def lifespan(app: FastAPI):
     await realtime_monitor.stop()
     monitor_task.cancel()
     
-    # Pattern Matching runs on dedicated server
-    # pattern_updater.stop()
-    # pattern_updater_task.cancel()
-    
     daily_scheduler.stop()
     scheduler_task.cancel()
     
@@ -114,12 +99,6 @@ async def lifespan(app: FastAPI):
         await monitor_task
     except asyncio.CancelledError:
         pass
-    
-    # Pattern Matching runs on dedicated server
-    # try:
-    #     await pattern_updater_task
-    # except asyncio.CancelledError:
-    #     pass
     
     try:
         await scheduler_task
