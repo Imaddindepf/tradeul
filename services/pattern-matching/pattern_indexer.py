@@ -251,7 +251,7 @@ class PatternIndexer:
             if valid_indices:
                 placeholders = ','.join('?' * len(valid_indices))
                 cursor = self.metadata_db.execute(
-                    f"SELECT id, ticker, date, time, future_return FROM patterns WHERE id IN ({placeholders})",
+                    f"SELECT id, symbol, date, start_time, final_return FROM patterns WHERE id IN ({placeholders})",
                     valid_indices
                 )
                 rows = {row[0]: row for row in cursor.fetchall()}
