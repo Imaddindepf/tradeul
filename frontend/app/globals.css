@@ -19,10 +19,10 @@
 /* Selector universal para cualquier elemento con clase que contenga cl- */
 [class*="cl-card"],
 [class*="cl-cardBox"],
-[class*="cl-signIn"] > div,
-[class*="cl-signUp"] > div,
-[class*="cl-rootBox"] > div,
-div[class^="cl-"] > div[class^="cl-"],
+[class*="cl-signIn"]>div,
+[class*="cl-signUp"]>div,
+[class*="cl-rootBox"]>div,
+div[class^="cl-"]>div[class^="cl-"],
 [class*="cl-main"] {
   background: transparent !important;
   background-color: transparent !important;
@@ -33,7 +33,7 @@ div[class^="cl-"] > div[class^="cl-"],
 
 /* Selector más específico usando atributos data- de Clerk */
 [data-localization-key],
-[data-clerk-component] > div {
+[data-clerk-component]>div {
   background: transparent !important;
   box-shadow: none !important;
   border: none !important;
@@ -78,12 +78,12 @@ body {
     animation: fadeIn 0.8s ease-out forwards;
     opacity: 0;
   }
-  
+
   .animate-slideUp {
     animation: slideUp 0.8s ease-out forwards;
     opacity: 0;
   }
-  
+
   .animate-shimmer {
     animation: shimmer 3s ease-in-out infinite;
   }
@@ -95,6 +95,7 @@ body {
     opacity: 0;
     transform: translateY(30px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -105,6 +106,7 @@ body {
   0% {
     background-position: 200% 50%;
   }
+
   100% {
     background-position: -200% 50%;
   }
@@ -441,11 +443,16 @@ th {
 
 /* Animación de parpadeo rojo para resaltar artículos */
 @keyframes highlight-pulse {
-  0%, 100% {
-    background-color: rgb(254 226 226); /* rose-100 */
+
+  0%,
+  100% {
+    background-color: rgb(254 226 226);
+    /* rose-100 */
   }
+
   50% {
-    background-color: rgb(254 202 202); /* rose-200 */
+    background-color: rgb(254 202 202);
+    /* rose-200 */
   }
 }
 
