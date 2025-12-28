@@ -96,63 +96,147 @@ type TickerSearchResult = {
 const API_BASE = process.env.NEXT_PUBLIC_PATTERN_API_URL || 'https://api.tradeul.com/patterns';
 
 // ============================================================================
-// Expanded Chart Component (for floating window)
+// Expanded Chart Component (for floating window) - Same as GodelChart but larger
 // ============================================================================
 
 function ExpandedChart({
     forecast,
     neighbors,
+    historicalContext,
     symbol,
     date,
+    actual,
+    showActual,
 }: {
     forecast: PatternForecast;
     neighbors: PatternNeighbor[];
+    historicalContext?: HistoricalContext;
     symbol: string;
     date?: string;
+    actual?: { returns: number[]; final_return: number; direction: string; direction_correct: boolean };
+    showActual?: boolean;
 }) {
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
 
-    const width = 650;
-    const height = 350;
-    const padding = { top: 40, right: 70, bottom: 50, left: 60 };
+    const width = 700;
+    const height = 380;
+    const padding = { top: 50, right: 70, bottom: 50, left: 65 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
-    const { maxAbs, xScale, yScale } = useMemo(() => {
-        const mean = forecast.mean_trajectory;
-        const std = forecast.std_trajectory;
-        const allVals = [
-            ...neighbors.slice(0, 20).flatMap(n => n.future_returns),
-            ...mean.map((m, i) => m + std[i] * 2),
-            ...mean.map((m, i) => m - std[i] * 2)
-        ];
-        const mAbs = Math.max(Math.abs(Math.min(...allVals)), Math.abs(Math.max(...allVals)), 0.5);
-        const xS = (i: number) => padding.left + (i / (mean.length - 1)) * chartWidth;
-        const yS = (v: number) => padding.top + chartHeight / 2 - (v / mAbs) * (chartHeight / 2);
-        return { maxAbs: mAbs, xScale: xS, yScale: yS };
-    }, [forecast, neighbors, chartWidth, chartHeight]);
+    // Normalize pattern prices to cumulative returns (like neighbors)
+    const queryPattern = useMemo(() => {
+        if (!historicalContext?.pattern_prices || historicalContext.pattern_prices.length < 2) {
+            return null;
+        }
+        const prices = historicalContext.pattern_prices;
+        const basePrice = prices[0];
+        return prices.map(p => ((p / basePrice) - 1) * 100);
+    }, [historicalContext]);
 
-    const meanLine = forecast.mean_trajectory.map((v, i) => `${xScale(i)},${yScale(v)}`).join(' ');
-    const upperBand = forecast.mean_trajectory.map((m, i) => `${xScale(i)},${yScale(m + forecast.std_trajectory[i])}`).join(' ');
-    const lowerBand = forecast.mean_trajectory.map((m, i) => `${xScale(i)},${yScale(m - forecast.std_trajectory[i])}`).reverse().join(' ');
+    const beforeLength = queryPattern?.length || 45;
+    const afterLength = forecast.mean_trajectory.length;
+    const totalLength = beforeLength + afterLength;
+    const t0Index = beforeLength;
+
+    // Offset for continuity: value at t₀ (end of query pattern)
+    const t0Offset = queryPattern ? queryPattern[queryPattern.length - 1] : 0;
+
+    const { maxAbs, xScale, yScale } = useMemo(() => {
+        const allVals: number[] = [];
+
+        if (queryPattern) {
+            allVals.push(...queryPattern);
+        }
+
+        neighbors.slice(0, 30).forEach(n => {
+            allVals.push(...n.future_returns.map(v => v + t0Offset));
+        });
+        allVals.push(...forecast.mean_trajectory.map((m, i) => m + forecast.std_trajectory[i] + t0Offset));
+        allVals.push(...forecast.mean_trajectory.map((m, i) => m - forecast.std_trajectory[i] + t0Offset));
+
+        if (showActual && actual?.returns) {
+            allVals.push(...actual.returns.map(v => v + t0Offset));
+        }
+
+        const mAbs = Math.max(
+            Math.abs(Math.min(...allVals, -0.5)),
+            Math.abs(Math.max(...allVals, 0.5)),
+            0.5
+        );
+
+        const xS = (i: number) => padding.left + (i / (totalLength - 1)) * chartWidth;
+        const yS = (v: number) => padding.top + chartHeight / 2 - (v / mAbs) * (chartHeight / 2);
+
+        return { maxAbs: mAbs, xScale: xS, yScale: yS };
+    }, [forecast, neighbors, queryPattern, totalLength, chartWidth, chartHeight, showActual, actual, t0Offset]);
+
+    const queryLine = queryPattern
+        ? queryPattern.map((v, i) => `${xScale(i)},${yScale(v)}`).join(' ')
+        : '';
+
+    const forecastLine = forecast.mean_trajectory
+        .map((v, i) => `${xScale(t0Index + i)},${yScale(v + t0Offset)}`)
+        .join(' ');
+
+    const upperBand = forecast.mean_trajectory
+        .map((m, i) => `${xScale(t0Index + i)},${yScale(m + forecast.std_trajectory[i] + t0Offset)}`)
+        .join(' ');
+    const lowerBand = forecast.mean_trajectory
+        .map((m, i) => `${xScale(t0Index + i)},${yScale(m - forecast.std_trajectory[i] + t0Offset)}`)
+        .reverse()
+        .join(' ');
     const bandPath = `M${upperBand} L${lowerBand} Z`;
 
     return (
         <div className="h-full bg-white p-5" style={{ fontFamily }}>
-            <div className="flex items-baseline justify-between mb-4">
+            {/* Header */}
+            <div className="flex items-baseline justify-between mb-3">
                 <div className="flex items-baseline gap-3">
                     <span className="text-xl font-bold text-slate-800">{symbol}</span>
-                    {date && <span className="text-slate-400" style={{ fontSize: '12px' }}>{date}</span>}
+                    {date && <span className="text-slate-400" style={{ fontSize: '12px' }}>{date} {historicalContext?.pattern_end}</span>}
                     <span className="text-slate-400" style={{ fontSize: '12px' }}>+{forecast.horizon_minutes}min forecast</span>
                 </div>
-                <div className="flex items-center gap-4" style={{ fontSize: '12px' }}>
-                    <span className="text-emerald-600 font-semibold">{(forecast.prob_up * 100).toFixed(0)}% UP</span>
-                    <span className="text-red-500 font-semibold">{(forecast.prob_down * 100).toFixed(0)}% DOWN</span>
+                <div className="flex items-center gap-4" style={{ fontSize: '11px' }}>
+                    <span className="flex items-center gap-1">
+                        <span className="w-4 h-0.5 bg-slate-700 inline-block"></span>
+                        <span className="text-slate-500">Query</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-4 h-0.5 bg-blue-500 inline-block" style={{ borderStyle: 'dashed' }}></span>
+                        <span className="text-slate-500">Forecast</span>
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span className="w-4 h-0.5 bg-slate-400 inline-block opacity-50"></span>
+                        <span className="text-slate-500">Neighbors</span>
+                    </span>
+                    {showActual && actual && (
+                        <span className="flex items-center gap-1">
+                            <span className={`w-4 h-0.5 inline-block ${actual.final_return >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+                            <span className="text-slate-500">Actual</span>
+                        </span>
+                    )}
                 </div>
             </div>
 
             <svg width={width} height={height}>
+                {/* Background regions */}
+                <rect
+                    x={padding.left}
+                    y={padding.top}
+                    width={xScale(t0Index) - padding.left}
+                    height={chartHeight}
+                    fill="#f8fafc"
+                />
+                <rect
+                    x={xScale(t0Index)}
+                    y={padding.top}
+                    width={padding.left + chartWidth - xScale(t0Index)}
+                    height={chartHeight}
+                    fill="#fefefe"
+                />
+
                 {/* Grid */}
                 {[-maxAbs, -maxAbs / 2, 0, maxAbs / 2, maxAbs].map((v, i) => (
                     <g key={i}>
@@ -161,71 +245,152 @@ function ExpandedChart({
                             y1={yScale(v)}
                             x2={padding.left + chartWidth}
                             y2={yScale(v)}
-                            stroke={v === 0 ? '#64748b' : '#e2e8f0'}
-                            strokeWidth={v === 0 ? 1.5 : 1}
-                            strokeDasharray={v === 0 ? 'none' : '4,4'}
+                            stroke={v === 0 ? '#94a3b8' : '#e2e8f0'}
+                            strokeWidth={v === 0 ? 1 : 0.5}
                         />
-                        <text x={padding.left - 8} y={yScale(v) + 4} textAnchor="end" fill="#64748b" style={{ fontSize: '11px' }}>
-                            {v > 0 ? '+' : ''}{v.toFixed(1)}%
+                        <text x={padding.left - 10} y={yScale(v) + 4} textAnchor="end" fill="#94a3b8" style={{ fontSize: '11px' }}>
+                            {v > 0 ? '+' : ''}{v.toFixed(2)}%
                         </text>
                     </g>
                 ))}
 
-                {/* X axis */}
-                {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => {
-                    const idx = Math.floor(pct * (forecast.mean_trajectory.length - 1));
-                    const min = Math.round(pct * forecast.horizon_minutes);
-                    return (
-                        <text key={i} x={xScale(idx)} y={height - 15} textAnchor="middle" fill="#64748b" style={{ fontSize: '10px' }}>
-                            {pct === 0 ? 'Now' : `+${min}m`}
-                        </text>
-                    );
-                })}
+                {/* t₀ vertical line */}
+                <line
+                    x1={xScale(t0Index)}
+                    y1={padding.top - 5}
+                    x2={xScale(t0Index)}
+                    y2={padding.top + chartHeight + 5}
+                    stroke="#64748b"
+                    strokeWidth="1"
+                    strokeDasharray="4,3"
+                />
+                <text
+                    x={xScale(t0Index)}
+                    y={padding.top - 12}
+                    textAnchor="middle"
+                    fill="#64748b"
+                    style={{ fontSize: '11px', fontWeight: 600 }}
+                >
+                    t₀
+                </text>
 
-                {/* Neighbor trajectories */}
-                {neighbors.slice(0, 20).map((n, idx) => {
-                    const pts = n.future_returns.map((v, i) => `${xScale(i)},${yScale(v)}`).join(' ');
-                    const isUp = n.future_returns[n.future_returns.length - 1] > 0;
+                {/* X axis labels */}
+                <text x={padding.left + 5} y={height - 15} fill="#94a3b8" style={{ fontSize: '10px' }}>
+                    before
+                </text>
+                <text x={padding.left + chartWidth - 5} y={height - 15} textAnchor="end" fill="#94a3b8" style={{ fontSize: '10px' }}>
+                    after (+{forecast.horizon_minutes}min)
+                </text>
+
+                {/* Neighbor trajectories (after t₀) */}
+                {neighbors.slice(0, 30).map((n, idx) => {
+                    const pts = [
+                        `${xScale(t0Index)},${yScale(t0Offset)}`,
+                        ...n.future_returns.map((v, i) => `${xScale(t0Index + i + 1)},${yScale(v + t0Offset)}`)
+                    ].join(' ');
                     return (
-                        <polyline key={idx} points={pts} fill="none" stroke={isUp ? '#10b981' : '#ef4444'} strokeWidth="1.5" opacity="0.2" />
+                        <polyline
+                            key={idx}
+                            points={pts}
+                            fill="none"
+                            stroke="#64748b"
+                            strokeWidth="1.2"
+                            opacity="0.25"
+                        />
                     );
                 })}
 
                 {/* Confidence band */}
-                <path d={bandPath} fill="rgba(59, 130, 246, 0.12)" />
+                <path d={bandPath} fill="rgba(59, 130, 246, 0.1)" />
 
-                {/* Mean trajectory */}
-                <polyline points={meanLine} fill="none" stroke="#3b82f6" strokeWidth="3.5" strokeLinecap="round" />
+                {/* Query pattern line (before t₀) */}
+                {queryLine && (
+                    <polyline
+                        points={queryLine}
+                        fill="none"
+                        stroke="#1e293b"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                    />
+                )}
 
-                {/* End marker */}
-                <circle
-                    cx={xScale(forecast.mean_trajectory.length - 1)}
-                    cy={yScale(forecast.mean_return)}
-                    r="7"
-                    fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
-                    stroke="white"
-                    strokeWidth="3"
+                {/* Forecast mean line (after t₀) */}
+                <polyline
+                    points={`${xScale(t0Index)},${yScale(t0Offset)} ${forecastLine}`}
+                    fill="none"
+                    stroke="#3b82f6"
+                    strokeWidth="2.5"
+                    strokeDasharray="6,3"
+                    strokeLinecap="round"
                 />
 
-                {/* End value */}
+                {/* Actual line (after t₀) */}
+                {showActual && actual?.returns && actual.returns.length > 0 && (
+                    <>
+                        <polyline
+                            points={[
+                                `${xScale(t0Index)},${yScale(t0Offset)}`,
+                                ...actual.returns.map((v, i) => `${xScale(t0Index + i + 1)},${yScale(v + t0Offset)}`)
+                            ].join(' ')}
+                            fill="none"
+                            stroke={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                        />
+                        <circle
+                            cx={xScale(t0Index + actual.returns.length)}
+                            cy={yScale(actual.final_return + t0Offset)}
+                            r="6"
+                            fill={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
+                            stroke="white"
+                            strokeWidth="2"
+                        />
+                        <text
+                            x={xScale(t0Index + actual.returns.length) + 12}
+                            y={yScale(actual.final_return + t0Offset) - 8}
+                            fill={actual.final_return >= 0 ? '#10b981' : '#ef4444'}
+                            fontWeight="700"
+                            style={{ fontSize: '13px' }}
+                        >
+                            {actual.final_return >= 0 ? '+' : ''}{actual.final_return.toFixed(2)}% actual
+                        </text>
+                    </>
+                )}
+
+                {/* Forecast end marker */}
+                <circle
+                    cx={xScale(totalLength - 1)}
+                    cy={yScale(forecast.mean_return + t0Offset)}
+                    r="6"
+                    fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
+                    stroke="white"
+                    strokeWidth="2"
+                    opacity={showActual && actual ? 0.5 : 1}
+                />
                 <text
-                    x={xScale(forecast.mean_trajectory.length - 1) + 14}
-                    y={yScale(forecast.mean_return) + 5}
+                    x={xScale(totalLength - 1) + 12}
+                    y={yScale(forecast.mean_return + t0Offset) + 5}
                     fill={forecast.mean_return >= 0 ? '#10b981' : '#ef4444'}
                     fontWeight="700"
-                    style={{ fontSize: '14px' }}
+                    style={{ fontSize: '13px' }}
+                    opacity={showActual && actual ? 0.5 : 1}
                 >
                     {forecast.mean_return >= 0 ? '+' : ''}{forecast.mean_return.toFixed(2)}%
                 </text>
 
-                {/* Title */}
-                <text x={padding.left} y={25} fill="#334155" fontWeight="600" style={{ fontSize: '13px' }}>
-                    Expected Trajectory (mean ± 1σ)
-                </text>
+                {/* t₀ marker dot */}
+                <circle
+                    cx={xScale(t0Index)}
+                    cy={yScale(queryPattern ? queryPattern[queryPattern.length - 1] : 0)}
+                    r="4"
+                    fill="#1e293b"
+                    stroke="white"
+                    strokeWidth="2"
+                />
             </svg>
 
             {/* Stats */}
-            <div className="flex gap-8 mt-4 pt-4 border-t border-slate-100" style={{ fontSize: '12px' }}>
+            <div className="flex gap-6 mt-3 pt-3 border-t border-slate-100" style={{ fontSize: '12px' }}>
                 <div>
                     <span className="text-slate-400">Mean</span>
                     <span className={`ml-2 font-mono font-bold ${forecast.mean_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
@@ -239,11 +404,15 @@ function ExpandedChart({
                     </span>
                 </div>
                 <div>
-                    <span className="text-slate-400">Best (90th)</span>
+                    <span className="text-slate-400">Prob Up</span>
+                    <span className="ml-2 font-mono font-bold text-emerald-600">{(forecast.prob_up * 100).toFixed(0)}%</span>
+                </div>
+                <div>
+                    <span className="text-slate-400">Best</span>
                     <span className="ml-2 font-mono font-bold text-emerald-600">+{forecast.best_case.toFixed(2)}%</span>
                 </div>
                 <div>
-                    <span className="text-slate-400">Worst (10th)</span>
+                    <span className="text-slate-400">Worst</span>
                     <span className="ml-2 font-mono font-bold text-red-500">{forecast.worst_case.toFixed(2)}%</span>
                 </div>
                 <div>
@@ -938,18 +1107,21 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                 <ExpandedChart
                     forecast={result.forecast}
                     neighbors={result.neighbors}
+                    historicalContext={result.historical_context}
                     symbol={result.query.symbol}
                     date={result.query.date}
+                    actual={result.actual}
+                    showActual={showActual}
                 />
             ),
-            width: 750,
-            height: 520,
+            width: 800,
+            height: 550,
             x: 150,
             y: 100,
-            minWidth: 600,
-            minHeight: 400,
+            minWidth: 700,
+            minHeight: 450,
         });
-    }, [result, openWindow]);
+    }, [result, openWindow, showActual]);
 
     // Handler for visual selection change (doesn't search, just updates state)
     const handleVisualSelectionChange = useCallback((startTime: string | null, endTime: string | null, minutes: number) => {
