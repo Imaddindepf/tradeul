@@ -5,6 +5,65 @@ import { floatingZIndexManager } from '@/lib/z-index';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { getWindowType } from '@/lib/window-config';
 
+// ============================================================================
+// WindowId Context - permite que cualquier componente hijo conozca su windowId
+// ============================================================================
+
+const WindowIdContext = createContext<string | null>(null);
+
+/** 
+ * Provider que envuelve el contenido de cada ventana con su windowId.
+ * Usado internamente por FloatingWindowManager.
+ */
+export function WindowIdProvider({ windowId, children }: { windowId: string; children: ReactNode }) {
+  return (
+    <WindowIdContext.Provider value={windowId}>
+      {children}
+    </WindowIdContext.Provider>
+  );
+}
+
+/**
+ * Hook para obtener el windowId de la ventana actual.
+ * Cualquier componente dentro de una FloatingWindow puede usarlo.
+ * 
+ * @example
+ * function MyContent() {
+ *   const windowId = useCurrentWindowId();
+ *   const { closeWindow } = useFloatingWindow();
+ *   
+ *   return <button onClick={() => closeWindow(windowId)}>Cerrar</button>;
+ * }
+ */
+export function useCurrentWindowId(): string | null {
+  return useContext(WindowIdContext);
+}
+
+/**
+ * Hook que retorna una función para cerrar la ventana actual.
+ * Combina useCurrentWindowId + closeWindow para mayor comodidad.
+ * 
+ * @example
+ * function MyContent() {
+ *   const closeCurrentWindow = useCloseCurrentWindow();
+ *   return <button onClick={closeCurrentWindow}>Cerrar</button>;
+ * }
+ */
+export function useCloseCurrentWindow(): () => void {
+  const windowId = useCurrentWindowId();
+  const { closeWindow } = useFloatingWindow();
+
+  return useCallback(() => {
+    if (windowId) {
+      closeWindow(windowId);
+    }
+  }, [windowId, closeWindow]);
+}
+
+// ============================================================================
+// FloatingWindow Types & Context
+// ============================================================================
+
 export interface FloatingWindow {
   id: string;
   title: string;

@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, ExternalLink } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { FloatingWindow as FloatingWindowType, useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { FloatingWindow as FloatingWindowType, useFloatingWindow, WindowIdProvider } from '@/contexts/FloatingWindowContext';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 
 interface FloatingWindowProps {
@@ -404,7 +404,9 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
               </button>
             </div>
           ) : (
-            window.content
+            <WindowIdProvider windowId={window.id}>
+              {window.content}
+            </WindowIdProvider>
           )}
         </div>
       </div>

@@ -1090,6 +1090,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                             date={historicalDate}
                             onSelectionChange={handleVisualSelectionChange}
                             fontFamily={fontFamily}
+                            maxMinutes={120}
                         />
                     </div>
                 )}

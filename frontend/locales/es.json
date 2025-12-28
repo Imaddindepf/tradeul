@@ -1,5 +1,12 @@
 {
   "landing": {
+    "nav": {
+      "products": "Productos",
+      "tools": "Herramientas",
+      "solutions": "Soluciones",
+      "resources": "Recursos",
+      "signUp": "Regístrate"
+    },
     "hero": {
       "title1": "Ve lo que",
       "title2": "otros no ven",

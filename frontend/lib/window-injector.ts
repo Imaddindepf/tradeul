@@ -1191,11 +1191,11 @@ function injectNewsContent(
     function formatDateTime(isoString) {
       if (!isoString) return { date: '—', time: '—' };
       try {
-        const d = new Date(isoString);
-        return {
-          date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
-          time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-        };
+        // Extract date/time directly from ISO string (same as floating window React)
+        // This preserves the original time without timezone conversion
+        const [datePart, timePart] = isoString.split('T');
+        const timeOnly = timePart ? timePart.split(/[-+]/)[0] : '—';
+        return { date: datePart || '—', time: timeOnly };
       } catch { return { date: '—', time: '—' }; }
     }
     
@@ -1407,37 +1407,156 @@ function injectSECFilingsContent(
   <script>
     const CONFIG = ${JSON.stringify(data)};
     
+    // ============================================================
+    // STATE (same as floating window React)
+    // ============================================================
     let sharedWorker = null;
     let workerPort = null;
     let isConnected = false;
     let isPaused = false;
-    let filingsData = [];
-    let seenIds = new Set();
+    let isLoading = false;
+    let historicalFilings = [];
+    let realtimeFilings = [];
+    let seenAccessions = new Set();
+    let realtimeAccessions = new Set();
     let pausedBuffer = [];
+    let totalResults = 0;
+    let currentPage = 1;
+    const PAGE_SIZE = 100;
+    
+    // Filters state
+    let filters = {
+      ticker: '',
+      categories: [],
+      formTypes: [],
+      items8K: [],
+      dateFrom: '',
+      dateTo: '',
+    };
+    
+    // Filing categories (exact copy from sec-filing-types.ts)
+    const FILING_CATEGORIES = {
+      offerings: {
+        label: 'Offerings',
+        types: ['S-1', 'S-1/A', 'S-1MEF', 'S-3', 'S-3/A', 'S-3ASR', 'S-3MEF', 'S-3D', 'F-1', 'F-1/A', 'F-3', 'F-3ASR', '424B1', '424B2', '424B3', '424B4', '424B5', '424B7', '424B8', 'FWP', 'POS AM', 'EFFECT', '1-A', '1-A POS', 'D', 'D/A'],
+      },
+      insider: {
+        label: 'Insider',
+        types: ['3', '4', '5', '144'],
+      },
+      institutional: {
+        label: 'Institutional',
+        types: ['SC 13D', 'SC 13D/A', 'SC 13G', 'SC 13G/A', '13F-HR', '13F-NT'],
+      },
+      material: {
+        label: '8-K Events',
+        types: ['8-K', '8-K/A', '6-K', '6-K/A'],
+      },
+      mna: {
+        label: 'M&A',
+        types: ['S-4', 'S-4/A', 'F-4', 'F-4/A', '425', 'SC TO-T', 'SC TO-I', 'SC TO-C', 'SC 14D9', 'SC 14D9/A', 'SC 13E3', 'DEFM14A'],
+      },
+      distress: {
+        label: 'Distress',
+        types: ['NT 10-K', 'NT 10-Q', 'NT 20-F', '15-12B', '15-12G', '15-15D', '25-NSE', 'RW'],
+      },
+    };
+    
+    // Quick filters (exact copy from sec-filing-types.ts)
+    const QUICK_FILTERS = {
+      offerings: { label: 'Offerings', categories: ['offerings'], items8K: [] },
+      insider: { label: 'Insider', categories: ['insider'], items8K: [] },
+      institutional: { label: '13D/13F', categories: ['institutional'], items8K: [] },
+      critical8K: { label: '8-K Critical', categories: [], items8K: ['1.03', '2.02', '2.04', '2.06', '3.01', '4.02', '5.01'] },
+      mna: { label: 'M&A', categories: ['mna'], items8K: [] },
+      distress: { label: 'Distress', categories: ['distress'], items8K: ['1.03', '2.04', '3.01'] },
+    };
     
     console.log('🚀 [SEC Window] Init');
     
     // ============================================================
-    // FETCH INITIAL FILINGS
+    // HELPERS
     // ============================================================
-    async function fetchInitialFilings() {
+    function getFilterFormTypes() {
+      const types = [];
+      filters.categories.forEach(catKey => {
+        const cat = FILING_CATEGORIES[catKey];
+        if (cat) types.push(...cat.types);
+      });
+      types.push(...filters.formTypes);
+      return [...new Set(types)];
+    }
+    
+    function matchesRealtimeFilters(filing) {
+      if (filters.ticker && filing.ticker !== filters.ticker.toUpperCase()) return false;
+      
+      const allowedTypes = getFilterFormTypes();
+      if (allowedTypes.length > 0) {
+        const matches = allowedTypes.some(t => filing.formType === t || filing.formType.startsWith(t + '/'));
+        if (!matches) return false;
+      }
+      
+      if (filters.items8K.length > 0) {
+        if (!filing.formType.startsWith('8-K')) return false;
+        const filingItems = format8KItems(filing.items);
+        const hasItem = filters.items8K.some(item => filingItems.includes(item));
+        if (!hasItem) return false;
+      }
+      
+      return true;
+    }
+    
+    function format8KItems(items) {
+      if (!items || items.length === 0) return '';
+      return items.map(item => {
+        const match = item.match(/Item\\s+(\\d+\\.\\d+)/i);
+        return match ? match[1] : null;
+      }).filter(Boolean).join(', ');
+    }
+    
+    // ============================================================
+    // FETCH FILINGS (same logic as floating window)
+    // ============================================================
+    async function fetchFilings(page = 1) {
+      isLoading = true;
+      renderTable();
+      
       try {
-        console.log('📄 Fetching from:', CONFIG.secApiBaseUrl + '/api/v1/filings/live?page_size=200');
-        const response = await fetch(CONFIG.secApiBaseUrl + '/api/v1/filings/live?page_size=200');
+        const params = new URLSearchParams();
+        if (filters.ticker) params.append('ticker', filters.ticker.toUpperCase());
+        
+        const formTypes = getFilterFormTypes();
+        if (formTypes.length > 0) params.append('form_types', formTypes.join(','));
+        if (filters.items8K.length > 0) params.append('items', filters.items8K.join(','));
+        if (filters.dateFrom) params.append('date_from', filters.dateFrom);
+        if (filters.dateTo) params.append('date_to', filters.dateTo);
+        
+        params.append('page_size', PAGE_SIZE.toString());
+        params.append('from_index', ((page - 1) * PAGE_SIZE).toString());
+        
+        console.log('📄 SEC Query:', CONFIG.secApiBaseUrl + '/api/v1/filings/live?' + params);
+        const response = await fetch(CONFIG.secApiBaseUrl + '/api/v1/filings/live?' + params);
         
         if (!response.ok) throw new Error('HTTP ' + response.status);
         
         const data = await response.json();
         
-        if (data.filings && data.filings.length > 0) {
-          filingsData = data.filings;
-          data.filings.forEach(f => seenIds.add(f.accessionNo));
-        }
-        renderTable();
+        historicalFilings = data.filings || [];
+        totalResults = data.total || 0;
+        currentPage = page;
+        
+        // Track seen accessions
+        seenAccessions.clear();
+        historicalFilings.forEach(f => seenAccessions.add(f.accessionNo));
+        
       } catch (error) {
         console.error('❌ Error fetching filings:', error);
-        renderTable();
+        historicalFilings = [];
+        totalResults = 0;
       }
+      
+      isLoading = false;
+      renderTable();
     }
     
     // ============================================================
@@ -1445,8 +1564,6 @@ function injectSECFilingsContent(
     // ============================================================
     function initWebSocket() {
       try {
-        console.log('🔌 [SEC Window] Connecting to SharedWorker');
-        
         sharedWorker = new SharedWorker(CONFIG.workerUrl, { name: 'tradeul-websocket' });
         workerPort = sharedWorker.port;
         
@@ -1458,11 +1575,11 @@ function injectSECFilingsContent(
               handleWebSocketMessage(msg.data);
               break;
             case 'status':
-              updateConnectionStatus(msg.isConnected);
+              isConnected = msg.isConnected;
               if (msg.isConnected) {
                 workerPort.postMessage({ action: 'subscribe_sec' });
-                console.log('✅ [SEC Window] Subscribed to SEC filings');
               }
+              renderTable();
               break;
           }
         };
@@ -1480,167 +1597,273 @@ function injectSECFilingsContent(
         const filing = message.filing;
         const id = filing.accessionNo;
         
-        if (id && !seenIds.has(id)) {
-          seenIds.add(id);
+        if (id && !seenAccessions.has(id)) {
+          seenAccessions.add(id);
+          realtimeAccessions.add(id);
           const liveFiling = { ...filing, isLive: true };
           
           if (isPaused) {
             pausedBuffer.unshift(liveFiling);
           } else {
-            filingsData.unshift(liveFiling);
+            realtimeFilings.unshift(liveFiling);
+            realtimeFilings = realtimeFilings.slice(0, 50); // Keep max 50
             renderTable();
           }
         }
       }
     }
     
-    function updateConnectionStatus(connected) {
-      isConnected = connected;
-      const dot = document.getElementById('status-dot');
-      const text = document.getElementById('status-text');
-      
-      if (dot) {
-        dot.className = connected 
-          ? 'w-1.5 h-1.5 rounded-full bg-emerald-500' 
-          : 'w-1.5 h-1.5 rounded-full bg-slate-300';
-      }
-      if (text) {
-        text.textContent = connected ? 'Live' : 'Offline';
-        text.className = connected ? 'text-xs font-medium text-emerald-600' : 'text-xs font-medium text-slate-500';
-      }
+    // ============================================================
+    // FILTER HANDLERS
+    // ============================================================
+    window.handleTickerSearch = function(e) {
+      e.preventDefault();
+      filters.ticker = document.getElementById('ticker-input').value.trim();
+      fetchFilings(1);
     }
     
-    // ============================================================
-    // PAUSE/PLAY
-    // ============================================================
+    window.clearTicker = function() {
+      filters.ticker = '';
+      document.getElementById('ticker-input').value = '';
+      fetchFilings(1);
+    }
+    
+    window.setDateFrom = function(val) {
+      filters.dateFrom = val;
+      fetchFilings(1);
+    }
+    
+    window.setDateTo = function(val) {
+      filters.dateTo = val;
+      fetchFilings(1);
+    }
+    
+    window.clearDates = function() {
+      filters.dateFrom = '';
+      filters.dateTo = '';
+      fetchFilings(1);
+    }
+    
+    window.toggleQuickFilter = function(key) {
+      const qf = QUICK_FILTERS[key];
+      const isActive = qf.categories.length > 0 
+        ? qf.categories.every(c => filters.categories.includes(c))
+        : qf.items8K.length > 0 
+          ? qf.items8K.every(i => filters.items8K.includes(i))
+          : false;
+      
+      if (isActive) {
+        // Deactivate
+        filters.categories = filters.categories.filter(c => !qf.categories.includes(c));
+        filters.items8K = filters.items8K.filter(i => !qf.items8K.includes(i));
+      } else {
+        // Activate (replace)
+        filters.categories = [...qf.categories];
+        filters.items8K = [...qf.items8K];
+      }
+      fetchFilings(1);
+    }
+    
+    window.clearAllFilters = function() {
+      filters = { ticker: '', categories: [], formTypes: [], items8K: [], dateFrom: '', dateTo: '' };
+      realtimeFilings = [];
+      realtimeAccessions.clear();
+      fetchFilings(1);
+    }
+    
     window.togglePause = function() {
       isPaused = !isPaused;
-      
       if (!isPaused && pausedBuffer.length > 0) {
-        filingsData = [...pausedBuffer, ...filingsData];
+        realtimeFilings = [...pausedBuffer, ...realtimeFilings];
         pausedBuffer = [];
       }
-      
       renderTable();
     }
     
+    window.goToPage = function(page) {
+      fetchFilings(page);
+    }
+    
     // ============================================================
-    // RENDER
+    // RENDER (exact replica of floating window)
     // ============================================================
     function formatDateTime(isoString) {
       if (!isoString) return { date: '—', time: '—' };
       try {
-        const d = new Date(isoString);
-        return {
-          date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
-          time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-        };
+        const [datePart, timePart] = isoString.split('T');
+        const timeOnly = timePart ? timePart.split(/[-+]/)[0] : '—';
+        return { date: datePart || '—', time: timeOnly };
       } catch { return { date: '—', time: '—' }; }
     }
     
     function getFormTypeColor(formType) {
-      const t = (formType || '').toUpperCase();
-      if (t.includes('S-1') || t.includes('S-3') || t.includes('S-4') || t.includes('S-8') || t.includes('S-11')) 
-        return 'bg-red-100 text-red-700';
-      if (t.includes('10-K') || t.includes('10-Q')) 
-        return 'bg-blue-100 text-blue-700';
-      if (t.includes('8-K')) 
-        return 'bg-amber-100 text-amber-700';
-      if (t.includes('4') || t.includes('3') || t.includes('5')) 
-        return 'bg-purple-100 text-purple-700';
-      if (t.includes('SC 13') || t.includes('13D') || t.includes('13G') || t.includes('13F')) 
-        return 'bg-emerald-100 text-emerald-700';
-      return 'bg-slate-100 text-slate-700';
+      const ft = formType || '';
+      for (const [key, cat] of Object.entries(FILING_CATEGORIES)) {
+        if (cat.types.some(t => ft === t || ft.startsWith(t + '/'))) {
+          switch (key) {
+            case 'offerings': return 'bg-rose-50 text-rose-700 border-rose-200';
+            case 'insider': return 'bg-amber-50 text-amber-700 border-amber-200';
+            case 'institutional': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+            case 'material': return 'bg-blue-50 text-blue-700 border-blue-200';
+            case 'mna': return 'bg-purple-50 text-purple-700 border-purple-200';
+            case 'distress': return 'bg-red-50 text-red-700 border-red-200';
+          }
+        }
+      }
+      return 'bg-slate-50 text-slate-600 border-slate-200';
+    }
+    
+    function truncateDescription(desc, maxLen = 80) {
+      if (!desc) return '';
+      return desc.length > maxLen ? desc.substring(0, maxLen) + '...' : desc;
     }
     
     function renderTable() {
-      const liveCount = filingsData.filter(f => f.isLive).length;
-      const statusDotClass = isConnected ? 'w-1.5 h-1.5 rounded-full bg-emerald-500' : 'w-1.5 h-1.5 rounded-full bg-slate-300';
-      const statusText = isConnected ? 'Live' : 'Offline';
-      const statusTextClass = isConnected ? 'text-xs font-medium text-emerald-600' : 'text-xs font-medium text-slate-500';
+      // Merge realtime + historical (same logic as floating window)
+      const filingMap = new Map();
       
-      const pauseBtnClass = isPaused 
-        ? 'px-2 py-0.5 text-xs font-medium rounded bg-emerald-600 hover:bg-emerald-700 text-white'
-        : 'px-2 py-0.5 text-xs font-medium rounded bg-amber-600 hover:bg-amber-700 text-white';
-      const pauseBtnText = isPaused ? '▶ Play' : '❚❚ Pause';
-      const pausedInfo = isPaused && pausedBuffer.length > 0 
-        ? '<span class="text-amber-600 text-xs font-medium">(+' + pausedBuffer.length + ')</span>' 
-        : '';
+      // Historical first
+      historicalFilings.forEach(f => {
+        if (f.accessionNo && !filingMap.has(f.accessionNo)) {
+          filingMap.set(f.accessionNo, f);
+        }
+      });
+      
+      // Realtime (filtered) - goes on top
+      realtimeFilings.filter(matchesRealtimeFilters).forEach(f => {
+        if (f.accessionNo && !filingMap.has(f.accessionNo)) {
+          filingMap.set(f.accessionNo, { ...f, isLive: true });
+        }
+      });
+      
+      const displayedFilings = Array.from(filingMap.values());
+      displayedFilings.sort((a, b) => new Date(b.filedAt).getTime() - new Date(a.filedAt).getTime());
+      
+      const liveCount = realtimeFilings.filter(matchesRealtimeFilters).length;
+      const hasFilters = filters.ticker || filters.categories.length > 0 || filters.items8K.length > 0 || filters.dateFrom || filters.dateTo;
+      const totalPages = Math.max(1, Math.ceil(totalResults / PAGE_SIZE));
       
       const html = \`
         <div class="h-screen flex flex-col bg-white">
-          <!-- Header -->
-          <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
-            <div class="flex items-center gap-4">
-              <div class="flex items-center gap-2">
-                <div class="w-1 h-6 bg-blue-500 rounded-full"></div>
-                <h2 class="text-base font-bold text-slate-900">SEC Filings</h2>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <div id="status-dot" class="\${statusDotClass}"></div>
-                <span id="status-text" class="\${statusTextClass}">\${statusText}</span>
-              </div>
-              <button onclick="togglePause()" class="\${pauseBtnClass}">\${pauseBtnText}</button>
-              \${pausedInfo}
+          <!-- Header Row 1: Search, Dates, Count -->
+          <div class="flex items-center gap-2 px-3 py-1 border-b border-slate-100 bg-slate-50">
+            <form onsubmit="handleTickerSearch(event)" class="flex items-center gap-1">
+              <input id="ticker-input" type="text" value="\${filters.ticker}" placeholder="Ticker"
+                class="w-20 px-2 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400" />
+              <button type="submit" class="px-2 py-0.5 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700">
+                \${isLoading ? '...' : 'Go'}
+              </button>
+            </form>
+            
+            <span class="text-slate-300">|</span>
+            
+            <div class="flex items-center gap-1 text-[10px]">
+              <input type="date" value="\${filters.dateFrom}" onchange="setDateFrom(this.value)" 
+                class="w-[100px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400" />
+              <span class="text-slate-300">-</span>
+              <input type="date" value="\${filters.dateTo}" onchange="setDateTo(this.value)"
+                class="w-[100px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400" />
+              \${(filters.dateFrom || filters.dateTo) ? '<button onclick="clearDates()" class="p-0.5 text-slate-400 hover:text-slate-600">✕</button>' : ''}
             </div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-600 font-mono">\${filingsData.length}</span>
-              \${liveCount > 0 ? '<span class="text-xs text-emerald-600">(' + liveCount + ' live)</span>' : ''}
+            
+            <div class="flex-1"></div>
+            
+            <div class="flex items-center gap-2 text-[10px] text-slate-500">
+              <span class="tabular-nums font-medium">\${displayedFilings.length}</span>
+              \${liveCount > 0 ? \`<span class="text-emerald-600 flex items-center gap-1"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>\${liveCount}</span>\` : ''}
             </div>
+            
+            \${hasFilters ? '<button onclick="clearAllFilters()" class="px-1.5 py-0.5 text-[9px] text-slate-500 hover:text-slate-700 border border-slate-200 rounded">Clear</button>' : ''}
+          </div>
+          
+          <!-- Header Row 2: Quick Filters -->
+          <div class="flex items-center gap-1 px-3 py-1 border-b border-slate-200 bg-white">
+            \${Object.entries(QUICK_FILTERS).map(([key, qf]) => {
+              const isActive = qf.categories.length > 0 
+                ? qf.categories.every(c => filters.categories.includes(c))
+                : qf.items8K.length > 0 
+                  ? qf.items8K.every(i => filters.items8K.includes(i))
+                  : false;
+              return \`<button onclick="toggleQuickFilter('\${key}')" class="px-2 py-0.5 text-[10px] rounded border \${isActive ? 'bg-blue-600 text-white border-blue-600' : 'text-slate-600 border-slate-200 hover:border-slate-400'}">\${qf.label}</button>\`;
+            }).join('')}
+            
+            <div class="flex-1"></div>
+            
+            <button onclick="togglePause()" class="px-2 py-0.5 text-[10px] font-medium rounded \${isPaused ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'}">\${isPaused ? '▶ Play' : '❚❚ Pause'}</button>
+            \${isPaused && pausedBuffer.length > 0 ? '<span class="text-amber-600 text-xs">(+' + pausedBuffer.length + ')</span>' : ''}
           </div>
           
           <!-- Table -->
           <div class="flex-1 overflow-auto">
-            <table class="w-full border-collapse text-xs">
-              <thead class="bg-slate-100 sticky top-0">
-                <tr class="text-left text-slate-600 uppercase tracking-wide">
-                  <th class="px-2 py-1.5 font-medium w-16 text-center">Ticker</th>
-                  <th class="px-2 py-1.5 font-medium w-20 text-center">Form</th>
-                  <th class="px-2 py-1.5 font-medium">Company</th>
-                  <th class="px-2 py-1.5 font-medium w-24 text-center">Date</th>
-                  <th class="px-2 py-1.5 font-medium w-20 text-center">Time</th>
-                  <th class="px-2 py-1.5 font-medium w-20 text-center">Link</th>
+            <table class="w-full border-collapse text-[11px]">
+              <thead class="bg-slate-50 sticky top-0">
+                <tr>
+                  <th class="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Ticker</th>
+                  <th class="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Form</th>
+                  <th class="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
+                  <th class="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Date</th>
+                  <th class="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Time</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
-                \${filingsData.length === 0 ? \`
-                  <tr>
-                    <td colspan="6" class="px-4 py-8 text-center text-slate-500">
-                      No hay filings disponibles. Esperando datos...
-                    </td>
-                  </tr>
-                \` : filingsData.map(filing => {
+                \${isLoading ? \`
+                  <tr><td colspan="5" class="px-3 py-8 text-center text-slate-500">Loading filings...</td></tr>
+                \` : displayedFilings.length === 0 ? \`
+                  <tr><td colspan="5" class="px-3 py-8 text-center text-slate-500">No filings found</td></tr>
+                \` : displayedFilings.map(filing => {
                   const dt = formatDateTime(filing.filedAt);
                   const formColorClass = getFormTypeColor(filing.formType);
-                  const isLive = filing.isLive;
+                  const isRealtime = realtimeAccessions.has(filing.accessionNo);
                   const link = filing.linkToHtml || filing.linkToFilingDetails || '';
+                  const itemsText = filing.formType && filing.formType.startsWith('8-K') ? format8KItems(filing.items) : '';
                   
                   return \`
-                    <tr class="filing-row cursor-pointer \${isLive ? 'live' : ''}" onclick="window.open('\${link}', '_blank')">
-                      <td class="px-2 py-1 text-center">
-                        <div class="flex items-center justify-center gap-1">
-                          \${isLive ? '<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>' : ''}
-                          <span class="text-blue-600 font-mono font-semibold">\${filing.ticker || '—'}</span>
-                        </div>
+                    <tr class="hover:bg-blue-50 cursor-pointer \${isRealtime ? 'bg-emerald-50/30' : ''}" onclick="window.open('\${link}', '_blank')">
+                      <td class="px-3 py-1 whitespace-nowrap">
+                        <span class="font-medium \${filing.ticker ? 'text-slate-900' : 'text-slate-400'}">\${filing.ticker || '--'}</span>
                       </td>
-                      <td class="px-2 py-1 text-center">
-                        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium \${formColorClass}">\${filing.formType}</span>
+                      <td class="px-3 py-1 whitespace-nowrap">
+                        <span class="inline-block px-1.5 py-0.5 text-[10px] rounded border \${formColorClass}">\${filing.formType}</span>
                       </td>
-                      <td class="px-2 py-1 text-slate-700 truncate" style="max-width:400px">\${filing.companyName || '—'}</td>
-                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.date}</td>
-                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.time}</td>
-                      <td class="px-2 py-1 text-center">
-                        <a href="\${link}" target="_blank" class="text-blue-600 hover:text-blue-800" onclick="event.stopPropagation()">
-                          <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                          </svg>
-                        </a>
+                      <td class="px-3 py-1">
+                        <span class="text-slate-600 truncate">
+                          \${itemsText ? '<span class="text-slate-400 mr-1">[' + itemsText + ']</span>' : ''}
+                          \${truncateDescription(filing.description, itemsText ? 50 : 80)}
+                        </span>
                       </td>
+                      <td class="px-3 py-1 whitespace-nowrap text-right text-slate-500 tabular-nums">\${dt.date}</td>
+                      <td class="px-3 py-1 whitespace-nowrap text-right text-slate-400 tabular-nums">\${dt.time}</td>
                     </tr>
                   \`;
                 }).join('')}
               </tbody>
             </table>
+          </div>
+          
+          <!-- Footer: Pagination -->
+          <div class="flex items-center justify-between px-3 py-1 border-t border-slate-200 bg-slate-50 text-[10px] text-slate-500">
+            <div class="flex items-center gap-2">
+              <span class="tabular-nums">\${totalResults.toLocaleString()} total</span>
+              <span class="text-slate-300">|</span>
+              <span>Page \${currentPage} of \${totalPages}</span>
+            </div>
+            
+            <div class="flex items-center gap-1">
+              <button onclick="goToPage(1)" \${currentPage === 1 ? 'disabled' : ''} class="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30">«</button>
+              <button onclick="goToPage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''} class="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30">‹</button>
+              \${[...Array(5)].map((_, i) => {
+                const p = currentPage - 2 + i;
+                if (p < 1 || p > totalPages) return '';
+                return \`<button onclick="goToPage(\${p})" class="px-1.5 py-0.5 rounded tabular-nums \${p === currentPage ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'}">\${p}</button>\`;
+              }).join('')}
+              <button onclick="goToPage(\${currentPage + 1})" \${currentPage >= totalPages ? 'disabled' : ''} class="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30">›</button>
+              <button onclick="goToPage(\${totalPages})" \${currentPage >= totalPages ? 'disabled' : ''} class="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-100 disabled:opacity-30">»</button>
+            </div>
+            
+            <div class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full \${isConnected ? 'bg-emerald-500' : 'bg-slate-300'}"></span>
+              <span>\${isConnected ? 'Live' : 'Offline'}</span>
+            </div>
           </div>
         </div>
       \`;
@@ -1651,7 +1874,7 @@ function injectSECFilingsContent(
     // ============================================================
     // INIT
     // ============================================================
-    fetchInitialFilings();
+    fetchFilings(1);
     initWebSocket();
     console.log('✅ SEC Window initialized');
   </script>

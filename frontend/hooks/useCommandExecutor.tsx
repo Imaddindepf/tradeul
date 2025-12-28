@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
 import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from '@/components/floating-window';
@@ -23,20 +23,10 @@ import { PatternMatchingContent } from '@/components/pattern-matching';
 import { RatioAnalysisContent } from '@/components/ratio-analysis';
 import { ScreenerContent } from '@/components/screener';
 
-// Wrapper para TickerStrip que obtiene onClose del contexto de ventana
+// Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
-    const { closeWindow, windows } = useFloatingWindow();
-
-    // Encontrar el ID de esta ventana por el título
-    const windowId = windows.find(w => w.title === `Quote: ${symbol}`)?.id;
-
-    const handleClose = () => {
-        if (windowId) {
-            closeWindow(windowId);
-        }
-    };
-
-    return <TickerStrip symbol={symbol} exchange={exchange} onClose={handleClose} />;
+    const closeCurrentWindow = useCloseCurrentWindow();
+    return <TickerStrip symbol={symbol} exchange={exchange} onClose={closeCurrentWindow} />;
 }
 
 /**
@@ -96,11 +86,7 @@ export function useCommandExecutor() {
         if (categoryId === 'with_news') {
             return openWindow({
                 title,
-                content: (
-                    <TickersWithNewsContent
-                        title={category.name}
-                    />
-                ),
+                content: <TickersWithNewsContent title={category.name} />,
                 width: 900,
                 height: 500,
                 x: baseX + offsetX,
@@ -117,8 +103,6 @@ export function useCommandExecutor() {
                 <ScannerTableContent
                     categoryId={categoryId}
                     categoryName={category.name}
-                // onClose se maneja internamente en ScannerTableContent
-                // usando el contexto actualizado de windows
                 />
             ),
             width: 850,
@@ -127,7 +111,7 @@ export function useCommandExecutor() {
             y: baseY + offsetY,
             minWidth: 500,
             minHeight: 300,
-            hideHeader: true, // La tabla del scanner tiene su propia cabecera
+            hideHeader: true,
         });
     }, [openWindow, getScannerCategory]);
 

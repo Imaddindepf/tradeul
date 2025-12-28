@@ -15,6 +15,31 @@
   display: none !important;
 }
 
+/* ===== Clerk: Eliminar card anidada ===== */
+/* Selector universal para cualquier elemento con clase que contenga cl- */
+[class*="cl-card"],
+[class*="cl-cardBox"],
+[class*="cl-signIn"] > div,
+[class*="cl-signUp"] > div,
+[class*="cl-rootBox"] > div,
+div[class^="cl-"] > div[class^="cl-"],
+[class*="cl-main"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+}
+
+/* Selector más específico usando atributos data- de Clerk */
+[data-localization-key],
+[data-clerk-component] > div {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+
 /* Prevenir layout shift por scrollbar */
 html {
   overflow-y: scroll;

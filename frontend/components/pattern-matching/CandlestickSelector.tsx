@@ -16,6 +16,7 @@ interface CandlestickSelectorProps {
     date: string;
     onSelectionChange: (startTime: string | null, endTime: string | null, minutes: number) => void;
     fontFamily?: string;
+    maxMinutes?: number;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_PATTERN_API_URL || 'https://tradeul.com/patterns';
@@ -25,6 +26,7 @@ export function CandlestickSelector({
     date,
     onSelectionChange,
     fontFamily = 'inherit',
+    maxMinutes = 120,
 }: CandlestickSelectorProps) {
     const svgRef = useRef<SVGSVGElement>(null);
     const [candles, setCandles] = useState<CandlestickData[]>([]);
@@ -103,17 +105,19 @@ export function CandlestickSelector({
         fetchCandles();
     }, [symbol, date]);
 
-    // Notify parent of selection changes
+    // Notify parent of selection changes (limited to maxMinutes)
     useEffect(() => {
         if (selectionStart !== null && selectionEnd !== null && candles.length > 0) {
             const start = Math.min(selectionStart, selectionEnd);
-            const end = Math.max(selectionStart, selectionEnd);
-            const minutes = end - start + 1;
+            const rawEnd = Math.max(selectionStart, selectionEnd);
+            // Limit to maxMinutes
+            const end = Math.min(rawEnd, start + maxMinutes - 1);
+            const minutes = Math.min(end - start + 1, maxMinutes);
             onSelectionChange(candles[start]?.time || null, candles[end]?.time || null, minutes);
         } else {
             onSelectionChange(null, null, 0);
         }
-    }, [selectionStart, selectionEnd, candles, onSelectionChange]);
+    }, [selectionStart, selectionEnd, candles, onSelectionChange, maxMinutes]);
 
     // Calculate scales
     const { minPrice, maxPrice, priceRange, candleWidth } = useMemo(() => {
@@ -181,21 +185,26 @@ export function CandlestickSelector({
         }
     }, [isDragging]);
 
-    // Computed selection bounds
+    // Computed selection bounds (with limit indicator)
     const selectionBounds = useMemo(() => {
         if (selectionStart === null || selectionEnd === null) return null;
 
         const start = Math.min(selectionStart, selectionEnd);
-        const end = Math.max(selectionStart, selectionEnd);
+        const rawEnd = Math.max(selectionStart, selectionEnd);
+        const rawMinutes = rawEnd - start + 1;
+        const exceeds = rawMinutes > maxMinutes;
+        const end = exceeds ? start + maxMinutes - 1 : rawEnd;
 
         return {
             startIndex: start,
             endIndex: end,
             x: xScale(start) - candleWidth / 2 - 1,
             width: xScale(end) - xScale(start) + candleWidth + 2,
-            minutes: end - start + 1,
+            minutes: Math.min(rawMinutes, maxMinutes),
+            exceeds,
+            rawMinutes,
         };
-    }, [selectionStart, selectionEnd, xScale, candleWidth]);
+    }, [selectionStart, selectionEnd, xScale, candleWidth, maxMinutes]);
 
     // Format time for display
     const formatDuration = (minutes: number) => {
@@ -234,12 +243,14 @@ export function CandlestickSelector({
         <div style={{ fontFamily }}>
             <div className="flex items-center justify-between mb-1 px-1">
                 <span className="text-slate-400" style={{ fontSize: '9px' }}>
-                    drag to select pattern window
+                    drag to select (max {maxMinutes} min)
                 </span>
                 {selectionBounds && (
-                    <span className="text-slate-600" style={{ fontSize: '9px' }}>
+                    <span className={`${selectionBounds.exceeds ? 'text-amber-500' : 'text-slate-600'}`} style={{ fontSize: '9px' }}>
                         {candles[selectionBounds.startIndex]?.time} → {candles[selectionBounds.endIndex]?.time}
-                        <span className="text-slate-400 ml-1">({formatDuration(selectionBounds.minutes)})</span>
+                        <span className={`ml-1 ${selectionBounds.exceeds ? 'text-amber-400' : 'text-slate-400'}`}>
+                            ({formatDuration(selectionBounds.minutes)}{selectionBounds.exceeds ? ` max` : ''})
+                        </span>
                     </span>
                 )}
             </div>

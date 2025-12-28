@@ -791,3 +791,4 @@ volumes:
 networks:
   tradeul_network:
     driver: bridge
+ 

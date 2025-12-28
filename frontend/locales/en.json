@@ -1,5 +1,12 @@
 {
   "landing": {
+    "nav": {
+      "products": "Products",
+      "tools": "Tools",
+      "solutions": "Solutions",
+      "resources": "Resources",
+      "signUp": "Sign up now"
+    },
     "hero": {
       "title1": "See what",
       "title2": "others miss",
