@@ -193,6 +193,10 @@
       "name": "Stock Screener",
       "description": "Filtrar acciones por criterios técnicos"
     },
+    "mp": {
+      "name": "Multi-Security",
+      "description": "Comparar múltiples tickers históricamente"
+    },
     "help": {
       "name": "Help",
       "description": "Mostrar ayuda del terminal"
@@ -532,6 +536,9 @@
       },
       "SCREEN": {
         "description": "Filtrar acciones por RSI, volumen, precio..."
+      },
+      "MP": {
+        "description": "Comparar múltiples tickers históricamente"
       }
     }
   }

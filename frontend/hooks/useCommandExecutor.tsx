@@ -22,6 +22,7 @@ import { NotesContent } from '@/components/notes/NotesContent';
 import { PatternMatchingContent } from '@/components/pattern-matching';
 import { RatioAnalysisContent } from '@/components/ratio-analysis';
 import { ScreenerContent } from '@/components/screener';
+import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -346,6 +347,21 @@ export function useCommandExecutor() {
                     y: Math.max(70, screenHeight / 2 - 325),
                     minWidth: 700,
                     minHeight: 500,
+                });
+                return null;
+
+            case 'mp':
+            case 'compare':
+            case 'multiple':
+                openWindow({
+                    title: 'Historical Multiple Security',
+                    content: <HistoricalMultipleSecurityContent />,
+                    width: 950,
+                    height: 600,
+                    x: Math.max(50, screenWidth / 2 - 475),
+                    y: Math.max(70, screenHeight / 2 - 300),
+                    minWidth: 700,
+                    minHeight: 450,
                 });
                 return null;
 

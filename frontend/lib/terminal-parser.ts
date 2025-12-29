@@ -194,6 +194,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.SCREEN.description',
         shortcut: 'Ctrl+Shift+S'
     },
+    MP: {
+        id: 'mp',
+        label: 'MP',
+        name: 'Historical Multiple Security',
+        descriptionKey: 'terminalCommands.globalCommands.MP.description',
+        shortcut: 'Ctrl+M'
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;
