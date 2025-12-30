@@ -20,6 +20,7 @@ from pattern_indexer import PatternIndexer
 from data_processor import DataProcessor
 from flat_files_downloader import FlatFilesDownloader
 from r2_downloader import ensure_index_files
+from cache import pattern_cache
 
 # Configure logging
 structlog.configure(
@@ -106,6 +107,13 @@ async def lifespan(app: FastAPI):
     
     logger.info("Starting Pattern Matching Service", port=settings.service_port)
     
+    # Connect to Redis cache
+    cache_connected = await pattern_cache.connect()
+    if cache_connected:
+        logger.info("Redis cache connected")
+    else:
+        logger.warning("Redis cache not available - running without cache")
+    
     # Download index files from R2 if not present
     logger.info("Checking for index files...")
     files_ready = ensure_index_files()
@@ -128,6 +136,7 @@ async def lifespan(app: FastAPI):
     
     # Cleanup
     logger.info("Shutting down Pattern Matching Service")
+    await pattern_cache.close()
     if matcher:
         await matcher.close()
 
@@ -166,6 +175,27 @@ async def get_stats():
         raise HTTPException(status_code=503, detail="Service not initialized")
     
     return matcher.get_stats()
+
+
+@app.get("/api/cache/stats")
+async def get_cache_stats():
+    """Get cache statistics (hits, misses, hit rate, memory usage)"""
+    return await pattern_cache.get_stats()
+
+
+@app.delete("/api/cache/invalidate")
+async def invalidate_cache(pattern: str = Query(default="pm:hist:*", description="Redis key pattern to invalidate")):
+    """
+    Invalidate cache entries
+    
+    Use with caution. Default invalidates all historical search results.
+    """
+    deleted = await pattern_cache.invalidate_pattern(pattern)
+    return {
+        "status": "success",
+        "pattern": pattern,
+        "deleted_entries": deleted
+    }
 
 
 @app.get("/api/index/stats")
@@ -256,12 +286,31 @@ async def search_historical(request: HistoricalSearchRequest):
     
     Perfect for backtesting or when market is closed.
     Fetches historical minute bars from our downloaded flat files.
+    
+    Results are cached for 6 hours (historical data doesn't change).
     """
     if not matcher or not matcher.is_ready:
         raise HTTPException(status_code=503, detail="Index not ready")
     
+    symbol = request.symbol.upper()
+    
+    # Check cache first
+    cached = await pattern_cache.get_historical(
+        symbol=symbol,
+        date=request.date,
+        time=request.time,
+        k=request.k,
+        cross_asset=request.cross_asset,
+        window_minutes=request.window_minutes,
+    )
+    
+    if cached:
+        logger.info("cache_hit_historical", symbol=symbol, date=request.date, time=request.time)
+        return cached
+    
+    # Cache miss - compute result
     result = await matcher.search_historical(
-        symbol=request.symbol.upper(),
+        symbol=symbol,
         date=request.date,
         time=request.time,
         k=request.k,
@@ -271,6 +320,17 @@ async def search_historical(request: HistoricalSearchRequest):
     
     if result.get("status") == "error":
         raise HTTPException(status_code=400, detail=result.get("error"))
+    
+    # Cache successful result
+    await pattern_cache.set_historical(
+        symbol=symbol,
+        date=request.date,
+        time=request.time,
+        k=request.k,
+        cross_asset=request.cross_asset,
+        window_minutes=request.window_minutes,
+        result=result,
+    )
     
     return result
 

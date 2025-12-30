@@ -330,6 +330,8 @@
     "title": "Configuración",
     "language": "Idioma",
     "languageDescription": "Selecciona tu idioma preferido",
+    "timezone": "Zona horaria",
+    "timezoneDescription": "Todas las horas se mostrarán en esta zona horaria",
     "theme": "Tema",
     "layout": "Diseño",
     "saveLayout": "Guardar Layout",

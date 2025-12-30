@@ -32,6 +32,7 @@ import { NotesContent } from '@/components/notes/NotesContent';
 import { PatternMatchingContent } from '@/components/pattern-matching';
 import { RatioAnalysisContent } from '@/components/ratio-analysis';
 import { ScreenerContent } from '@/components/screener';
+import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 
@@ -104,6 +105,7 @@ export default function ScannerPage() {
     if (title === 'Pattern Matching') return <PatternMatchingContent />;
     if (title === 'Ratio Analysis') return <RatioAnalysisContent />;
     if (title === 'Stock Screener') return <ScreenerContent />;
+    if (title === 'Historical Multiple Security') return <HistoricalMultipleSecurityContent />;
 
     // === Ventanas con ticker específico ===
     // Chart: TICKER
@@ -183,6 +185,7 @@ export default function ScannerPage() {
             // Las tablas del scanner tienen cabecera propia
             const hideHeader = layout.title.startsWith('Scanner:');
             openWindow({
+              id: layout.id, // Preservar ID para restaurar componentState
               title: layout.title,
               content,
               x: layout.x,

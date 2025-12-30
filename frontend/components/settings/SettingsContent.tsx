@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { usePinnedCommands } from '@/hooks/usePinnedCommands';
-import { useUserPreferencesStore, FontFamily } from '@/stores/useUserPreferencesStore';
+import { useUserPreferencesStore, FontFamily, TimezoneOption } from '@/stores/useUserPreferencesStore';
+import { TIMEZONE_LABELS } from '@/lib/date-utils';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
 import { useSaveLayoutToCloud } from '@/hooks/useClerkSync';
-import { Pin, RotateCcw, Save, Layout, Trash2, Check, Cloud, CloudOff, Globe } from 'lucide-react';
+import { Pin, RotateCcw, Save, Layout, Trash2, Check, Cloud, CloudOff, Globe, Clock } from 'lucide-react';
 import { MAIN_COMMANDS } from '@/lib/commands';
 import { AVAILABLE_LANGUAGES, changeLanguage, getCurrentLanguage, type LanguageCode } from '@/lib/i18n';
 
@@ -56,6 +57,7 @@ export function SettingsContent() {
   const setTickDownColor = useUserPreferencesStore((state) => state.setTickDownColor);
   const setBackgroundColor = useUserPreferencesStore((state) => state.setBackgroundColor);
   const setFont = useUserPreferencesStore((state) => state.setFont);
+  const setTimezone = useUserPreferencesStore((state) => state.setTimezone);
   const resetColors = useUserPreferencesStore((state) => state.resetColors);
 
   const { saveLayout, hasLayout, clearLayout, savedCount } = useLayoutPersistence();
@@ -133,6 +135,30 @@ export function SettingsContent() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Timezone Selector */}
+            <div className="flex items-center gap-1.5 py-1 border-b border-slate-100 pb-2 mb-2">
+              <Clock className="w-3 h-3 text-slate-400" />
+              <span className="text-[9px] text-slate-500 w-12">{t('settings.timezone')}</span>
+              <select
+                value={theme.timezone || 'America/New_York'}
+                onChange={(e) => {
+                  const newTz = e.target.value as TimezoneOption;
+                  if (newTz !== theme.timezone) {
+                    setTimezone(newTz);
+                    // Reload to apply timezone globally to all components
+                    setTimeout(() => window.location.reload(), 100);
+                  }
+                }}
+                className="flex-1 text-[9px] px-1.5 py-0.5 border border-slate-200 rounded bg-white"
+              >
+                {(Object.keys(TIMEZONE_LABELS) as TimezoneOption[]).map((tz) => (
+                  <option key={tz} value={tz}>
+                    {TIMEZONE_LABELS[tz].region} ({TIMEZONE_LABELS[tz].abbrev})
+                  </option>
+                ))}
+              </select>
             </div>
 
             <ColorRow label={t('settings.colors.tickUp')} value={colors.tickUp} onChange={setTickUpColor} presets={PRESET_COLORS.tickUp} />

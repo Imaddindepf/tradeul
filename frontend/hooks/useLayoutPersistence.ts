@@ -40,10 +40,11 @@ export function useLayoutPersistence() {
   }, [exportLayout, saveWindowLayouts]);
 
   /**
-   * Obtener el layout guardado
+   * Obtener el layout guardado (incluyendo ID para restaurar estado)
    */
   const getSavedLayout = useCallback((): SerializableWindowLayout[] => {
     return windowLayouts.map((w) => ({
+      id: w.id, // Preservar ID para restaurar componentState
       title: w.title,
       x: w.position.x,
       y: w.position.y,

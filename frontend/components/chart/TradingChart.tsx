@@ -20,6 +20,7 @@ import { useLiveChartData, type ChartInterval, type ChartBar as HookChartBar } f
 import { useChartDrawings, type Drawing, type DrawingTool } from '@/hooks/useChartDrawings';
 import { useNewsStore } from '@/stores/useNewsStore';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { getUserTimezone, getTimezoneAbbrev } from '@/lib/date-utils';
 
 // ============================================================================
 // Types
@@ -182,10 +183,12 @@ interface NewsArticle {
 }
 
 function ChartNewsPopup({ ticker, articles }: { ticker: string; articles: NewsArticle[] }) {
+    // Format time in user's preferred timezone
     const formatTime = (isoString: string) => {
         try {
             const d = new Date(isoString);
-            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            const tz = getUserTimezone();
+            return d.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
         } catch {
             return '—';
         }
@@ -444,6 +447,33 @@ function TradingChartComponent({
                 minBarSpacing: 0.5,   // Allow very small bars
                 fixLeftEdge: false,
                 fixRightEdge: false,
+                tickMarkFormatter: (time: number) => {
+                    // Format time in user's preferred timezone
+                    const tz = getUserTimezone();
+                    const date = new Date(time * 1000);
+                    return date.toLocaleTimeString('en-US', {
+                        timeZone: tz,
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                    });
+                },
+            },
+            localization: {
+                timeFormatter: (time: number) => {
+                    // Format time in user's timezone for tooltips/crosshair
+                    const tz = getUserTimezone();
+                    const abbrev = getTimezoneAbbrev(tz);
+                    const date = new Date(time * 1000);
+                    return date.toLocaleString('en-US', {
+                        timeZone: tz,
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                    }) + ` ${abbrev}`;
+                },
             },
             handleScale: {
                 axisPressedMouseMove: { time: true, price: true },
@@ -823,7 +853,7 @@ function TradingChartComponent({
                     lineWidth: 2,
                     lineStyle: 2, // Dashed
                     axisLabelVisible: true,
-                    title: `📰 ${newsDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
+                    title: `📰 ${newsDate.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false })}`,
                 });
                 newsPriceLinesRef.current.push(priceLine);
             }

@@ -22,6 +22,7 @@ import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import { getUserTimezone } from '@/lib/date-utils';
 
 // Decodifica entidades HTML como &#39; &amp; &quot; etc.
 function decodeHtmlEntities(text: string): string {
@@ -129,12 +130,13 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     setCurrentPage(1);
   }, [tickerInputValue]);
 
+  // Format dates in Eastern Time (ET) - standard for US markets
   const formatDateTime = useCallback((isoString: string) => {
     try {
       const d = new Date(isoString);
       return {
-        date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: '2-digit' }),
-        time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+        date: d.toLocaleDateString('en-US', { timeZone: getUserTimezone(), month: '2-digit', day: '2-digit', year: '2-digit' }),
+        time: d.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
       };
     } catch {
       return { date: '—', time: '—' };

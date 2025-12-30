@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
     Search,
     TrendingUp,
@@ -12,9 +12,10 @@ import {
     Maximize2,
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { CandlestickSelector } from './CandlestickSelector';
+import { getUserTimezone } from '@/lib/date-utils';
 
 // ============================================================================
 // Types
@@ -84,6 +85,18 @@ interface AvailableDates {
 }
 
 type SearchMode = 'realtime' | 'historical';
+
+// Estado persistente para PM
+interface PMWindowState {
+    ticker?: string;
+    mode?: SearchMode;
+    historicalDate?: string;
+    historicalTime?: string;
+    k?: number;
+    crossAsset?: boolean;
+    windowMinutes?: number;
+    [key: string]: string | number | boolean | undefined;
+}
 
 type TickerSearchResult = {
     symbol: string;
@@ -802,7 +815,7 @@ function LiveForecastChart({
 
     // Current time string
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timeStr = now.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false });
 
     return (
         <div className="relative">
@@ -985,17 +998,19 @@ function LiveForecastChart({
 
 export function PatternMatchingContent({ initialTicker }: { initialTicker?: string }) {
     const { openWindow } = useFloatingWindow();
+    const { state: windowState, updateState: updateWindowState } = useWindowState<PMWindowState>();
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
 
-    const [ticker, setTicker] = useState(initialTicker || '');
-    const [mode, setMode] = useState<SearchMode>('historical');
-    const [k, setK] = useState(50);
-    const [crossAsset, setCrossAsset] = useState(true);
-    const [windowMinutes, setWindowMinutes] = useState(45);
+    // Restaurar estado desde windowState o usar defaults
+    const [ticker, setTicker] = useState(initialTicker || windowState?.ticker || '');
+    const [mode, setMode] = useState<SearchMode>(windowState?.mode || 'historical');
+    const [k, setK] = useState(windowState?.k ?? 50);
+    const [crossAsset, setCrossAsset] = useState(windowState?.crossAsset ?? true);
+    const [windowMinutes, setWindowMinutes] = useState(windowState?.windowMinutes ?? 45);
 
-    const [historicalDate, setHistoricalDate] = useState('');
-    const [historicalTime, setHistoricalTime] = useState('15:00');
+    const [historicalDate, setHistoricalDate] = useState(windowState?.historicalDate || '');
+    const [historicalTime, setHistoricalTime] = useState(windowState?.historicalTime || '15:00');
     const [availableDates, setAvailableDates] = useState<AvailableDates | null>(null);
 
     const [loading, setLoading] = useState(false);
@@ -1006,6 +1021,9 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
     const [showActual, setShowActual] = useState(false);
     const [showVisualSelector, setShowVisualSelector] = useState(false);
     const [visualSelection, setVisualSelection] = useState<{ start: string | null, end: string | null, minutes: number }>({ start: null, end: null, minutes: 0 });
+
+    // Ref para evitar re-búsqueda infinita
+    const hasRestoredRef = useRef(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -1031,6 +1049,36 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
         };
         fetchData();
     }, []);
+
+    // Guardar estado cuando cambia (para persistencia)
+    useEffect(() => {
+        if (ticker || mode !== 'historical' || historicalDate || historicalTime !== '15:00') {
+            updateWindowState({
+                ticker,
+                mode,
+                historicalDate,
+                historicalTime,
+                k,
+                crossAsset,
+                windowMinutes,
+            });
+        }
+    }, [ticker, mode, historicalDate, historicalTime, k, crossAsset, windowMinutes, updateWindowState]);
+
+    // Re-ejecutar búsqueda al restaurar si había ticker guardado
+    useEffect(() => {
+        if (!hasRestoredRef.current && windowState?.ticker && availableDates) {
+            hasRestoredRef.current = true;
+            // Pequeño delay para asegurar que todo está listo
+            const timer = setTimeout(() => {
+                // La búsqueda se ejecutará automáticamente gracias a los estados restaurados
+                // Solo necesitamos disparar handleSearch
+                const searchBtn = document.querySelector('[data-pm-search-btn]') as HTMLButtonElement;
+                if (searchBtn) searchBtn.click();
+            }, 500);
+            return () => clearTimeout(timer);
+        }
+    }, [windowState?.ticker, availableDates]);
 
     const handleSearch = useCallback(async () => {
         if (!ticker.trim()) {
@@ -1214,6 +1262,7 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
                     </button>
 
                     <button
+                        data-pm-search-btn
                         onClick={handleSearch}
                         disabled={loading || !ticker.trim()}
                         className="px-3 py-1.5 rounded bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-50 flex items-center gap-1.5"

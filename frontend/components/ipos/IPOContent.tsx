@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, AlertTriangle, TrendingUp, Clock, CheckCircle, XCircle, HelpCircle, Rocket, FileText, ExternalLink, Loader2, ArrowLeft, Users, Building2, Scale, ClipboardList } from 'lucide-react';
+import { getUserTimezone } from '@/lib/date-utils';
 
 // ============================================================================
 // Types
@@ -90,7 +91,7 @@ function formatDate(dateStr: string | undefined): string {
   if (!dateStr) return '—';
   try {
     const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+    return d.toLocaleDateString('en-US', { timeZone: getUserTimezone(), month: 'short', day: 'numeric', year: '2-digit' });
   } catch {
     return dateStr;
   }

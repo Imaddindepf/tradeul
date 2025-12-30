@@ -330,6 +330,8 @@
     "title": "Settings",
     "language": "Language",
     "languageDescription": "Select your preferred language",
+    "timezone": "Timezone",
+    "timezoneDescription": "All times will be displayed in this timezone",
     "theme": "Theme",
     "layout": "Layout",
     "saveLayout": "Save Layout",

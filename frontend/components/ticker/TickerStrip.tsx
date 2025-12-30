@@ -2,6 +2,7 @@
 
 import { memo, useRef, useEffect, useCallback } from 'react';
 import { useRealtimeQuote, QuoteData } from '@/hooks/useRealtimeQuote';
+import { getUserTimezone } from '@/lib/date-utils';
 
 // ============================================================================
 // Tipos
@@ -31,7 +32,7 @@ const formatVolume = (size: number): string => {
 };
 
 const formatTime = (date: Date): string => {
-  return date.toLocaleTimeString('en-US', { hour12: false });
+  return date.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour12: false });
 };
 
 // ============================================================================

@@ -14,6 +14,7 @@ import {
     Filter
 } from "lucide-react";
 import { TickerSearch } from '@/components/common/TickerSearch';
+import { getUserTimezone } from '@/lib/date-utils';
 
 type DocumentFile = {
     sequence: string;
@@ -245,13 +246,17 @@ export function SECFilingsRealtime() {
         }
     };
 
+    // Format dates in Eastern Time (ET) - standard for US markets
     const formatDateTime = (isoString: string) => {
-        const [datePart, timePart] = isoString.split('T');
-        const timeOnly = timePart.split(/[-+]/)[0];
-        return {
-            date: datePart,
-            time: timeOnly
-        };
+        try {
+            const d = new Date(isoString);
+            return {
+                date: d.toLocaleDateString('en-US', { timeZone: getUserTimezone(), year: 'numeric', month: '2-digit', day: '2-digit' }),
+                time: d.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+            };
+        } catch {
+            return { date: '—', time: '—' };
+        }
     };
 
     const truncateDescription = (desc: string | null, maxLength: number = 80) => {

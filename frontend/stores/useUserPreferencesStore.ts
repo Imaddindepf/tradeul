@@ -22,6 +22,8 @@ export interface WindowLayout {
   size: { width: number; height: number };
   isMinimized: boolean;
   zIndex: number;
+  /** Estado interno del componente (tickers, filtros, búsqueda, etc.) */
+  componentState?: Record<string, unknown>;
 }
 
 export interface ColorPreferences {
@@ -31,10 +33,26 @@ export interface ColorPreferences {
   primary: string;     // Color primario de la UI
 }
 
+// Zonas horarias comunes para trading
+export type TimezoneOption = 
+  | 'America/New_York'    // ET - Eastern Time (default, mercado US)
+  | 'America/Chicago'     // CT - Central Time
+  | 'America/Denver'      // MT - Mountain Time
+  | 'America/Los_Angeles' // PT - Pacific Time
+  | 'Europe/London'       // GMT/BST - London
+  | 'Europe/Madrid'       // CET/CEST - Spain
+  | 'Europe/Paris'        // CET/CEST - France
+  | 'Europe/Berlin'       // CET/CEST - Germany
+  | 'Asia/Tokyo'          // JST - Japan
+  | 'Asia/Hong_Kong'      // HKT - Hong Kong
+  | 'Asia/Singapore'      // SGT - Singapore
+  | 'UTC';                // UTC
+
 export interface ThemePreferences {
   font: FontFamily;
   colorScheme: 'light' | 'dark' | 'system';
   newsSquawkEnabled: boolean;
+  timezone: TimezoneOption;
 }
 
 export interface UserPreferences {
@@ -74,11 +92,16 @@ interface UserPreferencesState extends UserPreferences {
   setFont: (font: FontFamily) => void;
   setColorScheme: (scheme: 'light' | 'dark' | 'system') => void;
   setNewsSquawkEnabled: (enabled: boolean) => void;
+  setTimezone: (timezone: TimezoneOption) => void;
   
   // Actions - Layout
   saveWindowLayouts: (layouts: WindowLayout[]) => void;
   clearWindowLayouts: () => void;
   setLayoutInitialized: (initialized: boolean) => void;
+  /** Actualizar estado del componente de una ventana específica */
+  updateWindowComponentState: (windowId: string, state: Record<string, unknown>) => void;
+  /** Obtener estado del componente de una ventana */
+  getWindowComponentState: (windowId: string) => Record<string, unknown> | undefined;
   
   // Actions - Filters
   saveFilters: (listName: string, filters: any) => void;
@@ -109,6 +132,7 @@ const DEFAULT_THEME: ThemePreferences = {
   font: 'jetbrains-mono',
   colorScheme: 'light',
   newsSquawkEnabled: false,
+  timezone: 'America/New_York', // ET - Standard for US markets
 };
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -174,6 +198,11 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           theme: { ...state.theme, newsSquawkEnabled: enabled },
         })),
 
+      setTimezone: (timezone) =>
+        set((state) => ({
+          theme: { ...state.theme, timezone },
+        })),
+
       // ========================================
       // Layout Actions
       // ========================================
@@ -185,6 +214,18 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
 
       setLayoutInitialized: (initialized) =>
         set({ layoutInitialized: initialized }),
+
+      updateWindowComponentState: (windowId, state) =>
+        set((s) => ({
+          windowLayouts: s.windowLayouts.map((w) =>
+            w.id === windowId ? { ...w, componentState: state } : w
+          ),
+        })),
+
+      getWindowComponentState: (windowId) => {
+        const state = get();
+        return state.windowLayouts.find((w) => w.id === windowId)?.componentState;
+      },
 
       // ========================================
       // Filters Actions
@@ -274,6 +315,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
 export const selectColors = (state: UserPreferencesState) => state.colors;
 export const selectTheme = (state: UserPreferencesState) => state.theme;
 export const selectFont = (state: UserPreferencesState) => state.theme.font;
+export const selectTimezone = (state: UserPreferencesState) => state.theme.timezone || 'America/New_York';
 export const selectWindowLayouts = (state: UserPreferencesState) => state.windowLayouts;
 
 

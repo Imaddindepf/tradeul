@@ -11,6 +11,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink } from 'lucide-react';
 import { useNewsStore } from '@/stores/useNewsStore';
+import { getUserTimezone } from '@/lib/date-utils';
 
 interface TickerNewsMiniProps {
   ticker: string;
@@ -38,13 +39,13 @@ export function TickerNewsMini({ ticker }: TickerNewsMiniProps) {
     );
   }, [allArticles, ticker]);
 
-  // Formatear fecha/hora
+  // Format dates in Eastern Time (ET) - standard for US markets
   const formatDateTime = (isoString: string) => {
     try {
       const d = new Date(isoString);
       return {
-        date: d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }),
-        time: d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+        date: d.toLocaleDateString('en-US', { timeZone: getUserTimezone(), month: '2-digit', day: '2-digit' }),
+        time: d.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false })
       };
     } catch {
       return { date: '—', time: '—' };

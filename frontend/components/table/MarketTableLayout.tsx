@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { ExternalLink, X } from 'lucide-react';
 import { openScannerWindow } from '@/lib/window-injector';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { getUserTimezone } from '@/lib/date-utils';
 
 interface MarketTableLayoutProps {
   title: string;
@@ -109,7 +110,7 @@ export function MarketTableLayout({
           <div className="flex items-center gap-1.5 text-xs">
             <span className="text-slate-500">Updated</span>
             <span className="font-mono font-medium text-slate-700">
-              {lastUpdateTime.toLocaleTimeString()}
+              {lastUpdateTime.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
             </span>
           </div>
         )}

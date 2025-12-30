@@ -1,9 +1,23 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect, useMemo } from 'react';
 import { floatingZIndexManager } from '@/lib/z-index';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { getWindowType } from '@/lib/window-config';
+
+// ============================================================================
+// Window Component State - Estado interno de componentes por ventana
+// ============================================================================
+
+/** Tipo genérico para el estado de un componente */
+export type WindowComponentState = Record<string, unknown>;
+
+/** Context para el estado del componente de la ventana actual */
+const WindowStateContext = createContext<{
+  state: WindowComponentState;
+  setState: (state: WindowComponentState) => void;
+  updateState: (partial: Partial<WindowComponentState>) => void;
+} | null>(null);
 
 // ============================================================================
 // WindowId Context - permite que cualquier componente hijo conozca su windowId
@@ -21,6 +35,126 @@ export function WindowIdProvider({ windowId, children }: { windowId: string; chi
       {children}
     </WindowIdContext.Provider>
   );
+}
+
+/**
+ * Provider que permite a los componentes de ventana persistir su estado interno.
+ * Se usa junto con WindowIdProvider.
+ */
+export function WindowStateProvider({
+  windowId,
+  initialState = {},
+  children
+}: {
+  windowId: string;
+  initialState?: WindowComponentState;
+  children: ReactNode;
+}) {
+  const updateWindowComponentState = useUserPreferencesStore((s) => s.updateWindowComponentState);
+  const getWindowComponentState = useUserPreferencesStore((s) => s.getWindowComponentState);
+
+  // Cargar estado guardado o usar el inicial
+  const savedState = useMemo(() => getWindowComponentState(windowId), [windowId, getWindowComponentState]);
+  const [state, setStateInternal] = useState<WindowComponentState>(() => savedState || initialState);
+
+  // Ref para debounce del guardado
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isFirstRenderRef = useRef(true);
+
+  // Actualizar estado y programar guardado
+  const setState = useCallback((newState: WindowComponentState) => {
+    setStateInternal(newState);
+
+    // Programar guardado con debounce
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      updateWindowComponentState(windowId, newState);
+    }, 1000);
+  }, [windowId, updateWindowComponentState]);
+
+  // Actualizar parcialmente el estado
+  const updateState = useCallback((partial: Partial<WindowComponentState>) => {
+    setStateInternal((prev) => {
+      const newState = { ...prev, ...partial };
+
+      // Programar guardado con debounce
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      saveTimeoutRef.current = setTimeout(() => {
+        updateWindowComponentState(windowId, newState);
+      }, 1000);
+
+      return newState;
+    });
+  }, [windowId, updateWindowComponentState]);
+
+  // Sincronizar estado guardado al montar (si hay)
+  useEffect(() => {
+    if (isFirstRenderRef.current && savedState) {
+      setStateInternal(savedState);
+      isFirstRenderRef.current = false;
+    }
+  }, [savedState]);
+
+  // Cleanup timeout al desmontar
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const contextValue = useMemo(() => ({
+    state,
+    setState,
+    updateState
+  }), [state, setState, updateState]);
+
+  return (
+    <WindowStateContext.Provider value={contextValue}>
+      {children}
+    </WindowStateContext.Provider>
+  );
+}
+
+/**
+ * Hook para persistir el estado interno del componente de una ventana.
+ * El estado se guarda automáticamente en localStorage y se restaura al reabrir.
+ * 
+ * @example
+ * function MyContent() {
+ *   const { state, updateState } = useWindowState<{ search: string; filters: string[] }>();
+ *   
+ *   return (
+ *     <input 
+ *       value={state.search || ''} 
+ *       onChange={(e) => updateState({ search: e.target.value })} 
+ *     />
+ *   );
+ * }
+ */
+export function useWindowState<T extends WindowComponentState = WindowComponentState>() {
+  const context = useContext(WindowStateContext);
+
+  if (!context) {
+    // Si no hay provider, retornar un estado vacío que no persiste
+    // Esto permite que el componente funcione fuera de una ventana flotante
+    return {
+      state: {} as T,
+      setState: (() => { }) as (state: T) => void,
+      updateState: (() => { }) as (partial: Partial<T>) => void,
+    };
+  }
+
+  return {
+    state: context.state as T,
+    setState: context.setState as (state: T) => void,
+    updateState: context.updateState as (partial: Partial<T>) => void,
+  };
 }
 
 /**
@@ -89,6 +223,7 @@ export interface FloatingWindow {
 
 /** Layout serializable de una ventana (sin contenido) */
 export interface SerializableWindowLayout {
+  id?: string;
   title: string;
   x: number;
   y: number;
@@ -99,7 +234,7 @@ export interface SerializableWindowLayout {
 
 interface FloatingWindowContextType {
   windows: FloatingWindow[];
-  openWindow: (config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => string;
+  openWindow: (config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'> & { id?: string }) => string;
   closeWindow: (id: string) => void;
   updateWindow: (id: string, updates: Partial<FloatingWindow>) => void;
   bringToFront: (id: string) => void;
@@ -142,16 +277,15 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'>) => {
-    // Siempre crear una nueva ventana (permite múltiples instancias del mismo tipo)
-    // El usuario puede tener varios Screeners, Ratio Analysis, etc. con datos diferentes
-    const id = generateWindowId();
+  const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'> & { id?: string }) => {
+    // Usar ID proporcionado (para restauración) o generar uno nuevo
+    const id = config.id || generateWindowId();
     const zIndex = floatingZIndexManager.getNext();
 
-    // Offset para ventanas con el mismo título (cascade effect)
+    // Offset para ventanas con el mismo título (cascade effect) - solo si es nueva
     const currentWindows = windowsRef.current;
     const sameTypeCount = currentWindows.filter((w) => w.title === config.title).length;
-    const offset = sameTypeCount * 30; // 30px offset por cada ventana del mismo tipo
+    const offset = config.id ? 0 : sameTypeCount * 30; // Sin offset si restaurando
 
     const newWindow: FloatingWindow = {
       ...config,
@@ -225,6 +359,12 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
 
     // Nuevo timeout de 3 segundos
     autoSaveTimeoutRef.current = setTimeout(() => {
+      // Obtener componentState guardado de cada ventana
+      const existingLayouts = useUserPreferencesStore.getState().windowLayouts;
+      const componentStateMap = new Map(
+        existingLayouts.map(l => [l.id, l.componentState])
+      );
+
       const layouts = windows.map((w) => ({
         id: w.id,
         type: getWindowType(w.title),
@@ -233,6 +373,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         size: { width: w.width, height: w.height },
         isMinimized: w.isMinimized,
         zIndex: w.zIndex,
+        componentState: componentStateMap.get(w.id), // Preservar componentState
       }));
 
       saveWindowLayouts(layouts);

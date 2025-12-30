@@ -27,6 +27,7 @@ import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { Newspaper, ExternalLink, Info } from 'lucide-react';
+import { getUserTimezone } from '@/lib/date-utils';
 
 // Floating windows
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
@@ -77,7 +78,7 @@ interface TickersWithNewsTableProps {
 function getTradingDay(): string {
   const now = new Date();
   const etFormatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
+    timeZone: getUserTimezone(),
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -109,7 +110,7 @@ function isFromTodayTradingSession(published: string): boolean {
     const tradingDay = getTradingDay();
 
     const etFormatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
+      timeZone: getUserTimezone(),
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -133,10 +134,11 @@ const columnHelper = createColumnHelper<TickerWithNews>();
 function MiniNewsWindow({ ticker, articles }: { ticker: string; articles: NewsArticle[] }) {
   const { t } = useTranslation();
 
+  // Format time in user's preferred timezone
   const formatTime = (isoString: string) => {
     try {
       const d = new Date(isoString);
-      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+      return d.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false });
     } catch {
       return '—';
     }
@@ -464,7 +466,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
           if (!isoTime) return <span className="text-slate-400">—</span>;
           try {
             const d = new Date(isoTime);
-            const time = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            const time = d.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false });
             const isRecent = Date.now() - d.getTime() < 30 * 60 * 1000; // < 30 min
             return (
               <div className={`font-mono text-xs ${isRecent ? 'text-emerald-600 font-semibold' : 'text-slate-600'}`}>

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Clock, Circle } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
+import { getUserTimezone } from '@/lib/date-utils';
 
 // Tipo completo del response de Polygon
 export interface PolygonMarketStatus {
@@ -71,9 +72,10 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
     }
   }, [showPopover]);
 
-  // Formato de hora: HH:MM:SS
+  // Formato de hora: HH:MM:SS (user timezone)
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', {
+      timeZone: getUserTimezone(),
       hour12: false,
       hour: '2-digit',
       minute: '2-digit',
@@ -81,9 +83,10 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
     });
   };
 
-  // Formato de fecha: Day, Mon DD
+  // Formato de fecha: Day, Mon DD (user timezone)
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
+      timeZone: getUserTimezone(),
       weekday: 'short',
       month: 'short',
       day: 'numeric',

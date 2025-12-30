@@ -3,6 +3,7 @@
 import { memo, useMemo } from 'react';
 import { useRealtimeQuote, QuoteData } from '@/hooks/useRealtimeQuote';
 import { cn } from '@/lib/utils';
+import { getUserTimezone } from '@/lib/date-utils';
 
 // ============================================================================
 // Tipos
@@ -319,7 +320,7 @@ function TickerCardComponent({
 
       {/* Last Update */}
       <div className="mt-2 text-xs text-muted-foreground text-right">
-        Updated: {quote.lastUpdate.toLocaleTimeString()}
+        Updated: {quote.lastUpdate.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', hour12: false })}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNotesStore, Note } from '@/stores/useNotesStore';
+import { getUserTimezone } from '@/lib/date-utils';
 import {
   Plus,
   X,
@@ -450,7 +451,8 @@ export function NotesContent() {
         
         {activeNote && (
           <span className="text-slate-400">
-            {new Date(activeNote.updatedAt).toLocaleString(undefined, {
+            {new Date(activeNote.updatedAt).toLocaleString('en-US', {
+              timeZone: getUserTimezone(),
               month: 'short',
               day: 'numeric',
               hour: '2-digit',

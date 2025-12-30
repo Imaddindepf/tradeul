@@ -9,6 +9,7 @@ import { DescriptionContent } from '@/components/description/DescriptionContent'
 import { TickerMention } from './TickerMention';
 import { cn } from '@/lib/utils';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { getUserTimezone } from '@/lib/date-utils';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 
@@ -203,7 +204,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
   // Format time as h:mm AM/PM
   const time = useMemo(() => {
     const d = new Date(message.created_at);
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return d.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: 'numeric', minute: '2-digit', hour12: true });
   }, [message.created_at]);
 
   const isOwnMessage = message.user_id === userId;

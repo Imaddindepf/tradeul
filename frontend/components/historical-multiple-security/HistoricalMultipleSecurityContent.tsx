@@ -16,6 +16,17 @@ import {
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import { useWindowState } from '@/contexts/FloatingWindowContext';
+import { getUserTimezone } from '@/lib/date-utils';
+
+// Estado persistido de la ventana MP
+type MPWindowState = {
+    tickerSymbols?: string[];
+    period?: Period;
+    chartType?: ChartType;
+    scaleType?: ScaleType;
+    [key: string]: unknown;
+};
 
 // ============================================================================
 // Types
@@ -286,7 +297,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
             const date = new Date(d.date);
             labels.push({
                 x: xScale(d.date),
-                label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                label: date.toLocaleDateString('en-US', { timeZone: getUserTimezone(), month: 'short', day: 'numeric' }),
             });
         }
         
@@ -583,6 +594,7 @@ function ChartTooltip({ tooltip, chartType }: { tooltip: TooltipData | null; cha
 
     const date = new Date(tooltip.date);
     const formattedDate = date.toLocaleDateString('en-US', {
+        timeZone: getUserTimezone(),
         month: 'short',
         day: 'numeric',
         year: 'numeric',
@@ -654,15 +666,19 @@ export function HistoricalMultipleSecurityContent() {
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
 
+    // Hook para persistir estado de la ventana
+    const { state: windowState, updateState: updateWindowState } = useWindowState<MPWindowState>();
+
     const [tickers, setTickers] = useState<TickerData[]>([]);
     const [tickerInput, setTickerInput] = useState('');
-    const [period, setPeriod] = useState<Period>('1Y');
-    const [chartType, setChartType] = useState<ChartType>('line');
-    const [scaleType, setScaleType] = useState<ScaleType>('percent');
+    const [period, setPeriod] = useState<Period>(windowState.period || '1Y');
+    const [chartType, setChartType] = useState<ChartType>(windowState.chartType || 'line');
+    const [scaleType, setScaleType] = useState<ScaleType>(windowState.scaleType || 'percent');
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+    const [initialLoadDone, setInitialLoadDone] = useState(false);
 
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const [chartSize, setChartSize] = useState({ width: 800, height: 400 });
@@ -683,6 +699,79 @@ export function HistoricalMultipleSecurityContent() {
         observer.observe(chartContainerRef.current);
         return () => observer.disconnect();
     }, []);
+
+    // Restaurar tickers guardados al montar
+    useEffect(() => {
+        if (initialLoadDone) return;
+        
+        const savedTickers = windowState.tickerSymbols;
+        if (savedTickers && savedTickers.length > 0) {
+            const loadSavedTickers = async () => {
+                setLoading(true);
+                setError(null);
+                
+                const loadedTickers: TickerData[] = [];
+                for (let i = 0; i < savedTickers.length; i++) {
+                    try {
+                        const periodConfig = PERIODS.find(p => p.id === period);
+                        if (!periodConfig) continue;
+                        
+                        const response = await fetch(
+                            `${API_URL}/api/v1/chart/${savedTickers[i].toUpperCase()}?interval=1day&limit=${periodConfig.days}`
+                        );
+                        
+                        if (!response.ok) continue;
+                        
+                        const result = await response.json();
+                        const data = result.data || [];
+                        if (data.length === 0) continue;
+                        
+                        const chartData: OHLCBar[] = data.map((bar: any) => ({
+                            date: new Date(bar.time * 1000).toISOString().split('T')[0],
+                            open: bar.open,
+                            high: bar.high,
+                            low: bar.low,
+                            close: bar.close,
+                        })).sort((a: OHLCBar, b: OHLCBar) => a.date.localeCompare(b.date));
+                        
+                        const firstPrice = chartData[0]?.close || 1;
+                        const lastPrice = chartData[chartData.length - 1]?.close || firstPrice;
+                        const changePercent = ((lastPrice / firstPrice) - 1) * 100;
+                        
+                        loadedTickers.push({
+                            symbol: savedTickers[i].toUpperCase(),
+                            color: TICKER_COLORS[i % TICKER_COLORS.length],
+                            data: chartData,
+                            latestPrice: lastPrice,
+                            changePercent,
+                        });
+                    } catch {
+                        // Skip failed tickers
+                    }
+                }
+                
+                setTickers(loadedTickers);
+                setLoading(false);
+                setInitialLoadDone(true);
+            };
+            
+            loadSavedTickers();
+        } else {
+            setInitialLoadDone(true);
+        }
+    }, [windowState.tickerSymbols, period, initialLoadDone]);
+
+    // Persistir estado cuando cambian los valores
+    useEffect(() => {
+        if (!initialLoadDone) return;
+        
+        updateWindowState({
+            tickerSymbols: tickers.map(t => t.symbol),
+            period,
+            chartType,
+            scaleType,
+        });
+    }, [tickers, period, chartType, scaleType, initialLoadDone, updateWindowState]);
 
     const fetchTickerData = useCallback(async (symbol: string): Promise<TickerData | null> => {
         const periodConfig = PERIODS.find(p => p.id === period);

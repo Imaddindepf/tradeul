@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getUserTimezone } from '@/lib/date-utils';
 
 interface AnalysisPhase {
   id: string;
@@ -75,7 +76,7 @@ export default function TerminalAnimation({
     // Add terminal line
     const phaseData = DEFAULT_PHASES.find(p => p.id === currentPhase);
     if (phaseData) {
-      const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
+      const timestamp = new Date().toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour12: false });
       setTerminalLines(prev => [
         ...prev.slice(-15), // Keep last 15 lines
         `[${timestamp}] ${phaseData.icon} ${phaseData.label}...`
@@ -85,7 +86,7 @@ export default function TerminalAnimation({
     if (currentPhase === 'completed') {
       setTerminalLines(prev => [
         ...prev,
-        `[${new Date().toLocaleTimeString('en-US', { hour12: false })}] ✅ Analysis complete for ${ticker}`
+        `[${new Date().toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour12: false })}] ✅ Analysis complete for ${ticker}`
       ]);
       onComplete?.();
     }

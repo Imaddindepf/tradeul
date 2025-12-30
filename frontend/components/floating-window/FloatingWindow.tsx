@@ -4,7 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, ExternalLink } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { FloatingWindow as FloatingWindowType, useFloatingWindow, WindowIdProvider } from '@/contexts/FloatingWindowContext';
+import { FloatingWindow as FloatingWindowType, useFloatingWindow, WindowIdProvider, WindowStateProvider } from '@/contexts/FloatingWindowContext';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 
 interface FloatingWindowProps {
@@ -26,7 +26,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         if (window.poppedOutWindow?.closed) {
           // La ventana externa se cerró, restaurar contenido
           updateWindow(window.id, { isPoppedOut: false, poppedOutWindow: null });
-          
+
           // Si es el chat, invalidar mensajes para forzar recarga desde servidor
           if (window.title === 'Community Chat') {
             const { useChatStore } = require('@/stores/useChatStore');
@@ -37,7 +37,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
               useChatStore.getState().invalidateMessages(key);
             }
           }
-          
+
           if (checkIntervalRef.current) {
             clearInterval(checkIntervalRef.current);
             checkIntervalRef.current = null;
@@ -98,15 +98,20 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     } else if (window.title === 'News') {
       // Abrir News en about:blank con WebSocket
       const { openNewsWindow } = require('@/lib/window-injector');
+      const { useNewsStore } = require('@/stores/useNewsStore');
       const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
       const workerUrl = `${globalThis.location.origin}/workers/websocket-shared.js`;
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      // Get existing articles from the store
+      const existingArticles = useNewsStore.getState().articles || [];
 
       popOutWindow = await openNewsWindow(
         {
           wsUrl,
           workerUrl,
-          apiBaseUrl
+          apiBaseUrl,
+          existingArticles
         },
         {
           title: 'News - Tradeul',
@@ -174,7 +179,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       const { openChatWindow } = require('@/lib/window-injector');
       const wsUrl = process.env.NEXT_PUBLIC_CHAT_WS_URL || 'wss://wschat.tradeul.com';
       const apiUrl = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
-      
+
       const token = await getToken();
       if (token) {
         popOutWindow = openChatWindow(
@@ -211,11 +216,11 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
     } else if (window.title === 'Notes') {
       // Abrir Notes en about:blank
       const { openNotesWindow } = require('@/lib/window-injector');
-      
+
       // Obtener las notas actuales del store
       const { useNotesStore } = require('@/stores/useNotesStore');
       const notesState = useNotesStore.getState();
-      
+
       popOutWindow = openNotesWindow(
         {
           notes: notesState.notes,
@@ -225,6 +230,30 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           title: 'Notes - Tradeul',
           width: 600,
           height: 550,
+          centered: true
+        }
+      );
+    } else if (window.title === 'Historical Multiple Security') {
+      // Abrir MP en about:blank con estado guardado
+      const { openMultipleSecurityWindow } = require('@/lib/window-injector');
+      const { useUserPreferencesStore } = require('@/stores/useUserPreferencesStore');
+
+      // Obtener el estado guardado de esta ventana
+      const windowLayouts = useUserPreferencesStore.getState().windowLayouts;
+      const savedLayout = windowLayouts.find((w: any) => w.id === window.id);
+      const componentState = savedLayout?.componentState || {};
+
+      popOutWindow = openMultipleSecurityWindow(
+        {
+          initialTickers: componentState.tickerSymbols || [],
+          period: componentState.period || '1Y',
+          chartType: componentState.chartType || 'line',
+          scaleType: componentState.scaleType || 'percent',
+        },
+        {
+          title: 'Multiple Security - Tradeul',
+          width: 1000,
+          height: 650,
           centered: true
         }
       );
@@ -405,7 +434,9 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
             </div>
           ) : (
             <WindowIdProvider windowId={window.id}>
-              {window.content}
+              <WindowStateProvider windowId={window.id}>
+                {window.content}
+              </WindowStateProvider>
             </WindowIdProvider>
           )}
         </div>
