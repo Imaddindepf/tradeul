@@ -29,6 +29,7 @@ redis==5.0.1
 
 # Database
 asyncpg==0.29.0
+aiosqlite==0.19.0
 
 # Compression
 gzip-stream==1.0.0

@@ -22,6 +22,11 @@ from flat_files_downloader import FlatFilesDownloader
 from r2_downloader import ensure_index_files
 from cache import pattern_cache
 
+# Pattern Real-Time module
+from realtime import realtime_router, ws_manager
+from realtime.router import setup_realtime, teardown_realtime, ws_router
+from realtime.db import close_predictions_db
+
 # Configure logging
 structlog.configure(
     processors=[
@@ -132,10 +137,26 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Service started without index - use /api/index/build to create one")
     
+    # Initialize Pattern Real-Time module
+    try:
+        await setup_realtime(matcher, use_parallel=True)
+        logger.info("Pattern Real-Time module initialized")
+    except Exception as e:
+        logger.error("Failed to initialize Pattern Real-Time", error=str(e))
+    
     yield
     
     # Cleanup
     logger.info("Shutting down Pattern Matching Service")
+    
+    # Cleanup Pattern Real-Time
+    try:
+        await teardown_realtime()
+        await close_predictions_db()
+        logger.info("Pattern Real-Time module cleaned up")
+    except Exception as e:
+        logger.error("Error cleaning up Pattern Real-Time", error=str(e))
+    
     await pattern_cache.close()
     if matcher:
         await matcher.close()
@@ -148,9 +169,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Pattern Matching Service",
     description="Ultra-fast pattern similarity search for financial time series using FAISS",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan
 )
+
+# Include Pattern Real-Time router
+app.include_router(realtime_router)
+
+# Include WebSocket router at /ws
+app.include_router(ws_router, prefix="/ws")
 
 
 # ============================================================================

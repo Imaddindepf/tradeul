@@ -343,46 +343,43 @@ WS /ws/pattern-realtime
 
 ### Base de Datos de Predicciones
 
-**IMPORTANTE**: Usamos **TimescaleDB** (PostgreSQL) que ya existe como servicio compartido en Tradeul, NO SQLite.
+**Usamos SQLite local** (`data/predictions.db`) en el servidor de Pattern Matching.
 
-Configuración en `config.py`:
-```python
-db_host: str = "timescaledb"
-db_port: int = 5432
-db_name: str = "tradeul"
-db_user: str = "tradeul_user"
-```
+Razones:
+- El servidor de PM (37.27.183.194) está separado del servidor principal donde está TimescaleDB
+- Las predicciones son datos LIGEROS (~KB por día)
+- SQLite es suficiente y evita complejidad de red/firewall
+
+Archivo: `data/predictions.db` (separado de `patterns_metadata.db`)
 
 ```sql
--- TimescaleDB (PostgreSQL) - Base de datos compartida de Tradeul
--- Schema: pattern_realtime
+-- SQLite schema para predicciones
 
-CREATE SCHEMA IF NOT EXISTS pattern_realtime;
-
-CREATE TABLE pattern_realtime.jobs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ,
-    status VARCHAR(20) NOT NULL DEFAULT 'running',  -- 'running', 'completed', 'failed'
-    params JSONB NOT NULL,  -- k, horizon, alpha, etc.
-    total_symbols INTEGER,
+CREATE TABLE jobs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'pending',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    params TEXT NOT NULL,  -- JSON
+    total_symbols INTEGER NOT NULL,
     completed_symbols INTEGER DEFAULT 0,
-    failed_symbols INTEGER DEFAULT 0
+    failed_symbols INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE pattern_realtime.predictions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    job_id UUID NOT NULL REFERENCES pattern_realtime.jobs(id),
-    symbol VARCHAR(20) NOT NULL,
-    scan_time TIMESTAMPTZ NOT NULL,
-    horizon INTEGER NOT NULL,  -- minutos
+CREATE TABLE predictions (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    scan_time TEXT NOT NULL,
+    horizon INTEGER NOT NULL,
     
     -- Predicción
     prob_up REAL NOT NULL,
     prob_down REAL NOT NULL,
     mean_return REAL NOT NULL,
     edge REAL NOT NULL,
-    direction VARCHAR(10) NOT NULL,  -- 'UP' o 'DOWN'
+    direction TEXT NOT NULL,
     n_neighbors INTEGER NOT NULL,
     dist1 REAL,
     p10 REAL,
@@ -394,23 +391,33 @@ CREATE TABLE pattern_realtime.predictions (
     -- Verificación (null hasta que pase horizon)
     price_at_horizon REAL,
     actual_return REAL,
-    was_correct BOOLEAN,
+    was_correct INTEGER,  -- SQLite boolean
     pnl REAL,
-    verified_at TIMESTAMPTZ,
+    verified_at TEXT,
     
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
 );
 
--- Convertir a hypertable de TimescaleDB para mejor performance en series temporales
-SELECT create_hypertable('pattern_realtime.predictions', 'scan_time', if_not_exists => TRUE);
+CREATE TABLE failures (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    scan_time TEXT NOT NULL,
+    error_code TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    bars_since_open INTEGER,
+    bars_until_close INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (job_id) REFERENCES jobs(id)
+);
 
 -- Índices
-CREATE INDEX idx_predictions_job ON pattern_realtime.predictions(job_id);
-CREATE INDEX idx_predictions_symbol ON pattern_realtime.predictions(symbol);
-CREATE INDEX idx_predictions_pending ON pattern_realtime.predictions(scan_time) 
-    WHERE verified_at IS NULL;
-CREATE INDEX idx_predictions_verified ON pattern_realtime.predictions(verified_at) 
-    WHERE verified_at IS NOT NULL;
+CREATE INDEX idx_predictions_job ON predictions(job_id);
+CREATE INDEX idx_predictions_symbol ON predictions(symbol);
+CREATE INDEX idx_predictions_pending ON predictions(scan_time) WHERE verified_at IS NULL;
+CREATE INDEX idx_predictions_scan_time ON predictions(scan_time);
+CREATE INDEX idx_failures_job ON failures(job_id);
 ```
 
 ### Verification Worker
@@ -605,18 +612,12 @@ Añadir en `frontend/lib/window-injector/index.ts` o crear nuevo archivo `patter
 │  │  - pattern_matcher.search()                                 │   │
 │  │  - minute bar data                                          │   │
 │  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-                               │
-                               │ PostgreSQL (asyncpg)
-                               ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    TIMESCALEDB (Servicio Tradeul)                   │
-│                    (PostgreSQL con extensión TimescaleDB)           │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │  Schema: pattern_realtime                                    │   │
-│  │  - pattern_realtime.jobs                                    │   │
-│  │  - pattern_realtime.predictions (hypertable)                │   │
+│  │                 predictions.db (SQLite LOCAL)                │   │
+│  │  - jobs (batch scan jobs)                                   │   │
+│  │  - predictions (individual predictions + verification)      │   │
+│  │  - failures (scan errors)                                   │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
