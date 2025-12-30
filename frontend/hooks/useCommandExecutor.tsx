@@ -20,6 +20,7 @@ import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/
 import { ChatContent } from '@/components/chat';
 import { NotesContent } from '@/components/notes/NotesContent';
 import { PatternMatchingContent } from '@/components/pattern-matching';
+import { PatternRealtimeContent } from '@/components/pattern-realtime';
 import { RatioAnalysisContent } from '@/components/ratio-analysis';
 import { ScreenerContent } from '@/components/screener';
 import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
@@ -318,6 +319,21 @@ export function useCommandExecutor() {
                     x: Math.max(50, screenWidth / 2 - 350),
                     y: Math.max(80, screenHeight / 2 - 325),
                     minWidth: 550,
+                    minHeight: 500,
+                });
+                return null;
+
+            case 'prt':
+            case 'pattern-realtime':
+            case 'patternscan':
+                openWindow({
+                    title: 'Pattern Real-Time',
+                    content: <PatternRealtimeContent />,
+                    width: 900,
+                    height: 650,
+                    x: Math.max(50, screenWidth / 2 - 450),
+                    y: Math.max(80, screenHeight / 2 - 325),
+                    minWidth: 700,
                     minHeight: 500,
                 });
                 return null;
