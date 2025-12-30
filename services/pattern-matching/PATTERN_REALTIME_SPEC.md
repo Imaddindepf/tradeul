@@ -12,9 +12,10 @@ Este documento describe la implementación de **Pattern Real-Time**, una nueva f
 Servicio existente que permite analizar patrones históricos de UN ticker en una fecha específica del pasado.
 
 ### Ubicación
-- **Servidor**: `51.44.136.129`
+- **Servidor dedicado**: `37.27.183.194`
 - **Puerto**: `8787`
 - **Repositorio**: `services/pattern-matching/`
+- **Directorio en servidor**: `/opt/pattern-matching/`
 
 ### Arquitectura Actual
 
@@ -22,16 +23,27 @@ Servicio existente que permite analizar patrones históricos de UN ticker en una
 services/pattern-matching/
 ├── main.py                 # FastAPI application
 ├── pattern_matcher.py      # Lógica de búsqueda FAISS
-├── config.py               # Configuración
+├── pattern_indexer.py      # Manejo del index FAISS + metadata
+├── config.py               # Configuración (incluye TimescaleDB)
 ├── daily_updater.py        # Actualización diaria del index
 ├── flat_files_downloader.py # Descarga minute bars de Polygon S3
-├── indexes/
-│   └── patterns_ivfpq.index  # FAISS index (~10 años de patrones)
 ├── data/
-│   ├── minute_aggs/          # 599+ días de minute bars (CSV.gz)
-│   └── patterns.db           # SQLite con metadata
+│   ├── patterns_ivfpq.index      # FAISS index (6GB, 362M patrones)
+│   ├── patterns_metadata.db      # SQLite metadata patrones (26GB)
+│   ├── patterns_trajectories.npy # Trayectorias 15 puntos (22GB)
+│   └── minute_aggs/              # 599+ días de minute bars (CSV.gz)
 └── docker-compose.yml
 ```
+
+### Bases de Datos (IMPORTANTE)
+
+| Base de Datos | Tipo | Ubicación | Uso |
+|---------------|------|-----------|-----|
+| `patterns_metadata.db` | SQLite | Servidor PM (37.27.183.194) | Metadatos de 362M patrones FAISS |
+| TimescaleDB | PostgreSQL | Servicio Tradeul (compartido) | **Predicciones Pattern Real-Time** |
+| Redis | In-memory | Servicio Tradeul | Cache de precios y resultados |
+
+**Para Pattern Real-Time usamos TimescaleDB**, NO creamos otro SQLite.
 
 ### Endpoints Existentes
 
@@ -103,11 +115,14 @@ Nueva funcionalidad que permite:
 
 ### Backend (Extender servicio existente)
 
+**Servidor**: `37.27.183.194` (Pattern Matching dedicado)
+
 ```
 services/pattern-matching/
 ├── main.py                      # Modificar: añadir router realtime + WS
 ├── pattern_matcher.py           # NO TOCAR - se reutiliza
-├── config.py                    # Modificar: añadir config realtime
+├── pattern_indexer.py           # NO TOCAR - se reutiliza
+├── config.py                    # Ya tiene config de TimescaleDB
 │
 ├── realtime/                    # NUEVO directorio
 │   ├── __init__.py
@@ -115,11 +130,19 @@ services/pattern-matching/
 │   ├── websocket_manager.py     # Gestión de conexiones WebSocket
 │   ├── engine.py                # Lógica de batch scanning
 │   ├── verification_worker.py   # Background task para verificar predicciones
+│   ├── db.py                    # Conexión a TimescaleDB
 │   └── models.py                # Pydantic schemas
 │
-├── predictions.db               # NUEVO: SQLite para tracking
+├── data/                        # EXISTENTE - NO TOCAR
+│   ├── patterns_ivfpq.index     # FAISS index (6GB)
+│   ├── patterns_metadata.db     # SQLite metadatos patrones (26GB)
+│   ├── patterns_trajectories.npy # Trayectorias numpy (22GB)
+│   └── minute_aggs/             # Minute bars CSV.gz
 │
 └── (resto sin cambios)
+
+# Las predicciones se guardan en TimescaleDB (servicio compartido Tradeul)
+# NO en el servidor de Pattern Matching
 ```
 
 ### Nuevos Endpoints
@@ -320,25 +343,38 @@ WS /ws/pattern-realtime
 
 ### Base de Datos de Predicciones
 
-```sql
--- predictions.db (SQLite)
+**IMPORTANTE**: Usamos **TimescaleDB** (PostgreSQL) que ya existe como servicio compartido en Tradeul, NO SQLite.
 
-CREATE TABLE jobs (
-    id TEXT PRIMARY KEY,
-    started_at TIMESTAMP NOT NULL,
-    completed_at TIMESTAMP,
-    status TEXT NOT NULL,  -- 'running', 'completed', 'failed'
-    params JSON NOT NULL,  -- k, horizon, alpha, etc.
+Configuración en `config.py`:
+```python
+db_host: str = "timescaledb"
+db_port: int = 5432
+db_name: str = "tradeul"
+db_user: str = "tradeul_user"
+```
+
+```sql
+-- TimescaleDB (PostgreSQL) - Base de datos compartida de Tradeul
+-- Schema: pattern_realtime
+
+CREATE SCHEMA IF NOT EXISTS pattern_realtime;
+
+CREATE TABLE pattern_realtime.jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    status VARCHAR(20) NOT NULL DEFAULT 'running',  -- 'running', 'completed', 'failed'
+    params JSONB NOT NULL,  -- k, horizon, alpha, etc.
     total_symbols INTEGER,
     completed_symbols INTEGER DEFAULT 0,
     failed_symbols INTEGER DEFAULT 0
 );
 
-CREATE TABLE predictions (
-    id TEXT PRIMARY KEY,
-    job_id TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    scan_time TIMESTAMP NOT NULL,
+CREATE TABLE pattern_realtime.predictions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES pattern_realtime.jobs(id),
+    symbol VARCHAR(20) NOT NULL,
+    scan_time TIMESTAMPTZ NOT NULL,
     horizon INTEGER NOT NULL,  -- minutos
     
     -- Predicción
@@ -346,7 +382,7 @@ CREATE TABLE predictions (
     prob_down REAL NOT NULL,
     mean_return REAL NOT NULL,
     edge REAL NOT NULL,
-    direction TEXT NOT NULL,  -- 'UP' o 'DOWN'
+    direction VARCHAR(10) NOT NULL,  -- 'UP' o 'DOWN'
     n_neighbors INTEGER NOT NULL,
     dist1 REAL,
     p10 REAL,
@@ -360,15 +396,21 @@ CREATE TABLE predictions (
     actual_return REAL,
     was_correct BOOLEAN,
     pnl REAL,
-    verified_at TIMESTAMP,
+    verified_at TIMESTAMPTZ,
     
-    FOREIGN KEY (job_id) REFERENCES jobs(id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_predictions_job ON predictions(job_id);
-CREATE INDEX idx_predictions_symbol ON predictions(symbol);
-CREATE INDEX idx_predictions_pending ON predictions(verified_at) WHERE verified_at IS NULL;
-CREATE INDEX idx_predictions_scan_time ON predictions(scan_time);
+-- Convertir a hypertable de TimescaleDB para mejor performance en series temporales
+SELECT create_hypertable('pattern_realtime.predictions', 'scan_time', if_not_exists => TRUE);
+
+-- Índices
+CREATE INDEX idx_predictions_job ON pattern_realtime.predictions(job_id);
+CREATE INDEX idx_predictions_symbol ON pattern_realtime.predictions(symbol);
+CREATE INDEX idx_predictions_pending ON pattern_realtime.predictions(scan_time) 
+    WHERE verified_at IS NULL;
+CREATE INDEX idx_predictions_verified ON pattern_realtime.predictions(verified_at) 
+    WHERE verified_at IS NOT NULL;
 ```
 
 ### Verification Worker
@@ -377,50 +419,60 @@ CREATE INDEX idx_predictions_scan_time ON predictions(scan_time);
 """
 Background task que corre cada minuto.
 Verifica predicciones cuyo horizon ya pasó.
+Usa TimescaleDB (PostgreSQL).
 """
 
-async def verification_loop():
+async def verification_loop(db_pool, ws_manager):
     while True:
-        # Buscar predicciones pendientes donde scan_time + horizon < now
-        pending = db.query("""
-            SELECT * FROM predictions 
-            WHERE verified_at IS NULL 
-            AND datetime(scan_time, '+' || horizon || ' minutes') < datetime('now')
-        """)
-        
-        for prediction in pending:
-            # Obtener precio actual
-            current_price = await get_current_price(prediction.symbol)
+        async with db_pool.acquire() as conn:
+            # Buscar predicciones pendientes donde scan_time + horizon < now
+            pending = await conn.fetch("""
+                SELECT id, symbol, scan_time, horizon, direction, price_at_scan
+                FROM pattern_realtime.predictions 
+                WHERE verified_at IS NULL 
+                AND scan_time + (horizon || ' minutes')::interval < NOW()
+                LIMIT 100
+            """)
             
-            # Calcular retorno real
-            actual_return = (current_price - prediction.price_at_scan) / prediction.price_at_scan * 100
-            
-            # Determinar si acertamos dirección
-            if prediction.direction == "UP":
-                was_correct = actual_return > 0
-                pnl = actual_return
-            else:  # DOWN
-                was_correct = actual_return < 0
-                pnl = -actual_return  # Invertir para short
-            
-            # Actualizar DB
-            db.update(prediction.id, {
-                "price_at_horizon": current_price,
-                "actual_return": actual_return,
-                "was_correct": was_correct,
-                "pnl": pnl,
-                "verified_at": datetime.utcnow()
-            })
-            
-            # Broadcast via WebSocket
-            await ws_manager.broadcast({
-                "type": "verification",
-                "prediction_id": prediction.id,
-                "symbol": prediction.symbol,
-                "actual_return": actual_return,
-                "was_correct": was_correct,
-                "pnl": pnl
-            })
+            for prediction in pending:
+                try:
+                    # Obtener precio actual
+                    current_price = await get_current_price(prediction['symbol'])
+                    
+                    # Calcular retorno real
+                    actual_return = (current_price - prediction['price_at_scan']) / prediction['price_at_scan'] * 100
+                    
+                    # Determinar si acertamos dirección
+                    if prediction['direction'] == "UP":
+                        was_correct = actual_return > 0
+                        pnl = actual_return
+                    else:  # DOWN
+                        was_correct = actual_return < 0
+                        pnl = -actual_return  # Invertir para short
+                    
+                    # Actualizar DB
+                    await conn.execute("""
+                        UPDATE pattern_realtime.predictions 
+                        SET price_at_horizon = $1,
+                            actual_return = $2,
+                            was_correct = $3,
+                            pnl = $4,
+                            verified_at = NOW()
+                        WHERE id = $5
+                    """, current_price, actual_return, was_correct, pnl, prediction['id'])
+                    
+                    # Broadcast via WebSocket
+                    await ws_manager.broadcast({
+                        "type": "verification",
+                        "prediction_id": str(prediction['id']),
+                        "symbol": prediction['symbol'],
+                        "actual_return": round(actual_return, 4),
+                        "was_correct": was_correct,
+                        "pnl": round(pnl, 4)
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Verification failed for {prediction['symbol']}: {e}")
         
         await asyncio.sleep(60)  # Cada minuto
 ```
@@ -516,7 +568,7 @@ Añadir en `frontend/lib/window-injector/index.ts` o crear nuevo archivo `patter
                                ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                  PATTERN MATCHING SERVICE                           │
-│                  51.44.136.129:8787                                 │
+│                  37.27.183.194:8787 (servidor dedicado)             │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                    WebSocket Manager                         │   │
@@ -530,7 +582,7 @@ Añadir en `frontend/lib/window-injector/index.ts` o crear nuevo archivo `patter
 │  │  2. Para cada symbol:                                        │   │
 │  │     a. Llama a pattern_matcher.search() ← REUTILIZA         │   │
 │  │     b. Calcula edge = prob × mean_return                    │   │
-│  │     c. Guarda predicción en predictions.db                  │   │
+│  │     c. Guarda predicción en TimescaleDB                     │   │
 │  │     d. Broadcast resultado via WS                           │   │
 │  │  3. Marca job como completado                               │   │
 │  └─────────────────────────────────────────────────────────────┘   │
@@ -538,25 +590,33 @@ Añadir en `frontend/lib/window-injector/index.ts` o crear nuevo archivo `patter
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │              Verification Worker (Background)                │   │
 │  │  - Corre cada minuto                                        │   │
-│  │  - Busca predicciones donde scan_time + horizon < now       │   │
+│  │  - Busca predicciones pendientes en TimescaleDB             │   │
 │  │  - Obtiene precio actual                                    │   │
 │  │  - Calcula actual_return, was_correct, pnl                  │   │
-│  │  - Actualiza DB                                             │   │
+│  │  - Actualiza TimescaleDB                                    │   │
 │  │  - Broadcast verificación via WS                            │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 │                               │                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │                 CORE (EXISTENTE - REUTILIZAR)               │   │
-│  │  - FAISS index (patterns_ivfpq.index)                       │   │
+│  │  - FAISS index (patterns_ivfpq.index) - 6GB                 │   │
+│  │  - SQLite metadata (patterns_metadata.db) - 26GB            │   │
+│  │  - Trajectories (patterns_trajectories.npy) - 22GB          │   │
 │  │  - pattern_matcher.search()                                 │   │
 │  │  - minute bar data                                          │   │
-│  │  - forecast logic                                           │   │
 │  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+                               │
+                               │ PostgreSQL (asyncpg)
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    TIMESCALEDB (Servicio Tradeul)                   │
+│                    (PostgreSQL con extensión TimescaleDB)           │
 │                                                                     │
 │  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    predictions.db (NUEVO)                    │   │
-│  │  - Tabla jobs                                               │   │
-│  │  - Tabla predictions                                        │   │
+│  │  Schema: pattern_realtime                                    │   │
+│  │  - pattern_realtime.jobs                                    │   │
+│  │  - pattern_realtime.predictions (hypertable)                │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -643,8 +703,8 @@ E_PRICE          - Error obteniendo precio actual
 ## Conexión al Servidor
 
 ```bash
-# SSH al servidor de Pattern Matching
-ssh root@51.44.136.129
+# SSH al servidor de Pattern Matching (dedicado)
+ssh root@37.27.183.194
 
 # Directorio del servicio
 cd /opt/pattern-matching
@@ -654,6 +714,12 @@ docker-compose logs -f pattern_matching
 
 # Reiniciar servicio
 docker-compose restart pattern_matching
+
+# Ver estado
+docker-compose ps
+
+# Ver uso de disco (index + metadata son ~54GB)
+du -sh /opt/pattern-matching/data/*
 ```
 
 ---
