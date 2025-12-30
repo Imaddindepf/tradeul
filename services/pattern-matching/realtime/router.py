@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Optional
 import uuid
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
 import structlog
 
 from .models import (
@@ -120,7 +120,6 @@ async def teardown_realtime():
 @router.post("/run", response_model=RealtimeJobResponse)
 async def run_job(
     request: RealtimeJobRequest,
-    background_tasks: BackgroundTasks
 ):
     """
     Start a batch scan job
@@ -137,14 +136,15 @@ async def run_job(
     job_id = str(uuid.uuid4())
     started_at = datetime.utcnow()
     
-    # Run job in background
+    # Run job in background using asyncio.create_task
     async def run_in_background():
         try:
             await _engine.run_job(request, job_id)
         except Exception as e:
             logger.error("Background job failed", job_id=job_id, error=str(e))
     
-    background_tasks.add_task(asyncio.create_task, run_in_background())
+    # Create task in the current event loop
+    asyncio.create_task(run_in_background())
     
     return RealtimeJobResponse(
         job_id=job_id,

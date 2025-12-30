@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy service code
 COPY services/pattern-matching/*.py .
+COPY services/pattern-matching/realtime/ ./realtime/
 
 # Copy shared modules
 COPY shared/ /app/shared/
