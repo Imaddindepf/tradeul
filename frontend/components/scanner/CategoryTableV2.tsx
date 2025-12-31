@@ -114,10 +114,54 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         return [];
     }
   };
-  const [sorting, setSorting] = useState<SortingState>(getInitialSorting);
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
-  const [columnVisibility, setColumnVisibility] = useState({});
+
+  // Helper para localStorage key
+  const getStorageKey = (suffix: string) => `scanner_table_${listName}_${suffix}`;
+
+  // Cargar preferencias desde localStorage
+  const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
+    if (typeof window === 'undefined') return defaultValue;
+    try {
+      const stored = localStorage.getItem(getStorageKey(key));
+      return stored ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
+  // Guardar preferencias en localStorage
+  const saveToStorage = (key: string, value: unknown) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(getStorageKey(key), JSON.stringify(value));
+    } catch {
+      // Silent fail for storage errors
+    }
+  };
+
+  const [sorting, setSorting] = useState<SortingState>(() => 
+    loadFromStorage('sorting', getInitialSorting())
+  );
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => 
+    loadFromStorage('columnOrder', [])
+  );
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => 
+    loadFromStorage('columnVisibility', {})
+  );
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
+
+  // Persistir cambios en localStorage
+  useEffect(() => {
+    saveToStorage('sorting', sorting);
+  }, [sorting]);
+
+  useEffect(() => {
+    saveToStorage('columnOrder', columnOrder);
+  }, [columnOrder]);
+
+  useEffect(() => {
+    saveToStorage('columnVisibility', columnVisibility);
+  }, [columnVisibility]);
   const [isReady, setIsReady] = useState(false);
   const [noDataAvailable, setNoDataAvailable] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);

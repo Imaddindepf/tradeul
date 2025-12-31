@@ -401,10 +401,51 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   // TABLE CONFIG
   // ======================================================================
 
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'newsCount', desc: true }]);
-  const [columnOrder, setColumnOrder] = useState<string[]>([]);
-  const [columnVisibility, setColumnVisibility] = useState({});
+  // Helper para localStorage key
+  const STORAGE_KEY_PREFIX = 'scanner_table_with_news';
+  
+  const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
+    if (typeof window === 'undefined') return defaultValue;
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}_${key}`);
+      return stored ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  };
+
+  const saveToStorage = (key: string, value: unknown) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}_${key}`, JSON.stringify(value));
+    } catch {
+      // Silent fail for storage errors
+    }
+  };
+
+  const [sorting, setSorting] = useState<SortingState>(() => 
+    loadFromStorage('sorting', [{ id: 'newsCount', desc: true }])
+  );
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => 
+    loadFromStorage('columnOrder', [])
+  );
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => 
+    loadFromStorage('columnVisibility', {})
+  );
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
+
+  // Persistir cambios en localStorage
+  useEffect(() => {
+    saveToStorage('sorting', sorting);
+  }, [sorting]);
+
+  useEffect(() => {
+    saveToStorage('columnOrder', columnOrder);
+  }, [columnOrder]);
+
+  useEffect(() => {
+    saveToStorage('columnVisibility', columnVisibility);
+  }, [columnVisibility]);
 
   const columns = useMemo(
     () => [

@@ -1,15 +1,64 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { useChatStore, selectTypingUsers, type ChatMessage as ChatMessageType } from '@/stores/useChatStore';
 import { ChatMessage } from './ChatMessage';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getUserTimezone } from '@/lib/date-utils';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
 const PAGE_SIZE = 50;
 const MAX_MESSAGES_IN_VIEW = 500; // Límite para rendimiento
+
+/**
+ * Genera una clave de fecha para agrupar mensajes por día
+ */
+function getDateKey(dateStr: string, timezone: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-CA', { timeZone: timezone }); // YYYY-MM-DD format
+}
+
+/**
+ * Formatea la etiqueta del separador de fecha
+ */
+function formatDateSeparator(dateKey: string, timezone: string): string {
+  const today = new Date();
+  const todayKey = today.toLocaleDateString('en-CA', { timeZone: timezone });
+  
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = yesterday.toLocaleDateString('en-CA', { timeZone: timezone });
+
+  if (dateKey === todayKey) {
+    return 'Hoy';
+  } else if (dateKey === yesterdayKey) {
+    return 'Ayer';
+  } else {
+    // Formatear como "Lun, 30 de diciembre"
+    const date = new Date(dateKey + 'T12:00:00'); // Add time to avoid timezone issues
+    return date.toLocaleDateString('es-ES', {
+      timeZone: timezone,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'long',
+    });
+  }
+}
+
+/**
+ * Componente separador de fecha estilo WhatsApp
+ */
+function DateSeparator({ label }: { label: string }) {
+  return (
+    <div className="flex items-center justify-center py-2">
+      <div className="px-3 py-1 rounded-full bg-muted/50 text-[10px] font-medium text-muted-foreground/70 shadow-sm">
+        {label}
+      </div>
+    </div>
+  );
+}
 
 /**
  * ChatMessages - Lista invertida con flex-direction: column-reverse
@@ -138,6 +187,36 @@ export function ChatMessages() {
     }
   }, []);
 
+  // Timezone del usuario para agrupar por fecha (debe estar antes de useMemo)
+  const timezone = getUserTimezone();
+
+  // Agrupar mensajes por fecha con separadores (DEBE estar antes de cualquier return condicional)
+  const messagesWithSeparators = useMemo(() => {
+    if (displayMessages.length === 0) return [];
+
+    const result: { type: 'message' | 'separator'; message?: ChatMessageType; dateLabel?: string; dateKey?: string }[] = [];
+    let lastDateKey: string | null = null;
+
+    // Recorremos en orden cronológico (antiguos a recientes)
+    for (const message of displayMessages) {
+      const dateKey = getDateKey(message.created_at, timezone);
+      
+      // Si cambió el día, añadimos un separador
+      if (dateKey !== lastDateKey) {
+        result.push({
+          type: 'separator',
+          dateLabel: formatDateSeparator(dateKey, timezone),
+          dateKey,
+        });
+        lastDateKey = dateKey;
+      }
+      
+      result.push({ type: 'message', message });
+    }
+
+    return result;
+  }, [displayMessages, timezone]);
+
   // Estado: Cargando
   if (isLoadingMessages) {
     return (
@@ -166,15 +245,22 @@ export function ChatMessages() {
         {/* Espacio para typing indicator */}
         <div className="h-5 shrink-0" />
 
-        {/* Mensajes (invertidos para column-reverse) */}
-        {[...displayMessages].reverse().map((message) => (
-          <div key={message.id} id={`msg-${message.id}`}>
-            <ChatMessage
-              message={message}
-              onScrollToMessage={scrollToMessage}
-            />
-          </div>
-        ))}
+        {/* Mensajes con separadores de fecha (invertidos para column-reverse) */}
+        {[...messagesWithSeparators].reverse().map((item, index) => {
+          if (item.type === 'separator') {
+            return (
+              <DateSeparator key={`sep-${item.dateKey}`} label={item.dateLabel!} />
+            );
+          }
+          return (
+            <div key={item.message!.id} id={`msg-${item.message!.id}`}>
+              <ChatMessage
+                message={item.message!}
+                onScrollToMessage={scrollToMessage}
+              />
+            </div>
+          );
+        })}
 
         {/* Header: cargar más / inicio */}
         <div className="shrink-0">

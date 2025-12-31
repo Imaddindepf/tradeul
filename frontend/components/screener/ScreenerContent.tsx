@@ -21,6 +21,15 @@ import {
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import {
+    useReactTable,
+    getCoreRowModel,
+    getSortedRowModel,
+    createColumnHelper,
+    flexRender,
+} from '@tanstack/react-table';
+import type { SortingState, ColumnOrderState } from '@tanstack/react-table';
+import { TableSettings } from '@/components/table/TableSettings';
 
 // ============================================================================
 // Types
@@ -352,8 +361,135 @@ function FilterBuilder({
 }
 
 // ============================================================================
-// Results Table Component
+// Results Table Component with TanStack Table (drag & drop columns)
 // ============================================================================
+
+const screenerColumnHelper = createColumnHelper<ScreenerResult>();
+
+// Formatters
+const formatPrice = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
+    if (value >= 1) return `$${value.toFixed(2)}`;
+    return `$${value.toFixed(4)}`;
+};
+
+const formatPercent = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
+};
+
+const formatVolume = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+    return value.toString();
+};
+
+const formatMultiplier = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    return `${value.toFixed(2)}x`;
+};
+
+const formatRSI = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    return value.toFixed(0);
+};
+
+const getChangeColor = (value: number | null) => {
+    if (value === null) return 'text-slate-400';
+    return value >= 0 ? 'text-emerald-600' : 'text-red-500';
+};
+
+// Storage helpers for persistence
+const SCREENER_STORAGE_KEY = 'screener_table';
+const loadScreenerStorage = <T,>(key: string, defaultValue: T): T => {
+    if (typeof window === 'undefined') return defaultValue;
+    try {
+        const stored = localStorage.getItem(`${SCREENER_STORAGE_KEY}_${key}`);
+        return stored ? JSON.parse(stored) : defaultValue;
+    } catch {
+        return defaultValue;
+    }
+};
+
+const saveScreenerStorage = (key: string, value: unknown) => {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(`${SCREENER_STORAGE_KEY}_${key}`, JSON.stringify(value));
+    } catch {
+        // Silent fail
+    }
+};
+
+// Column definitions
+const screenerColumns = [
+    screenerColumnHelper.accessor('symbol', {
+        header: 'Symbol',
+        size: 70,
+        enableHiding: false,
+        cell: (info) => <span className="font-semibold text-slate-800">{info.getValue()}</span>,
+    }),
+    screenerColumnHelper.accessor('price', {
+        header: 'Price',
+        size: 70,
+        cell: (info) => <span className="text-slate-700">{formatPrice(info.getValue())}</span>,
+    }),
+    screenerColumnHelper.accessor('change_1d', {
+        header: '1D%',
+        size: 65,
+        cell: (info) => {
+            const value = info.getValue();
+            return <span className={`font-medium ${getChangeColor(value)}`}>{formatPercent(value)}</span>;
+        },
+    }),
+    screenerColumnHelper.accessor('change_5d', {
+        header: '5D%',
+        size: 65,
+        cell: (info) => {
+            const value = info.getValue();
+            return <span className={`font-medium ${getChangeColor(value)}`}>{formatPercent(value)}</span>;
+        },
+    }),
+    screenerColumnHelper.accessor('rsi_14', {
+        header: 'RSI',
+        size: 50,
+        cell: (info) => <span className="text-slate-700">{formatRSI(info.getValue())}</span>,
+    }),
+    screenerColumnHelper.accessor('relative_volume', {
+        header: 'RVol',
+        size: 60,
+        cell: (info) => <span className="text-slate-700">{formatMultiplier(info.getValue())}</span>,
+    }),
+    screenerColumnHelper.accessor('from_52w_high', {
+        header: '52W',
+        size: 65,
+        cell: (info) => {
+            const value = info.getValue();
+            const isNearHigh = value !== null && value > -5;
+            return (
+                <span className={isNearHigh ? 'text-emerald-600 font-medium' : 'text-slate-500'}>
+                    {formatPercent(value)}
+                </span>
+            );
+        },
+    }),
+    screenerColumnHelper.accessor('bb_width', {
+        header: 'BB%',
+        size: 55,
+        cell: (info) => {
+            const value = info.getValue();
+            return <span className="text-slate-500">{value !== null ? `${value.toFixed(1)}%` : '-'}</span>;
+        },
+    }),
+    screenerColumnHelper.accessor('volume', {
+        header: 'Vol',
+        size: 70,
+        cell: (info) => <span className="text-slate-500">{formatVolume(info.getValue())}</span>,
+    }),
+];
 
 function ResultsTable({
     results,
@@ -362,92 +498,132 @@ function ResultsTable({
     results: ScreenerResult[];
     onSymbolClick?: (symbol: string) => void;
 }) {
-    const formatPrice = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-        if (value >= 1) return `$${value.toFixed(2)}`;
-        return `$${value.toFixed(4)}`;
-    };
+    // Load persisted state
+    const [sorting, setSorting] = useState<SortingState>(() => 
+        loadScreenerStorage('sorting', [])
+    );
+    const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(() => 
+        loadScreenerStorage('columnOrder', [])
+    );
+    const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => 
+        loadScreenerStorage('columnVisibility', {})
+    );
 
-    const formatPercent = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        const sign = value >= 0 ? '+' : '';
-        return `${sign}${value.toFixed(2)}%`;
-    };
+    // Persist changes
+    useEffect(() => {
+        saveScreenerStorage('sorting', sorting);
+    }, [sorting]);
 
-    const formatVolume = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
-        if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-        if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
-        return value.toString();
-    };
+    useEffect(() => {
+        saveScreenerStorage('columnOrder', columnOrder);
+    }, [columnOrder]);
 
-    const formatMultiplier = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        return `${value.toFixed(2)}x`;
-    };
+    useEffect(() => {
+        saveScreenerStorage('columnVisibility', columnVisibility);
+    }, [columnVisibility]);
 
-    const formatRSI = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        return value.toFixed(0);
-    };
-
-    const getChangeColor = (value: number | null) => {
-        if (value === null) return 'text-slate-400';
-        return value >= 0 ? 'text-emerald-600' : 'text-red-500';
-    };
+    const table = useReactTable({
+        data: results,
+        columns: screenerColumns,
+        state: {
+            sorting,
+            columnOrder,
+            columnVisibility,
+        },
+        onSortingChange: setSorting,
+        onColumnOrderChange: setColumnOrder,
+        onColumnVisibilityChange: setColumnVisibility,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+    });
 
     return (
-        <div className="overflow-auto flex-1">
-            <table className="w-full text-left" style={{ fontSize: '9px' }}>
-                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
-                    <tr>
-                        <th className="px-2 py-1 font-semibold text-slate-600">Symbol</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">Price</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">1D%</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">5D%</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">RSI</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">RVol</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">52W</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">BB%</th>
-                        <th className="px-2 py-1 font-semibold text-slate-600 text-right">Vol</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {results.map((r, i) => (
-                        <tr
-                            key={r.symbol}
-                            className={`border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
-                            onClick={() => onSymbolClick?.(r.symbol)}
-                        >
-                            <td className="px-2 py-1 font-semibold text-slate-800">{r.symbol}</td>
-                            <td className="px-2 py-1 text-right text-slate-700">{formatPrice(r.price)}</td>
-                            <td className={`px-2 py-1 text-right font-medium ${getChangeColor(r.change_1d)}`}>
-                                {formatPercent(r.change_1d)}
-                            </td>
-                            <td className={`px-2 py-1 text-right font-medium ${getChangeColor(r.change_5d)}`}>
-                                {formatPercent(r.change_5d)}
-                            </td>
-                            <td className="px-2 py-1 text-right text-slate-700">
-                                {formatRSI(r.rsi_14)}
-                            </td>
-                            <td className="px-2 py-1 text-right text-slate-700">
-                                {formatMultiplier(r.relative_volume)}
-                            </td>
-                            <td className={`px-2 py-1 text-right ${r.from_52w_high !== null && r.from_52w_high > -5 ? 'text-emerald-600 font-medium' : 'text-slate-500'}`}>
-                                {formatPercent(r.from_52w_high)}
-                            </td>
-                            <td className="px-2 py-1 text-right text-slate-500">
-                                {r.bb_width !== null ? `${r.bb_width.toFixed(1)}%` : '-'}
-                            </td>
-                            <td className="px-2 py-1 text-right text-slate-500">
-                                {formatVolume(r.volume)}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+        <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Table Settings Button */}
+            <div className="flex-shrink-0 flex justify-end px-2 py-1 bg-slate-50/50 border-b border-slate-100">
+                <TableSettings table={table} />
+            </div>
+            
+            {/* Table */}
+            <div className="overflow-auto flex-1">
+                <table className="w-full text-left" style={{ fontSize: '9px' }}>
+                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+                        {table.getHeaderGroups().map((headerGroup) => (
+                            <tr key={headerGroup.id}>
+                                {headerGroup.headers.map((header, headerIndex) => {
+                                    const isFirstColumn = headerIndex === 0;
+                                    return (
+                                        <th
+                                            key={header.id}
+                                            draggable={true}
+                                            onDragStart={(e) => {
+                                                e.dataTransfer.effectAllowed = 'move';
+                                                e.dataTransfer.setData('text/plain', header.column.id);
+                                            }}
+                                            onDragOver={(e) => {
+                                                e.preventDefault();
+                                                e.dataTransfer.dropEffect = 'move';
+                                            }}
+                                            onDrop={(e) => {
+                                                e.preventDefault();
+                                                const draggedColumnId = e.dataTransfer.getData('text/plain');
+                                                const targetColumnId = header.column.id;
+
+                                                if (draggedColumnId !== targetColumnId) {
+                                                    const currentOrder = table.getState().columnOrder.length > 0
+                                                        ? table.getState().columnOrder
+                                                        : table.getAllLeafColumns().map((c) => c.id);
+
+                                                    const draggedIndex = currentOrder.indexOf(draggedColumnId);
+                                                    const targetIndex = currentOrder.indexOf(targetColumnId);
+
+                                                    const newOrder = [...currentOrder];
+                                                    newOrder.splice(draggedIndex, 1);
+                                                    newOrder.splice(targetIndex, 0, draggedColumnId);
+
+                                                    table.setColumnOrder(newOrder);
+                                                }
+                                            }}
+                                            className={`px-2 py-1 font-semibold text-slate-600 cursor-grab select-none hover:bg-slate-100 ${isFirstColumn ? 'text-left' : 'text-right'}`}
+                                            style={{ width: header.getSize() }}
+                                            onClick={header.column.getToggleSortingHandler()}
+                                        >
+                                            <div className={`flex items-center gap-1 ${isFirstColumn ? 'justify-start' : 'justify-end'}`}>
+                                                {flexRender(header.column.columnDef.header, header.getContext())}
+                                                {{
+                                                    asc: ' ↑',
+                                                    desc: ' ↓',
+                                                }[header.column.getIsSorted() as string] ?? null}
+                                            </div>
+                                        </th>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </thead>
+                    <tbody>
+                        {table.getRowModel().rows.map((row, i) => (
+                            <tr
+                                key={row.id}
+                                className={`border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
+                                onClick={() => onSymbolClick?.(row.original.symbol)}
+                            >
+                                {row.getVisibleCells().map((cell, cellIndex) => {
+                                    const isFirstColumn = cellIndex === 0;
+                                    return (
+                                        <td
+                                            key={cell.id}
+                                            className={`px-2 py-1 ${isFirstColumn ? 'text-left' : 'text-right'}`}
+                                        >
+                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
