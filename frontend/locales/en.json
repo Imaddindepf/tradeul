@@ -533,6 +533,9 @@
       "PM": {
         "description": "AI pattern similarity search"
       },
+      "PRT": {
+        "description": "Real-time batch pattern scanner with performance tracking"
+      },
       "GR": {
         "description": "Asset ratio, correlation and regression"
       },

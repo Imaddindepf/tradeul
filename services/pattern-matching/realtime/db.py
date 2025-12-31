@@ -394,6 +394,33 @@ class PredictionsDB:
             
             return results
     
+    async def get_active_predictions(
+        self,
+        limit: int = 100
+    ) -> List[PredictionResult]:
+        """
+        Get predictions that are still within their horizon window.
+        Used by PriceTracker for real-time P&L updates.
+        """
+        query = """
+            SELECT * FROM predictions 
+            WHERE verified_at IS NULL 
+            AND datetime(scan_time, '+' || horizon || ' minutes') > datetime('now')
+            ORDER BY scan_time DESC
+            LIMIT ?
+        """
+        
+        async with self.conn.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            
+            results = []
+            for row in rows:
+                data = dict(zip(columns, row))
+                results.append(self._row_to_prediction(data))
+            
+            return results
+    
     async def verify_prediction(
         self,
         prediction_id: str,
@@ -616,9 +643,9 @@ class PredictionsDB:
             n=n,
             long_count=long_count,
             short_count=short_count,
-            win_rate=round(win_rate, 4) if win_rate else None,
-            mean_pnl=round(mean_pnl, 4) if mean_pnl else None,
-            median_pnl=round(median_pnl, 4) if median_pnl else None
+            win_rate=round(win_rate, 4) if win_rate is not None else None,
+            mean_pnl=round(mean_pnl, 4) if mean_pnl is not None else None,
+            median_pnl=round(median_pnl, 4) if median_pnl is not None else None
         )
     
     # ========================================================================

@@ -182,6 +182,9 @@ class PatternMatcher:
         )
         
         try:
+            # Ensure client is available (recreate if closed)
+            if not self.http_client or self.http_client.is_closed:
+                self.http_client = httpx.AsyncClient(timeout=10.0)
             response = await self.http_client.get(url)
             response.raise_for_status()
             data = response.json()

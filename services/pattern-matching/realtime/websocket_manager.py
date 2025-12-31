@@ -104,8 +104,8 @@ class WebSocketManager:
         self._subscriptions[job_id].add(websocket)
         self._ws_to_jobs[websocket].add(job_id)
         
-        logger.debug(
-            "WebSocket subscribed to job",
+        logger.info(
+            "ws_subscribed_to_job",
             job_id=job_id,
             subscribers=len(self._subscriptions[job_id])
         )

@@ -1355,6 +1355,102 @@ async def proxy_patterns_available_dates(force_refresh: bool = Query(False)):
 
 
 # ============================================================================
+# Pattern Real-Time Proxy (new module for batch scanning)
+# ============================================================================
+
+@app.api_route("/patterns/api/pattern-realtime/{path:path}", methods=["GET", "POST", "DELETE"])
+async def proxy_pattern_realtime(path: str, request: Request):
+    """
+    Proxy genérico para todos los endpoints de Pattern Real-Time.
+    Endpoints incluyen: /run, /job/{id}, /performance, /stats, etc.
+    """
+    try:
+        target_url = f"{PATTERN_MATCHING_URL}/api/pattern-realtime/{path}"
+        
+        # Build query string
+        if request.query_params:
+            target_url += f"?{request.query_params}"
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            if request.method == "GET":
+                response = await client.get(target_url)
+            elif request.method == "POST":
+                body = await request.body()
+                response = await client.post(
+                    target_url,
+                    content=body,
+                    headers={"Content-Type": "application/json"}
+                )
+            elif request.method == "DELETE":
+                response = await client.delete(target_url)
+            else:
+                raise HTTPException(status_code=405, detail="Method not allowed")
+            
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                media_type="application/json"
+            )
+    except httpx.TimeoutException:
+        logger.error("pattern_realtime_timeout", path=path)
+        raise HTTPException(status_code=504, detail="Pattern Real-Time request timed out")
+    except Exception as e:
+        logger.error("pattern_realtime_proxy_error", path=path, error=str(e))
+        raise HTTPException(status_code=502, detail=f"Pattern Real-Time proxy error: {str(e)}")
+
+
+# WebSocket proxy for Pattern Real-Time
+@app.websocket("/patterns/ws/pattern-realtime")
+async def proxy_pattern_realtime_ws(websocket: WebSocket):
+    """
+    WebSocket proxy para Pattern Real-Time.
+    Conecta el cliente frontend con el backend de Pattern Matching.
+    """
+    await websocket.accept()
+    
+    backend_ws = None
+    try:
+        # Conectar al backend
+        backend_url = f"ws://37.27.183.194:8025/ws/pattern-realtime"
+        
+        import websockets
+        backend_ws = await websockets.connect(backend_url, ping_interval=30)
+        
+        async def forward_to_backend():
+            try:
+                while True:
+                    data = await websocket.receive_text()
+                    await backend_ws.send(data)
+            except Exception:
+                pass
+        
+        async def forward_to_frontend():
+            try:
+                async for message in backend_ws:
+                    await websocket.send_text(message)
+            except Exception:
+                pass
+        
+        # Run both directions concurrently
+        import asyncio
+        await asyncio.gather(
+            forward_to_backend(),
+            forward_to_frontend(),
+            return_exceptions=True
+        )
+        
+    except Exception as e:
+        logger.error("pattern_realtime_ws_error", error=str(e))
+    finally:
+        if backend_ws:
+            await backend_ws.close()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# ============================================================================
 # IPO Endpoints (Initial Public Offerings)
 # ============================================================================
 

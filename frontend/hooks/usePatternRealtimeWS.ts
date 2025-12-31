@@ -43,11 +43,26 @@ export interface VerificationUpdate {
     pnl: number;
 }
 
+export interface PriceUpdate {
+    prediction_id: string;
+    job_id: string;
+    symbol: string;
+    current_price: number;
+    price_at_scan: number;
+    unrealized_return: number;
+    unrealized_pnl: number;
+    direction: 'UP' | 'DOWN';
+    is_currently_correct: boolean;
+    minutes_remaining: number;
+    timestamp: string;
+}
+
 export interface WSMessage {
-    type: 'subscribed' | 'progress' | 'result' | 'verification' | 'job_complete' | 'error' | 'pong';
+    type: 'subscribed' | 'progress' | 'result' | 'verification' | 'job_complete' | 'error' | 'pong' | 'price_update';
     job_id?: string;
     data?: PredictionResult;
     prediction?: PredictionResult;
+    price_update?: PriceUpdate;
     completed?: number;
     total?: number;
     results?: PredictionResult[];
@@ -65,6 +80,7 @@ export interface JobProgress {
 interface UsePatternRealtimeWSOptions {
     onResult?: (prediction: PredictionResult) => void;
     onVerification?: (update: VerificationUpdate) => void;
+    onPriceUpdate?: (update: PriceUpdate) => void;
     onJobComplete?: (jobId: string, results: PredictionResult[]) => void;
     onProgress?: (jobId: string, progress: JobProgress) => void;
     onError?: (error: string) => void;
@@ -86,7 +102,7 @@ interface UsePatternRealtimeWSReturn {
 const WS_URL = process.env.NEXT_PUBLIC_PATTERN_WS_URL || 'wss://api.tradeul.com/patterns/ws/pattern-realtime';
 
 export function usePatternRealtimeWS(options: UsePatternRealtimeWSOptions = {}): UsePatternRealtimeWSReturn {
-    const { onResult, onVerification, onJobComplete, onProgress, onError } = options;
+    const { onResult, onVerification, onPriceUpdate, onJobComplete, onProgress, onError } = options;
     
     const [isConnected, setIsConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
@@ -101,6 +117,7 @@ export function usePatternRealtimeWS(options: UsePatternRealtimeWSOptions = {}):
     // Callbacks refs to avoid stale closures
     const onResultRef = useRef(onResult);
     const onVerificationRef = useRef(onVerification);
+    const onPriceUpdateRef = useRef(onPriceUpdate);
     const onJobCompleteRef = useRef(onJobComplete);
     const onProgressRef = useRef(onProgress);
     const onErrorRef = useRef(onError);
@@ -108,10 +125,11 @@ export function usePatternRealtimeWS(options: UsePatternRealtimeWSOptions = {}):
     useEffect(() => {
         onResultRef.current = onResult;
         onVerificationRef.current = onVerification;
+        onPriceUpdateRef.current = onPriceUpdate;
         onJobCompleteRef.current = onJobComplete;
         onProgressRef.current = onProgress;
         onErrorRef.current = onError;
-    }, [onResult, onVerification, onJobComplete, onProgress, onError]);
+    }, [onResult, onVerification, onPriceUpdate, onJobComplete, onProgress, onError]);
     
     const connect = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -161,6 +179,12 @@ export function usePatternRealtimeWS(options: UsePatternRealtimeWSOptions = {}):
                                     was_correct: msg.data.was_correct!,
                                     pnl: msg.data.pnl!,
                                 });
+                            }
+                            break;
+                        
+                        case 'price_update':
+                            if (msg.price_update) {
+                                onPriceUpdateRef.current?.(msg.price_update);
                             }
                             break;
                             

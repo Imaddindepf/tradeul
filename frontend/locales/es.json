@@ -533,6 +533,9 @@
       "PM": {
         "description": "Búsqueda de patrones con IA"
       },
+      "PRT": {
+        "description": "Scanner de patrones en tiempo real con seguimiento de rendimiento"
+      },
       "GR": {
         "description": "Ratio, correlación y regresión entre activos"
       },

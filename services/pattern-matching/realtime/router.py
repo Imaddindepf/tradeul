@@ -36,6 +36,7 @@ from .db import PredictionsDB, get_predictions_db
 from .websocket_manager import WebSocketManager, ws_manager
 from .engine import RealtimeEngine, ParallelRealtimeEngine
 from .verification_worker import VerificationWorker
+from .price_tracker import PriceTracker
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +46,7 @@ router = APIRouter(prefix="/api/pattern-realtime", tags=["Pattern Real-Time"])
 # Global instances (initialized in setup)
 _engine: Optional[RealtimeEngine] = None
 _verification_worker: Optional[VerificationWorker] = None
+_price_tracker: Optional[PriceTracker] = None
 
 
 # ============================================================================
@@ -61,7 +63,7 @@ async def setup_realtime(matcher, use_parallel: bool = True):
         matcher: PatternMatcher instance
         use_parallel: Use parallel scanning engine
     """
-    global _engine, _verification_worker
+    global _engine, _verification_worker, _price_tracker
     
     # Get database
     db = await get_predictions_db()
@@ -90,9 +92,18 @@ async def setup_realtime(matcher, use_parallel: bool = True):
     )
     await _verification_worker.start()
     
+    # Create and start price tracker for real-time P&L updates
+    _price_tracker = PriceTracker(
+        db=db,
+        ws_manager=ws_manager,
+        update_interval_ms=500  # Throttle to 2 updates/sec per symbol
+    )
+    await _price_tracker.start()
+    
     logger.info(
         "Realtime module initialized",
-        engine_type="parallel" if use_parallel else "sequential"
+        engine_type="parallel" if use_parallel else "sequential",
+        price_tracker="enabled"
     )
 
 
@@ -102,7 +113,11 @@ async def teardown_realtime():
     
     Called from main.py during shutdown.
     """
-    global _engine, _verification_worker
+    global _engine, _verification_worker, _price_tracker
+    
+    if _price_tracker:
+        await _price_tracker.stop()
+        _price_tracker = None
     
     if _verification_worker:
         await _verification_worker.stop()
@@ -293,6 +308,7 @@ async def get_stats():
     return {
         "websocket": ws_manager.get_stats(),
         "verification_worker": _verification_worker.get_stats() if _verification_worker else None,
+        "price_tracker": _price_tracker.get_stats() if _price_tracker else None,
         "engine": {
             "active_jobs": _engine.get_active_jobs() if _engine else []
         }

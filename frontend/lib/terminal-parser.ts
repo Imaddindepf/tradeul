@@ -180,6 +180,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.PM.description',
         shortcut: 'Ctrl+P'
     },
+    PRT: {
+        id: 'prt',
+        label: 'PRT',
+        name: 'Pattern Real-Time',
+        descriptionKey: 'terminalCommands.globalCommands.PRT.description',
+        shortcut: 'Ctrl+Shift+P'
+    },
     GR: {
         id: 'ratio',
         label: 'GR',
