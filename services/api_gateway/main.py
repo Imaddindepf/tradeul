@@ -33,6 +33,7 @@ from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
 from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client
+from routes.screener_templates import router as screener_templates_router, set_timescale_client as set_screener_templates_timescale_client
 from routes.financials import router as financials_router
 from routes.proxy import router as proxy_router
 from routes.realtime import router as realtime_router, set_redis_client as set_realtime_redis
@@ -78,6 +79,7 @@ async def lifespan(app: FastAPI):
     await timescale_client.connect()
     set_timescale_client(timescale_client)  # Para user_prefs
     set_user_filters_timescale_client(timescale_client)  # Para user_filters
+    set_screener_templates_timescale_client(timescale_client)  # Para screener_templates
     logger.info("timescale_connected")
     
     # Router de financials ahora es un microservicio separado
@@ -178,6 +180,7 @@ app.add_middleware(
 # Registrar routers
 app.include_router(user_prefs_router)
 app.include_router(user_filters_router)
+app.include_router(screener_templates_router)
 app.include_router(financials_router)
 app.include_router(watchlist_router)
 app.include_router(proxy_router)  # Incluye endpoints de dilution, SEC filings, etc.
