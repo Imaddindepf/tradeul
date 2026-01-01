@@ -18,6 +18,7 @@ import {
     Target,
     BarChart3,
     Activity,
+    HelpCircle,
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
@@ -39,6 +40,9 @@ interface FilterCondition {
     field: string;
     operator: string;
     value: number | number[] | boolean;
+    // For 'units' type fields (market_cap, float)
+    displayValue?: number;
+    multiplier?: number;
 }
 
 interface ScreenerResult {
@@ -68,6 +72,21 @@ interface ScreenerResult {
     bb_lower: number | null;
     bb_width: number | null;
     bb_position: number | null;
+    // Keltner Channels
+    keltner_upper: number | null;
+    keltner_middle: number | null;
+    keltner_lower: number | null;
+    // TTM Squeeze
+    squeeze_on: number | null;
+    squeeze_momentum: number | null;
+    // ADX
+    adx_14: number | null;
+    plus_di_14: number | null;
+    minus_di_14: number | null;
+    adx_trend: number | null;
+    market_cap: number | null;
+    float_shares: number | null;
+    sector: string | null;
 }
 
 interface ScreenerResponse {
@@ -104,15 +123,25 @@ const API_BASE = 'https://screener.tradeul.com/api/v1/screener';
 // Constants
 // ============================================================================
 
+// Unit multipliers for Market Cap / Float
+const UNIT_MULTIPLIERS = [
+    { value: 1, label: '' },
+    { value: 1_000, label: 'K' },
+    { value: 1_000_000, label: 'M' },
+    { value: 1_000_000_000, label: 'B' },
+];
+
 const AVAILABLE_FIELDS = [
     { value: 'price', label: 'Price', type: 'number', unit: '$' },
+    { value: 'market_cap', label: 'Market Cap', type: 'units' },
+    { value: 'float_shares', label: 'Float', type: 'units' },
     { value: 'change_1d', label: 'Change 1D', type: 'percent', unit: '%' },
     { value: 'change_5d', label: 'Change 5D', type: 'percent', unit: '%' },
     { value: 'change_20d', label: 'Change 20D', type: 'percent', unit: '%' },
     { value: 'gap_percent', label: 'Gap', type: 'percent', unit: '%' },
     { value: 'rsi_14', label: 'RSI (14)', type: 'number', min: 0, max: 100 },
     { value: 'relative_volume', label: 'Rel. Volume', type: 'number', unit: 'x' },
-    { value: 'volume', label: 'Volume', type: 'number' },
+    { value: 'volume', label: 'Volume (día)', type: 'number' },
     { value: 'sma_20', label: 'SMA 20', type: 'number', unit: '$' },
     { value: 'sma_50', label: 'SMA 50', type: 'number', unit: '$' },
     { value: 'sma_200', label: 'SMA 200', type: 'number', unit: '$' },
@@ -123,9 +152,46 @@ const AVAILABLE_FIELDS = [
     { value: 'atr_percent', label: 'ATR', type: 'percent', unit: '%' },
     { value: 'bb_width', label: 'BB Width', type: 'percent', unit: '%' },
     { value: 'bb_position', label: 'BB Position', type: 'percent', unit: '%' },
+    // TTM Squeeze
+    { value: 'squeeze_on', label: 'Squeeze ON', type: 'boolean' },
+    { value: 'squeeze_momentum', label: 'Squeeze Mom.', type: 'number' },
+    // ADX
+    { value: 'adx_14', label: 'ADX (14)', type: 'number', min: 0, max: 100 },
+    { value: 'plus_di_14', label: '+DI (14)', type: 'number', min: 0, max: 100 },
+    { value: 'minus_di_14', label: '-DI (14)', type: 'number', min: 0, max: 100 },
 ];
 
+// Indicator glossary - concise definitions
+const INDICATOR_GLOSSARY: Record<string, string> = {
+    price: 'Last closing price',
+    market_cap: 'Total market capitalization',
+    float_shares: 'Shares available for public trading',
+    change_1d: '1-day price change percentage',
+    change_5d: '5-day price change percentage',
+    change_20d: '20-day price change percentage',
+    gap_percent: 'Gap from previous close to current open',
+    rsi_14: 'Relative Strength Index (14). <30 oversold, >70 overbought',
+    relative_volume: 'Current volume vs 20-day average. >2x = high activity',
+    volume: 'Total shares traded today',
+    sma_20: '20-day Simple Moving Average',
+    sma_50: '50-day Simple Moving Average',
+    sma_200: '200-day Simple Moving Average',
+    dist_sma_20: 'Distance from SMA 20 as percentage',
+    dist_sma_50: 'Distance from SMA 50 as percentage',
+    from_52w_high: 'Distance from 52-week high. 0% = at high',
+    from_52w_low: 'Distance from 52-week low. 0% = at low',
+    atr_percent: 'Average True Range as % of price. Higher = more volatile',
+    bb_width: 'Bollinger Band width. Lower = compression, breakout likely',
+    bb_position: 'Position within BB. 0% = lower band, 100% = upper band',
+    squeeze_on: 'TTM Squeeze active. BB inside Keltner = low volatility, breakout imminent',
+    squeeze_momentum: 'Squeeze momentum direction. Positive = bullish, negative = bearish',
+    adx_14: 'Average Directional Index. >25 = strong trend, <20 = weak/no trend',
+    plus_di_14: 'Positive Directional Indicator. Measures upward movement strength',
+    minus_di_14: 'Negative Directional Indicator. Measures downward movement strength',
+};
+
 const OPERATORS = [
+    { value: 'eq', label: '=' },
     { value: 'gt', label: '>' },
     { value: 'gte', label: '>=' },
     { value: 'lt', label: '<' },
@@ -137,12 +203,16 @@ const SORT_OPTIONS = [
     { value: 'relative_volume', label: 'Rel. Volume' },
     { value: 'change_1d', label: 'Change 1D' },
     { value: 'change_5d', label: 'Change 5D' },
+    { value: 'market_cap', label: 'Market Cap' },
+    { value: 'float_shares', label: 'Float' },
     { value: 'rsi_14', label: 'RSI' },
     { value: 'price', label: 'Price' },
     { value: 'volume', label: 'Volume' },
     { value: 'from_52w_high', label: '52W High' },
     { value: 'bb_width', label: 'BB Width' },
     { value: 'atr_percent', label: 'ATR %' },
+    { value: 'adx_14', label: 'ADX' },
+    { value: 'squeeze_momentum', label: 'Squeeze Mom.' },
 ];
 
 // ============================================================================
@@ -207,17 +277,44 @@ const PRESETS: Preset[] = [
         sort_order: 'desc',
     },
     {
-        id: 'bollinger-squeeze',
-        name: 'Bollinger Squeeze',
-        description: 'Low volatility compression',
+        id: 'ttm-squeeze-bullish',
+        name: 'TTM Squeeze Bullish',
+        description: 'Squeeze ON with bullish momentum - breakout coming',
         icon: Activity,
         filters: [
-            { field: 'bb_width', operator: 'lt', value: 8 },
+            { field: 'squeeze_on', operator: 'eq', value: 1 },
+            { field: 'squeeze_momentum', operator: 'gt', value: 0 },
             { field: 'volume', operator: 'gt', value: 500000 },
             { field: 'price', operator: 'between', value: [5, 500] },
         ],
-        sort_by: 'bb_width',
+        sort_by: 'squeeze_momentum',
+        sort_order: 'desc',
+    },
+    {
+        id: 'ttm-squeeze-bearish',
+        name: 'TTM Squeeze Bearish',
+        description: 'Squeeze ON with bearish momentum',
+        icon: Activity,
+        filters: [
+            { field: 'squeeze_on', operator: 'eq', value: 1 },
+            { field: 'squeeze_momentum', operator: 'lt', value: 0 },
+            { field: 'volume', operator: 'gt', value: 500000 },
+        ],
+        sort_by: 'squeeze_momentum',
         sort_order: 'asc',
+    },
+    {
+        id: 'strong-uptrend',
+        name: 'Strong Uptrend (ADX)',
+        description: 'ADX > 25 with bullish direction',
+        icon: TrendingUp,
+        filters: [
+            { field: 'adx_14', operator: 'gt', value: 25 },
+            { field: 'plus_di_14', operator: 'gt', value: 20 },
+            { field: 'volume', operator: 'gt', value: 500000 },
+        ],
+        sort_by: 'adx_14',
+        sort_order: 'desc',
     },
     {
         id: 'bullish-trend',
@@ -325,6 +422,34 @@ function FilterBuilder({
                                     <span className="text-slate-400" style={{ fontSize: '9px' }}>{fieldInfo.unit}</span>
                                 )}
                             </div>
+                        ) : fieldInfo?.type === 'units' ? (
+                            <div className="flex items-center gap-0.5">
+                                <input
+                                    type="number"
+                                    value={(filter as any).displayValue ?? (typeof filter.value === 'number' ? filter.value : 0)}
+                                    onChange={(e) => {
+                                        const num = parseFloat(e.target.value) || 0;
+                                        const mult = (filter as any).multiplier || 1_000_000;
+                                        updateFilter(index, { value: num * mult, displayValue: num, multiplier: mult } as any);
+                                    }}
+                                    className="w-[50px] px-1.5 py-0.5 rounded-l border border-slate-300 bg-white text-slate-800 font-medium"
+                                    style={{ fontSize: '10px' }}
+                                />
+                                <select
+                                    value={(filter as any).multiplier || 1_000_000}
+                                    onChange={(e) => {
+                                        const mult = parseInt(e.target.value);
+                                        const num = (filter as any).displayValue ?? 0;
+                                        updateFilter(index, { value: num * mult, multiplier: mult } as any);
+                                    }}
+                                    className="px-1 py-0.5 rounded-r border border-l-0 border-slate-300 bg-slate-50 text-slate-600"
+                                    style={{ fontSize: '10px' }}
+                                >
+                                    <option value={1000}>K</option>
+                                    <option value={1000000}>M</option>
+                                    <option value={1000000000}>B</option>
+                                </select>
+                            </div>
                         ) : (
                             <div className="flex items-center gap-1">
                                 <input
@@ -367,41 +492,41 @@ function FilterBuilder({
 const screenerColumnHelper = createColumnHelper<ScreenerResult>();
 
 // Formatters
-const formatPrice = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-    if (value >= 1) return `$${value.toFixed(2)}`;
-    return `$${value.toFixed(4)}`;
-};
+    const formatPrice = (value: number | null) => {
+        if (value === null || value === undefined) return '-';
+        if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
+        if (value >= 1) return `$${value.toFixed(2)}`;
+        return `$${value.toFixed(4)}`;
+    };
 
-const formatPercent = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    const sign = value >= 0 ? '+' : '';
-    return `${sign}${value.toFixed(2)}%`;
-};
+    const formatPercent = (value: number | null) => {
+        if (value === null || value === undefined) return '-';
+        const sign = value >= 0 ? '+' : '';
+        return `${sign}${value.toFixed(2)}%`;
+    };
 
-const formatVolume = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
-    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-    if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
-    return value.toString();
-};
+    const formatVolume = (value: number | null) => {
+        if (value === null || value === undefined) return '-';
+        if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
+        if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+        if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+        return value.toString();
+    };
 
-const formatMultiplier = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return `${value.toFixed(2)}x`;
-};
+    const formatMultiplier = (value: number | null) => {
+        if (value === null || value === undefined) return '-';
+        return `${value.toFixed(2)}x`;
+    };
 
-const formatRSI = (value: number | null) => {
-    if (value === null || value === undefined) return '-';
-    return value.toFixed(0);
-};
+    const formatRSI = (value: number | null) => {
+        if (value === null || value === undefined) return '-';
+        return value.toFixed(0);
+    };
 
-const getChangeColor = (value: number | null) => {
-    if (value === null) return 'text-slate-400';
-    return value >= 0 ? 'text-emerald-600' : 'text-red-500';
-};
+    const getChangeColor = (value: number | null) => {
+        if (value === null) return 'text-slate-400';
+        return value >= 0 ? 'text-emerald-600' : 'text-red-500';
+    };
 
 // Storage helpers for persistence
 const SCREENER_STORAGE_KEY = 'screener_table';
@@ -453,6 +578,16 @@ const screenerColumns = [
             return <span className={`font-medium ${getChangeColor(value)}`}>{formatPercent(value)}</span>;
         },
     }),
+    screenerColumnHelper.accessor('market_cap', {
+        header: 'MCap',
+        size: 70,
+        cell: (info) => <span className="text-slate-600">{formatVolume(info.getValue())}</span>,
+    }),
+    screenerColumnHelper.accessor('float_shares', {
+        header: 'Float',
+        size: 65,
+        cell: (info) => <span className="text-slate-600">{formatVolume(info.getValue())}</span>,
+    }),
     screenerColumnHelper.accessor('rsi_14', {
         header: 'RSI',
         size: 50,
@@ -485,8 +620,8 @@ const screenerColumns = [
         },
     }),
     screenerColumnHelper.accessor('volume', {
-        header: 'Vol',
-        size: 70,
+        header: 'Vol (día)',
+        size: 75,
         cell: (info) => <span className="text-slate-500">{formatVolume(info.getValue())}</span>,
     }),
 ];
@@ -545,9 +680,9 @@ function ResultsTable({
             </div>
             
             {/* Table */}
-            <div className="overflow-auto flex-1">
-                <table className="w-full text-left" style={{ fontSize: '9px' }}>
-                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+        <div className="overflow-auto flex-1">
+            <table className="w-full text-left" style={{ fontSize: '9px' }}>
+                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
                         {table.getHeaderGroups().map((headerGroup) => (
                             <tr key={headerGroup.id}>
                                 {headerGroup.headers.map((header, headerIndex) => {
@@ -598,16 +733,16 @@ function ResultsTable({
                                         </th>
                                     );
                                 })}
-                            </tr>
+                    </tr>
                         ))}
-                    </thead>
-                    <tbody>
+                </thead>
+                <tbody>
                         {table.getRowModel().rows.map((row, i) => (
-                            <tr
+                        <tr
                                 key={row.id}
-                                className={`border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
+                            className={`border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
                                 onClick={() => onSymbolClick?.(row.original.symbol)}
-                            >
+                        >
                                 {row.getVisibleCells().map((cell, cellIndex) => {
                                     const isFirstColumn = cellIndex === 0;
                                     return (
@@ -616,13 +751,13 @@ function ResultsTable({
                                             className={`px-2 py-1 ${isFirstColumn ? 'text-left' : 'text-right'}`}
                                         >
                                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                        </td>
+                            </td>
                                     );
                                 })}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
             </div>
         </div>
     );
@@ -654,6 +789,7 @@ export function ScreenerContent() {
 
     const [activePreset, setActivePreset] = useState<string | null>(null);
     const [showFilters, setShowFilters] = useState(true);
+    const [showGlossary, setShowGlossary] = useState(false);
 
     // Search handler
     const handleSearch = useCallback(async () => {
@@ -830,6 +966,13 @@ export function ScreenerContent() {
                             {sortOrder === 'desc' ? 'DESC' : 'ASC'}
                         </button>
                         <div className="flex-1" />
+                        <button
+                            onClick={() => setShowGlossary(!showGlossary)}
+                            className={`p-1 rounded hover:bg-slate-100 ${showGlossary ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}
+                            title="Indicator glossary"
+                        >
+                            <HelpCircle className="w-3.5 h-3.5" />
+                        </button>
                         <select
                             value={limit}
                             onChange={(e) => setLimit(parseInt(e.target.value))}
@@ -841,6 +984,23 @@ export function ScreenerContent() {
                             <option value={100}>100 results</option>
                         </select>
                     </div>
+
+                    {/* Indicator Glossary */}
+                    {showGlossary && (
+                        <div 
+                            className="mt-2 pt-2 border-t border-slate-200 max-h-40 overflow-y-auto"
+                            style={{ fontFamily: font }}
+                        >
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                                {AVAILABLE_FIELDS.map((field) => (
+                                    <div key={field.value} className="flex gap-1" style={{ fontSize: '9px' }}>
+                                        <span className="text-slate-500 font-medium shrink-0">{field.label}:</span>
+                                        <span className="text-slate-400 truncate">{INDICATOR_GLOSSARY[field.value] || '-'}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
