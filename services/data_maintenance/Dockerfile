@@ -12,8 +12,8 @@ WORKDIR /app
 # Crear directorio para logs
 RUN mkdir -p /var/log/tradeul && chmod 777 /var/log/tradeul
 
-# Copiar requirements
-COPY requirements.txt .
+# Copiar requirements (desde el directorio del servicio)
+COPY services/data_maintenance/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar shared (dependencias comunes)

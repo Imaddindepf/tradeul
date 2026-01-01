@@ -12,6 +12,7 @@ from .momentum import MomentumIndicators
 from .trend import TrendIndicators
 from .volatility import VolatilityIndicators
 from .comparative import ComparativeIndicators
+from .fundamentals import FundamentalIndicators
 
 # Register all indicators
 def register_all_indicators():
@@ -36,6 +37,9 @@ def register_all_indicators():
     # Comparative (Beta, Correlation)
     registry.register_group(ComparativeIndicators())
     
+    # Fundamentals (Market Cap, Float)
+    registry.register_group(FundamentalIndicators())
+    
     return registry
 
 
@@ -50,5 +54,6 @@ __all__ = [
     "TrendIndicators",
     "VolatilityIndicators",
     "ComparativeIndicators",
+    "FundamentalIndicators",
 ]
 

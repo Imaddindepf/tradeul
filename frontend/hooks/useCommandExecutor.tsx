@@ -19,6 +19,7 @@ import { DescriptionContent } from '@/components/description/DescriptionContent'
 import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/QuoteMonitor';
 import { ChatContent } from '@/components/chat';
 import { NotesContent } from '@/components/notes/NotesContent';
+import { GlossaryContent } from '@/components/glossary';
 import { PatternMatchingContent } from '@/components/pattern-matching';
 import { PatternRealtimeContent } from '@/components/pattern-realtime';
 import { RatioAnalysisContent } from '@/components/ratio-analysis';
@@ -306,6 +307,20 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 225),
                     minWidth: 350,
                     minHeight: 300,
+                });
+                return null;
+
+            case 'glossary':
+            case 'indicators':
+                openWindow({
+                    title: 'Indicators',
+                    content: <GlossaryContent />,
+                    width: 280,
+                    height: 400,
+                    x: Math.max(50, screenWidth - 330),
+                    y: Math.max(80, screenHeight / 2 - 200),
+                    minWidth: 220,
+                    minHeight: 280,
                 });
                 return null;
 

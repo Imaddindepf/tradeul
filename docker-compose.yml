@@ -332,6 +332,8 @@ services:
       - tradeul_network
     ports:
       - "127.0.0.1:8008:8008"
+    volumes:
+      - polygon_data:/data/polygon  # Write metadata for screener
     environment:
       - TIMEZONE=America/New_York
       - MAINTENANCE_SCHEDULE=MARKET_CLOSE

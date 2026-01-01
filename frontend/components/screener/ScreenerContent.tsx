@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import {
     useReactTable,
     getCoreRowModel,
@@ -160,35 +161,6 @@ const AVAILABLE_FIELDS = [
     { value: 'plus_di_14', label: '+DI (14)', type: 'number', min: 0, max: 100 },
     { value: 'minus_di_14', label: '-DI (14)', type: 'number', min: 0, max: 100 },
 ];
-
-// Indicator glossary - concise definitions
-const INDICATOR_GLOSSARY: Record<string, string> = {
-    price: 'Last closing price',
-    market_cap: 'Total market capitalization',
-    float_shares: 'Shares available for public trading',
-    change_1d: '1-day price change percentage',
-    change_5d: '5-day price change percentage',
-    change_20d: '20-day price change percentage',
-    gap_percent: 'Gap from previous close to current open',
-    rsi_14: 'Relative Strength Index (14). <30 oversold, >70 overbought',
-    relative_volume: 'Current volume vs 20-day average. >2x = high activity',
-    volume: 'Total shares traded today',
-    sma_20: '20-day Simple Moving Average',
-    sma_50: '50-day Simple Moving Average',
-    sma_200: '200-day Simple Moving Average',
-    dist_sma_20: 'Distance from SMA 20 as percentage',
-    dist_sma_50: 'Distance from SMA 50 as percentage',
-    from_52w_high: 'Distance from 52-week high. 0% = at high',
-    from_52w_low: 'Distance from 52-week low. 0% = at low',
-    atr_percent: 'Average True Range as % of price. Higher = more volatile',
-    bb_width: 'Bollinger Band width. Lower = compression, breakout likely',
-    bb_position: 'Position within BB. 0% = lower band, 100% = upper band',
-    squeeze_on: 'TTM Squeeze active. BB inside Keltner = low volatility, breakout imminent',
-    squeeze_momentum: 'Squeeze momentum direction. Positive = bullish, negative = bearish',
-    adx_14: 'Average Directional Index. >25 = strong trend, <20 = weak/no trend',
-    plus_di_14: 'Positive Directional Indicator. Measures upward movement strength',
-    minus_di_14: 'Negative Directional Indicator. Measures downward movement strength',
-};
 
 const OPERATORS = [
     { value: 'eq', label: '=' },
@@ -789,7 +761,7 @@ export function ScreenerContent() {
 
     const [activePreset, setActivePreset] = useState<string | null>(null);
     const [showFilters, setShowFilters] = useState(true);
-    const [showGlossary, setShowGlossary] = useState(false);
+    const { executeCommand } = useCommandExecutor();
 
     // Search handler
     const handleSearch = useCallback(async () => {
@@ -967,8 +939,8 @@ export function ScreenerContent() {
                         </button>
                         <div className="flex-1" />
                         <button
-                            onClick={() => setShowGlossary(!showGlossary)}
-                            className={`p-1 rounded hover:bg-slate-100 ${showGlossary ? 'text-blue-600 bg-blue-50' : 'text-slate-400'}`}
+                            onClick={() => executeCommand('glossary')}
+                            className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"
                             title="Indicator glossary"
                         >
                             <HelpCircle className="w-3.5 h-3.5" />
@@ -984,23 +956,6 @@ export function ScreenerContent() {
                             <option value={100}>100 results</option>
                         </select>
                     </div>
-
-                    {/* Indicator Glossary */}
-                    {showGlossary && (
-                        <div 
-                            className="mt-2 pt-2 border-t border-slate-200 max-h-40 overflow-y-auto"
-                            style={{ fontFamily: font }}
-                        >
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-                                {AVAILABLE_FIELDS.map((field) => (
-                                    <div key={field.value} className="flex gap-1" style={{ fontSize: '9px' }}>
-                                        <span className="text-slate-500 font-medium shrink-0">{field.label}:</span>
-                                        <span className="text-slate-400 truncate">{INDICATOR_GLOSSARY[field.value] || '-'}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
             )}
 

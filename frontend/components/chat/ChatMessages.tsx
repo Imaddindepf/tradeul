@@ -254,11 +254,11 @@ export function ChatMessages() {
           }
           return (
             <div key={item.message!.id} id={`msg-${item.message!.id}`}>
-              <ChatMessage
+            <ChatMessage
                 message={item.message!}
-                onScrollToMessage={scrollToMessage}
-              />
-            </div>
+              onScrollToMessage={scrollToMessage}
+            />
+          </div>
           );
         })}
 

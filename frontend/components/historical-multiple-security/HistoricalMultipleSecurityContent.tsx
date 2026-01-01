@@ -948,8 +948,8 @@ export function HistoricalMultipleSecurityContent() {
                                 key={p.id}
                                 onClick={() => setPeriod(p.id)}
                                 className={`px-1.5 py-0.5 rounded ${period === p.id
-                                        ? 'bg-slate-100 text-slate-700'
-                                        : 'hover:text-slate-600'
+                                    ? 'bg-slate-100 text-slate-700'
+                                    : 'hover:text-slate-600'
                                     }`}
                             >
                                 {p.label}
@@ -968,8 +968,8 @@ export function HistoricalMultipleSecurityContent() {
                                     key={ct.id}
                                     onClick={() => setChartType(ct.id)}
                                     className={`p-1 rounded transition-colors ${chartType === ct.id
-                                            ? 'bg-slate-100 text-slate-700'
-                                            : 'hover:text-slate-600'
+                                        ? 'bg-slate-100 text-slate-700'
+                                        : 'hover:text-slate-600'
                                         }`}
                                     title={ct.label}
                                 >

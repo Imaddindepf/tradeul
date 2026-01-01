@@ -1,0 +1,2 @@
+export { GlossaryContent } from './GlossaryContent';
+
