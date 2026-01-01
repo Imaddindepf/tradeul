@@ -17,6 +17,9 @@ from config import settings
 
 logger = structlog.get_logger(__name__)
 
+# Ruta al archivo de metadata exportado por data_maintenance (Parquet = más eficiente)
+METADATA_PATH = "/data/polygon/screener_metadata.parquet"
+
 
 class ScreenerEngine:
     """
@@ -39,7 +42,10 @@ class ScreenerEngine:
         self.parser = FilterParser(self.registry)
         self.validator = FilterValidator(self.registry)
         
-        # Setup views
+        # Load metadata first (market_cap, float, sector)
+        self._load_metadata()
+        
+        # Setup views (includes precompute with JOIN to metadata)
         self._setup_views()
         
         logger.info("screener_engine_initialized", data_path=str(self.data_path))
@@ -100,6 +106,47 @@ class ScreenerEngine:
         
         elapsed = time.time() - start
         logger.info("data_loaded_into_memory", rows=count, elapsed_seconds=round(elapsed, 2))
+    
+    def _load_metadata(self):
+        """Load metadata from Parquet file (market_cap, float, sector)"""
+        import os
+        
+        if not os.path.exists(METADATA_PATH):
+            logger.warning("metadata_file_not_found", path=METADATA_PATH)
+            # Create empty metadata table
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS metadata (
+                    symbol VARCHAR PRIMARY KEY,
+                    market_cap BIGINT,
+                    float_shares BIGINT,
+                    sector VARCHAR,
+                    industry VARCHAR
+                )
+            """)
+            return
+        
+        try:
+            self.conn.execute("DROP TABLE IF EXISTS metadata")
+            self.conn.execute(f"""
+                CREATE TABLE metadata AS 
+                SELECT * FROM read_parquet('{METADATA_PATH}')
+            """)
+            self.conn.execute("CREATE INDEX idx_metadata_symbol ON metadata(symbol)")
+            
+            count = self.conn.execute("SELECT COUNT(*) FROM metadata").fetchone()[0]
+            logger.info("metadata_loaded", rows=count, path=METADATA_PATH)
+        except Exception as e:
+            logger.error("metadata_load_failed", error=str(e))
+            # Create empty table as fallback
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS metadata (
+                    symbol VARCHAR PRIMARY KEY,
+                    market_cap BIGINT,
+                    float_shares BIGINT,
+                    sector VARCHAR,
+                    industry VARCHAR
+                )
+            """)
     
     def _precompute_indicators(self):
         """Precompute all indicators into a materialized table at startup"""
@@ -187,7 +234,9 @@ class ScreenerEngine:
         valid_sort_fields = ['price', 'volume', 'change_1d', 'change_5d', 'change_20d', 
                             'gap_percent', 'relative_volume', 'rsi_14', 'atr_14', 
                             'atr_percent', 'from_52w_high', 'from_52w_low', 
-                            'bb_width', 'bb_position', 'dist_sma_20', 'dist_sma_50']
+                            'bb_width', 'bb_position', 'dist_sma_20', 'dist_sma_50',
+                            'market_cap', 'float_shares', 'adx_14', 'squeeze_momentum',
+                            'keltner_upper', 'keltner_lower', 'plus_di_14', 'minus_di_14']
         sort_field = sort_by if sort_by in valid_sort_fields else "volume"
         
         # Limit
@@ -241,7 +290,10 @@ class ScreenerEngine:
                 WHERE to_timestamp(window_start / 1000000000) >= CURRENT_DATE - INTERVAL '{settings.default_lookback_days} days'
             """)
             
-            # 2. Recompute indicators into new table
+            # 2. Reload metadata
+            self._load_metadata()
+            
+            # 3. Recompute indicators into new table
             self.conn.execute("DROP TABLE IF EXISTS screener_data_new")
             self._precompute_indicators_into("daily_prices_new", "screener_data_new")
             
@@ -294,6 +346,8 @@ class ScreenerEngine:
                     close,
                     volume,
                     LAG(close, 1) OVER w as prev_close,
+                    LAG(high, 1) OVER w as prev_high,
+                    LAG(low, 1) OVER w as prev_low,
                     LAG(close, 5) OVER w as close_5d_ago,
                     LAG(close, 20) OVER w as close_20d_ago,
                     MAX(high) OVER (PARTITION BY symbol ORDER BY date ROWS 251 PRECEDING) as high_52w,
@@ -302,7 +356,9 @@ class ScreenerEngine:
                     AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as sma_20,
                     AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 49 PRECEDING) as sma_50,
                     AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 199 PRECEDING) as sma_200,
-                    STDDEV(close) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as std_20
+                    STDDEV(close) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as std_20,
+                    -- EMA approximation using weighted average (good enough for Keltner)
+                    AVG(close) OVER (PARTITION BY symbol ORDER BY date ROWS 19 PRECEDING) as ema_20
                 FROM {source_table}
                 WINDOW w AS (PARTITION BY symbol ORDER BY date)
             ),
@@ -328,8 +384,41 @@ class ScreenerEngine:
                     symbol,
                     date,
                     AVG(GREATEST(high - low, ABS(high - COALESCE(prev_close, open)), ABS(low - COALESCE(prev_close, open)))) 
-                        OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING) as atr_14
+                        OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING) as atr_14,
+                    -- ATR 10 for Keltner Channels
+                    AVG(GREATEST(high - low, ABS(high - COALESCE(prev_close, open)), ABS(low - COALESCE(prev_close, open)))) 
+                        OVER (PARTITION BY symbol ORDER BY date ROWS 9 PRECEDING) as atr_10
                 FROM price_base
+            ),
+            -- ADX calculation: +DM, -DM, +DI, -DI, DX, ADX
+            dm_calc AS (
+                SELECT 
+                    symbol, date,
+                    CASE WHEN (high - prev_high) > (prev_low - low) AND (high - prev_high) > 0 
+                         THEN high - prev_high ELSE 0 END as plus_dm,
+                    CASE WHEN (prev_low - low) > (high - prev_high) AND (prev_low - low) > 0 
+                         THEN prev_low - low ELSE 0 END as minus_dm,
+                    GREATEST(high - low, ABS(high - COALESCE(prev_close, open)), ABS(low - COALESCE(prev_close, open))) as tr
+                FROM price_base
+                WHERE prev_close IS NOT NULL
+            ),
+            di_calc AS (
+                SELECT 
+                    symbol, date,
+                    (AVG(plus_dm) OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING) / 
+                     NULLIF(AVG(tr) OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING), 0)) * 100 as plus_di_14,
+                    (AVG(minus_dm) OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING) / 
+                     NULLIF(AVG(tr) OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING), 0)) * 100 as minus_di_14
+                FROM dm_calc
+            ),
+            adx_calc AS (
+                SELECT 
+                    symbol, date,
+                    plus_di_14,
+                    minus_di_14,
+                    AVG(ABS(plus_di_14 - minus_di_14) / NULLIF(plus_di_14 + minus_di_14, 0) * 100) 
+                        OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING) as adx_14
+                FROM di_calc
             ),
             latest_data AS (
                 SELECT DISTINCT ON (p.symbol)
@@ -348,44 +437,73 @@ class ScreenerEngine:
                     p.sma_50,
                     p.sma_200,
                     p.std_20,
+                    p.ema_20,
                     r.rsi_14,
-                    a.atr_14
+                    a.atr_14,
+                    a.atr_10,
+                    x.plus_di_14,
+                    x.minus_di_14,
+                    x.adx_14
                 FROM price_base p
                 LEFT JOIN rsi_calc r ON p.symbol = r.symbol AND p.date = r.date
                 LEFT JOIN atr_calc a ON p.symbol = a.symbol AND p.date = a.date
+                LEFT JOIN adx_calc x ON p.symbol = x.symbol AND p.date = x.date
                 WHERE p.date >= CURRENT_DATE - INTERVAL '7 days'
                 ORDER BY p.symbol, p.date DESC
             )
             SELECT 
-                symbol,
-                date,
-                close as price,
-                volume,
-                ((close - prev_close) / NULLIF(prev_close, 0)) * 100 as change_1d,
-                ((close - close_5d_ago) / NULLIF(close_5d_ago, 0)) * 100 as change_5d,
-                ((close - close_20d_ago) / NULLIF(close_20d_ago, 0)) * 100 as change_20d,
-                ((open - prev_close) / NULLIF(prev_close, 0)) * 100 as gap_percent,
-                high_52w,
-                low_52w,
-                ((close - high_52w) / NULLIF(high_52w, 0)) * 100 as from_52w_high,
-                ((close - low_52w) / NULLIF(low_52w, 0)) * 100 as from_52w_low,
-                avg_volume_20,
-                volume / NULLIF(avg_volume_20, 0) as relative_volume,
-                sma_20,
-                sma_50,
-                sma_200,
-                ((close - sma_20) / NULLIF(sma_20, 0)) * 100 as dist_sma_20,
-                ((close - sma_50) / NULLIF(sma_50, 0)) * 100 as dist_sma_50,
-                rsi_14,
-                atr_14,
-                (atr_14 / NULLIF(close, 0)) * 100 as atr_percent,
-                sma_20 as bb_middle,
-                sma_20 + 2 * std_20 as bb_upper,
-                sma_20 - 2 * std_20 as bb_lower,
-                ((4 * std_20) / NULLIF(sma_20, 0)) * 100 as bb_width,
-                ((close - (sma_20 - 2 * std_20)) / NULLIF(4 * std_20, 0)) * 100 as bb_position
-            FROM latest_data
-            WHERE close IS NOT NULL AND volume > 0
+                d.symbol,
+                d.date,
+                d.close as price,
+                d.volume,
+                ((d.close - d.prev_close) / NULLIF(d.prev_close, 0)) * 100 as change_1d,
+                ((d.close - d.close_5d_ago) / NULLIF(d.close_5d_ago, 0)) * 100 as change_5d,
+                ((d.close - d.close_20d_ago) / NULLIF(d.close_20d_ago, 0)) * 100 as change_20d,
+                ((d.open - d.prev_close) / NULLIF(d.prev_close, 0)) * 100 as gap_percent,
+                d.high_52w,
+                d.low_52w,
+                ((d.close - d.high_52w) / NULLIF(d.high_52w, 0)) * 100 as from_52w_high,
+                ((d.close - d.low_52w) / NULLIF(d.low_52w, 0)) * 100 as from_52w_low,
+                d.avg_volume_20,
+                d.volume / NULLIF(d.avg_volume_20, 0) as relative_volume,
+                d.sma_20,
+                d.sma_50,
+                d.sma_200,
+                ((d.close - d.sma_20) / NULLIF(d.sma_20, 0)) * 100 as dist_sma_20,
+                ((d.close - d.sma_50) / NULLIF(d.sma_50, 0)) * 100 as dist_sma_50,
+                d.rsi_14,
+                d.atr_14,
+                (d.atr_14 / NULLIF(d.close, 0)) * 100 as atr_percent,
+                -- Bollinger Bands
+                d.sma_20 as bb_middle,
+                d.sma_20 + 2 * d.std_20 as bb_upper,
+                d.sma_20 - 2 * d.std_20 as bb_lower,
+                ((4 * d.std_20) / NULLIF(d.sma_20, 0)) * 100 as bb_width,
+                ((d.close - (d.sma_20 - 2 * d.std_20)) / NULLIF(4 * d.std_20, 0)) * 100 as bb_position,
+                -- Keltner Channels (EMA 20 + ATR 10 * 1.5)
+                d.ema_20 as keltner_middle,
+                d.ema_20 + 1.5 * d.atr_10 as keltner_upper,
+                d.ema_20 - 1.5 * d.atr_10 as keltner_lower,
+                -- TTM Squeeze: BB inside Keltner = squeeze ON (low volatility, breakout coming)
+                CASE WHEN (d.sma_20 - 2 * d.std_20) > (d.ema_20 - 1.5 * d.atr_10) 
+                      AND (d.sma_20 + 2 * d.std_20) < (d.ema_20 + 1.5 * d.atr_10)
+                     THEN 1 ELSE 0 END as squeeze_on,
+                -- Squeeze momentum (simplified): price vs middle band
+                ((d.close - d.sma_20) / NULLIF(d.std_20, 0)) as squeeze_momentum,
+                -- ADX (trend strength)
+                d.adx_14,
+                d.plus_di_14,
+                d.minus_di_14,
+                -- ADX trend direction
+                CASE WHEN d.adx_14 > 25 AND d.plus_di_14 > d.minus_di_14 THEN 1
+                     WHEN d.adx_14 > 25 AND d.minus_di_14 > d.plus_di_14 THEN -1
+                     ELSE 0 END as adx_trend,
+                m.market_cap,
+                m.float_shares,
+                m.sector
+            FROM latest_data d
+            LEFT JOIN metadata m ON d.symbol = m.symbol
+            WHERE d.close IS NOT NULL AND d.volume > 0
         """)
     
     def get_indicators(self) -> Dict:
