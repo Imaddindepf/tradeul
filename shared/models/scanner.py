@@ -69,7 +69,10 @@ class ScannerTicker(BaseModel):
     price_from_low: Optional[float] = Field(None, description="% from day low (regular hours)")
     price_from_intraday_high: Optional[float] = Field(None, description="% from intraday high (includes pre/post market)")
     price_from_intraday_low: Optional[float] = Field(None, description="% from intraday low (includes pre/post market)")
-    price_vs_vwap: Optional[float] = Field(None, description="Price vs VWAP")
+    
+    # VWAP
+    vwap: Optional[float] = Field(None, description="Volume Weighted Average Price (today)")
+    price_vs_vwap: Optional[float] = Field(None, description="% distance from VWAP")
     
     # Session context
     session: MarketSession = Field(..., description="Current market session")

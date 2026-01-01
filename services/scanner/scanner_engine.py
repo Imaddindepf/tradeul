@@ -762,6 +762,14 @@ class ScannerEngine:
             # Extract last trade timestamp (for freshness filtering)
             last_trade_timestamp = snapshot.lastTrade.t if snapshot.lastTrade else None
             
+            # Extract VWAP (Volume Weighted Average Price) from day data
+            vwap = day_data.vw if day_data and day_data.vw else None
+            
+            # Calculate price vs VWAP (% distance)
+            price_vs_vwap = None
+            if vwap and vwap > 0:
+                price_vs_vwap = ((price - vwap) / vwap) * 100
+            
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
@@ -796,6 +804,8 @@ class ScannerEngine:
                 price_from_low=price_from_low,
                 price_from_intraday_high=price_from_intraday_high,
                 price_from_intraday_low=price_from_intraday_low,
+                vwap=vwap,
+                price_vs_vwap=price_vs_vwap,
                 session=self.current_session,
                 score=0.0,
                 filters_matched=[]

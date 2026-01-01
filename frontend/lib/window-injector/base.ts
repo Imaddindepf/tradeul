@@ -66,6 +66,26 @@ export function getUserFontForWindow(): FontFamily {
 }
 
 /**
+ * Get user's preferred colors for injected windows
+ */
+export function getUserColorsForWindow(): { tickUp: string; tickDown: string; background: string } {
+  try {
+    const colors = useUserPreferencesStore.getState().colors;
+    return {
+      tickUp: colors.tickUp || '#10b981',
+      tickDown: colors.tickDown || '#ef4444',
+      background: colors.background || '#ffffff',
+    };
+  } catch {
+    return {
+      tickUp: '#10b981',
+      tickDown: '#ef4444',
+      background: '#ffffff',
+    };
+  }
+}
+
+/**
  * Get font configuration for a given font family
  */
 export function getFontConfig(font: FontFamily) {

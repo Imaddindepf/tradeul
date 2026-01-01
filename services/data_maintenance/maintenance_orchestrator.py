@@ -55,36 +55,53 @@ class MaintenanceOrchestrator:
         self.redis = redis_client
         self.db = timescale_client
     
-    async def run_full_cycle(self, target_date: date) -> bool:
+    async def run_full_cycle(self, target_date: date, skip_cache_clear: bool = False) -> bool:
         """
         Ejecutar ciclo completo de mantenimiento
         
         Args:
             target_date: Fecha del día de trading a procesar
+            skip_cache_clear: Si True, no limpia caches ni notifica nuevo día
+                             (útil para festivos donde el usuario debe seguir viendo datos)
             
         Returns:
             True si todas las tareas fueron exitosas
         """
         logger.info(
             "🔄 maintenance_cycle_starting",
-            target_date=str(target_date)
+            target_date=str(target_date),
+            skip_cache_clear=skip_cache_clear
         )
         
         cycle_start = datetime.now()
         state = self._init_state(target_date)
         
         # Lista ordenada de tareas
-        tasks = [
-            ("clear_caches", self._task_clear_caches),
-            ("load_ohlc", self._task_load_ohlc),
-            ("load_volume_slots", self._task_load_volume_slots),
-            ("calculate_atr", self._task_calculate_atr),
-            ("calculate_rvol", self._task_calculate_rvol),
-            ("sync_ticker_universe", self._task_sync_ticker_universe),  # Sincronizar con Polygon (nuevos/delistados)
-            ("enrich_metadata", self._task_enrich_metadata),
-            ("sync_redis", self._task_sync_redis),
-            ("notify_services", self._task_notify_services),
-        ]
+        # Si skip_cache_clear=True, omitir clear_caches, sync_redis y notify_services
+        if skip_cache_clear:
+            tasks = [
+                ("load_ohlc", self._task_load_ohlc),
+                ("load_volume_slots", self._task_load_volume_slots),
+                ("calculate_atr", self._task_calculate_atr),
+                ("calculate_rvol", self._task_calculate_rvol),
+                ("sync_ticker_universe", self._task_sync_ticker_universe),
+                ("enrich_metadata", self._task_enrich_metadata),
+                ("export_screener_metadata", self._task_export_screener_metadata),
+            ]
+            logger.info("📦 data_only_mode - skipping cache clear and notifications")
+        else:
+            tasks = [
+                ("clear_caches", self._task_clear_caches),
+                ("load_ohlc", self._task_load_ohlc),
+                ("load_volume_slots", self._task_load_volume_slots),
+                ("calculate_atr", self._task_calculate_atr),
+                ("calculate_rvol", self._task_calculate_rvol),
+                ("sync_ticker_universe", self._task_sync_ticker_universe),
+                ("enrich_metadata", self._task_enrich_metadata),
+                ("export_screener_metadata", self._task_export_screener_metadata),
+                ("sync_redis", self._task_sync_redis),
+                ("notify_services", self._task_notify_services),
+            ]
         
         all_success = True
         
@@ -167,6 +184,7 @@ class MaintenanceOrchestrator:
                 "calculate_rvol": TaskStatus.PENDING,
                 "sync_ticker_universe": TaskStatus.PENDING,
                 "enrich_metadata": TaskStatus.PENDING,
+                "export_screener_metadata": TaskStatus.PENDING,
                 "sync_redis": TaskStatus.PENDING,
                 "notify_services": TaskStatus.PENDING,
             }
@@ -337,6 +355,21 @@ class MaintenanceOrchestrator:
             
             enricher = EnrichMetadataTask(self.redis, self.db)
             result = await enricher.execute(target_date)
+            
+            return result
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def _task_export_screener_metadata(self, target_date: date) -> Dict:
+        """
+        Tarea 8: Exportar metadata a Parquet para el Screener service
+        """
+        try:
+            from tasks.export_screener_metadata import ExportScreenerMetadataTask
+            
+            exporter = ExportScreenerMetadataTask(self.redis, self.db)
+            result = await exporter.execute(target_date)
             
             return result
             

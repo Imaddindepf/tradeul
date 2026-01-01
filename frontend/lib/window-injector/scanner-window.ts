@@ -7,7 +7,7 @@
  * - Diseño IDÉNTICO al scanner original
  */
 
-import { getUserTimezoneForWindow, getUserFontForWindow, getFontConfig } from './base';
+import { getUserTimezoneForWindow, getUserFontForWindow, getFontConfig, getUserColorsForWindow } from './base';
 
 export interface ScannerWindowData {
   listName: string;
@@ -67,6 +67,7 @@ function injectScannerContent(
   const userTimezone = getUserTimezoneForWindow();
   const userFont = getUserFontForWindow();
   const fontConfig = getFontConfig(userFont);
+  const userColors = getUserColorsForWindow();
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -100,8 +101,8 @@ function injectScannerContent(
             },
             border: '#E2E8F0',
             muted: '#F8FAFC',
-            success: '#10B981',
-            danger: '#EF4444'
+            success: '${userColors.tickUp}',
+            danger: '${userColors.tickDown}'
           }
         }
       }
@@ -136,6 +137,34 @@ function injectScannerContent(
       font-family: ${fontConfig.cssFamily} !important;
       color: #0f172a !important;
       font-weight: 500;
+    }
+    
+    /* Flash animations para cambios de precio */
+    @keyframes flash-up {
+      0% { background-color: ${userColors.tickUp}40; }
+      100% { background-color: transparent; }
+    }
+    
+    @keyframes flash-down {
+      0% { background-color: ${userColors.tickDown}40; }
+      100% { background-color: transparent; }
+    }
+    
+    .flash-up {
+      animation: flash-up 0.6s ease-out;
+    }
+    
+    .flash-down {
+      animation: flash-down 0.6s ease-out;
+    }
+    
+    /* Colores de usuario para precios */
+    .color-up {
+      color: ${userColors.tickUp} !important;
+    }
+    
+    .color-down {
+      color: ${userColors.tickDown} !important;
     }
     
     /* Scrollbar personalizada */
@@ -208,6 +237,11 @@ function injectScannerContent(
   <script>
     const CONFIG = ${JSON.stringify(data)};
     const USER_TIMEZONE = '${userTimezone}';
+    const USER_COLORS = {
+      tickUp: '${userColors.tickUp}',
+      tickDown: '${userColors.tickDown}',
+      background: '${userColors.background}'
+    };
     
     let sharedWorker = null;
     let workerPort = null;
@@ -357,6 +391,9 @@ function injectScannerContent(
       const ticker = tickersData.get(aggregate.symbol);
       if (!ticker) return;
       
+      // Guardar precio anterior para detectar cambio
+      const oldPrice = ticker.price;
+      
       // Actualizar datos del ticker
       const aggData = aggregate.data;
       ticker.price = aggData.c ?? aggData.close ?? ticker.price;
@@ -364,23 +401,64 @@ function injectScannerContent(
       ticker.high = aggData.h ?? ticker.high;
       ticker.low = aggData.l ?? ticker.low;
       
+      // Actualizar VWAP si está disponible
+      if (aggData.vw) {
+        ticker.vwap = aggData.vw;
+        // Recalcular price_vs_vwap
+        if (ticker.price && ticker.vwap && ticker.vwap > 0) {
+          ticker.price_vs_vwap = ((ticker.price - ticker.vwap) / ticker.vwap) * 100;
+        }
+      }
+      
       // Recalcular change_percent si tenemos prev_close
       if (ticker.prev_close && ticker.price) {
         ticker.change_percent = ((ticker.price - ticker.prev_close) / ticker.prev_close) * 100;
       }
       
-      // Actualizar celda de precio
+      // Detectar dirección del cambio de precio
+      const priceDirection = oldPrice && ticker.price > oldPrice ? 'up' : (oldPrice && ticker.price < oldPrice ? 'down' : null);
+      
+      // Actualizar celda de precio con flash
       const priceCell = document.querySelector(\`#row-\${aggregate.symbol} .price-cell\`);
       if (priceCell) {
         priceCell.textContent = formatPrice(ticker.price);
+        
+        // Aplicar flash de color según dirección
+        if (priceDirection) {
+          priceCell.classList.remove('flash-up', 'flash-down');
+          // Force reflow to restart animation
+          void priceCell.offsetWidth;
+          priceCell.classList.add(priceDirection === 'up' ? 'flash-up' : 'flash-down');
+          priceCell.style.color = priceDirection === 'up' ? USER_COLORS.tickUp : USER_COLORS.tickDown;
+          
+          // Reset color after animation
+          setTimeout(() => {
+            priceCell.style.color = '';
+          }, 600);
+        }
       }
       
-      // Actualizar celda de change_percent
+      // Actualizar fila completa con flash
+      const row = document.querySelector(\`#row-\${aggregate.symbol}\`);
+      if (row && priceDirection) {
+        row.classList.remove('flash-up', 'flash-down');
+        void row.offsetWidth;
+        row.classList.add(priceDirection === 'up' ? 'flash-up' : 'flash-down');
+      }
+      
+      // Actualizar celda de change_percent con colores de usuario
       const changeCell = document.querySelector(\`#row-\${aggregate.symbol} .change-cell\`);
       if (changeCell && ticker.change_percent !== null) {
         const isPositive = ticker.change_percent >= 0;
         changeCell.textContent = formatPercent(ticker.change_percent);
-        changeCell.className = \`font-mono font-semibold \${isPositive ? 'text-emerald-600' : 'text-rose-600'}\`;
+        changeCell.className = 'change-cell font-mono font-semibold';
+        changeCell.style.color = isPositive ? USER_COLORS.tickUp : USER_COLORS.tickDown;
+      }
+      
+      // Actualizar celda de vs VWAP
+      const vwapCell = document.querySelector(\`#row-\${aggregate.symbol} .vwap-cell\`);
+      if (vwapCell && ticker.price_vs_vwap !== null && ticker.price_vs_vwap !== undefined) {
+        vwapCell.innerHTML = formatPriceVsVwap(ticker.price_vs_vwap);
       }
     }
     
@@ -453,6 +531,10 @@ function injectScannerContent(
           return ticker.market_cap || 0;
         case 'float_shares':
           return ticker.float_shares || 0;
+        case 'minute_volume':
+          return ticker.minute_volume || 0;
+        case 'price_vs_vwap':
+          return ticker.price_vs_vwap || 0;
         case 'atr_percent':
           return ticker.atr_percent || 0;
         case 'atr_used':
@@ -622,6 +704,18 @@ function injectScannerContent(
                       <span class="sort-icon">\${getSortIcon('float_shares')}</span>
                     </div>
                   </th>
+                  <th onclick="handleSort('minute_volume')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:80px;height:24px;line-height:24px">
+                    <div class="flex items-center justify-end gap-1">
+                      Min Vol
+                      <span class="sort-icon">\${getSortIcon('minute_volume')}</span>
+                    </div>
+                  </th>
+                  <th onclick="handleSort('price_vs_vwap')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:80px;height:24px;line-height:24px">
+                    <div class="flex items-center justify-end gap-1">
+                      vs VWAP
+                      <span class="sort-icon">\${getSortIcon('price_vs_vwap')}</span>
+                    </div>
+                  </th>
                   <th onclick="handleSort('atr_percent')" class="px-1 py-0.5 text-right text-[10px] font-semibold text-slate-600 uppercase tracking-wide cursor-pointer hover:bg-slate-100 transition-colors" style="width:70px;height:24px;line-height:24px">
                     <div class="flex items-center justify-end gap-1">
                       ATR%
@@ -713,7 +807,7 @@ function injectScannerContent(
             <span class="price-cell font-mono font-semibold text-slate-900">\${formatPrice(ticker.price)}</span>
           </td>
           <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
-            <span class="change-cell font-mono font-semibold" style="color:\${isPositive ? '#10b981' : '#ef4444'}">\${formatPercent(gapPercent)}</span>
+            <span class="change-cell font-mono font-semibold" style="color:\${isPositive ? USER_COLORS.tickUp : USER_COLORS.tickDown}">\${formatPercent(gapPercent)}</span>
           </td>
           <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
             <span class="font-mono text-slate-700">\${formatNumber(volume)}</span>
@@ -726,6 +820,12 @@ function injectScannerContent(
           </td>
           <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
             <span class="font-mono text-slate-600">\${formatNumber(ticker.float_shares)}</span>
+          </td>
+          <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
+            <span class="font-mono text-slate-600">\${formatNumber(ticker.minute_volume)}</span>
+          </td>
+          <td class="px-1 text-right text-[10px] vwap-cell" style="height:18px;line-height:18px;padding:0 4px">
+            \${formatPriceVsVwap(ticker.price_vs_vwap)}
           </td>
           <td class="px-1 text-right text-[10px]" style="height:18px;line-height:18px;padding:0 4px">
             \${atrPercentHtml}
@@ -765,6 +865,15 @@ function injectScannerContent(
     function formatRVOL(value) {
       if (value == null || isNaN(value)) return '-';
       return \`\${value.toFixed(2)}x\`;
+    }
+    
+    function formatPriceVsVwap(value) {
+      if (value == null || isNaN(value)) return '<span class="text-slate-400">-</span>';
+      const sign = value > 0 ? '+' : '';
+      let color = '#475569'; // slate-600
+      if (value > 0) color = USER_COLORS.tickUp;
+      else if (value < 0) color = USER_COLORS.tickDown;
+      return \`<span class="font-mono font-semibold" style="color:\${color}">\${sign}\${value.toFixed(2)}%</span>\`;
     }
     
     // ============================================================

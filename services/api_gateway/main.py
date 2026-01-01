@@ -1778,7 +1778,7 @@ CHART_INTERVALS = {
     "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 600, "bars_per_page": 500}, # 10 min cache
     "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 1800, "bars_per_page": 500},   # 30 min cache
     "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 3600, "bars_per_page": 500},   # 1h cache
-    "1day": {"source": "fmp", "cache_ttl": 86400, "bars_per_page": 1000},  # FMP para daily
+    "1day": {"source": "fmp", "cache_ttl": 14400, "bars_per_page": 1000},  # 4h cache - FMP para daily
 }
 
 POLYGON_AGGS_URL = "https://api.polygon.io/v2/aggs/ticker"

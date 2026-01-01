@@ -115,7 +115,7 @@ interface SVGChartProps {
 
 function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: SVGChartProps) {
     const svgRef = useRef<SVGSVGElement>(null);
-    
+
     const padding = { top: 20, right: 55, bottom: 30, left: 10 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
@@ -148,7 +148,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
             const values = tickers.map((t, i) => {
                 const bar = tickerMaps[i].get(date);
                 if (bar === undefined) return null;
-                
+
                 if (scaleType === 'percent') {
                     const baseValue = firstValues[i];
                     return {
@@ -180,8 +180,8 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
         minVal = minVal - range * 0.05;
         maxVal = maxVal + range * 0.05;
 
-        const dates = filteredData.map(d => new Date(d.date));
-        
+        const dates = filteredData.map(d => new Date(d.date + 'T12:00:00'));
+
         return {
             alignedData: filteredData,
             dateRange: {
@@ -219,7 +219,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
         return tickers.map((ticker, tickerIdx) => {
             const points: string[] = [];
             let started = false;
-            
+
             alignedData.forEach((d) => {
                 const value = d.values[tickerIdx];
                 if (value !== null) {
@@ -233,7 +233,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
                     }
                 }
             });
-            
+
             return points.join(' ');
         });
     }, [tickers, alignedData, xScale, yScale]);
@@ -241,10 +241,10 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
     // Area/Mountain paths
     const areaPaths = useMemo(() => {
         if (chartType !== 'area' && chartType !== 'mountain') return [];
-        
+
         return tickers.map((ticker, tickerIdx) => {
             const points: { x: number; y: number }[] = [];
-            
+
             alignedData.forEach(d => {
                 const value = d.values[tickerIdx];
                 if (value !== null) {
@@ -254,15 +254,15 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
                     });
                 }
             });
-            
+
             if (points.length < 2) return '';
-            
+
             const baseline = yScale(scaleType === 'percent' ? 0 : valueRange.min);
-            
+
             let path = `M ${points[0].x} ${baseline}`;
             points.forEach(p => path += ` L ${p.x} ${p.y}`);
             path += ` L ${points[points.length - 1].x} ${baseline} Z`;
-            
+
             return path;
         });
     }, [tickers, alignedData, xScale, yScale, chartType, scaleType, valueRange]);
@@ -272,35 +272,35 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
         const { min, max } = valueRange;
         const range = max - min;
         const step = range / 5;
-        
+
         for (let i = 0; i <= 5; i++) {
             const value = min + step * i;
             lines.push({
                 y: yScale(value),
-                label: scaleType === 'percent' 
+                label: scaleType === 'percent'
                     ? `${value >= 0 ? '+' : ''}${value.toFixed(0)}%`
                     : value.toFixed(0),
             });
         }
-        
+
         return lines;
     }, [valueRange, yScale, scaleType]);
 
     const xLabels = useMemo(() => {
         if (alignedData.length === 0) return [];
-        
+
         const labels: { x: number; label: string }[] = [];
         const step = Math.max(1, Math.floor(alignedData.length / 6));
-        
+
         for (let i = 0; i < alignedData.length; i += step) {
             const d = alignedData[i];
-            const date = new Date(d.date);
+            const date = new Date(d.date + 'T12:00:00');
             labels.push({
                 x: xScale(d.date),
                 label: date.toLocaleDateString('en-US', { timeZone: getUserTimezone(), month: 'short', day: 'numeric' }),
             });
         }
-        
+
         return labels;
     }, [alignedData, xScale]);
 
@@ -453,26 +453,26 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
             {/* Candlestick Chart */}
             {renderCandlestick && tickers.map((ticker, tickerIdx) => {
                 const offsetX = tickers.length > 1 ? (tickerIdx - (tickers.length - 1) / 2) * (barWidth + 1) : 0;
-                
+
                 return alignedData.map((d, idx) => {
                     const val = d.values[tickerIdx];
                     if (!val) return null;
-                    
+
                     const x = xScale(d.date) + offsetX;
                     const openY = yScale(val.open);
                     const closeY = yScale(val.close);
                     const highY = yScale(val.high);
                     const lowY = yScale(val.low);
-                    
+
                     const isBullish = val.close >= val.open;
                     // Use ticker color for multi-ticker, green/red for single
-                    const candleColor = tickers.length === 1 
+                    const candleColor = tickers.length === 1
                         ? (isBullish ? '#10b981' : '#f43f5e')
                         : ticker.color;
                     const bodyTop = Math.min(openY, closeY);
                     const bodyHeight = Math.max(1, Math.abs(closeY - openY));
                     const candleWidth = tickers.length > 1 ? Math.max(2, barWidth / tickers.length) : barWidth;
-                    
+
                     return (
                         <g key={`candle-${tickerIdx}-${idx}`}>
                             {/* Wick */}
@@ -505,24 +505,24 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
             {/* OHLC Bars */}
             {renderOHLC && tickers.map((ticker, tickerIdx) => {
                 const offsetX = tickers.length > 1 ? (tickerIdx - (tickers.length - 1) / 2) * (barWidth + 1) : 0;
-                
+
                 return alignedData.map((d, idx) => {
                     const val = d.values[tickerIdx];
                     if (!val) return null;
-                    
+
                     const x = xScale(d.date) + offsetX;
                     const openY = yScale(val.open);
                     const closeY = yScale(val.close);
                     const highY = yScale(val.high);
                     const lowY = yScale(val.low);
-                    
+
                     const isBullish = val.close >= val.open;
                     // Use ticker color for multi-ticker, green/red for single
-                    const barColor = tickers.length === 1 
+                    const barColor = tickers.length === 1
                         ? (isBullish ? '#10b981' : '#f43f5e')
                         : ticker.color;
                     const tickWidth = tickers.length > 1 ? Math.max(2, barWidth / tickers.length / 2) : barWidth / 2;
-                    
+
                     return (
                         <g key={`ohlc-${tickerIdx}-${idx}`}>
                             {/* Vertical line (high-low) */}
@@ -592,7 +592,7 @@ function SVGChart({ tickers, width, height, chartType, scaleType, onTooltip }: S
 function ChartTooltip({ tooltip, chartType }: { tooltip: TooltipData | null; chartType: ChartType }) {
     if (!tooltip) return null;
 
-    const date = new Date(tooltip.date);
+    const date = new Date(tooltip.date + 'T12:00:00');
     const formattedDate = date.toLocaleDateString('en-US', {
         timeZone: getUserTimezone(),
         month: 'short',
@@ -703,29 +703,30 @@ export function HistoricalMultipleSecurityContent() {
     // Restaurar tickers guardados al montar
     useEffect(() => {
         if (initialLoadDone) return;
-        
+
         const savedTickers = windowState.tickerSymbols;
         if (savedTickers && savedTickers.length > 0) {
             const loadSavedTickers = async () => {
                 setLoading(true);
                 setError(null);
-                
+
                 const loadedTickers: TickerData[] = [];
                 for (let i = 0; i < savedTickers.length; i++) {
                     try {
                         const periodConfig = PERIODS.find(p => p.id === period);
                         if (!periodConfig) continue;
-                        
+
                         const response = await fetch(
-                            `${API_URL}/api/v1/chart/${savedTickers[i].toUpperCase()}?interval=1day&limit=${periodConfig.days}`
+                            `${API_URL}/api/v1/chart/${savedTickers[i].toUpperCase()}?interval=1day&limit=${periodConfig.days}`,
+                            { cache: 'no-store' }
                         );
-                        
+
                         if (!response.ok) continue;
-                        
+
                         const result = await response.json();
                         const data = result.data || [];
                         if (data.length === 0) continue;
-                        
+
                         const chartData: OHLCBar[] = data.map((bar: any) => ({
                             date: new Date(bar.time * 1000).toISOString().split('T')[0],
                             open: bar.open,
@@ -733,11 +734,11 @@ export function HistoricalMultipleSecurityContent() {
                             low: bar.low,
                             close: bar.close,
                         })).sort((a: OHLCBar, b: OHLCBar) => a.date.localeCompare(b.date));
-                        
+
                         const firstPrice = chartData[0]?.close || 1;
                         const lastPrice = chartData[chartData.length - 1]?.close || firstPrice;
                         const changePercent = ((lastPrice / firstPrice) - 1) * 100;
-                        
+
                         loadedTickers.push({
                             symbol: savedTickers[i].toUpperCase(),
                             color: TICKER_COLORS[i % TICKER_COLORS.length],
@@ -749,12 +750,12 @@ export function HistoricalMultipleSecurityContent() {
                         // Skip failed tickers
                     }
                 }
-                
+
                 setTickers(loadedTickers);
                 setLoading(false);
                 setInitialLoadDone(true);
             };
-            
+
             loadSavedTickers();
         } else {
             setInitialLoadDone(true);
@@ -764,7 +765,7 @@ export function HistoricalMultipleSecurityContent() {
     // Persistir estado cuando cambian los valores
     useEffect(() => {
         if (!initialLoadDone) return;
-        
+
         updateWindowState({
             tickerSymbols: tickers.map(t => t.symbol),
             period,
@@ -779,7 +780,8 @@ export function HistoricalMultipleSecurityContent() {
 
         try {
             const response = await fetch(
-                `${API_URL}/api/v1/chart/${symbol.toUpperCase()}?interval=1day&limit=${periodConfig.days}`
+                `${API_URL}/api/v1/chart/${symbol.toUpperCase()}?interval=1day&limit=${periodConfig.days}`,
+                { cache: 'no-store' }
             );
 
             if (!response.ok) {
@@ -822,7 +824,7 @@ export function HistoricalMultipleSecurityContent() {
 
     const handleAddTicker = useCallback(async () => {
         const symbol = tickerInput.trim().toUpperCase();
-        
+
         if (!symbol) return;
         if (tickers.some(t => t.symbol === symbol)) {
             setError(`${symbol} already added`);
@@ -855,7 +857,7 @@ export function HistoricalMultipleSecurityContent() {
 
     const handleSelectTicker = useCallback(async (selected: TickerSearchResult) => {
         const symbol = selected.symbol.toUpperCase();
-        
+
         if (tickers.some(t => t.symbol === symbol)) {
             setError(`${symbol} already added`);
             return;
@@ -930,7 +932,7 @@ export function HistoricalMultipleSecurityContent() {
                             className="w-full"
                         />
                     </div>
-                    
+
                     <button
                         onClick={handleAddTicker}
                         disabled={loading || !tickerInput.trim()}
@@ -945,11 +947,10 @@ export function HistoricalMultipleSecurityContent() {
                             <button
                                 key={p.id}
                                 onClick={() => setPeriod(p.id)}
-                                className={`px-1.5 py-0.5 rounded ${
-                                    period === p.id 
-                                        ? 'bg-slate-100 text-slate-700' 
+                                className={`px-1.5 py-0.5 rounded ${period === p.id
+                                        ? 'bg-slate-100 text-slate-700'
                                         : 'hover:text-slate-600'
-                                }`}
+                                    }`}
                             >
                                 {p.label}
                             </button>
@@ -966,11 +967,10 @@ export function HistoricalMultipleSecurityContent() {
                                 <button
                                     key={ct.id}
                                     onClick={() => setChartType(ct.id)}
-                                    className={`p-1 rounded transition-colors ${
-                                        chartType === ct.id 
-                                            ? 'bg-slate-100 text-slate-700' 
+                                    className={`p-1 rounded transition-colors ${chartType === ct.id
+                                            ? 'bg-slate-100 text-slate-700'
                                             : 'hover:text-slate-600'
-                                    }`}
+                                        }`}
                                     title={ct.label}
                                 >
                                     <Icon className="w-3.5 h-3.5" />

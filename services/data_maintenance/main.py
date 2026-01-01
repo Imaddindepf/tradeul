@@ -214,6 +214,7 @@ async def get_status():
 
 class TriggerRequest(BaseModel):
     target_date: Optional[str] = None  # ISO format: "2025-12-02"
+    clear_caches: bool = False  # Si True, también limpia caches
 
 
 @app.post("/trigger")
@@ -224,19 +225,26 @@ async def trigger_maintenance(request: Optional[TriggerRequest] = None):
     Args:
         target_date: Fecha específica a procesar (ISO format: "2025-12-02")
                      Si no se proporciona, usa el último día de trading
+        clear_caches: Si True, también limpia caches (default: False)
+                      Usar False en festivos para preservar datos visibles
     """
     try:
         target = None
-        if request and request.target_date:
-            target = date.fromisoformat(request.target_date)
+        clear_caches = False
+        
+        if request:
+            if request.target_date:
+                target = date.fromisoformat(request.target_date)
+            clear_caches = request.clear_caches
         
         logger.info(
             "⚡ Manual maintenance trigger requested",
-            target_date=str(target) if target else "last_trading_day"
+            target_date=str(target) if target else "last_trading_day",
+            clear_caches=clear_caches
         )
         
         if daily_scheduler:
-            result = await daily_scheduler.trigger_manual(target)
+            result = await daily_scheduler.trigger_manual(target, clear_caches=clear_caches)
             return result
         
         return {

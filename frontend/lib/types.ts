@@ -47,8 +47,13 @@ export interface Ticker {
   // Volume metrics
   volume?: number;
   volume_today?: number;
+  minute_volume?: number;  // Volume in last minute bar
   rvol?: number;
   rvol_slot?: number;
+  
+  // VWAP
+  vwap?: number;           // Volume Weighted Average Price (today)
+  price_vs_vwap?: number;  // % distance from VWAP
   
   // Volatility metrics
   atr_percent?: number;

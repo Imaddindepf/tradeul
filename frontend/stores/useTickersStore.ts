@@ -411,6 +411,13 @@ export const useTickersStore = create<TickersState & TickersActions>()(
                   ((newPrice - ticker.prev_close) / ticker.prev_close) * 100;
               }
 
+              // Actualizar VWAP y price_vs_vwap en tiempo real
+              const newVwap = parseFloat(aggregateData.vw) || ticker.vwap;
+              let newPriceVsVwap = ticker.price_vs_vwap;
+              if (newVwap && newVwap > 0 && !isNaN(newPrice)) {
+                newPriceVsVwap = ((newPrice - newVwap) / newVwap) * 100;
+              }
+
               newTickers.set(symbol, {
                 ...ticker,
                 price: newPrice,
@@ -420,6 +427,8 @@ export const useTickersStore = create<TickersState & TickersActions>()(
                 low: ticker.low
                   ? Math.min(parseFloat(aggregateData.l) || 0, ticker.low)
                   : parseFloat(aggregateData.l),
+                vwap: newVwap,
+                price_vs_vwap: newPriceVsVwap,
                 priceFlash, // 'up' | 'down' | null para animación
               });
 

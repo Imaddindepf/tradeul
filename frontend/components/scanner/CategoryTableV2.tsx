@@ -481,6 +481,42 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>
         ),
       }),
+      columnHelper.accessor('minute_volume', {
+        header: 'Min Vol',
+        size: 80,
+        minSize: 60,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('price_vs_vwap', {
+        header: 'vs VWAP',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const colorClass = value > 0 
+            ? 'text-green-600' 
+            : value < 0 
+              ? 'text-red-600' 
+              : 'text-slate-600';
+          const prefix = value > 0 ? '+' : '';
+          return <div className={`font-mono ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
       columnHelper.accessor('atr_percent', {
         header: t('scanner.tableHeaders.atrPercent'),
         size: 70,
