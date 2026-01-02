@@ -14,7 +14,9 @@ import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useLayoutPersistence } from '@/hooks/useLayoutPersistence';
+import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
+import { WorkspaceTabs } from '@/components/layout/WorkspaceTabs';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
 import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
@@ -81,6 +83,7 @@ export default function ScannerPage() {
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { openScannerTable, closeScannerTable, isScannerTableOpen, executeTickerCommand, getScannerCategory } = useCommandExecutor();
   const { getSavedLayout, hasLayout, isLayoutInitialized } = useLayoutPersistence();
+  const { activeWorkspace, saveCurrentLayout } = useWorkspaces();
 
   // WebSocket (ya autenticado desde AuthWebSocketProvider)
   const ws = useWebSocket();
@@ -168,12 +171,42 @@ export default function ScannerPage() {
     return null;
   }, [getScannerCategory]);
 
-  // Restaurar layout guardado O abrir tablas por defecto
+  // Restaurar layout del workspace activo O abrir tablas por defecto
   useEffect(() => {
     if (!mounted) return;
 
-    // Caso 1: Hay ventanas guardadas → restaurarlas
-    if (hasLayout && !layoutRestoredRef.current) {
+    // NUEVO: Usar workspaces si está disponible
+    const workspaceLayouts = activeWorkspace?.windowLayouts || [];
+    const hasWorkspaceLayouts = workspaceLayouts.length > 0;
+
+    // Caso 1: Workspace tiene ventanas guardadas → restaurarlas
+    if (hasWorkspaceLayouts && !layoutRestoredRef.current) {
+      layoutRestoredRef.current = true;
+      initialTablesOpenedRef.current = true;
+
+      setTimeout(() => {
+        workspaceLayouts.forEach((layout) => {
+          const content = getWindowContent(layout.title);
+          if (content) {
+            const hideHeader = layout.title.startsWith('Scanner:');
+            openWindow({
+              id: layout.id,
+              title: layout.title,
+              content,
+              x: layout.position.x,
+              y: layout.position.y,
+              width: layout.size.width,
+              height: layout.size.height,
+              hideHeader,
+            });
+          }
+        });
+      }, 100);
+      return;
+    }
+
+    // LEGACY: Compatibilidad con sistema antiguo (windowLayouts sin workspaces)
+    if (!hasWorkspaceLayouts && hasLayout && !layoutRestoredRef.current) {
       layoutRestoredRef.current = true;
       initialTablesOpenedRef.current = true;
       const savedLayout = getSavedLayout();
@@ -182,10 +215,9 @@ export default function ScannerPage() {
         savedLayout.forEach((layout) => {
           const content = getWindowContent(layout.title);
           if (content) {
-            // Las tablas del scanner tienen cabecera propia
             const hideHeader = layout.title.startsWith('Scanner:');
             openWindow({
-              id: layout.id, // Preservar ID para restaurar componentState
+              id: layout.id,
               title: layout.title,
               content,
               x: layout.x,
@@ -201,16 +233,14 @@ export default function ScannerPage() {
     }
 
     // Caso 2: Usuario ya usó el sistema pero cerró todas las ventanas
-    // NO abrir nada (respetar su decisión)
-    if (isLayoutInitialized && !hasLayout) {
+    if (isLayoutInitialized && !hasLayout && !hasWorkspaceLayouts) {
       layoutRestoredRef.current = true;
       initialTablesOpenedRef.current = true;
       return;
     }
 
     // Caso 3: Primera vez (nunca ha usado el sistema)
-    // Abrir tablas por defecto
-    if (!isLayoutInitialized && !hasLayout && !initialTablesOpenedRef.current) {
+    if (!isLayoutInitialized && !hasLayout && !hasWorkspaceLayouts && !initialTablesOpenedRef.current) {
       initialTablesOpenedRef.current = true;
 
       // Cargar categorías de localStorage o usar default
@@ -236,7 +266,7 @@ export default function ScannerPage() {
         });
       }, 100);
     }
-  }, [mounted, hasLayout, isLayoutInitialized, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
+  }, [mounted, hasLayout, isLayoutInitialized, activeWorkspace, getSavedLayout, getWindowContent, openWindow, openScannerTable]);
 
   // Montaje inicial y keyboard shortcuts
   useEffect(() => {
@@ -442,8 +472,9 @@ export default function ScannerPage() {
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {/* Main Content - usa variable CSS para el fondo */}
+      {/* Altura: 100vh - 64px (navbar) - 32px (workspace tabs) */}
       <main
-        className="h-[calc(100vh-64px)] relative overflow-hidden transition-colors duration-200"
+        className="h-[calc(100vh-64px-32px)] relative overflow-hidden transition-colors duration-200"
         style={{ backgroundColor: 'var(--color-background, #f8fafc)' }}
       >
         {/* Empty state cuando no hay ventanas */}
@@ -475,6 +506,9 @@ export default function ScannerPage() {
 
         {/* Las ventanas flotantes se renderizan automáticamente desde FloatingWindowContext */}
       </main>
+
+      {/* Workspace Tabs - Barra inferior estilo GODEL/IBKR */}
+      <WorkspaceTabs getWindowContent={getWindowContent} />
     </>
   );
 }

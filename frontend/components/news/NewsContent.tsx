@@ -18,12 +18,21 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected } from '@/stores/useNewsStore';
 import { useSquawk } from '@/contexts/SquawkContext';
+import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
 import { useWindowState } from '@/contexts/FloatingWindowContext';
+
+// Mapeo de fuentes a font-family CSS
+const FONT_FAMILIES: Record<string, string> = {
+  'oxygen-mono': '"Oxygen Mono", monospace',
+  'ibm-plex-mono': '"IBM Plex Mono", monospace',
+  'jetbrains-mono': '"JetBrains Mono", monospace',
+  'fira-code': '"Fira Code", monospace',
+};
 
 interface NewsWindowState {
   ticker?: string;
@@ -49,6 +58,10 @@ const ITEMS_PER_PAGE = 200;
 export function NewsContent({ initialTicker, highlightArticleId }: NewsContentProps = {}) {
   const { t } = useTranslation();
   const { state: windowState, updateState: updateWindowState } = useWindowState<NewsWindowState>();
+  
+  // Fuente del usuario
+  const userFont = useUserPreferencesStore((s) => s.theme.font);
+  const fontFamily = FONT_FAMILIES[userFont] || FONT_FAMILIES['jetbrains-mono'];
   
   // Use persisted ticker
   const savedTicker = windowState.ticker || initialTicker || '';
@@ -271,16 +284,16 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // MAIN VIEW - TABLE
   // ================================================================
   return (
-    <div className="flex flex-col h-full bg-white">
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
-        <div className="flex items-center gap-3">
+    <div className="flex flex-col h-full bg-white" style={{ fontFamily }}>
+      {/* Header - Compacto */}
+      <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200">
+        <div className="flex items-center gap-2">
           {/* Connection Status */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <div
               className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}
             />
-            <span className={`text-xs font-medium ${isConnected ? 'text-emerald-600' : 'text-slate-500'}`}>
+            <span className={`text-[10px] ${isConnected ? 'text-emerald-600' : 'text-slate-500'}`} style={{ fontFamily }}>
               {isConnected ? t('common.live') : t('common.offline')}
             </span>
           </div>
@@ -299,13 +312,13 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
           {/* Paused Buffer Count */}
           {isPaused && pausedBuffer.length > 0 && (
-            <span className="text-amber-600 text-xs font-medium">(+{pausedBuffer.length})</span>
+            <span className="text-amber-600 text-[10px]" style={{ fontFamily }}>(+{pausedBuffer.length})</span>
           )}
 
           {/* Ticker Filter */}
           <form
             onSubmit={(e) => { e.preventDefault(); handleApplyFilter(); }}
-            className="flex items-center gap-1.5 ml-3 pl-3 border-l border-slate-300"
+            className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-300"
           >
             <TickerSearch
               value={tickerInputValue}
@@ -322,26 +335,27 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 setCurrentPage(1);
               }}
               placeholder={t('news.ticker')}
-              className="w-24"
+              className="w-20"
             />
             <button
               type="submit"
-              className="px-2.5 py-0.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 font-medium transition-colors"
+              className="px-2 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 transition-colors"
+              style={{ fontFamily }}
             >
               {t('common.filter')}
             </button>
           </form>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {/* Stats */}
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-1.5 text-[10px]" style={{ fontFamily }}>
             {tickerFilter && (
-              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-mono font-medium">
+              <span className="px-1 py-0.5 bg-blue-100 text-blue-700 rounded">
                 {tickerFilter}
               </span>
             )}
-            <span className="text-slate-600 font-mono">
+            <span className="text-slate-600">
               {filteredNews.length}{tickerFilter ? ` / ${articles.length}` : ''}
             </span>
             {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
@@ -349,39 +363,41 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center gap-1 border-l border-slate-300 pl-3">
+            <div className="flex items-center gap-0.5 border-l border-slate-300 pl-2">
               <button
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-[10px]"
+                style={{ fontFamily }}
               >
-                <ChevronLeft className="w-4 h-4 text-slate-600" />
+                ‹
               </button>
-              <span className="text-xs text-slate-600 font-mono min-w-[60px] text-center">
-                {currentPage} / {totalPages}
+              <span className="text-[10px] text-slate-600 min-w-[40px] text-center" style={{ fontFamily }}>
+                {currentPage}/{totalPages}
               </span>
               <button
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-[10px]"
+                style={{ fontFamily }}
               >
-                <ChevronRight className="w-4 h-4 text-slate-600" />
+                ›
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table - Orden: Ticker, Headline, Date, Time, Source */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse text-xs">
+        <table className="w-full border-collapse text-[11px]" style={{ fontFamily }}>
           <thead className="bg-slate-100 sticky top-0">
             <tr className="text-left text-slate-600 uppercase tracking-wide">
-              <th className="px-2 py-1.5 font-medium">{t('news.headline')}</th>
-              <th className="px-2 py-1.5 font-medium w-24 text-center">{t('news.date')}</th>
-              <th className="px-2 py-1.5 font-medium w-20 text-center">{t('news.time')}</th>
-              <th className="px-2 py-1.5 font-medium w-16 text-center">{t('news.ticker')}</th>
-              <th className="px-2 py-1.5 font-medium w-36">{t('news.source')}</th>
+              <th className="px-1.5 py-1 font-medium w-14 text-center">{t('news.ticker')}</th>
+              <th className="px-1.5 py-1 font-medium">{t('news.headline')}</th>
+              <th className="px-1.5 py-1 font-medium w-20 text-center">{t('news.date')}</th>
+              <th className="px-1.5 py-1 font-medium w-16 text-center">{t('news.time')}</th>
+              <th className="px-1.5 py-1 font-medium w-28">{t('news.source')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -405,29 +421,34 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                   }`}
                   onClick={() => setSelectedArticle(article)}
                 >
-                  <td className="px-2 py-1">
-                    <div className="flex items-center gap-1.5">
-                      {article.isLive && (
-                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
-                      )}
-                      <span className="text-slate-800 truncate" style={{ maxWidth: '500px' }}>
-                        {decodeHtmlEntities(article.title)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-1 text-center text-slate-500 font-mono">{dt.date}</td>
-                  <td className="px-2 py-1 text-center text-slate-500 font-mono">{dt.time}</td>
-                  <td className="px-2 py-1 text-center">
-                    <span className="text-blue-600 font-mono font-semibold">
+                  {/* Ticker - Primera columna */}
+                  <td className="px-1.5 py-0.5 text-center">
+                    <span className="text-blue-600 font-semibold">
                       {displayTicker}
                       {hasMultipleTickers && (
-                        <span className="text-slate-400 text-[10px] ml-0.5">
+                        <span className="text-slate-400 text-[9px] ml-0.5">
                           +{(article.tickers?.length || 1) - 1}
                         </span>
                       )}
                     </span>
                   </td>
-                  <td className="px-2 py-1 text-slate-500 truncate" style={{ maxWidth: '140px' }}>
+                  {/* Headline */}
+                  <td className="px-1.5 py-0.5">
+                    <div className="flex items-center gap-1">
+                      {article.isLive && (
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
+                      )}
+                      <span className="text-slate-800 truncate" style={{ maxWidth: '450px' }}>
+                        {decodeHtmlEntities(article.title)}
+                      </span>
+                    </div>
+                  </td>
+                  {/* Date */}
+                  <td className="px-1.5 py-0.5 text-center text-slate-500">{dt.date}</td>
+                  {/* Time */}
+                  <td className="px-1.5 py-0.5 text-center text-slate-500">{dt.time}</td>
+                  {/* Source */}
+                  <td className="px-1.5 py-0.5 text-slate-500 truncate" style={{ maxWidth: '110px' }}>
                     {article.author}
                   </td>
                 </tr>

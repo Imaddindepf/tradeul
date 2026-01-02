@@ -11,6 +11,7 @@ import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/cata
 import { NewsProvider } from '@/components/news/NewsProvider';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
 import { useScannerFiltersSync } from '@/hooks/useScannerFiltersSync';
+import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
 
 interface AppShellProps {
   children: ReactNode;
@@ -22,6 +23,7 @@ interface AppShellProps {
 function GlobalHooksHandler() {
   useTradingDayReset();
   useScannerFiltersSync(); // Sincroniza filtros del scanner con BD
+  useWorkspaceSync({ enableInitialLoad: true }); // Sincroniza workspaces con backend
   return null;
 }
 

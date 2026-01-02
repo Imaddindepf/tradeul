@@ -26,6 +26,19 @@ export interface WindowLayout {
   componentState?: Record<string, unknown>;
 }
 
+// ============================================================================
+// WORKSPACE TYPES (Multi-dashboard support)
+// ============================================================================
+
+export interface Workspace {
+  id: string;
+  name: string;
+  windowLayouts: WindowLayout[];
+  createdAt: number;
+  /** Main workspace cannot be deleted */
+  isMain?: boolean;
+}
+
 export interface ColorPreferences {
   tickUp: string;      // Color cuando precio sube (default: #10b981 emerald)
   tickDown: string;    // Color cuando precio baja (default: #ef4444 red)
@@ -62,13 +75,19 @@ export interface UserPreferences {
   // Tema
   theme: ThemePreferences;
   
-  // Layout de ventanas (snapshot)
+  // Layout de ventanas (snapshot) - DEPRECATED: usar workspaces
   windowLayouts: WindowLayout[];
   
   // Flag para saber si el usuario ya ha interactuado con layouts
   // true = ya usó el sistema (aunque tenga 0 ventanas)
   // false/undefined = primera vez, abrir tablas por defecto
   layoutInitialized: boolean;
+  
+  // ============================================================================
+  // WORKSPACES (Multi-dashboard support)
+  // ============================================================================
+  workspaces: Workspace[];
+  activeWorkspaceId: string;
   
   // Filtros guardados por lista
   savedFilters: Record<string, any>;
@@ -94,7 +113,7 @@ interface UserPreferencesState extends UserPreferences {
   setNewsSquawkEnabled: (enabled: boolean) => void;
   setTimezone: (timezone: TimezoneOption) => void;
   
-  // Actions - Layout
+  // Actions - Layout (DEPRECATED - usar workspaces)
   saveWindowLayouts: (layouts: WindowLayout[]) => void;
   clearWindowLayouts: () => void;
   setLayoutInitialized: (initialized: boolean) => void;
@@ -102,6 +121,32 @@ interface UserPreferencesState extends UserPreferences {
   updateWindowComponentState: (windowId: string, state: Record<string, unknown>) => void;
   /** Obtener estado del componente de una ventana */
   getWindowComponentState: (windowId: string) => Record<string, unknown> | undefined;
+  
+  // Actions - Workspaces
+  createWorkspace: (name: string) => string;
+  deleteWorkspace: (workspaceId: string) => void;
+  renameWorkspace: (workspaceId: string, newName: string) => void;
+  setActiveWorkspace: (workspaceId: string) => void;
+  saveWorkspaceLayouts: (workspaceId: string, layouts: WindowLayout[]) => void;
+  getActiveWorkspace: () => Workspace | undefined;
+  getWorkspace: (workspaceId: string) => Workspace | undefined;
+  /** Migrar del sistema antiguo (windowLayouts) al nuevo (workspaces) */
+  migrateToWorkspaces: () => void;
+  
+  // Actions - Backend Sync
+  /** Sincronizar workspaces al backend (debounced) */
+  syncWorkspacesToBackend: (getToken?: () => Promise<string | null>) => Promise<void>;
+  /** Cargar preferencias del backend */
+  loadFromBackend: (getToken?: () => Promise<string | null>) => Promise<boolean>;
+  /** Flag para saber si se está sincronizando */
+  isSyncing: boolean;
+  /** Última vez que se sincronizó */
+  lastSyncedAt: number | null;
+  
+  // Workspace Switching Flag
+  /** Flag para indicar que se está cambiando de workspace (desactiva auto-save) */
+  isWorkspaceSwitching: boolean;
+  setWorkspaceSwitching: (switching: boolean) => void;
   
   // Actions - Filters
   saveFilters: (listName: string, filters: any) => void;
@@ -135,12 +180,27 @@ const DEFAULT_THEME: ThemePreferences = {
   timezone: 'America/New_York', // ET - Standard for US markets
 };
 
-const DEFAULT_PREFERENCES: UserPreferences = {
+// Default Main workspace
+const DEFAULT_MAIN_WORKSPACE: Workspace = {
+  id: 'main',
+  name: 'Main',
+  windowLayouts: [],
+  createdAt: Date.now(),
+  isMain: true,
+};
+
+const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt: number | null; isWorkspaceSwitching: boolean } = {
   colors: DEFAULT_COLORS,
   theme: DEFAULT_THEME,
-  windowLayouts: [],
+  windowLayouts: [], // DEPRECATED
   layoutInitialized: false,
+  workspaces: [DEFAULT_MAIN_WORKSPACE],
+  activeWorkspaceId: 'main',
   savedFilters: {},
+  // Sync state (not persisted)
+  isSyncing: false,
+  lastSyncedAt: null,
+  isWorkspaceSwitching: false,
   columnVisibility: {},
   columnOrder: {},
 };
@@ -224,8 +284,208 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
 
       getWindowComponentState: (windowId) => {
         const state = get();
+        // Buscar en workspace activo primero, luego en windowLayouts (legacy)
+        const activeWs = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+        const fromWorkspace = activeWs?.windowLayouts.find((w) => w.id === windowId)?.componentState;
+        if (fromWorkspace) return fromWorkspace;
         return state.windowLayouts.find((w) => w.id === windowId)?.componentState;
       },
+
+      // ========================================
+      // Workspaces Actions
+      // ========================================
+      createWorkspace: (name) => {
+        const id = `workspace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const newWorkspace: Workspace = {
+          id,
+          name,
+          windowLayouts: [],
+          createdAt: Date.now(),
+          isMain: false,
+        };
+        set((state) => ({
+          workspaces: [...state.workspaces, newWorkspace],
+        }));
+        return id;
+      },
+
+      deleteWorkspace: (workspaceId) => {
+        set((state) => {
+          const workspace = state.workspaces.find(w => w.id === workspaceId);
+          // No permitir eliminar Main
+          if (workspace?.isMain) return state;
+          
+          const newWorkspaces = state.workspaces.filter(w => w.id !== workspaceId);
+          // Si eliminamos el workspace activo, cambiar a Main
+          const newActiveId = state.activeWorkspaceId === workspaceId 
+            ? 'main' 
+            : state.activeWorkspaceId;
+          
+          return {
+            workspaces: newWorkspaces,
+            activeWorkspaceId: newActiveId,
+          };
+        });
+      },
+
+      renameWorkspace: (workspaceId, newName) => {
+        set((state) => ({
+          workspaces: state.workspaces.map(w =>
+            w.id === workspaceId ? { ...w, name: newName } : w
+          ),
+        }));
+      },
+
+      setActiveWorkspace: (workspaceId) => {
+        set({ activeWorkspaceId: workspaceId });
+      },
+
+      saveWorkspaceLayouts: (workspaceId, layouts) => {
+        set((state) => ({
+          workspaces: state.workspaces.map(w =>
+            w.id === workspaceId ? { ...w, windowLayouts: layouts } : w
+          ),
+          layoutInitialized: true,
+        }));
+      },
+
+      getActiveWorkspace: () => {
+        const state = get();
+        return state.workspaces.find(w => w.id === state.activeWorkspaceId);
+      },
+
+      getWorkspace: (workspaceId) => {
+        const state = get();
+        return state.workspaces.find(w => w.id === workspaceId);
+      },
+
+      migrateToWorkspaces: () => {
+        const state = get();
+        // Si ya hay workspaces con layouts, no migrar
+        const mainWs = state.workspaces.find(w => w.isMain);
+        if (mainWs && mainWs.windowLayouts.length > 0) return;
+        
+        // Si hay layouts antiguos, migrarlos a Main
+        if (state.windowLayouts.length > 0) {
+          set((s) => ({
+            workspaces: s.workspaces.map(w =>
+              w.isMain ? { ...w, windowLayouts: s.windowLayouts } : w
+            ),
+            windowLayouts: [], // Limpiar legacy
+          }));
+        }
+      },
+
+      // ========================================
+      // Backend Sync Actions
+      // ========================================
+      syncWorkspacesToBackend: async (getToken?: () => Promise<string | null>) => {
+        const state = get();
+        if (state.isSyncing) return; // Evitar sincronizaciones paralelas
+        
+        set({ isSyncing: true });
+        
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          
+          // Obtener token de autenticación
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          
+          if (getToken) {
+            const token = await getToken();
+            if (token) {
+              headers['Authorization'] = `Bearer ${token}`;
+            }
+          }
+          
+          const response = await fetch(`${apiUrl}/api/v1/user/preferences/workspaces`, {
+            method: 'PATCH',
+            headers,
+            credentials: 'include',
+            body: JSON.stringify({
+              workspaces: state.workspaces,
+              activeWorkspaceId: state.activeWorkspaceId,
+            }),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[WorkspaceSync] Synced to backend:', {
+              workspaces: data.workspaceCount,
+              windows: data.totalWindows,
+            });
+            set({ lastSyncedAt: Date.now() });
+          } else {
+            console.warn('[WorkspaceSync] Failed to sync:', response.status, await response.text());
+          }
+        } catch (error) {
+          console.error('[WorkspaceSync] Error syncing to backend:', error);
+        } finally {
+          set({ isSyncing: false });
+        }
+      },
+
+      loadFromBackend: async (getToken?: () => Promise<string | null>) => {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+          
+          // Obtener token de autenticación
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+          
+          if (getToken) {
+            const token = await getToken();
+            if (token) {
+              headers['Authorization'] = `Bearer ${token}`;
+            }
+          }
+          
+          const response = await fetch(`${apiUrl}/api/v1/user/preferences`, {
+            method: 'GET',
+            headers,
+            credentials: 'include',
+          });
+          
+          if (!response.ok) {
+            console.warn('[WorkspaceSync] Failed to load from backend:', response.status);
+            return false;
+          }
+          
+          const data = await response.json();
+          
+          // Solo cargar si hay workspaces del backend
+          if (data.workspaces && data.workspaces.length > 0) {
+            console.log('[WorkspaceSync] Loaded from backend:', {
+              workspaces: data.workspaces.length,
+              activeId: data.activeWorkspaceId,
+            });
+            
+            set({
+              workspaces: data.workspaces,
+              activeWorkspaceId: data.activeWorkspaceId || 'main',
+              colors: data.colors || DEFAULT_COLORS,
+              theme: data.theme || DEFAULT_THEME,
+              savedFilters: data.savedFilters || {},
+              columnVisibility: data.columnVisibility || {},
+              columnOrder: data.columnOrder || {},
+              lastSyncedAt: Date.now(),
+            });
+            
+            return true;
+          }
+          
+          return false;
+        } catch (error) {
+          console.error('[WorkspaceSync] Error loading from backend:', error);
+          return false;
+        }
+      },
+
+      // Workspace Switching Flag
+      setWorkspaceSwitching: (switching: boolean) => set({ isWorkspaceSwitching: switching }),
 
       // ========================================
       // Filters Actions
@@ -257,7 +517,10 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       // ========================================
       // General Actions
       // ========================================
-      resetAll: () => set(DEFAULT_PREFERENCES),
+      resetAll: () => set({
+        ...DEFAULT_PREFERENCES,
+        workspaces: [{ ...DEFAULT_MAIN_WORKSPACE, createdAt: Date.now() }],
+      }),
 
       exportPreferences: () => {
         const state = get();
@@ -266,6 +529,8 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           theme: state.theme,
           windowLayouts: state.windowLayouts,
           layoutInitialized: state.layoutInitialized,
+          workspaces: state.workspaces,
+          activeWorkspaceId: state.activeWorkspaceId,
           savedFilters: state.savedFilters,
           columnVisibility: state.columnVisibility,
           columnOrder: state.columnOrder,
@@ -280,6 +545,8 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             theme: data.theme || DEFAULT_THEME,
             windowLayouts: data.windowLayouts || [],
             layoutInitialized: data.layoutInitialized ?? false,
+            workspaces: data.workspaces || [DEFAULT_MAIN_WORKSPACE],
+            activeWorkspaceId: data.activeWorkspaceId || 'main',
             savedFilters: data.savedFilters || {},
             columnVisibility: data.columnVisibility || {},
             columnOrder: data.columnOrder || {},
@@ -298,6 +565,8 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         theme: state.theme,
         windowLayouts: state.windowLayouts,
         layoutInitialized: state.layoutInitialized,
+        workspaces: state.workspaces,
+        activeWorkspaceId: state.activeWorkspaceId,
         savedFilters: state.savedFilters,
         columnVisibility: state.columnVisibility,
         columnOrder: state.columnOrder,
@@ -317,5 +586,15 @@ export const selectTheme = (state: UserPreferencesState) => state.theme;
 export const selectFont = (state: UserPreferencesState) => state.theme.font;
 export const selectTimezone = (state: UserPreferencesState) => state.theme.timezone || 'America/New_York';
 export const selectWindowLayouts = (state: UserPreferencesState) => state.windowLayouts;
+
+// Workspace selectors
+export const selectWorkspaces = (state: UserPreferencesState) => state.workspaces;
+export const selectActiveWorkspaceId = (state: UserPreferencesState) => state.activeWorkspaceId;
+export const selectActiveWorkspace = (state: UserPreferencesState) => 
+  state.workspaces.find(w => w.id === state.activeWorkspaceId);
+export const selectActiveWorkspaceLayouts = (state: UserPreferencesState) => {
+  const activeWs = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+  return activeWs?.windowLayouts || [];
+};
 
 

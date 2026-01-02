@@ -450,7 +450,11 @@
   },
   "workspace": {
     "noWindowsOpen": "No hay ventanas abiertas",
-    "useCommandToOpen": "Usa Ctrl+K o escribe un comando para abrir tablas del scanner"
+    "useCommandToOpen": "Usa Ctrl+K o escribe un comando para abrir tablas del scanner",
+    "newWorkspace": "Nuevo Espacio",
+    "create": "Crear nuevo espacio de trabajo",
+    "close": "Cerrar espacio de trabajo",
+    "rename": "Renombrar espacio de trabajo"
   },
   "notes": {
     "title": "Notas",

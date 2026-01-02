@@ -89,6 +89,12 @@ export const Z_INDEX = {
   
   /** Botón del mobile menu (debe estar sobre el sidebar) */
   SIDEBAR_MOBILE_BUTTON: 10001,
+  
+  // ============================================================================
+  // CAPA 6: WORKSPACE TABS (z-10002) - Barra inferior de workspaces
+  // ============================================================================
+  /** Barra de tabs de workspaces en la parte inferior */
+  WORKSPACE_TABS: 10002,
 } as const;
 
 /**

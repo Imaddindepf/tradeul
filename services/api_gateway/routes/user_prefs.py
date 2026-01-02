@@ -42,6 +42,16 @@ class WindowLayout(BaseModel):
     size: Dict[str, int]  # {width, height}
     isMinimized: bool = False
     zIndex: int = 0
+    componentState: Optional[Dict[str, Any]] = None
+
+
+class Workspace(BaseModel):
+    """Un workspace contiene múltiples ventanas con sus layouts"""
+    id: str
+    name: str
+    isMain: bool = False
+    windowLayouts: List[WindowLayout] = Field(default_factory=list)
+    createdAt: int = 0  # timestamp en ms
 
 
 class NewsAlertsPreferences(BaseModel):
@@ -66,6 +76,9 @@ class UserPreferencesRequest(BaseModel):
     columnVisibility: Optional[Dict[str, Dict[str, bool]]] = None
     columnOrder: Optional[Dict[str, List[str]]] = None
     newsAlerts: Optional[NewsAlertsPreferences] = None
+    # Workspaces (nuevo sistema multi-dashboard)
+    workspaces: Optional[List[Workspace]] = None
+    activeWorkspaceId: Optional[str] = None
 
 
 class UserPreferencesResponse(BaseModel):
@@ -77,6 +90,11 @@ class UserPreferencesResponse(BaseModel):
     columnVisibility: Dict[str, Dict[str, bool]]
     columnOrder: Dict[str, List[str]]
     newsAlerts: Optional[NewsAlertsPreferences] = None
+    # Workspaces (nuevo sistema multi-dashboard)
+    workspaces: List[Workspace] = Field(default_factory=lambda: [
+        Workspace(id="main", name="Main", isMain=True, windowLayouts=[], createdAt=0)
+    ])
+    activeWorkspaceId: str = "main"
     updatedAt: str
 
 
@@ -129,6 +147,8 @@ async def get_preferences(
                 column_visibility,
                 column_order,
                 news_alerts,
+                workspaces,
+                active_workspace_id,
                 updated_at
             FROM user_preferences
             WHERE user_id = $1
@@ -141,25 +161,37 @@ async def get_preferences(
             def parse_jsonb(val):
                 if isinstance(val, str):
                     return json.loads(val)
-                return val
+                return val if val is not None else None
             
             colors_data = parse_jsonb(result['colors'])
             theme_data = parse_jsonb(result['theme'])
-            layouts_data = parse_jsonb(result['window_layouts'])
+            layouts_data = parse_jsonb(result['window_layouts']) or []
             
             # Parse news_alerts
             news_alerts_data = parse_jsonb(result['news_alerts']) if result['news_alerts'] else None
             news_alerts = NewsAlertsPreferences(**news_alerts_data) if news_alerts_data else None
             
+            # Parse workspaces
+            workspaces_data = parse_jsonb(result['workspaces']) if result['workspaces'] else None
+            if workspaces_data:
+                workspaces = [Workspace(**w) for w in workspaces_data]
+            else:
+                # Default workspace Main
+                workspaces = [Workspace(id="main", name="Main", isMain=True, windowLayouts=[], createdAt=0)]
+            
+            active_workspace_id = result['active_workspace_id'] or 'main'
+            
             return UserPreferencesResponse(
                 userId=result['user_id'],
-                colors=ColorPreferences(**colors_data),
-                theme=ThemePreferences(**theme_data),
-                windowLayouts=[WindowLayout(**w) for w in layouts_data],
-                savedFilters=parse_jsonb(result['saved_filters']),
-                columnVisibility=parse_jsonb(result['column_visibility']),
-                columnOrder=parse_jsonb(result['column_order']),
+                colors=ColorPreferences(**colors_data) if colors_data else ColorPreferences(),
+                theme=ThemePreferences(**theme_data) if theme_data else ThemePreferences(),
+                windowLayouts=[WindowLayout(**w) for w in layouts_data] if layouts_data else [],
+                savedFilters=parse_jsonb(result['saved_filters']) or {},
+                columnVisibility=parse_jsonb(result['column_visibility']) or {},
+                columnOrder=parse_jsonb(result['column_order']) or {},
                 newsAlerts=news_alerts,
+                workspaces=workspaces,
+                activeWorkspaceId=active_workspace_id,
                 updatedAt=result['updated_at'].isoformat()
             )
         
@@ -174,6 +206,8 @@ async def get_preferences(
             columnVisibility={},
             columnOrder={},
             newsAlerts=NewsAlertsPreferences(),
+            workspaces=[Workspace(id="main", name="Main", isMain=True, windowLayouts=[], createdAt=0)],
+            activeWorkspaceId="main",
             updatedAt=datetime.now().isoformat()
         )
     
@@ -275,9 +309,16 @@ async def save_preferences(
             else:
                 insert_values.append(None)
         
-        # Ejecutar upsert simplificado (con news_alerts)
+        # Preparar workspaces y activeWorkspaceId
+        workspaces_json = None
+        if prefs.workspaces is not None:
+            workspaces_json = json.dumps([w.model_dump() for w in prefs.workspaces])
+        
+        active_workspace_id = prefs.activeWorkspaceId
+        
+        # Ejecutar upsert simplificado (con workspaces)
         simple_query = """
-            INSERT INTO user_preferences (user_id, colors, theme, window_layouts, saved_filters, column_visibility, column_order, news_alerts)
+            INSERT INTO user_preferences (user_id, colors, theme, window_layouts, saved_filters, column_visibility, column_order, news_alerts, workspaces, active_workspace_id)
             VALUES ($1, 
                 COALESCE($2::jsonb, '{"tickUp":"#10b981","tickDown":"#ef4444","background":"#ffffff","primary":"#3b82f6"}'::jsonb),
                 COALESCE($3::jsonb, '{"font":"jetbrains-mono","colorScheme":"light"}'::jsonb),
@@ -285,7 +326,9 @@ async def save_preferences(
                 COALESCE($5::jsonb, '{}'::jsonb),
                 COALESCE($6::jsonb, '{}'::jsonb),
                 COALESCE($7::jsonb, '{}'::jsonb),
-                COALESCE($8::jsonb, '{"enabled":false,"criteria":{},"notifications":{"popup":true,"sound":true,"squawk":false}}'::jsonb)
+                COALESCE($8::jsonb, '{"enabled":false,"criteria":{},"notifications":{"popup":true,"sound":true,"squawk":false}}'::jsonb),
+                COALESCE($9::jsonb, '[{"id":"main","name":"Main","isMain":true,"windowLayouts":[],"createdAt":0}]'::jsonb),
+                COALESCE($10, 'main')
             )
             ON CONFLICT (user_id) DO UPDATE SET
                 colors = COALESCE($2::jsonb, user_preferences.colors),
@@ -295,9 +338,15 @@ async def save_preferences(
                 column_visibility = COALESCE($6::jsonb, user_preferences.column_visibility),
                 column_order = COALESCE($7::jsonb, user_preferences.column_order),
                 news_alerts = COALESCE($8::jsonb, user_preferences.news_alerts),
+                workspaces = COALESCE($9::jsonb, user_preferences.workspaces),
+                active_workspace_id = COALESCE($10, user_preferences.active_workspace_id),
                 updated_at = NOW()
             RETURNING updated_at
         """
+        
+        # Agregar workspaces y activeWorkspaceId a los valores
+        insert_values.append(workspaces_json)
+        insert_values.append(active_workspace_id)
         
         result = await db.fetchrow(simple_query, *insert_values)
         
@@ -408,5 +457,59 @@ async def update_layout(
     
     except Exception as e:
         logger.error("update_layout_error", user_id=user_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class WorkspacesUpdateRequest(BaseModel):
+    """Request para actualizar solo workspaces"""
+    workspaces: List[Workspace]
+    activeWorkspaceId: str = "main"
+
+
+@router.patch("/preferences/workspaces")
+async def update_workspaces(
+    data: WorkspacesUpdateRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db=Depends(get_timescale)
+):
+    """
+    Actualiza solo los workspaces del usuario.
+    Optimizado para sync frecuente desde el frontend.
+    """
+    try:
+        user_id = user.id
+        workspaces_json = json.dumps([w.model_dump() for w in data.workspaces])
+        
+        query = """
+            INSERT INTO user_preferences (user_id, workspaces, active_workspace_id)
+            VALUES ($1, $2::jsonb, $3)
+            ON CONFLICT (user_id) DO UPDATE SET
+                workspaces = $2::jsonb,
+                active_workspace_id = $3,
+                updated_at = NOW()
+            RETURNING updated_at
+        """
+        
+        result = await db.fetchrow(query, user_id, workspaces_json, data.activeWorkspaceId)
+        
+        # Contar ventanas totales en todos los workspaces
+        total_windows = sum(len(w.windowLayouts) for w in data.workspaces)
+        
+        logger.info("workspaces_saved", 
+                   user_id=user_id, 
+                   workspace_count=len(data.workspaces),
+                   total_windows=total_windows,
+                   active_workspace=data.activeWorkspaceId)
+        
+        return {
+            "success": True,
+            "workspaceCount": len(data.workspaces),
+            "totalWindows": total_windows,
+            "activeWorkspaceId": data.activeWorkspaceId,
+            "updatedAt": result['updated_at'].isoformat()
+        }
+    
+    except Exception as e:
+        logger.error("update_workspaces_error", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 

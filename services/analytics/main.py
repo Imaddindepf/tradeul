@@ -48,10 +48,15 @@ atr_calculator: Optional[ATRCalculator] = None
 intraday_tracker: Optional[IntradayTracker] = None
 event_bus: Optional[EventBus] = None
 background_task: Optional[asyncio.Task] = None
+vwap_consumer_task: Optional[asyncio.Task] = None
 
 # Estado de mercado (se actualiza via EventBus, no en cada iteración)
 is_holiday_mode: bool = False
 current_trading_date: Optional[date] = None
+
+# 🔄 VWAP Cache - mantiene último VWAP conocido desde WebSocket aggregates
+# El VWAP persiste hasta que llega un nuevo valor válido (no se borra si viene 0)
+vwap_cache: Dict[str, float] = {}
 
 
 # ============================================================================
@@ -124,6 +129,12 @@ async def handle_day_changed(event: Event) -> None:
         
         if intraday_tracker:
             intraday_tracker.clear_for_new_day()
+        
+        # 🔄 Reset VWAP cache para nuevo día
+        global vwap_cache
+        old_size = len(vwap_cache)
+        vwap_cache.clear()
+        logger.info("vwap_cache_reset", old_size=old_size)
     else:
         logger.info(
             "⏭️ skipping_cache_reset",
@@ -216,12 +227,15 @@ async def lifespan(app: FastAPI):
             logger.warning("intraday_recovery_failed", error=str(e))
             # No es crítico, continuamos sin datos recuperados
     else:
-        logger.info("⏭️ skipping_intraday_recovery", reason="holiday_mode_active")
+        logger.info("⏭skipping_intraday_recovery", reason="holiday_mode_active")
     
     # Iniciar procesamiento en background
     background_task = asyncio.create_task(run_analytics_processing())
     
-    logger.info("analytics_service_started")
+    # Iniciar consumer de VWAP desde aggregates
+    vwap_consumer_task = asyncio.create_task(consume_aggregates_for_vwap())
+    
+    logger.info("analytics_service_started", vwap_consumer_enabled=True)
     
     yield
     
@@ -234,6 +248,15 @@ async def lifespan(app: FastAPI):
             await background_task
         except asyncio.CancelledError:
             pass
+    
+    # 🔄 Stop VWAP consumer
+    if vwap_consumer_task:
+        vwap_consumer_task.cancel()
+        try:
+            await vwap_consumer_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("vwap_consumer_stopped")
     
     # 🔔 Stop EventBus
     if event_bus:
@@ -266,6 +289,112 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+# ============================================================================
+# VWAP Consumer (desde WebSocket aggregates)
+# ============================================================================
+
+async def consume_aggregates_for_vwap():
+    """
+    Consume stream de aggregates SOLO para mantener VWAPs actualizados.
+    
+    IMPORTANTE: Si el VWAP viene vacío o 0, mantiene el último valor conocido.
+    Esto evita que el VWAP "desaparezca" en el frontend.
+    
+    El VWAP del WebSocket (agg.a) es "Today's VWAP" - exactamente lo que necesitamos.
+    """
+    global vwap_cache
+    
+    stream_name = "stream:realtime:aggregates"
+    consumer_group = "analytics_vwap_consumer"
+    consumer_name = "analytics_vwap_1"
+    
+    logger.info("vwap_consumer_started", stream=stream_name)
+    
+    # Crear consumer group si no existe
+    try:
+        await redis_client.create_consumer_group(
+            stream_name,
+            consumer_group,
+            mkstream=True
+        )
+        logger.info("vwap_consumer_group_created", group=consumer_group)
+    except Exception as e:
+        logger.debug("vwap_consumer_group_exists", error=str(e))
+    
+    while True:
+        try:
+            # Leer mensajes en batch para eficiencia
+            messages = await redis_client.read_stream(
+                stream_name=stream_name,
+                consumer_group=consumer_group,
+                consumer_name=consumer_name,
+                count=500,  # Batch grande - solo extraemos vwap
+                block=1000  # 1 segundo
+            )
+            
+            if messages:
+                message_ids_to_ack = []
+                vwap_updates = 0
+                
+                for stream, stream_messages in messages:
+                    for message_id, data in stream_messages:
+                        symbol = data.get('symbol')
+                        vwap_str = data.get('vwap')
+                        
+                        if symbol and vwap_str:
+                            try:
+                                vwap = float(vwap_str)
+                                # Solo actualizar si es válido (> 0)
+                                # Si viene 0 o vacío, mantener último valor conocido
+                                if vwap > 0:
+                                    vwap_cache[symbol] = vwap
+                                    vwap_updates += 1
+                            except (ValueError, TypeError):
+                                pass  # Mantener último valor conocido
+                        
+                        message_ids_to_ack.append(message_id)
+                
+                # ACK mensajes procesados
+                if message_ids_to_ack:
+                    try:
+                        await redis_client.xack(
+                            stream_name,
+                            consumer_group,
+                            *message_ids_to_ack
+                        )
+                    except Exception as e:
+                        logger.error("vwap_xack_error", error=str(e))
+                
+                if vwap_updates > 0:
+                    logger.debug(
+                        "vwap_cache_updated",
+                        updates=vwap_updates,
+                        cache_size=len(vwap_cache)
+                    )
+        
+        except asyncio.CancelledError:
+            logger.info("vwap_consumer_cancelled")
+            raise
+        
+        except Exception as e:
+            # Auto-healing: recrear consumer group si fue borrado
+            if 'NOGROUP' in str(e):
+                logger.warn("vwap_consumer_group_missing_recreating")
+                try:
+                    await redis_client.create_consumer_group(
+                        stream_name,
+                        consumer_group,
+                        start_id="0",
+                        mkstream=True
+                    )
+                    continue
+                except Exception:
+                    pass
+            
+            logger.error("vwap_consumer_error", error=str(e))
+            await asyncio.sleep(1)
 
 
 # ============================================================================
@@ -421,6 +550,18 @@ async def run_analytics_processing():
                         # Fallback a day.h/day.l si no hay datos intradiarios
                         ticker_data['intraday_high'] = day_data.get('h') if day_data else None
                         ticker_data['intraday_low'] = day_data.get('l') if day_data else None
+                    
+                    # 🔄 AÑADIR VWAP (prioridad: day.vw > cache de aggregates)
+                    # El VWAP del snapshot puede estar vacío en pre/post market
+                    # El cache mantiene el último VWAP conocido del WebSocket
+                    day_vwap = day_data.get('vw') if day_data else None
+                    if day_vwap and day_vwap > 0:
+                        ticker_data['vwap'] = day_vwap
+                    elif symbol in vwap_cache and vwap_cache[symbol] > 0:
+                        ticker_data['vwap'] = vwap_cache[symbol]
+                    # Si no hay VWAP en snapshot ni cache, mantener el existente o None
+                    elif 'vwap' not in ticker_data or not ticker_data.get('vwap'):
+                        ticker_data['vwap'] = None
                     
                     enriched_tickers.append(ticker_data)
                 

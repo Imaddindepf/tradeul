@@ -262,12 +262,13 @@ class ScannerEngine:
                     snapshot = PolygonSnapshot(**ticker_data)
                     rvol = ticker_data.get('rvol')
                     
-                    # Extraer ATR data e intraday high/low
+                    # Extraer ATR data, intraday high/low y VWAP del snapshot enriquecido
                     atr_data = {
                         'atr': ticker_data.get('atr'),
                         'atr_percent': ticker_data.get('atr_percent'),
                         'intraday_high': ticker_data.get('intraday_high'),
-                        'intraday_low': ticker_data.get('intraday_low')
+                        'intraday_low': ticker_data.get('intraday_low'),
+                        'vwap': ticker_data.get('vwap')  # VWAP enriquecido por analytics
                     }
                     
                     enriched_snapshots.append((snapshot, rvol, atr_data))
@@ -365,6 +366,57 @@ class ScannerEngine:
 
         return results
     
+    async def _get_avg_volumes_batch(self, symbols: List[str]) -> Dict[str, Dict[str, int]]:
+        """
+        Calcula el promedio de volumen para múltiples períodos (5D, 10D, 3M) para múltiples símbolos.
+        
+        Returns:
+            Dict mapping symbol -> {avg_volume_5d, avg_volume_10d, avg_volume_3m}
+        """
+        if not symbols:
+            return {}
+        
+        results: Dict[str, Dict[str, int]] = {}
+        
+        try:
+            # Crear placeholders para la query
+            placeholders = ', '.join([f"${i+1}" for i in range(len(symbols))])
+            
+            # Calcular los 3 promedios en una sola query
+            query = f"""
+                WITH ranked_data AS (
+                    SELECT symbol, volume, trading_date,
+                           ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trading_date DESC) as rn
+                    FROM market_data_daily
+                    WHERE symbol IN ({placeholders})
+                )
+                SELECT 
+                    symbol,
+                    AVG(CASE WHEN rn <= 5 THEN volume END)::bigint as avg_volume_5d,
+                    AVG(CASE WHEN rn <= 10 THEN volume END)::bigint as avg_volume_10d,
+                    AVG(CASE WHEN rn <= 63 THEN volume END)::bigint as avg_volume_3m
+                FROM ranked_data
+                WHERE rn <= 63
+                GROUP BY symbol
+                HAVING COUNT(*) >= 3
+            """
+            
+            rows = await self.db.fetch(query, *symbols)
+            
+            for row in rows:
+                results[row['symbol']] = {
+                    'avg_volume_5d': row['avg_volume_5d'],
+                    'avg_volume_10d': row['avg_volume_10d'],
+                    'avg_volume_3m': row['avg_volume_3m']
+                }
+            
+            logger.debug("avg_volumes_calculated", symbols_count=len(symbols), results_count=len(results))
+            
+        except Exception as e:
+            logger.error("Error calculating avg_volumes batch", error=str(e))
+        
+        return results
+    
     async def _process_snapshots_optimized(
         self,
         enriched_snapshots
@@ -430,6 +482,9 @@ class ScannerEngine:
         # 2. MGET de metadata solo para símbolos válidos
         metadatas = await self._get_metadata_batch_cached(list(seen_symbols))
         
+        # 2.5 Calcular avg_volumes en batch (5D, 10D, 3M)
+        avg_volumes_map = await self._get_avg_volumes_batch(list(seen_symbols))
+        
         # 3. Procesamiento: construir tickers + filtrar + score (una sola pasada)
         # NOTA: Este bucle aplica filtros que REQUIEREN metadata:
         # - market_cap (requiere market_cap de metadata)  
@@ -459,7 +514,8 @@ class ScannerEngine:
                 # Build ticker completo (incluye cálculos de change_percent, etc)
                 # metadata incluye: market_cap, sector, industry, exchange, avg_volume_30d, float_shares
                 # NOTA: RVOL ya viene calculado por Analytics (no usa avg_volume_30d aquí)
-                ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol, atr_data)
+                avg_vols = avg_volumes_map.get(symbol, {})
+                ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol, atr_data, avg_vols)
                 if not ticker:
                     if symbol == "MNDR":
                         logger.error(f"❌ MNDR _build_scanner_ticker_inline returned None")
@@ -633,14 +689,45 @@ class ScannerEngine:
             if intraday_low and intraday_low > 0:
                 price_from_intraday_low = ((price - intraday_low) / intraday_low) * 100
             
+            # Calculate spread (in CENTS)
+            bid = snapshot.lastQuote.p if snapshot.lastQuote else None
+            ask = snapshot.lastQuote.P if snapshot.lastQuote else None
+            bid_size = (snapshot.lastQuote.s * 100) if snapshot.lastQuote and snapshot.lastQuote.s else None  # lots to shares
+            ask_size = (snapshot.lastQuote.S * 100) if snapshot.lastQuote and snapshot.lastQuote.S else None  # lots to shares
+            spread = None
+            spread_percent = None
+            bid_ask_ratio = None
+            if bid and ask and bid > 0 and ask > 0:
+                spread = (ask - bid) * 100  # Convert to cents
+                mid_price = (bid + ask) / 2
+                spread_percent = ((ask - bid) / mid_price) * 100
+            if bid_size and ask_size and ask_size > 0:
+                bid_ask_ratio = bid_size / ask_size
+            
+            # Distance from Inside Market (NBBO)
+            distance_from_nbbo = None
+            if price and bid and ask and bid > 0 and ask > 0:
+                if price >= bid and price <= ask:
+                    distance_from_nbbo = 0.0
+                elif price < bid:
+                    distance_from_nbbo = ((bid - price) / bid) * 100
+                else:
+                    distance_from_nbbo = ((price - ask) / ask) * 100
+            
             # Build ticker
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
                 # Real-time data
                 price=price,
-                bid=snapshot.lastQuote.p if snapshot.lastQuote else None,
-                ask=snapshot.lastQuote.P if snapshot.lastQuote else None,
+                bid=bid,
+                ask=ask,
+                bid_size=bid_size,
+                ask_size=ask_size,
+                spread=spread,
+                spread_percent=spread_percent,
+                bid_ask_ratio=bid_ask_ratio,
+                distance_from_nbbo=distance_from_nbbo,
                 volume=volume_today,
                 volume_today=volume_today,
                 open=day_data.o if day_data else None,
@@ -705,7 +792,8 @@ class ScannerEngine:
         snapshot: PolygonSnapshot,
         metadata: TickerMetadata,
         rvol: Optional[float],
-        atr_data: Optional[Dict] = None
+        atr_data: Optional[Dict] = None,
+        avg_volumes: Optional[Dict[str, int]] = None
     ) -> Optional[ScannerTicker]:
         """Build scanner ticker inline (sin awaits innecesarios)"""
         try:
@@ -762,20 +850,58 @@ class ScannerEngine:
             # Extract last trade timestamp (for freshness filtering)
             last_trade_timestamp = snapshot.lastTrade.t if snapshot.lastTrade else None
             
-            # Extract VWAP (Volume Weighted Average Price) from day data
-            vwap = day_data.vw if day_data and day_data.vw else None
+            # Extract VWAP (prioridad: snapshot enriquecido > day.vw original)
+            # El snapshot enriquecido tiene VWAP actualizado por analytics desde WebSocket
+            enriched_vwap = atr_data.get('vwap') if atr_data else None
+            day_vwap = day_data.vw if day_data and day_data.vw else None
+            
+            # Usar el VWAP enriquecido primero, luego day.vw como fallback
+            vwap = enriched_vwap if enriched_vwap and enriched_vwap > 0 else (day_vwap if day_vwap and day_vwap > 0 else None)
             
             # Calculate price vs VWAP (% distance)
             price_vs_vwap = None
             if vwap and vwap > 0:
                 price_vs_vwap = ((price - vwap) / vwap) * 100
             
+            # Calculate spread (in CENTS)
+            bid = snapshot.lastQuote.p if snapshot.lastQuote else None
+            ask = snapshot.lastQuote.P if snapshot.lastQuote else None
+            bid_size = (snapshot.lastQuote.s * 100) if snapshot.lastQuote and snapshot.lastQuote.s else None  # lots to shares
+            ask_size = (snapshot.lastQuote.S * 100) if snapshot.lastQuote and snapshot.lastQuote.S else None  # lots to shares
+            spread = None
+            spread_percent = None
+            bid_ask_ratio = None
+            if bid and ask and bid > 0 and ask > 0:
+                spread = (ask - bid) * 100  # Convert to cents
+                mid_price = (bid + ask) / 2
+                spread_percent = ((ask - bid) / mid_price) * 100
+            if bid_size and ask_size and ask_size > 0:
+                bid_ask_ratio = bid_size / ask_size
+            
+            # Distance from Inside Market (NBBO) -
+            # 0 = price is at or between bid/ask (tradeable)
+            # >0 = price is outside the NBBO (potential bad print)
+            distance_from_nbbo = None
+            if price and bid and ask and bid > 0 and ask > 0:
+                if price >= bid and price <= ask:
+                    distance_from_nbbo = 0.0
+                elif price < bid:
+                    distance_from_nbbo = ((bid - price) / bid) * 100
+                else:  # price > ask
+                    distance_from_nbbo = ((price - ask) / ask) * 100
+            
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
                 price=price,
-                bid=snapshot.lastQuote.p if snapshot.lastQuote else None,
-                ask=snapshot.lastQuote.P if snapshot.lastQuote else None,
+                bid=bid,
+                ask=ask,
+                bid_size=bid_size,
+                ask_size=ask_size,
+                spread=spread,
+                spread_percent=spread_percent,
+                bid_ask_ratio=bid_ask_ratio,
+                distance_from_nbbo=distance_from_nbbo,
                 volume=volume_today,
                 volume_today=volume_today,
                 minute_volume=minute_volume,
@@ -788,8 +914,10 @@ class ScannerEngine:
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
+                avg_volume_5d=avg_volumes.get('avg_volume_5d') if avg_volumes else None,
+                avg_volume_10d=avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d,
+                avg_volume_3m=avg_volumes.get('avg_volume_3m') if avg_volumes else None,
                 avg_volume_30d=metadata.avg_volume_30d,
-                avg_volume_10d=metadata.avg_volume_10d,
                 float_shares=metadata.float_shares,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
@@ -921,6 +1049,40 @@ class ScannerEngine:
                 if ticker.price > params.max_price:
                     return False
             
+            # Spread filters (in CENTS,)
+            if params.min_spread is not None:
+                if ticker.spread is None or ticker.spread < params.min_spread:
+                    return False
+            
+            if params.max_spread is not None:
+                if ticker.spread is None or ticker.spread > params.max_spread:
+                    return False
+            
+            # Bid/Ask size filters
+            if params.min_bid_size is not None:
+                if ticker.bid_size is None or ticker.bid_size < params.min_bid_size:
+                    return False
+            
+            if params.max_bid_size is not None:
+                if ticker.bid_size is None or ticker.bid_size > params.max_bid_size:
+                    return False
+            
+            if params.min_ask_size is not None:
+                if ticker.ask_size is None or ticker.ask_size < params.min_ask_size:
+                    return False
+            
+            if params.max_ask_size is not None:
+                if ticker.ask_size is None or ticker.ask_size > params.max_ask_size:
+                    return False
+            
+            # Distance from Inside Market (NBBO) filter -
+            if params.min_distance_from_nbbo is not None:
+                if ticker.distance_from_nbbo is None or ticker.distance_from_nbbo < params.min_distance_from_nbbo:
+                    return False
+            if params.max_distance_from_nbbo is not None:
+                if ticker.distance_from_nbbo is None or ticker.distance_from_nbbo > params.max_distance_from_nbbo:
+                    return False
+            
             # Volume filters
             if params.min_volume is not None:
                 if ticker.volume_today < params.min_volume:
@@ -929,6 +1091,28 @@ class ScannerEngine:
             # Minute volume filter (solo tickers con actividad reciente)
             if params.min_minute_volume is not None:
                 if ticker.minute_volume is None or ticker.minute_volume < params.min_minute_volume:
+                    return False
+            
+            # Average Daily Volume filters (5D, 10D, 3M)
+            if params.min_avg_volume_5d is not None:
+                if ticker.avg_volume_5d is None or ticker.avg_volume_5d < params.min_avg_volume_5d:
+                    return False
+            if params.max_avg_volume_5d is not None:
+                if ticker.avg_volume_5d is None or ticker.avg_volume_5d > params.max_avg_volume_5d:
+                    return False
+            
+            if params.min_avg_volume_10d is not None:
+                if ticker.avg_volume_10d is None or ticker.avg_volume_10d < params.min_avg_volume_10d:
+                    return False
+            if params.max_avg_volume_10d is not None:
+                if ticker.avg_volume_10d is None or ticker.avg_volume_10d > params.max_avg_volume_10d:
+                    return False
+            
+            if params.min_avg_volume_3m is not None:
+                if ticker.avg_volume_3m is None or ticker.avg_volume_3m < params.min_avg_volume_3m:
+                    return False
+            if params.max_avg_volume_3m is not None:
+                if ticker.avg_volume_3m is None or ticker.avg_volume_3m > params.max_avg_volume_3m:
                     return False
             
             # Data freshness filter (rechazar tickers con datos muy antiguos)

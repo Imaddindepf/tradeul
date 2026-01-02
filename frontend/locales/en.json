@@ -450,7 +450,11 @@
   },
   "workspace": {
     "noWindowsOpen": "No windows open",
-    "useCommandToOpen": "Use Ctrl+K or type a command to open scanner tables"
+    "useCommandToOpen": "Use Ctrl+K or type a command to open scanner tables",
+    "newWorkspace": "New Workspace",
+    "create": "Create new workspace",
+    "close": "Close workspace",
+    "rename": "Rename workspace"
   },
   "notes": {
     "title": "Notes",

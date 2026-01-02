@@ -26,6 +26,12 @@ class ScannerTicker(BaseModel):
     price: float = Field(..., description="Current price")
     bid: Optional[float] = Field(None, description="Bid price")
     ask: Optional[float] = Field(None, description="Ask price")
+    bid_size: Optional[int] = Field(None, description="Bid size in shares (demand)")
+    ask_size: Optional[int] = Field(None, description="Ask size in shares (supply)")
+    spread: Optional[float] = Field(None, description="Bid-Ask spread in cents")
+    spread_percent: Optional[float] = Field(None, description="Spread as % of mid price")
+    bid_ask_ratio: Optional[float] = Field(None, description="Bid/Ask size ratio (>1 = more demand)")
+    distance_from_nbbo: Optional[float] = Field(None, description="Distance from inside market as % (0 = tradeable)")
     volume: int = Field(..., description="Current volume")
     volume_today: int = Field(..., description="Total volume today")
     minute_volume: Optional[int] = Field(None, description="Volume in last minute bar (min.v)")
@@ -48,9 +54,11 @@ class ScannerTicker(BaseModel):
     change: Optional[float] = Field(None, description="Price change from prev close")
     change_percent: Optional[float] = Field(None, description="Percentage change")
     
-    # Historical/Reference data
-    avg_volume_30d: Optional[int] = Field(None, description="30-day average volume")
-    avg_volume_10d: Optional[int] = Field(None, description="10-day average volume")
+    # Historical/Reference data - Average Daily Volume
+    avg_volume_5d: Optional[int] = Field(None, description="5-day average daily volume")
+    avg_volume_10d: Optional[int] = Field(None, description="10-day average daily volume")
+    avg_volume_3m: Optional[int] = Field(None, description="3-month (~63 trading days) average daily volume")
+    avg_volume_30d: Optional[int] = Field(None, description="30-day average volume (legacy)")
     float_shares: Optional[int] = Field(None, description="Float shares")
     shares_outstanding: Optional[int] = Field(None, description="Shares outstanding")
     market_cap: Optional[int] = Field(None, description="Market capitalization")
@@ -99,6 +107,32 @@ class ScannerTicker(BaseModel):
         if v is None and 'price' in values and 'prev_close' in values:
             if values['prev_close'] and values['prev_close'] != 0:
                 return ((values['price'] - values['prev_close']) / values['prev_close']) * 100
+        return v
+    
+    @validator('spread', always=True)
+    def calculate_spread(cls, v, values):
+        """
+        Auto-calculate spread in CENTS
+        displays spread in cents: 50.00 = $0.50
+        """
+        if v is None and 'bid' in values and 'ask' in values:
+            bid = values.get('bid')
+            ask = values.get('ask')
+            if bid and ask and bid > 0 and ask > 0:
+                # Convert to cents: $0.05 spread → 5.00 cents
+                return (ask - bid) * 100
+        return v
+    
+    @validator('spread_percent', always=True)
+    def calculate_spread_percent(cls, v, values):
+        """Auto-calculate spread as percentage of mid price"""
+        if v is None and 'bid' in values and 'ask' in values:
+            bid = values.get('bid')
+            ask = values.get('ask')
+            if bid and ask and bid > 0 and ask > 0:
+                mid_price = (bid + ask) / 2
+                spread = ask - bid
+                return (spread / mid_price) * 100
         return v
     
     @validator('rvol', always=True)
@@ -172,10 +206,32 @@ class FilterParameters(BaseModel):
     min_price: Optional[float] = Field(None, ge=0, description="Minimum price")
     max_price: Optional[float] = Field(None, ge=0, description="Maximum price")
     
+    # Spread filters (in CENTS, 50.00 = $0.50)
+    min_spread: Optional[float] = Field(None, ge=0, description="Minimum spread in cents")
+    max_spread: Optional[float] = Field(None, ge=0, description="Maximum spread in cents")
+    
+    # Bid/Ask size filters (in shares)
+    min_bid_size: Optional[int] = Field(None, ge=0, description="Minimum bid size in shares")
+    max_bid_size: Optional[int] = Field(None, ge=0, description="Maximum bid size in shares")
+    min_ask_size: Optional[int] = Field(None, ge=0, description="Minimum ask size in shares")
+    max_ask_size: Optional[int] = Field(None, ge=0, description="Maximum ask size in shares")
+    
+    # Distance from Inside Market (NBBO)
+    min_distance_from_nbbo: Optional[float] = Field(None, ge=0, description="Min distance from NBBO as %")
+    max_distance_from_nbbo: Optional[float] = Field(None, ge=0, description="Max distance from NBBO as % (0 = at bid/ask)")
+    
     # Volume filters
     min_volume: Optional[int] = Field(None, ge=0, description="Minimum volume")
     min_volume_today: Optional[int] = Field(None, ge=0, description="Minimum volume today")
     min_minute_volume: Optional[int] = Field(None, ge=0, description="Minimum volume in last minute (min.v)")
+    
+    # Average Daily Volume filters
+    min_avg_volume_5d: Optional[int] = Field(None, ge=0, description="Minimum 5-day average volume")
+    max_avg_volume_5d: Optional[int] = Field(None, ge=0, description="Maximum 5-day average volume")
+    min_avg_volume_10d: Optional[int] = Field(None, ge=0, description="Minimum 10-day average volume")
+    max_avg_volume_10d: Optional[int] = Field(None, ge=0, description="Maximum 10-day average volume")
+    min_avg_volume_3m: Optional[int] = Field(None, ge=0, description="Minimum 3-month average volume")
+    max_avg_volume_3m: Optional[int] = Field(None, ge=0, description="Maximum 3-month average volume")
     
     # Data freshness filters
     max_data_age_seconds: Optional[int] = Field(None, ge=0, description="Max age of last trade in seconds")
@@ -295,6 +351,8 @@ class TickerMetadata(BaseModel):
     # Métricas de volumen y precio
     avg_volume_30d: Optional[int] = None
     avg_volume_10d: Optional[int] = None
+    avg_volume_5d: Optional[int] = None
+    avg_volume_3m: Optional[int] = None
     avg_price_30d: Optional[float] = None
     beta: Optional[float] = None
     
@@ -330,7 +388,7 @@ class TickerMetadata(BaseModel):
     is_actively_trading: bool = True
     updated_at: datetime = Field(default_factory=datetime.now)
     
-    @validator('market_cap', 'float_shares', 'shares_outstanding', 'avg_volume_30d', 'avg_volume_10d', 'total_employees', 'round_lot', pre=True)
+    @validator('market_cap', 'float_shares', 'shares_outstanding', 'avg_volume_30d', 'avg_volume_10d', 'avg_volume_5d', 'avg_volume_3m', 'total_employees', 'round_lot', pre=True)
     def convert_to_int(cls, v):
         """Convert float to int for numeric fields"""
         if v is not None and isinstance(v, float):

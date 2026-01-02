@@ -518,14 +518,14 @@ function injectNewsContent(
         : '';
       
       const html = \`
-        <div class="h-screen flex flex-col bg-white">
-          <!-- Header -->
-          <div class="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
-            <div class="flex items-center gap-3">
+        <div class="h-screen flex flex-col bg-white font-mono">
+          <!-- Header - Compacto -->
+          <div class="flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200">
+            <div class="flex items-center gap-2">
               <!-- Connection Status -->
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-1">
                 <div id="status-dot" class="\${statusDotClass}"></div>
-                <span id="status-text" class="\${statusTextClass}">\${statusText}</span>
+                <span id="status-text" class="text-[10px] \${isConnected ? 'text-emerald-600' : 'text-slate-500'}">\${statusText}</span>
               </div>
               
               <!-- Pause/Squawk buttons -->
@@ -534,52 +534,48 @@ function injectNewsContent(
               \${pausedInfo}
               
               <!-- Ticker Filter -->
-              <form onsubmit="event.preventDefault(); applyTickerFilter();" class="flex items-center gap-1.5 ml-2 pl-2 border-l border-slate-300">
+              <form onsubmit="event.preventDefault(); applyTickerFilter();" class="flex items-center gap-1 ml-2 pl-2 border-l border-slate-300">
                 <input 
                   id="ticker-filter-input" 
                   type="text" 
                   value="\${tickerFilter}"
                   placeholder="Ticker"
-                  class="w-20 px-2 py-0.5 text-xs border border-slate-200 rounded focus:outline-none focus:border-blue-400 font-mono uppercase"
+                  class="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 font-mono uppercase"
                 />
-                <button type="submit" class="px-2 py-0.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 font-medium">Filter</button>
-                \${tickerFilter ? '<button type="button" onclick="clearTickerFilter()" class="px-1.5 py-0.5 text-slate-400 hover:text-slate-600 text-xs">✕</button>' : ''}
+                <button type="submit" class="px-2 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700">Filter</button>
+                \${tickerFilter ? '<button type="button" onclick="clearTickerFilter()" class="px-1 py-0.5 text-slate-400 hover:text-slate-600 text-[10px]">×</button>' : ''}
               </form>
             </div>
             
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
               <!-- Stats -->
-              <div class="flex items-center gap-2 text-xs">
-                \${tickerFilter ? \`<span class="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-mono font-medium">\${tickerFilter}</span>\` : ''}
+              <div class="flex items-center gap-1.5 text-[10px]">
+                \${tickerFilter ? \`<span class="px-1 py-0.5 bg-blue-100 text-blue-700 rounded font-mono">\${tickerFilter}</span>\` : ''}
                 <span class="text-slate-600 font-mono">\${filteredNews.length}\${tickerFilter ? ' / ' + newsData.length : ''}</span>
                 \${liveCount > 0 ? \`<span class="text-emerald-600">(\${liveCount} live)</span>\` : ''}
               </div>
               
               <!-- Pagination -->
               \${totalPages > 1 ? \`
-                <div class="flex items-center gap-1 border-l border-slate-300 pl-3">
-                  <button onclick="goToPage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''} class="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed">
-                    <svg class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                  </button>
-                  <span class="text-xs text-slate-600 font-mono min-w-[60px] text-center">\${currentPage} / \${totalPages}</span>
-                  <button onclick="goToPage(\${currentPage + 1})" \${currentPage >= totalPages ? 'disabled' : ''} class="p-1 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed">
-                    <svg class="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                  </button>
+                <div class="flex items-center gap-0.5 border-l border-slate-300 pl-2">
+                  <button onclick="goToPage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''} class="p-0.5 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-[10px]">‹</button>
+                  <span class="text-[10px] text-slate-600 font-mono min-w-[40px] text-center">\${currentPage}/\${totalPages}</span>
+                  <button onclick="goToPage(\${currentPage + 1})" \${currentPage >= totalPages ? 'disabled' : ''} class="p-0.5 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-[10px]">›</button>
                 </div>
               \` : ''}
             </div>
           </div>
           
-          <!-- Table -->
+          <!-- Table - Orden: Ticker, Headline, Date, Time, Source -->
           <div class="flex-1 overflow-auto">
-            <table class="w-full border-collapse text-xs">
+            <table class="w-full border-collapse text-[11px] font-mono">
               <thead class="bg-slate-100 sticky top-0">
                 <tr class="text-left text-slate-600 uppercase tracking-wide">
-                  <th class="px-2 py-1.5 font-medium">Headline</th>
-                  <th class="px-2 py-1.5 font-medium w-24 text-center">Date</th>
-                  <th class="px-2 py-1.5 font-medium w-20 text-center">Time</th>
-                  <th class="px-2 py-1.5 font-medium w-16 text-center">Ticker</th>
-                  <th class="px-2 py-1.5 font-medium w-36">Source</th>
+                  <th class="px-1.5 py-1 font-medium w-14 text-center">Ticker</th>
+                  <th class="px-1.5 py-1 font-medium">Headline</th>
+                  <th class="px-1.5 py-1 font-medium w-20 text-center">Date</th>
+                  <th class="px-1.5 py-1 font-medium w-16 text-center">Time</th>
+                  <th class="px-1.5 py-1 font-medium w-28">Source</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
@@ -592,23 +588,24 @@ function injectNewsContent(
                 \` : paginatedNews.map(article => {
                   const dt = formatDateTime(article.published);
                   const ticker = (article.tickers && article.tickers[0]) || '—';
+                  const hasMultiple = article.tickers && article.tickers.length > 1;
                   const isLive = article.isLive;
                   const articleId = article.benzinga_id || article.id;
                   
                   return \`
                     <tr class="news-row cursor-pointer \${isLive ? 'live' : ''}" data-article-id="\${articleId}">
-                      <td class="px-2 py-1">
-                        <div class="flex items-center gap-1.5">
+                      <td class="px-1.5 py-0.5 text-center">
+                        <span class="text-blue-600 font-semibold">\${ticker}\${hasMultiple ? '<span class="text-slate-400 text-[9px] ml-0.5">+' + (article.tickers.length - 1) + '</span>' : ''}</span>
+                      </td>
+                      <td class="px-1.5 py-0.5">
+                        <div class="flex items-center gap-1">
                           \${isLive ? '<span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shrink-0"></span>' : ''}
-                          <span class="text-slate-800 truncate" style="max-width:500px">\${decodeHtmlEntities(article.title)}</span>
+                          <span class="text-slate-800 truncate" style="max-width:450px">\${decodeHtmlEntities(article.title)}</span>
                         </div>
                       </td>
-                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.date}</td>
-                      <td class="px-2 py-1 text-center text-slate-500 font-mono">\${dt.time}</td>
-                      <td class="px-2 py-1 text-center">
-                        <span class="text-blue-600 font-mono font-semibold">\${ticker}</span>
-                      </td>
-                      <td class="px-2 py-1 text-slate-500 truncate" style="max-width:140px">\${article.author || '—'}</td>
+                      <td class="px-1.5 py-0.5 text-center text-slate-500">\${dt.date}</td>
+                      <td class="px-1.5 py-0.5 text-center text-slate-500">\${dt.time}</td>
+                      <td class="px-1.5 py-0.5 text-slate-500 truncate" style="max-width:110px">\${article.author || '—'}</td>
                     </tr>
                   \`;
                 }).join('')}

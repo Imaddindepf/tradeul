@@ -345,6 +345,8 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Auto-guardar layout cuando cambian las ventanas (después de 3 segundos de inactividad)
+  // NUEVO: Guarda en el workspace activo
+  // NOTA: Se desactiva durante cambio de workspace (isWorkspaceSwitching)
   useEffect(() => {
     // No guardar en el primer render
     if (!isInitializedRef.current) {
@@ -359,8 +361,19 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
 
     // Nuevo timeout de 3 segundos
     autoSaveTimeoutRef.current = setTimeout(() => {
-      // Obtener componentState guardado de cada ventana
-      const existingLayouts = useUserPreferencesStore.getState().windowLayouts;
+      const store = useUserPreferencesStore.getState();
+      
+      // NO guardar si estamos en proceso de cambio de workspace
+      if (store.isWorkspaceSwitching) {
+        // console.log('[Layout] Auto-save SKIPPED - workspace switching in progress');
+        return;
+      }
+      
+      const activeWorkspaceId = store.activeWorkspaceId;
+      const activeWorkspace = store.workspaces.find(w => w.id === activeWorkspaceId);
+      
+      // Obtener componentState guardado de cada ventana (buscar en workspace activo primero)
+      const existingLayouts = activeWorkspace?.windowLayouts || store.windowLayouts;
       const componentStateMap = new Map(
         existingLayouts.map(l => [l.id, l.componentState])
       );
@@ -376,8 +389,14 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         componentState: componentStateMap.get(w.id), // Preservar componentState
       }));
 
-      saveWindowLayouts(layouts);
-      // console.log('[Layout] Auto-guardado:', layouts.length, 'ventanas');
+      // NUEVO: Guardar en workspace activo
+      if (activeWorkspaceId) {
+        store.saveWorkspaceLayouts(activeWorkspaceId, layouts);
+      } else {
+        // Fallback legacy
+        saveWindowLayouts(layouts);
+      }
+      // console.log('[Layout] Auto-guardado:', layouts.length, 'ventanas en workspace', activeWorkspaceId);
     }, 3000);
 
     return () => {

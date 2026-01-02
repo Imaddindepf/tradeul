@@ -496,6 +496,51 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
         },
       }),
+      columnHelper.accessor('avg_volume_5d', {
+        header: 'Vol 5D',
+        size: 85,
+        minSize: 65,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('avg_volume_10d', {
+        header: 'Vol 10D',
+        size: 85,
+        minSize: 65,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('avg_volume_3m', {
+        header: 'Vol 3M',
+        size: 85,
+        minSize: 65,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
       columnHelper.accessor('price_vs_vwap', {
         header: 'vs VWAP',
         size: 75,
@@ -515,6 +560,94 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               : 'text-slate-600';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
+      columnHelper.accessor('spread', {
+        header: 'Spread',
+        size: 70,
+        minSize: 50,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          // Spread is in cents: 50.00 = $0.50
+          // Color: green if tight (<10¢), yellow if medium (10-25¢), red if wide (>25¢)
+          const colorClass = value < 10 
+            ? 'text-green-600' 
+            : value < 25 
+              ? 'text-amber-600' 
+              : 'text-red-600';
+          return <div className={`font-mono ${colorClass}`}>{value.toFixed(1)}¢</div>;
+        },
+      }),
+      columnHelper.accessor('bid_size', {
+        header: 'Bid Size',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-blue-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('ask_size', {
+        header: 'Ask Size',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-orange-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('bid_ask_ratio', {
+        header: 'B/A Ratio',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          // >1 = more demand (green), <1 = more supply (red)
+          const colorClass = value > 1.5 
+            ? 'text-green-600 font-semibold' 
+            : value < 0.67 
+              ? 'text-red-600 font-semibold' 
+              : 'text-slate-600';
+          return <div className={`font-mono ${colorClass}`}>{value.toFixed(2)}</div>;
+        },
+      }),
+      columnHelper.accessor('distance_from_nbbo', {
+        header: 'NBBO Dist',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{value.toFixed(2)}%</div>;
         },
       }),
       columnHelper.accessor('atr_percent', {
