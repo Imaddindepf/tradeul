@@ -19,8 +19,19 @@ import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut, Ra
 import { useLiveChartData, type ChartInterval, type ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
 import { useChartDrawings, type Drawing, type DrawingTool } from '@/hooks/useChartDrawings';
 import { useNewsStore } from '@/stores/useNewsStore';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
 import { getUserTimezone, getTimezoneAbbrev } from '@/lib/date-utils';
+
+// Window state for persistence
+interface ChartWindowState {
+    ticker?: string;
+    interval?: Interval;
+    range?: TimeRange;
+    showMA?: boolean;
+    showEMA?: boolean;
+    showVolume?: boolean;
+    [key: string]: unknown;
+}
 
 // ============================================================================
 // Types
@@ -254,16 +265,25 @@ function TradingChartComponent({
     const ema12SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
     const ema26SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
 
-    const [currentTicker, setCurrentTicker] = useState(initialTicker);
-    const [selectedInterval, setSelectedInterval] = useState<Interval>('1day');
-    const [selectedRange, setSelectedRange] = useState<TimeRange>('1Y');
-    const [inputValue, setInputValue] = useState(initialTicker);
+    // Persist window state
+    const { state: windowState, updateState: updateWindowState } = useWindowState<ChartWindowState>();
+    
+    // Use persisted state or props/defaults
+    const [currentTicker, setCurrentTicker] = useState(windowState.ticker || initialTicker);
+    const [selectedInterval, setSelectedInterval] = useState<Interval>(windowState.interval || '1day');
+    const [selectedRange, setSelectedRange] = useState<TimeRange>(windowState.range || '1Y');
+    const [inputValue, setInputValue] = useState(windowState.ticker || initialTicker);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const [showMA, setShowMA] = useState(true);
-    const [showEMA, setShowEMA] = useState(false);
-    const [showVolume, setShowVolume] = useState(true);
+    const [showMA, setShowMA] = useState(windowState.showMA ?? true);
+    const [showEMA, setShowEMA] = useState(windowState.showEMA ?? false);
+    const [showVolume, setShowVolume] = useState(windowState.showVolume ?? true);
     const [showNewsMarkers, setShowNewsMarkers] = useState(false);
     const [hoveredBar, setHoveredBar] = useState<ChartBar | null>(null);
+    
+    // Persist state changes
+    useEffect(() => {
+        updateWindowState({ ticker: currentTicker, interval: selectedInterval, range: selectedRange, showMA, showEMA, showVolume });
+    }, [currentTicker, selectedInterval, selectedRange, showMA, showEMA, showVolume, updateWindowState]);
 
     const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval);
 

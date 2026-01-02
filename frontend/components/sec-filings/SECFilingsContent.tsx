@@ -14,7 +14,13 @@ import {
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import { useWindowState } from '@/contexts/FloatingWindowContext';
 import { SECFilingsFilterPanel, type SECFilters } from './SECFilingsFilterPanel';
+
+interface SECFilingsWindowState {
+    ticker?: string;
+    [key: string]: unknown;
+}
 import { getUserTimezone } from '@/lib/date-utils';
 import { 
     FILING_CATEGORIES, 
@@ -80,18 +86,43 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
     const { t } = useTranslation();
     const font = useUserPreferencesStore(selectFont);
     const fontClass = FONT_CLASSES[font] || 'font-jetbrains-mono';
+    const { state: windowState, updateState: updateWindowState } = useWindowState<SECFilingsWindowState>();
+    
+    // Use persisted ticker
+    const savedTicker = windowState.ticker || initialTicker || '';
     
     // State
     const [historicalFilings, setHistoricalFilings] = useState<SECFiling[]>([]);
     const [realtimeFilings, setRealtimeFilings] = useState<SECFiling[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [inputValue, setInputValue] = useState(initialTicker || "");
+    const [inputValue, setInputValue] = useState(savedTicker);
     const [currentPage, setCurrentPage] = useState(1);
     const [totalResults, setTotalResults] = useState(0);
     const [selectedFiling, setSelectedFiling] = useState<SECFiling | null>(null);
     const [showFilterPanel, setShowFilterPanel] = useState(false);
-    const [filters, setFilters] = useState<SECFilters>({ ...DEFAULT_FILTERS, ticker: initialTicker || '' });
+    const [filters, setFilters] = useState<SECFilters>({ ...DEFAULT_FILTERS, ticker: savedTicker });
+    
+    // Track if auto-load from restored state has been done
+    const autoLoadedRef = useRef(false);
+    
+    // Persist ticker changes
+    useEffect(() => {
+        if (filters.ticker) {
+            updateWindowState({ ticker: filters.ticker });
+        }
+    }, [filters.ticker, updateWindowState]);
+    
+    // Auto-load when windowState becomes available (after Zustand hydration)
+    useEffect(() => {
+        if (!autoLoadedRef.current && windowState.ticker && windowState.ticker !== filters.ticker) {
+            autoLoadedRef.current = true;
+            setInputValue(windowState.ticker);
+            setFilters(prev => ({ ...prev, ticker: windowState.ticker! }));
+            // fetchFilings will be triggered by the filters change effect
+        }
+    }, [windowState.ticker]);
+    
     const PAGE_SIZE = 100;
 
     // WebSocket

@@ -34,6 +34,7 @@ class ScreenerResponse(BaseModel):
     total_matched: Optional[int] = Field(None, description="Total matching (before limit)")
     query_time_ms: float = Field(default=0, description="Query execution time in milliseconds")
     filters_applied: Optional[int] = Field(None, description="Number of filters applied")
+    dynamic_indicators: Optional[int] = Field(None, description="Number of dynamic indicator calculations")
     errors: Optional[List[str]] = Field(None, description="Error messages if status is 'error'")
 
 

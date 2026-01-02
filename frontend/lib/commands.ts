@@ -21,6 +21,7 @@ import {
   GitCompareArrows,
   ScanSearch,
   TrendingUp,
+  Users,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -54,6 +55,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'ratio', label: 'GR', description: 'commands.ratio.description', icon: GitCompareArrows, shortcut: 'Ctrl+G' },
   { id: 'screener', label: 'SCREEN', description: 'commands.screener.description', icon: ScanSearch, shortcut: 'Ctrl+Shift+S' },
   { id: 'mp', label: 'MP', description: 'commands.mp.description', icon: TrendingUp, shortcut: 'Ctrl+M' },
+  { id: 'insider', label: 'INSIDER', description: 'commands.insider.description', icon: Users, shortcut: 'Ctrl+I' },
 ];
 
 /**

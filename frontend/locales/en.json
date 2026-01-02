@@ -197,6 +197,10 @@
       "name": "Multi-Security",
       "description": "Compare multiple tickers historically"
     },
+    "insider": {
+      "name": "Insider Trading",
+      "description": "Form 4 - Insider buys/sells"
+    },
     "help": {
       "name": "Help",
       "description": "Show terminal help"
@@ -544,6 +548,9 @@
       },
       "MP": {
         "description": "Compare multiple tickers historically"
+      },
+      "INSIDER": {
+        "description": "Form 4 - Insider buys/sells & clusters"
       }
     }
   }

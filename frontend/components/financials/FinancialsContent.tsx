@@ -3,8 +3,15 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { RefreshCw, AlertTriangle, Copy, Check } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
 import { SymbioticTable } from './tables/SymbioticTable';
+
+interface FinancialsWindowState {
+    ticker?: string;
+    tab?: TabType;
+    periodFilter?: PeriodFilter;
+    [key: string]: unknown;
+}
 import { SegmentsTable } from './tables/SegmentsTable';
 import { FinancialMetricChart, type MetricDataPoint } from './FinancialMetricChart';
 import { type FinancialChartData } from '@/lib/window-injector';
@@ -172,18 +179,29 @@ interface FinancialsContentProps {
 }
 
 export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
+    const { openWindow } = useFloatingWindow();
+    const { state: windowState, updateState: updateWindowState } = useWindowState<FinancialsWindowState>();
+    
     const [data, setData] = useState<SymbioticFinancialData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [selectedTicker, setSelectedTicker] = useState<string>(initialTicker || '');
-    const [inputValue, setInputValue] = useState(initialTicker || '');
-    const [activeTab, setActiveTab] = useState<TabType>('income');
-    const [periodFilter, setPeriodFilter] = useState<PeriodFilter>('annual');
+    const [selectedTicker, setSelectedTicker] = useState<string>(windowState.ticker || initialTicker || '');
+    const [inputValue, setInputValue] = useState(windowState.ticker || initialTicker || '');
+    const [activeTab, setActiveTab] = useState<TabType>(windowState.tab || 'income');
+    const [periodFilter, setPeriodFilter] = useState<PeriodFilter>(windowState.periodFilter || 'annual');
     const [copied, setCopied] = useState(false);
     const [rangeStart, setRangeStart] = useState(0);
     const [rangeEnd, setRangeEnd] = useState(0);
 
-    const { openWindow } = useFloatingWindow();
+    // Track if auto-load has been done
+    const autoLoadedRef = useRef(false);
+    
+    // Persist state changes (only after we have data)
+    useEffect(() => {
+        if (selectedTicker) {
+            updateWindowState({ ticker: selectedTicker, tab: activeTab, periodFilter });
+        }
+    }, [selectedTicker, activeTab, periodFilter, updateWindowState]);
 
     // Fetch data
     const fetchData = useCallback(async (ticker: string, period?: PeriodFilter) => {
@@ -218,12 +236,16 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
         }
     }, [periodFilter]);
 
-    // Load initial ticker
+    // Load initial ticker or restored ticker
     useEffect(() => {
-        if (initialTicker) {
-            fetchData(initialTicker);
+        if (autoLoadedRef.current) return;
+        
+        const tickerToLoad = initialTicker || windowState.ticker;
+        if (tickerToLoad) {
+            autoLoadedRef.current = true;
+            fetchData(tickerToLoad);
         }
-    }, [initialTicker]);
+    }, [initialTicker, windowState.ticker, fetchData]);
 
     // Handle period change
     const handlePeriodChange = useCallback((newPeriod: PeriodFilter) => {

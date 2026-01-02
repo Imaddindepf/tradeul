@@ -110,7 +110,10 @@ class CompanyInfo(BaseModel):
     industry: Optional[str] = None
     
     # Special company types
-    is_spac: Optional[bool] = Field(None, description="True if company is a SPAC (Special Purpose Acquisition Company)")
+    is_spac: Optional[bool] = Field(None, description="True if company is an active SPAC (Special Purpose Acquisition Company)")
+    is_de_spac: Optional[bool] = Field(None, description="True if company went public via SPAC merger (de-SPAC)")
+    former_spac_name: Optional[str] = Field(None, description="Original SPAC name before merger (for de-SPACs)")
+    merger_date: Optional[str] = Field(None, description="Date when SPAC merger completed")
     sic_code: Optional[str] = Field(None, description="SIC Code (6770 = Blank Checks/SPAC)")
     
     # Description

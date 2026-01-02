@@ -25,6 +25,7 @@ import { PatternRealtimeContent } from '@/components/pattern-realtime';
 import { RatioAnalysisContent } from '@/components/ratio-analysis';
 import { ScreenerContent } from '@/components/screener';
 import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
+import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -396,20 +397,52 @@ export function useCommandExecutor() {
                 });
                 return null;
 
-            case 'sc':
-                // SC es especial - abre el command palette
-                return 'sc';
+            case 'insider':
+            case 'insiders':
+            case 'form4':
+                openWindow({
+                    title: 'Insider Trading',
+                    content: <InsiderTradingContent />,
+                    width: 700,
+                    height: 500,
+                    x: Math.max(50, screenWidth / 2 - 350),
+                    y: Math.max(70, screenHeight / 2 - 250),
+                    minWidth: 500,
+                    minHeight: 350,
+                });
+                return null;
+
+            case 'insider-glossary':
+            case 'insider-help':
+                openWindow({
+                    title: 'Insider Trading Guide',
+                    content: <InsiderGlossaryContent />,
+                    width: 380,
+                    height: 450,
+                    x: Math.max(50, screenWidth / 2 + 100),
+                    y: Math.max(70, screenHeight / 2 - 200),
+                    minWidth: 300,
+                    minHeight: 350,
+                });
+                return null;
 
             default:
-                // Verificar si es una categoría del scanner
-                if (getScannerCategory(commandId)) {
-                    openScannerTable(commandId, 0);
-                    return null;
-                }
-
-                console.warn(`Unknown command: ${commandId}`);
-                return null;
+                break;
         }
+
+        // SC es especial - abre el command palette
+        if (commandId === 'sc') {
+            return 'sc';
+        }
+
+        // Verificar si es una categoría del scanner
+        if (getScannerCategory(commandId)) {
+            openScannerTable(commandId, 0);
+            return null;
+        }
+
+        console.warn(`Unknown command: ${commandId}`);
+        return null;
     }, [openWindow, openScannerTable, getScannerCategory]);
 
     /**

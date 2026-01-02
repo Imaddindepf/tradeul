@@ -23,6 +23,12 @@ import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
+import { useWindowState } from '@/contexts/FloatingWindowContext';
+
+interface NewsWindowState {
+  ticker?: string;
+  [key: string]: unknown;
+}
 
 // Decodifica entidades HTML como &#39; &amp; &quot; etc.
 function decodeHtmlEntities(text: string): string {
@@ -42,6 +48,10 @@ const ITEMS_PER_PAGE = 200;
 
 export function NewsContent({ initialTicker, highlightArticleId }: NewsContentProps = {}) {
   const { t } = useTranslation();
+  const { state: windowState, updateState: updateWindowState } = useWindowState<NewsWindowState>();
+  
+  // Use persisted ticker
+  const savedTicker = windowState.ticker || initialTicker || '';
   
   // ================================================================
   // CONSUMIR DEL STORE GLOBAL
@@ -63,8 +73,15 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // ESTADO LOCAL (solo UI)
   // ================================================================
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
-  const [tickerFilter, setTickerFilter] = useState<string>(initialTicker || '');
-  const [tickerInputValue, setTickerInputValue] = useState<string>(initialTicker || '');
+  const [tickerFilter, setTickerFilter] = useState<string>(savedTicker);
+  const [tickerInputValue, setTickerInputValue] = useState<string>(savedTicker);
+  
+  // Persist ticker changes
+  useEffect(() => {
+    if (tickerFilter) {
+      updateWindowState({ ticker: tickerFilter });
+    }
+  }, [tickerFilter, updateWindowState]);
   const [currentPage, setCurrentPage] = useState(1);
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
   const highlightRowRef = useRef<HTMLTableRowElement | null>(null);

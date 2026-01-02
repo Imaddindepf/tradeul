@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from "next/navigation";
 import { TickerSearch } from '@/components/common/TickerSearch';
@@ -11,8 +11,14 @@ import { DilutionHistoryChart } from "@/app/(dashboard)/dilution-tracker/_compon
 import { FinancialsTable } from "@/app/(dashboard)/dilution-tracker/_components/FinancialsTable";
 import { SECDilutionSection } from "@/app/(dashboard)/dilution-tracker/_components/SECDilutionSection";
 import { AITerminalWindow } from "@/components/floating-window/AITerminalWindow";
-import { useFloatingWindow } from "@/contexts/FloatingWindowContext";
+import { useFloatingWindow, useWindowState } from "@/contexts/FloatingWindowContext";
 import { useDilutionJobNotifications } from "@/hooks/useDilutionJobNotifications";
+
+interface DilutionWindowState {
+  ticker?: string;
+  tab?: TabType;
+  [key: string]: unknown;
+}
 import {
   getTickerAnalysis,
   validateTicker,
@@ -40,11 +46,26 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const { openWindow, closeWindow } = useFloatingWindow();
+  const { state: windowState, updateState: updateWindowState } = useWindowState<DilutionWindowState>();
+  
+  // Use persisted state
+  const savedTicker = windowState.ticker || initialTicker || '';
 
   // Estados separados: input vs ticker seleccionado
-  const [inputValue, setInputValue] = useState(initialTicker || "");
-  const [selectedTicker, setSelectedTicker] = useState<string | null>(initialTicker || null);
-  const [activeTab, setActiveTab] = useState<TabType>("dilution");
+  const [inputValue, setInputValue] = useState(savedTicker);
+  const [selectedTicker, setSelectedTicker] = useState<string | null>(savedTicker || null);
+  const [activeTab, setActiveTab] = useState<TabType>(windowState.tab || "dilution");
+  
+  // Track if auto-load has been done
+  const autoLoadedRef = useRef(false);
+  
+  // Persist state changes
+  useEffect(() => {
+    if (selectedTicker) {
+      updateWindowState({ ticker: selectedTicker, tab: activeTab });
+    }
+  }, [selectedTicker, activeTab, updateWindowState]);
+  
   const [loading, setLoading] = useState(false);
   const [tickerData, setTickerData] = useState<TickerAnalysis | null>(null);
   const [cashRunwayData, setCashRunwayData] = useState<CashRunwayData | null>(null);
@@ -274,6 +295,16 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
       fetchTickerData(inputValue.trim().toUpperCase());
     }
   };
+  
+  // Auto-load when windowState becomes available (after Zustand hydration)
+  useEffect(() => {
+    if (!autoLoadedRef.current && windowState.ticker && !selectedTicker) {
+      autoLoadedRef.current = true;
+      setInputValue(windowState.ticker);
+      setSelectedTicker(windowState.ticker);
+      fetchTickerData(windowState.ticker);
+    }
+  }, [windowState.ticker, selectedTicker]);
 
   const tabs: { id: TabType; label: string }[] = [
     { id: "dilution", label: "Dilution" },

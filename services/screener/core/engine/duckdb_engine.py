@@ -13,6 +13,7 @@ import structlog
 
 from ..indicators import register_all_indicators
 from ..filters import FilterParser, FilterValidator
+from .dynamic_indicators import extract_custom_indicators, build_hybrid_query, is_precomputed
 from config import settings
 
 logger = structlog.get_logger(__name__)
@@ -162,10 +163,11 @@ class ScreenerEngine:
         symbols: List[str] = None,
     ) -> Dict[str, Any]:
         """
-        Execute screener query
+        Execute screener query with support for dynamic indicator parameters.
         
         Args:
-            filters: List of filter conditions
+            filters: List of filter conditions. Each can optionally include 'params':
+                     {"field": "sma", "operator": "gt", "value": 50, "params": {"period": 10}}
             sort_by: Field to sort by
             sort_order: 'asc' or 'desc'
             limit: Max results
@@ -175,8 +177,12 @@ class ScreenerEngine:
         """
         start_time = time.time()
         
-        # Validate filters
-        is_valid, errors = self.validator.validate(filters)
+        # Validate filters (strip params for validation)
+        filters_for_validation = [
+            {k: v for k, v in f.items() if k != 'params'}
+            for f in filters
+        ]
+        is_valid, errors = self.validator.validate(filters_for_validation)
         if not is_valid:
             return {
                 "status": "error",
@@ -186,10 +192,21 @@ class ScreenerEngine:
                 "query_time_ms": 0,
             }
         
+        # Check for custom indicator parameters
+        custom_indicators = extract_custom_indicators(filters)
+        use_hybrid = len(custom_indicators) > 0
+        
         # Build and execute query
         try:
-            sql = self._build_query(filters, sort_by, sort_order, limit, symbols)
-            logger.debug("executing_query", sql_length=len(sql))
+            if use_hybrid:
+                # Use hybrid query with dynamic calculation
+                sql = self._build_hybrid_query(filters, custom_indicators, sort_by, sort_order, limit, symbols)
+                logger.info("executing_hybrid_query", custom_indicators=len(custom_indicators))
+            else:
+                # Use fast precomputed query
+                sql = self._build_query(filters, sort_by, sort_order, limit, symbols)
+            
+            logger.debug("executing_query", sql_length=len(sql), hybrid=use_hybrid)
             
             result = self.conn.execute(sql).fetchdf()
             
@@ -202,13 +219,14 @@ class ScreenerEngine:
                 "status": "ok",
                 "results": results,
                 "count": len(results),
-                "total_matched": len(results),  # Could be more with pagination
+                "total_matched": len(results),
                 "query_time_ms": round(query_time, 2),
                 "filters_applied": len(filters),
+                "dynamic_indicators": len(custom_indicators),
             }
             
         except Exception as e:
-            logger.error("query_error", error=str(e))
+            logger.error("query_error", error=str(e), hybrid=use_hybrid)
             return {
                 "status": "error",
                 "errors": [str(e)],
@@ -260,6 +278,50 @@ class ScreenerEngine:
         """
         
         return query
+    
+    def _build_hybrid_query(
+        self,
+        filters: List[Dict[str, Any]],
+        custom_indicators: List[Dict[str, Any]],
+        sort_by: str,
+        sort_order: str,
+        limit: int,
+        symbols: List[str] = None
+    ) -> str:
+        """
+        Build hybrid query that joins precomputed data with dynamically calculated indicators.
+        Used when user requests non-standard indicator periods.
+        """
+        # Parse filters without params for base WHERE clause
+        filters_clean = [{k: v for k, v in f.items() if k != 'params'} for f in filters]
+        base_where = self.parser.parse(filters_clean)
+        
+        # Sort field validation
+        valid_sort_fields = ['price', 'volume', 'change_1d', 'change_5d', 'change_20d', 
+                            'gap_percent', 'relative_volume', 'rsi_14', 'atr_14', 
+                            'atr_percent', 'from_52w_high', 'from_52w_low', 
+                            'bb_width', 'bb_position', 'dist_sma_20', 'dist_sma_50',
+                            'market_cap', 'float_shares', 'adx_14', 'squeeze_momentum']
+        sort_field = sort_by if sort_by in valid_sort_fields else "volume"
+        
+        # Limit
+        safe_limit = min(limit, settings.max_results)
+        
+        # Symbol filter
+        symbols_filter = ""
+        if symbols and len(symbols) > 0:
+            quoted_symbols = ", ".join(f"'{s.upper()}'" for s in symbols)
+            symbols_filter = f"AND s.symbol IN ({quoted_symbols})"
+        
+        # Build CTE for dynamic indicators
+        return build_hybrid_query(
+            base_where=base_where,
+            custom_indicators=custom_indicators,
+            sort_by=sort_field,
+            sort_order=sort_order,
+            limit=safe_limit,
+            symbols_filter=symbols_filter
+        )
     
     def refresh(self) -> Dict[str, Any]:
         """

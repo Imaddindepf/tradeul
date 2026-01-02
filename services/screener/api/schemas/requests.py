@@ -4,6 +4,12 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Union, Literal, Optional
 
 
+class IndicatorParams(BaseModel):
+    """Dynamic indicator parameters for custom periods"""
+    period: Optional[int] = Field(None, ge=2, le=200, description="Custom period (e.g., 7, 14, 20)")
+    multiplier: Optional[float] = Field(None, ge=0.1, le=10, description="ATR/Keltner multiplier")
+
+
 class FilterCondition(BaseModel):
     """A single filter condition"""
     
@@ -15,6 +21,10 @@ class FilterCondition(BaseModel):
     value: Union[float, int, bool, str, List[float]] = Field(
         ..., 
         description="Value to compare against. Use array [min, max] for 'between' operator"
+    )
+    params: Optional[IndicatorParams] = Field(
+        None,
+        description="Custom indicator parameters (e.g., period for SMA)"
     )
     
     @field_validator("field")

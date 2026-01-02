@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
     Search,
     TrendingUp,
@@ -19,10 +19,25 @@ import {
     BarChart3,
     Activity,
     HelpCircle,
+    Save,
+    Star,
 } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useScreenerTemplates, type ScreenerTemplate, type FilterCondition as TemplateFilterCondition } from '@/hooks/useScreenerTemplates';
+import { useWindowState } from '@/contexts/FloatingWindowContext';
+
+interface ScreenerWindowState {
+    filters?: FilterCondition[];
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    limit?: number;
+    activePreset?: string | null;
+    activeUserTemplate?: number | null;
+    autoExecute?: boolean;
+    [key: string]: unknown;
+}
 import {
     useReactTable,
     getCoreRowModel,
@@ -30,8 +45,15 @@ import {
     createColumnHelper,
     flexRender,
 } from '@tanstack/react-table';
-import type { SortingState, ColumnOrderState } from '@tanstack/react-table';
+import type { SortingState, ColumnOrderState, RowData } from '@tanstack/react-table';
 import { TableSettings } from '@/components/table/TableSettings';
+
+// Extend TanStack Table meta type
+declare module '@tanstack/react-table' {
+    interface TableMeta<TData extends RowData> {
+        onSymbolClick?: (symbol: string) => void;
+    }
+}
 
 // ============================================================================
 // Types
@@ -44,6 +66,10 @@ interface FilterCondition {
     // For 'units' type fields (market_cap, float)
     displayValue?: number;
     multiplier?: number;
+    // For parametric indicators (SMA, RSI, ATR, etc.)
+    params?: {
+        period?: number;
+    };
 }
 
 interface ScreenerResult {
@@ -132,25 +158,34 @@ const UNIT_MULTIPLIERS = [
     { value: 1_000_000_000, label: 'B' },
 ];
 
+// Parametric indicators - user can change the period
+// Only simple indicators support dynamic periods (complex like RSI, ADX use precomputed)
+const PARAMETRIC_PERIODS = {
+    sma: [5, 10, 20, 50, 100, 200],
+    atr: [7, 10, 14, 21],
+    vol_avg: [5, 10, 20, 50],
+};
+
 const AVAILABLE_FIELDS = [
     { value: 'price', label: 'Price', type: 'number', unit: '$' },
     { value: 'market_cap', label: 'Market Cap', type: 'units' },
     { value: 'float_shares', label: 'Float', type: 'units' },
+    { value: 'volume', label: 'Volume', type: 'units' },
+    { value: 'avg_volume_20', label: 'Avg Vol', type: 'units', parametric: 'vol_avg', defaultPeriod: 20 },
     { value: 'change_1d', label: 'Change 1D', type: 'percent', unit: '%' },
     { value: 'change_5d', label: 'Change 5D', type: 'percent', unit: '%' },
     { value: 'change_20d', label: 'Change 20D', type: 'percent', unit: '%' },
     { value: 'gap_percent', label: 'Gap', type: 'percent', unit: '%' },
     { value: 'rsi_14', label: 'RSI (14)', type: 'number', min: 0, max: 100 },
     { value: 'relative_volume', label: 'Rel. Volume', type: 'number', unit: 'x' },
-    { value: 'volume', label: 'Volume (día)', type: 'number' },
-    { value: 'sma_20', label: 'SMA 20', type: 'number', unit: '$' },
+    { value: 'sma_20', label: 'SMA', type: 'number', unit: '$', parametric: 'sma', defaultPeriod: 20 },
     { value: 'sma_50', label: 'SMA 50', type: 'number', unit: '$' },
     { value: 'sma_200', label: 'SMA 200', type: 'number', unit: '$' },
     { value: 'dist_sma_20', label: 'Dist SMA 20', type: 'percent', unit: '%' },
     { value: 'dist_sma_50', label: 'Dist SMA 50', type: 'percent', unit: '%' },
     { value: 'from_52w_high', label: 'From 52W High', type: 'percent', unit: '%' },
     { value: 'from_52w_low', label: 'From 52W Low', type: 'percent', unit: '%' },
-    { value: 'atr_percent', label: 'ATR', type: 'percent', unit: '%' },
+    { value: 'atr_percent', label: 'ATR', type: 'percent', unit: '%', parametric: 'atr', defaultPeriod: 14 },
     { value: 'bb_width', label: 'BB Width', type: 'percent', unit: '%' },
     { value: 'bb_position', label: 'BB Position', type: 'percent', unit: '%' },
     // TTM Squeeze
@@ -343,15 +378,22 @@ function FilterBuilder({
         return AVAILABLE_FIELDS.find(f => f.value === fieldName);
     };
 
+    const isParametric = (fieldInfo: typeof AVAILABLE_FIELDS[0] | undefined): boolean => {
+        return !!fieldInfo?.parametric;
+    };
+
     return (
         <div className="space-y-1">
             {filters.map((filter, index) => {
                 const fieldInfo = getFieldInfo(filter.field);
+                const hasParams = isParametric(fieldInfo);
+                const currentPeriod = filter.params?.period ?? fieldInfo?.defaultPeriod ?? 14;
+                
                 return (
                     <div key={index} className="flex items-center gap-1 bg-white rounded border border-slate-200 px-1.5 py-1">
                         <select
                             value={filter.field}
-                            onChange={(e) => updateFilter(index, { field: e.target.value })}
+                            onChange={(e) => updateFilter(index, { field: e.target.value, params: undefined })}
                             className="px-1 py-0.5 rounded border-0 bg-transparent text-slate-700 font-medium"
                             style={{ fontSize: '10px' }}
                         >
@@ -359,6 +401,24 @@ function FilterBuilder({
                                 <option key={f.value} value={f.value}>{f.label}</option>
                             ))}
                         </select>
+                        {/* Period input for parametric indicators - free input */}
+                        {hasParams && (
+                            <input
+                                type="number"
+                                value={currentPeriod}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 14;
+                                    updateFilter(index, { 
+                                        params: { period: Math.max(2, Math.min(200, val)) }
+                                    });
+                                }}
+                                min={2}
+                                max={200}
+                                className="w-[38px] px-1 py-0.5 rounded bg-blue-50 text-blue-700 font-medium border border-blue-200 text-center"
+                                style={{ fontSize: '9px' }}
+                                title="Period (2-200)"
+                            />
+                        )}
                         <select
                             value={filter.operator}
                             onChange={(e) => updateFilter(index, { operator: e.target.value })}
@@ -369,7 +429,65 @@ function FilterBuilder({
                                 <option key={op.value} value={op.value}>{op.label}</option>
                             ))}
                         </select>
-                        {filter.operator === 'between' ? (
+                        {filter.operator === 'between' && fieldInfo?.type === 'units' ? (
+                            // Between con unidades (Market Cap, Float, Volume)
+                            <div className="flex items-center gap-1">
+                                <input
+                                    type="number"
+                                    value={(filter as any).displayMin ?? 0}
+                                    onChange={(e) => {
+                                        const num = parseFloat(e.target.value) || 0;
+                                        const mult = (filter as any).multiplier || 1_000_000;
+                                        const max = (filter as any).displayMax ?? 100;
+                                        updateFilter(index, { 
+                                            value: [num * mult, max * mult], 
+                                            displayMin: num, 
+                                            displayMax: max,
+                                            multiplier: mult 
+                                        } as any);
+                                    }}
+                                    className="w-[45px] px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    style={{ fontSize: '10px' }}
+                                />
+                                <span className="text-slate-400" style={{ fontSize: '8px' }}>to</span>
+                                <input
+                                    type="number"
+                                    value={(filter as any).displayMax ?? 100}
+                                    onChange={(e) => {
+                                        const num = parseFloat(e.target.value) || 0;
+                                        const mult = (filter as any).multiplier || 1_000_000;
+                                        const min = (filter as any).displayMin ?? 0;
+                                        updateFilter(index, { 
+                                            value: [min * mult, num * mult], 
+                                            displayMin: min, 
+                                            displayMax: num,
+                                            multiplier: mult 
+                                        } as any);
+                                    }}
+                                    className="w-[45px] px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    style={{ fontSize: '10px' }}
+                                />
+                                <select
+                                    value={(filter as any).multiplier || 1_000_000}
+                                    onChange={(e) => {
+                                        const mult = parseInt(e.target.value);
+                                        const min = (filter as any).displayMin ?? 0;
+                                        const max = (filter as any).displayMax ?? 100;
+                                        updateFilter(index, { 
+                                            value: [min * mult, max * mult], 
+                                            multiplier: mult 
+                                        } as any);
+                                    }}
+                                    className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600"
+                                    style={{ fontSize: '9px' }}
+                                >
+                                    <option value={1000}>K</option>
+                                    <option value={1000000}>M</option>
+                                    <option value={1000000000}>B</option>
+                                </select>
+                            </div>
+                        ) : filter.operator === 'between' ? (
+                            // Between normal (sin unidades)
                             <div className="flex items-center gap-1">
                                 <input
                                     type="number"
@@ -377,17 +495,17 @@ function FilterBuilder({
                                     onChange={(e) => updateFilter(index, {
                                         value: [parseFloat(e.target.value) || 0, Array.isArray(filter.value) ? filter.value[1] : 100]
                                     })}
-                                    className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    className="w-[50px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
                                     style={{ fontSize: '10px' }}
                                 />
-                                <span className="text-slate-400" style={{ fontSize: '9px' }}>to</span>
+                                <span className="text-slate-400" style={{ fontSize: '8px' }}>to</span>
                                 <input
                                     type="number"
                                     value={Array.isArray(filter.value) ? filter.value[1] : 100}
                                     onChange={(e) => updateFilter(index, {
                                         value: [Array.isArray(filter.value) ? filter.value[0] : 0, parseFloat(e.target.value) || 100]
                                     })}
-                                    className="w-[55px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    className="w-[50px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
                                     style={{ fontSize: '10px' }}
                                 />
                                 {fieldInfo?.unit && (
@@ -521,13 +639,24 @@ const saveScreenerStorage = (key: string, value: unknown) => {
     }
 };
 
-// Column definitions
+// Column definitions - symbol is clickable to open chart
 const screenerColumns = [
     screenerColumnHelper.accessor('symbol', {
         header: 'Symbol',
         size: 70,
         enableHiding: false,
-        cell: (info) => <span className="font-semibold text-slate-800">{info.getValue()}</span>,
+        cell: (info) => {
+            const symbol = info.getValue();
+            const onSymbolClick = info.table.options.meta?.onSymbolClick;
+            return (
+                <button
+                    onClick={() => onSymbolClick?.(symbol)}
+                    className="font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                    {symbol}
+                </button>
+            );
+        },
     }),
     screenerColumnHelper.accessor('price', {
         header: 'Price',
@@ -642,6 +771,9 @@ function ResultsTable({
         onColumnVisibilityChange: setColumnVisibility,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
+        meta: {
+            onSymbolClick,
+        },
     });
 
     return (
@@ -712,8 +844,7 @@ function ResultsTable({
                         {table.getRowModel().rows.map((row, i) => (
                         <tr
                                 key={row.id}
-                            className={`border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
-                                onClick={() => onSymbolClick?.(row.original.symbol)}
+                            className={`border-b border-slate-50 hover:bg-slate-50/80 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
                         >
                                 {row.getVisibleCells().map((cell, cellIndex) => {
                                     const isFirstColumn = cellIndex === 0;
@@ -742,26 +873,101 @@ function ResultsTable({
 export function ScreenerContent() {
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
+    const { state: windowState, updateState: updateWindowState } = useWindowState<ScreenerWindowState>();
 
-    // State
-    const [filters, setFilters] = useState<FilterCondition[]>([
+    // Default filters
+    const defaultFilters: FilterCondition[] = [
         { field: 'price', operator: 'between', value: [5, 500] },
         { field: 'volume', operator: 'gt', value: 500000 },
-    ]);
+    ];
+
+    // State - use persisted values if available
+    const [filters, setFilters] = useState<FilterCondition[]>(windowState.filters || defaultFilters);
     const [symbols, setSymbols] = useState<string[]>([]);
     const [symbolInput, setSymbolInput] = useState('');
-    const [sortBy, setSortBy] = useState('relative_volume');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-    const [limit, setLimit] = useState(50);
+    const [sortBy, setSortBy] = useState(windowState.sortBy || 'relative_volume');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(windowState.sortOrder || 'desc');
+    const [limit, setLimit] = useState(windowState.limit || 50);
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [results, setResults] = useState<ScreenerResult[]>([]);
     const [queryTime, setQueryTime] = useState<number | null>(null);
 
-    const [activePreset, setActivePreset] = useState<string | null>(null);
+    const [activePreset, setActivePreset] = useState<string | null>(windowState.activePreset ?? null);
     const [showFilters, setShowFilters] = useState(true);
-    const { executeCommand } = useCommandExecutor();
+    const { executeCommand, executeTickerCommand } = useCommandExecutor();
+    
+    // User templates
+    const {
+        templates: userTemplates,
+        loading: templatesLoading,
+        listTemplates,
+        createTemplate,
+        deleteTemplate,
+        useTemplate,
+        toggleFavorite,
+    } = useScreenerTemplates();
+    const [showSaveModal, setShowSaveModal] = useState(false);
+    const [templateName, setTemplateName] = useState('');
+    const [activeUserTemplate, setActiveUserTemplate] = useState<number | null>(windowState.activeUserTemplate ?? null);
+    
+    // Track if auto-execute has been done
+    const autoExecutedRef = useRef(false);
+    // Ref to handleSearch for use in effect
+    const handleSearchRef = useRef<(() => void) | null>(null);
+
+    // Load user templates on mount
+    useEffect(() => {
+        listTemplates();
+    }, [listTemplates]);
+    
+    // Persist state changes (only after first render with results)
+    const hasResultsRef = useRef(false);
+    useEffect(() => {
+        if (results.length > 0) hasResultsRef.current = true;
+        
+        // Only persist if we have meaningful state
+        if (hasResultsRef.current || filters !== defaultFilters) {
+            updateWindowState({
+                filters,
+                sortBy,
+                sortOrder,
+                limit,
+                activePreset,
+                activeUserTemplate,
+                autoExecute: hasResultsRef.current,
+            });
+        }
+    }, [filters, sortBy, sortOrder, limit, activePreset, activeUserTemplate, results.length, updateWindowState]);
+    
+    // Auto-execute when windowState becomes available (may be delayed due to hydration)
+    useEffect(() => {
+        // Only execute once, when we have saved state
+        if (!autoExecutedRef.current && windowState.autoExecute && windowState.filters && windowState.filters.length > 0) {
+            autoExecutedRef.current = true;
+            
+            // Update local state from windowState if different
+            if (JSON.stringify(filters) !== JSON.stringify(windowState.filters)) {
+                setFilters(windowState.filters as FilterCondition[]);
+            }
+            if (windowState.sortBy && sortBy !== windowState.sortBy) {
+                setSortBy(windowState.sortBy);
+            }
+            if (windowState.sortOrder && sortOrder !== windowState.sortOrder) {
+                setSortOrder(windowState.sortOrder);
+            }
+            if (windowState.limit && limit !== windowState.limit) {
+                setLimit(windowState.limit);
+            }
+            
+            // Execute search after state update
+            const timer = setTimeout(() => {
+                handleSearchRef.current?.();
+            }, 200);
+            return () => clearTimeout(timer);
+        }
+    }, [windowState.autoExecute, windowState.filters, windowState.sortBy, windowState.sortOrder, windowState.limit]);
 
     // Search handler
     const handleSearch = useCallback(async () => {
@@ -801,6 +1007,11 @@ export function ScreenerContent() {
             setLoading(false);
         }
     }, [filters, symbols, sortBy, sortOrder, limit]);
+    
+    // Update ref for auto-execute
+    useEffect(() => {
+        handleSearchRef.current = handleSearch;
+    }, [handleSearch]);
 
     // Add symbol to filter
     const handleAddSymbol = useCallback((selected: TickerSearchResult) => {
@@ -832,6 +1043,50 @@ export function ScreenerContent() {
     const handleFiltersChange = (newFilters: FilterCondition[]) => {
         setFilters(newFilters);
         // Don't clear activePreset here - let user see which preset they started from
+    };
+
+    // Save current config as template
+    const handleSaveTemplate = async () => {
+        if (!templateName.trim()) return;
+        
+        const templateFilters: TemplateFilterCondition[] = filters.map(f => ({
+            field: f.field,
+            operator: f.operator,
+            value: f.value,
+        }));
+        
+        const result = await createTemplate({
+            name: templateName.trim(),
+            filters: templateFilters,
+            sort_by: sortBy,
+            sort_order: sortOrder,
+            limit_results: limit,
+        });
+        
+        if (result) {
+            setShowSaveModal(false);
+            setTemplateName('');
+        }
+    };
+
+    // Apply user template
+    const applyUserTemplate = async (template: ScreenerTemplate) => {
+        const loadedFilters: FilterCondition[] = template.filters.map(f => ({
+            field: f.field,
+            operator: f.operator,
+            value: f.value as number | number[] | boolean,
+        }));
+        
+        setFilters(loadedFilters);
+        setSortBy(template.sortBy);
+        setSortOrder(template.sortOrder as 'asc' | 'desc');
+        setLimit(template.limitResults);
+        setActivePreset(null);
+        setActiveUserTemplate(template.id);
+        setShowFilters(true);
+        
+        // Track usage
+        useTemplate(template.id);
     };
 
     return (
@@ -886,30 +1141,115 @@ export function ScreenerContent() {
                 </button>
             </div>
 
-            {/* Presets Row - Click to load as editable template */}
+            {/* Templates Row - Compact with dropdown for system presets */}
             <div className="flex-shrink-0 px-2 py-1.5 border-b border-slate-100 bg-slate-50/30">
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                    {PRESETS.map((preset) => {
-                        const Icon = preset.icon;
-                        const isActive = activePreset === preset.id;
-                        return (
-                            <button
-                                key={preset.id}
-                                onClick={() => applyPreset(preset)}
-                                className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border transition-all ${isActive
-                                    ? 'border-blue-400 bg-blue-50 text-blue-700 shadow-sm'
-                                    : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50/50'
-                                    }`}
-                                style={{ fontSize: '10px' }}
-                                title={preset.description}
-                            >
-                                <Icon className="w-3 h-3" />
-                                {preset.name}
-                            </button>
-                        );
-                    })}
+                <div className="flex items-center gap-1.5">
+                    {/* System Presets Dropdown */}
+                    <div className="relative">
+                        <select
+                            value={activePreset || ''}
+                            onChange={(e) => {
+                                const preset = PRESETS.find(p => p.id === e.target.value);
+                                if (preset) {
+                                    applyPreset(preset);
+                                    setActiveUserTemplate(null);
+                                }
+                            }}
+                            className={`px-2 py-1 rounded border text-slate-600 bg-white cursor-pointer appearance-none pr-6 ${
+                                activePreset && !activeUserTemplate ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                            style={{ fontSize: '10px' }}
+                        >
+                            <option value="">Presets</option>
+                            {PRESETS.map((preset) => (
+                                <option key={preset.id} value={preset.id}>{preset.name}</option>
+                            ))}
+                        </select>
+                        <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+                    </div>
+                    
+                    {/* Separator */}
+                    <div className="h-4 w-px bg-slate-200" />
+                    
+                    {/* User templates */}
+                    <div className="flex items-center gap-1 overflow-x-auto">
+                        {userTemplates.map((template) => (
+                            <div key={template.id} className="flex-shrink-0 flex items-center group">
+                                <button
+                                    onClick={() => applyUserTemplate(template)}
+                                    className={`flex items-center gap-1 px-2 py-1 rounded-l border transition-all ${activeUserTemplate === template.id
+                                        ? 'border-blue-400 bg-blue-50 text-blue-700 shadow-sm'
+                                        : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50/50'
+                                        }`}
+                                    style={{ fontSize: '10px' }}
+                                    title={`${template.name} (${template.useCount}x)`}
+                                >
+                                    {template.isFavorite && <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />}
+                                    {template.name}
+                                </button>
+                                <button
+                                    onClick={() => deleteTemplate(template.id)}
+                                    className="px-1 py-1 border border-l-0 border-slate-200 rounded-r text-slate-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    style={{ fontSize: '10px' }}
+                                    title="Delete"
+                                >
+                                    <X className="w-2.5 h-2.5" />
+                                </button>
+                            </div>
+                        ))}
+                        
+                        {/* Save button */}
+                        <button
+                            onClick={() => setShowSaveModal(true)}
+                            className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded border border-dashed border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition-all"
+                            style={{ fontSize: '10px' }}
+                            title="Save current configuration"
+                        >
+                            <Save className="w-3 h-3" />
+                        </button>
+                    </div>
                 </div>
             </div>
+            
+            {/* Save Template Modal */}
+            {showSaveModal && (
+                <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowSaveModal(false)}>
+                    <div 
+                        className="bg-white rounded-lg shadow-xl p-4 w-80"
+                        onClick={e => e.stopPropagation()}
+                        style={{ fontFamily }}
+                    >
+                        <h3 className="font-medium text-slate-800 mb-3" style={{ fontSize: '13px' }}>Save Template</h3>
+                        <input
+                            type="text"
+                            value={templateName}
+                            onChange={(e) => setTemplateName(e.target.value)}
+                            placeholder="Template name..."
+                            className="w-full px-3 py-2 border border-slate-200 rounded focus:outline-none focus:border-blue-400"
+                            style={{ fontSize: '12px' }}
+                            autoFocus
+                            onKeyDown={(e) => e.key === 'Enter' && handleSaveTemplate()}
+                        />
+                        <div className="flex justify-end gap-2 mt-3">
+                            <button
+                                onClick={() => setShowSaveModal(false)}
+                                className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded"
+                                style={{ fontSize: '11px' }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveTemplate}
+                                disabled={!templateName.trim()}
+                                className="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                                style={{ fontSize: '11px' }}
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Filters Panel - Always editable */}
             {showFilters && (
@@ -971,7 +1311,10 @@ export function ScreenerContent() {
 
             {/* Results */}
             {results.length > 0 ? (
-                <ResultsTable results={results} />
+                <ResultsTable 
+                    results={results} 
+                    onSymbolClick={(symbol) => executeTickerCommand(symbol, 'chart')}
+                />
             ) : (
                 <div className="flex-1 flex items-center justify-center text-slate-400" style={{ fontSize: '10px' }}>
                     {loading ? (

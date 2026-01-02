@@ -5,9 +5,14 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw, ExternalLink, TrendingUp, TrendingDown, Users, Building2, Calendar, Globe, Phone } from 'lucide-react';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { TradingChart } from '@/components/chart/TradingChart';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerNewsMini } from '@/components/news/TickerNewsMini';
+
+interface DescriptionWindowState {
+  ticker?: string;
+  [key: string]: unknown;
+}
 
 // ============================================================================
 // Types
@@ -24,6 +29,9 @@ interface TickerDescription {
     sector?: string;
     industry?: string;
     is_spac?: boolean;
+    is_de_spac?: boolean;
+    former_spac_name?: string;
+    merger_date?: string;
     sic_code?: string;
     description?: string;
     ceo?: string;
@@ -145,12 +153,24 @@ SectionHeader.displayName = 'SectionHeader';
 // Main Component
 // ============================================================================
 
-function DescriptionContentComponent({ ticker, exchange }: DescriptionContentProps) {
+function DescriptionContentComponent({ ticker: initialTicker, exchange }: DescriptionContentProps) {
   const { t } = useTranslation();
   const { openWindow } = useFloatingWindow();
+  const { state: windowState, updateState: updateWindowState } = useWindowState<DescriptionWindowState>();
+  
+  // Use persisted ticker or prop
+  const ticker = windowState.ticker || initialTicker;
+  
   const [data, setData] = useState<TickerDescription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Persist ticker when it changes
+  useEffect(() => {
+    if (ticker) {
+      updateWindowState({ ticker });
+    }
+  }, [ticker, updateWindowState]);
 
   // Callback to open full Chart window
   const handleOpenChart = useCallback(() => {
@@ -262,13 +282,25 @@ function DescriptionContentComponent({ ticker, exchange }: DescriptionContentPro
 
                 {/* Company Info */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="px-1.5 py-0.5 text-[10px] font-bold bg-blue-600 text-white rounded">EQ</span>
                     {company.is_spac && (
                       <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200 rounded">SPAC</span>
                     )}
+                    {company.is_de_spac && (
+                      <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200 rounded" title={`Former: ${company.former_spac_name}`}>
+                        de-SPAC
+                      </span>
+                    )}
                     <span className="text-sm font-semibold text-slate-800 truncate">{company.name}</span>
                   </div>
+
+                  {/* de-SPAC info */}
+                  {company.is_de_spac && company.former_spac_name && (
+                    <div className="text-[10px] text-purple-600 mt-0.5">
+                      via {company.former_spac_name} {company.merger_date && `(${new Date(company.merger_date).toLocaleDateString()})`}
+                    </div>
+                  )}
 
                   <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                     {company.ceo && <span>CEO: {company.ceo}</span>}

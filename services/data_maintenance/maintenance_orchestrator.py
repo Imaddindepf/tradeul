@@ -90,18 +90,18 @@ class MaintenanceOrchestrator:
             ]
             logger.info("📦 data_only_mode - skipping cache clear and notifications")
         else:
-            tasks = [
-                ("clear_caches", self._task_clear_caches),
-                ("load_ohlc", self._task_load_ohlc),
-                ("load_volume_slots", self._task_load_volume_slots),
-                ("calculate_atr", self._task_calculate_atr),
-                ("calculate_rvol", self._task_calculate_rvol),
+        tasks = [
+            ("clear_caches", self._task_clear_caches),
+            ("load_ohlc", self._task_load_ohlc),
+            ("load_volume_slots", self._task_load_volume_slots),
+            ("calculate_atr", self._task_calculate_atr),
+            ("calculate_rvol", self._task_calculate_rvol),
                 ("sync_ticker_universe", self._task_sync_ticker_universe),
-                ("enrich_metadata", self._task_enrich_metadata),
+            ("enrich_metadata", self._task_enrich_metadata),
                 ("export_screener_metadata", self._task_export_screener_metadata),
-                ("sync_redis", self._task_sync_redis),
-                ("notify_services", self._task_notify_services),
-            ]
+            ("sync_redis", self._task_sync_redis),
+            ("notify_services", self._task_notify_services),
+        ]
         
         all_success = True
         

@@ -208,6 +208,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.MP.description',
         shortcut: 'Ctrl+M'
     },
+    INSIDER: {
+        id: 'insider',
+        label: 'INSIDER',
+        name: 'Insider Trading',
+        descriptionKey: 'terminalCommands.globalCommands.INSIDER.description',
+        shortcut: 'Ctrl+I'
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

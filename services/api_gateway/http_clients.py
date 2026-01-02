@@ -229,9 +229,11 @@ class SECAPIClient:
     
     Endpoints usados:
     - /form-s1-424b4 (IPO prospectus)
+    - Query API (Form 4 insider trading)
     """
     
     BASE_URL = "https://api.sec-api.io"
+    QUERY_URL = "https://api.sec-api.io"  # Query API para búsquedas generales
     
     def __init__(self, api_key: str, timeout: float = 30.0):
         self.api_key = api_key
@@ -244,6 +246,12 @@ class SECAPIClient:
                 "Content-Type": "application/json",
                 "User-Agent": "Tradeul-Scanner/1.0"
             }
+        )
+        # Shared client for SEC.gov XML requests with high concurrency
+        self._sec_gov_client = httpx.AsyncClient(
+            timeout=10.0,
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+            headers={'User-Agent': 'TradeUL/1.0 support@tradeul.com'}
         )
         logger.info("sec_api_client_initialized")
     
@@ -260,6 +268,258 @@ class SECAPIClient:
         )
         response.raise_for_status()
         return response.json()
+    
+    async def search_form4(
+        self, 
+        ticker: Optional[str] = None,
+        insider_cik: Optional[str] = None,
+        size: int = 50,
+        from_index: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Busca Form 4 (insider trading) filings
+        
+        Args:
+            ticker: Filtrar por ticker de la empresa
+            insider_cik: Filtrar por CIK del insider
+            size: Número de resultados
+            from_index: Offset para paginación
+        """
+        # Construir query
+        query_parts = ['formType:4', 'NOT formType:"N-4"', 'NOT formType:"4/A"']
+        
+        if ticker:
+            query_parts.append(f'ticker:{ticker.upper()}')
+        if insider_cik:
+            query_parts.append(f'cik:{insider_cik}')
+        
+        query = " AND ".join(query_parts)
+        
+        response = await self._client.post(
+            f"?token={self.api_key}",
+            json={
+                "query": query,
+                "from": str(from_index),
+                "size": str(size),
+                "sort": [{"filedAt": {"order": "desc"}}]
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def parse_form4_xml(self, xml_url: str) -> Dict[str, Any]:
+        """
+        Parsea el XML de un Form 4 para extraer detalles de las transacciones
+        
+        Returns:
+            Dict con: insider_name, insider_title, is_director, is_officer, 
+                      is_ten_percent_owner, transactions[]
+        """
+        import xml.etree.ElementTree as ET
+        
+        try:
+            # Remove XSL transforms from URL to get raw XML (xslF345X03, xslF345X05, etc.)
+            import re
+            xml_url = re.sub(r'xslF345X\d+/', '', xml_url)
+            
+            # Use shared client with connection pool for concurrent requests
+            response = await self._sec_gov_client.get(xml_url)
+            response.raise_for_status()
+            xml_content = response.text
+            
+            root = ET.fromstring(xml_content)
+            
+            # Extraer info del insider
+            owner = root.find('.//reportingOwner')
+            result = {
+                'insider_name': None,
+                'insider_cik': None,
+                'insider_title': None,
+                'is_director': False,
+                'is_officer': False,
+                'is_ten_percent_owner': False,
+                'transactions': []
+            }
+            
+            if owner:
+                name_el = owner.find('.//rptOwnerName')
+                cik_el = owner.find('.//rptOwnerCik')
+                result['insider_name'] = name_el.text if name_el is not None else None
+                result['insider_cik'] = cik_el.text if cik_el is not None else None
+                
+                rel = owner.find('.//reportingOwnerRelationship')
+                if rel:
+                    is_dir = rel.find('isDirector')
+                    is_off = rel.find('isOfficer')
+                    is_ten = rel.find('isTenPercentOwner')
+                    is_other = rel.find('isOther')
+                    title = rel.find('officerTitle')
+                    other_text = rel.find('otherText')
+                    
+                    result['is_director'] = is_dir is not None and is_dir.text == '1'
+                    result['is_officer'] = is_off is not None and is_off.text == '1'
+                    result['is_ten_percent_owner'] = is_ten is not None and is_ten.text == '1'
+                    # Prefer officerTitle, fallback to otherText
+                    if title is not None and title.text:
+                        result['insider_title'] = title.text
+                    elif other_text is not None and other_text.text:
+                        result['insider_title'] = other_text.text
+                    else:
+                        result['insider_title'] = None
+            
+            # Extraer transacciones non-derivative
+            for tx in root.findall('.//nonDerivativeTransaction'):
+                transaction = self._parse_transaction(tx)
+                if transaction:
+                    result['transactions'].append(transaction)
+            
+            # Extraer transacciones derivative
+            for tx in root.findall('.//derivativeTransaction'):
+                transaction = self._parse_transaction(tx, is_derivative=True)
+                if transaction:
+                    result['transactions'].append(transaction)
+            
+            return result
+            
+        except Exception as e:
+            logger.error("parse_form4_xml_error", url=xml_url, error=str(e))
+            return {'transactions': [], 'error': str(e)}
+    
+    def _parse_transaction(self, tx_element, is_derivative: bool = False) -> Optional[Dict]:
+        """Helper para parsear una transacción individual"""
+        # Transaction codes: P=Purchase, S=Sale, J=Other, G=Gift, M=Exercise, C=Conversion, etc.
+        TRANSACTION_CODES = {
+            'P': 'Purchase',
+            'S': 'Sale', 
+            'J': 'Other',
+            'G': 'Gift',
+            'M': 'Exercise',
+            'C': 'Conversion',
+            'A': 'Award',
+            'F': 'Tax',
+            'I': 'Discretionary',
+            'W': 'Will/Inheritance',
+            'K': 'Swap',
+            'D': 'Disposition to Issuer',
+            'E': 'Expiration',
+            'H': 'Expiration (short)',
+            'O': 'Out-of-money',
+            'X': 'Exercise (out-of-money)',
+            'U': 'Disposition (not to issuer)',
+            'L': 'Small acquisition',
+            'Z': 'Deposit/withdrawal',
+        }
+        
+        try:
+            def get_value(path):
+                el = tx_element.find(path)
+                return el.text if el is not None else None
+            
+            shares = get_value('.//transactionShares/value')
+            price = get_value('.//transactionPricePerShare/value')
+            acq_disp = get_value('.//transactionAcquiredDisposedCode/value')
+            date = get_value('.//transactionDate/value')
+            security = get_value('.//securityTitle/value')
+            tx_code = get_value('.//transactionCoding/transactionCode')
+            
+            # Calcular valor total
+            shares_float = float(shares) if shares else 0
+            price_float = float(price) if price else 0
+            total_value = shares_float * price_float
+            
+            # Determine if it's a buy or sell based on code and A/D
+            is_acquisition = acq_disp == 'A'
+            tx_code_desc = TRANSACTION_CODES.get(tx_code, tx_code or 'Unknown')
+            
+            # Only P (Purchase) is a real market buy, S (Sale) is a real market sell
+            is_market_trade = tx_code in ('P', 'S')
+            
+            return {
+                'date': date,
+                'security': security,
+                'transaction_type': 'A' if is_acquisition else 'D',
+                'transaction_code': tx_code,
+                'transaction_code_desc': tx_code_desc,
+                'is_market_trade': is_market_trade,
+                'shares': shares_float,
+                'price': price_float,
+                'total_value': total_value,
+                'is_derivative': is_derivative
+            }
+        except Exception:
+            return None
+    
+    async def get_form4_clusters(self, days: int = 7, min_count: int = 3) -> Dict[str, Any]:
+        """
+        Detecta clusters de insider trading (múltiples insiders en la misma empresa)
+        
+        Args:
+            days: Número de días hacia atrás
+            min_count: Mínimo de transacciones para considerar cluster
+        """
+        from datetime import datetime, timedelta
+        
+        # Calcular fecha de inicio
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        
+        query = f'formType:4 AND NOT formType:"N-4" AND NOT formType:"4/A" AND filedAt:[{start_date} TO *]'
+        
+        response = await self._client.post(
+            f"?token={self.api_key}",
+            json={
+                "query": query,
+                "from": "0",
+                "size": "200",
+                "sort": [{"filedAt": {"order": "desc"}}]
+            }
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        # Agrupar por ticker
+        from collections import defaultdict
+        by_ticker = defaultdict(list)
+        
+        for filing in data.get('filings', []):
+            ticker = filing.get('ticker')
+            if ticker:
+                # Extraer insider del filing
+                insiders = [
+                    e.get('companyName', '').replace(' (Reporting)', '')
+                    for e in filing.get('entities', [])
+                    if 'Reporting' in e.get('companyName', '')
+                ]
+                for insider in insiders:
+                    by_ticker[ticker].append({
+                        'insider': insider,
+                        'date': filing.get('filedAt', '')[:10],
+                        'company': filing.get('companyName', ''),
+                        'accessionNo': filing.get('accessionNo'),
+                        'url': filing.get('linkToFilingDetails')
+                    })
+        
+        # Filtrar clusters
+        clusters = []
+        for ticker, trades in by_ticker.items():
+            unique_insiders = set(t['insider'] for t in trades)
+            if len(trades) >= min_count:
+                clusters.append({
+                    'ticker': ticker,
+                    'company': trades[0]['company'] if trades else '',
+                    'total_trades': len(trades),
+                    'unique_insiders': len(unique_insiders),
+                    'insiders': list(unique_insiders)[:5],  # Top 5 insiders
+                    'trades': trades[:10]  # Top 10 trades
+                })
+        
+        # Ordenar por número de trades
+        clusters.sort(key=lambda x: x['total_trades'], reverse=True)
+        
+        return {
+            'clusters': clusters[:20],  # Top 20 clusters
+            'period_days': days,
+            'total_filings': data.get('total', {}).get('value', 0)
+        }
     
     async def close(self):
         """Cierra el cliente"""
@@ -574,16 +834,70 @@ class SECEdgarClient:
             logger.error("sec_edgar_get_company_failed", cik=cik, error=str(e))
             return None
     
+    def _check_spac_keywords(self, name: str) -> bool:
+        """Verificar si un nombre contiene palabras clave de SPAC"""
+        if not name:
+            return False
+        name_lower = name.lower()
+        return any(kw in name_lower for kw in self.SPAC_NAME_KEYWORDS)
+    
+    async def _detect_spac_from_filings(self, symbol: str, sec_api_client: 'SECAPIClient') -> Optional[str]:
+        """
+        Buscar en filings S-4/DEFM14A si la empresa fue un de-SPAC.
+        
+        Busca filings de merger que mencionen un SPAC.
+        
+        Returns:
+            Nombre del SPAC original si se encuentra, None si no
+        """
+        try:
+            # Buscar S-4, F-4, DEFM14A filings (típicos de SPAC mergers)
+            query = {
+                "query": {
+                    "query_string": {
+                        "query": f'ticker:{symbol} AND (formType:"S-4" OR formType:"F-4" OR formType:"DEFM14A")'
+                    }
+                },
+                "from": "0",
+                "size": "20",
+                "sort": [{"filedAt": {"order": "asc"}}]  # Los más antiguos primero
+            }
+            
+            resp = await sec_api_client._client.post(
+                "",
+                params={"token": sec_api_client.api_key},
+                json=query
+            )
+            
+            if resp.status_code != 200:
+                return None
+            
+            filings = resp.json().get('filings', [])
+            
+            # Buscar un filing cuyo companyName tenga keywords de SPAC
+            for filing in filings:
+                company_name = filing.get('companyName', '')
+                if self._check_spac_keywords(company_name):
+                    # Limpiar el nombre (quitar sufijos como "\ DE")
+                    clean_name = company_name.split('\\')[0].strip()
+                    return clean_name
+            
+            return None
+            
+        except Exception as e:
+            logger.debug("detect_spac_from_filings_failed", symbol=symbol, error=str(e))
+            return None
+    
     async def detect_spac(self, symbol: str, sec_api_client: Optional['SECAPIClient'] = None) -> Dict[str, Any]:
         """
-        Detectar si un ticker es un SPAC.
+        Detectar si un ticker es un SPAC activo o de-SPAC (post-merger).
         
         Args:
             symbol: Ticker symbol
             sec_api_client: Cliente SEC-API.io para obtener CIK (opcional)
         
         Returns:
-            Dict con is_spac, confidence, sic_code, reason
+            Dict con is_spac, is_de_spac, confidence, sic_code, reason, former_spac_name
         """
         symbol = symbol.upper()
         
@@ -610,6 +924,7 @@ class SECEdgarClient:
             if not cik:
                 return {
                     "is_spac": False,
+                    "is_de_spac": False,
                     "confidence": 0.0,
                     "sic_code": None,
                     "reason": "Could not determine CIK"
@@ -620,18 +935,18 @@ class SECEdgarClient:
             
             if not company_info:
                 # Fallback: verificar por nombre
-                if company_name:
-                    name_lower = company_name.lower()
-                    if any(kw in name_lower for kw in self.SPAC_NAME_KEYWORDS):
-                        return {
-                            "is_spac": True,
-                            "confidence": 0.80,
-                            "sic_code": None,
-                            "reason": f"Name '{company_name}' matches SPAC pattern"
-                        }
+                if self._check_spac_keywords(company_name):
+                    return {
+                        "is_spac": True,
+                        "is_de_spac": False,
+                        "confidence": 0.80,
+                        "sic_code": None,
+                        "reason": f"Name '{company_name}' matches SPAC pattern"
+                    }
                 
                 return {
                     "is_spac": False,
+                    "is_de_spac": False,
                     "confidence": 0.0,
                     "sic_code": None,
                     "reason": "Company info not available"
@@ -640,31 +955,65 @@ class SECEdgarClient:
             sic_code = company_info.get('sic')
             sic_desc = company_info.get('sicDescription')
             name = company_info.get('name', company_name)
+            former_names = company_info.get('formerNames', [])
             
-            # Verificar SIC Code 6770 (100% certeza)
+            # 1. Verificar SIC Code 6770 (100% certeza - SPAC activo)
             if sic_code == self.SPAC_SIC_CODE:
                 return {
                     "is_spac": True,
+                    "is_de_spac": False,
                     "confidence": 1.0,
                     "sic_code": sic_code,
                     "sic_description": sic_desc,
                     "reason": "SIC Code 6770 (Blank Checks)"
                 }
             
-            # Verificar nombre (80% certeza)
-            if name:
-                name_lower = name.lower()
-                if any(kw in name_lower for kw in self.SPAC_NAME_KEYWORDS):
+            # 2. Verificar nombre actual (80% certeza - SPAC activo)
+            if self._check_spac_keywords(name):
+                return {
+                    "is_spac": True,
+                    "is_de_spac": False,
+                    "confidence": 0.80,
+                    "sic_code": sic_code,
+                    "sic_description": sic_desc,
+                    "reason": f"Name '{name}' matches SPAC pattern"
+                }
+            
+            # 3. Verificar formerNames para detectar de-SPAC (100% certeza)
+            for former in former_names:
+                former_name = former.get('name', '')
+                if self._check_spac_keywords(former_name):
+                    logger.info("de_spac_detected", symbol=symbol, former_name=former_name, method="formerNames")
                     return {
-                        "is_spac": True,
-                        "confidence": 0.80,
+                        "is_spac": False,
+                        "is_de_spac": True,
+                        "confidence": 1.0,
                         "sic_code": sic_code,
                         "sic_description": sic_desc,
-                        "reason": f"Name '{name}' matches SPAC pattern"
+                        "former_spac_name": former_name,
+                        "merger_date": former.get('to'),
+                        "reason": f"De-SPAC: Former name '{former_name}' was a SPAC"
+                    }
+            
+            # 4. Fallback: Buscar en S-4/DEFM14A filings si sec_api_client está disponible
+            if sec_api_client:
+                spac_from_filings = await self._detect_spac_from_filings(symbol, sec_api_client)
+                if spac_from_filings:
+                    logger.info("de_spac_detected", symbol=symbol, former_name=spac_from_filings, method="filings")
+                    return {
+                        "is_spac": False,
+                        "is_de_spac": True,
+                        "confidence": 0.90,
+                        "sic_code": sic_code,
+                        "sic_description": sic_desc,
+                        "former_spac_name": spac_from_filings,
+                        "merger_date": None,
+                        "reason": f"De-SPAC: Found SPAC filing '{spac_from_filings}'"
                     }
             
             return {
                 "is_spac": False,
+                "is_de_spac": False,
                 "confidence": 1.0,
                 "sic_code": sic_code,
                 "sic_description": sic_desc,
@@ -675,6 +1024,7 @@ class SECEdgarClient:
             logger.error("spac_detect_failed", symbol=symbol, error=str(e))
             return {
                 "is_spac": False,
+                "is_de_spac": False,
                 "confidence": 0.0,
                 "sic_code": None,
                 "reason": f"Detection error: {str(e)}"

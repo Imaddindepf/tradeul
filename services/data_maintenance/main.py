@@ -234,7 +234,7 @@ async def trigger_maintenance(request: Optional[TriggerRequest] = None):
         
         if request:
             if request.target_date:
-                target = date.fromisoformat(request.target_date)
+            target = date.fromisoformat(request.target_date)
             clear_caches = request.clear_caches
         
         logger.info(
