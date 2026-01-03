@@ -185,6 +185,26 @@ const FILTERS: FilterConfig[] = [
     placeholder: '1'
   },
   {
+    key: 'volume_today_pct',
+    label: 'Vol Today %',
+    type: 'percent',
+    minKey: 'min_volume_today_pct',
+    maxKey: 'max_volume_today_pct',
+    defaultMin: 100,
+    defaultMax: 500,
+    placeholder: '100'
+  },
+  {
+    key: 'volume_yesterday_pct',
+    label: 'Vol Yesterday %',
+    type: 'percent',
+    minKey: 'min_volume_yesterday_pct',
+    maxKey: 'max_volume_yesterday_pct',
+    defaultMin: 100,
+    defaultMax: 500,
+    placeholder: '100'
+  },
+  {
     key: 'vol_1min',
     label: '1m vol',
     type: 'units',
@@ -707,15 +727,15 @@ export function FilterManagerContent() {
           <div className="flex flex-col items-center justify-center h-full text-slate-400">
             <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-2">
               <Plus className="w-5 h-5" />
-            </div>
+        </div>
             <p style={{ fontSize: '11px' }}>Click a filter above to add it</p>
             <p className="text-slate-300 mt-1" style={{ fontSize: '10px' }}>
               Supports: 1,000 · 1.5M · Between values
             </p>
-          </div>
-        )}
-      </div>
-
+                      </div>
+                    )}
+                  </div>
+                  
       {/* Footer */}
       {hasActiveFilters && (
         <div className="flex-shrink-0 px-3 py-2 border-t border-slate-100 bg-slate-50/30">
@@ -732,10 +752,10 @@ export function FilterManagerContent() {
               Clear All
             </button>
           </div>
-        </div>
-      )}
+          </div>
+        )}
 
-      {/* Format Help */}
+        {/* Format Help */}
       <div className="flex-shrink-0 px-3 py-2 border-t border-slate-100 bg-slate-50/50">
         <p className="text-slate-400 leading-relaxed" style={{ fontSize: '9px' }}>
           <span className="font-medium text-slate-500">Tips:</span>{' '}

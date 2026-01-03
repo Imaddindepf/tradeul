@@ -760,6 +760,9 @@ class ScannerEngine:
                 # Historical data
                 avg_volume_30d=metadata.avg_volume_30d,
                 avg_volume_10d=metadata.avg_volume_10d,
+                # Volume Today/Yesterday %
+                volume_today_pct=round((volume_today / metadata.avg_volume_10d) * 100, 1) if volume_today and metadata.avg_volume_10d else None,
+                volume_yesterday_pct=round((prev_day.v / metadata.avg_volume_10d) * 100, 1) if prev_day and prev_day.v and metadata.avg_volume_10d else None,
                 float_shares=metadata.float_shares,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
@@ -916,6 +919,11 @@ class ScannerEngine:
                 else:  # price > ask
                     distance_from_nbbo = ((price - ask) / ask) * 100
             
+            # Calculate Volume Today/Yesterday % 
+            avg_vol_10d = avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d
+            volume_today_pct = round((volume_today / avg_vol_10d) * 100, 1) if volume_today and avg_vol_10d else None
+            volume_yesterday_pct = round((prev_day.v / avg_vol_10d) * 100, 1) if prev_day and prev_day.v and avg_vol_10d else None
+            
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
@@ -952,6 +960,9 @@ class ScannerEngine:
                 avg_volume_30d=metadata.avg_volume_30d,
                 # Dollar Volume = price × avg_volume_10d (liquidity metric)
                 dollar_volume=(price * (avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d)) if price and (avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d) else None,
+                # Volume Today/Yesterday %
+                volume_today_pct=volume_today_pct,
+                volume_yesterday_pct=volume_yesterday_pct,
                 float_shares=metadata.float_shares,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
@@ -1155,6 +1166,22 @@ class ScannerEngine:
                     return False
             if params.max_dollar_volume is not None:
                 if ticker.dollar_volume is None or ticker.dollar_volume > params.max_dollar_volume:
+                    return False
+            
+            # Volume Today % filters
+            if params.min_volume_today_pct is not None:
+                if ticker.volume_today_pct is None or ticker.volume_today_pct < params.min_volume_today_pct:
+                    return False
+            if params.max_volume_today_pct is not None:
+                if ticker.volume_today_pct is None or ticker.volume_today_pct > params.max_volume_today_pct:
+                    return False
+            
+            # Volume Yesterday % filters
+            if params.min_volume_yesterday_pct is not None:
+                if ticker.volume_yesterday_pct is None or ticker.volume_yesterday_pct < params.min_volume_yesterday_pct:
+                    return False
+            if params.max_volume_yesterday_pct is not None:
+                if ticker.volume_yesterday_pct is None or ticker.volume_yesterday_pct > params.max_volume_yesterday_pct:
                     return False
             
             # Data freshness filter (rechazar tickers con datos muy antiguos)

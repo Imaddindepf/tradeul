@@ -47,9 +47,12 @@ export interface Ticker {
   // Volume metrics
   volume?: number;
   volume_today?: number;
+  prev_volume?: number;    // Previous day volume
   minute_volume?: number;  // Volume in last minute bar
   rvol?: number;
   rvol_slot?: number;
+  volume_today_pct?: number;     // Volume today as % of avg 10d
+  volume_yesterday_pct?: number; // Volume yesterday as % of avg 10d
   
   // Volume window metrics (volume in last N minutes)
   vol_1min?: number;

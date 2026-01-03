@@ -563,6 +563,38 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           return <div className="font-mono text-slate-600">{formatDollarVolume(value)}</div>;
         },
       }),
+      columnHelper.accessor('volume_today_pct', {
+        header: 'Vol Today %',
+        size: 85,
+        minSize: 65,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const color = value >= 150 ? 'text-green-600' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          return <div className={`font-mono ${color}`}>{value.toFixed(0)}%</div>;
+        },
+      }),
+      columnHelper.accessor('volume_yesterday_pct', {
+        header: 'Vol Yest %',
+        size: 85,
+        minSize: 65,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const color = value >= 150 ? 'text-green-600' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          return <div className={`font-mono ${color}`}>{value.toFixed(0)}%</div>;
+        },
+      }),
       columnHelper.accessor('vol_1min', {
         header: '1m vol',
         size: 75,

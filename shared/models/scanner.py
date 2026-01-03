@@ -63,6 +63,10 @@ class ScannerTicker(BaseModel):
     # Dollar Volume = price × avg_volume_10d (liquidity metric in $/day)
     dollar_volume: Optional[float] = Field(None, description="Dollar volume (price × avg_volume_10d) in $/day")
     
+    # Volume Today/Yesterday as % of avg_volume_10d
+    volume_today_pct: Optional[float] = Field(None, description="Volume today as % of avg 10d (e.g. 150 = 150%)")
+    volume_yesterday_pct: Optional[float] = Field(None, description="Volume yesterday as % of avg 10d")
+    
     # Volume window metrics (volume traded in last N minutes)
     vol_1min: Optional[int] = Field(None, description="Volume traded in last 1 minute")
     vol_5min: Optional[int] = Field(None, description="Volume traded in last 5 minutes")
@@ -247,6 +251,12 @@ class FilterParameters(BaseModel):
     # Dollar Volume filters (price × avg_volume_10d)
     min_dollar_volume: Optional[float] = Field(None, ge=0, description="Minimum dollar volume ($/day)")
     max_dollar_volume: Optional[float] = Field(None, ge=0, description="Maximum dollar volume ($/day)")
+    
+    # Volume Today/Yesterday % filters (volume as % of avg_volume_10d)
+    min_volume_today_pct: Optional[float] = Field(None, ge=0, description="Min volume today % (e.g. 100 = avg)")
+    max_volume_today_pct: Optional[float] = Field(None, ge=0, description="Max volume today %")
+    min_volume_yesterday_pct: Optional[float] = Field(None, ge=0, description="Min volume yesterday %")
+    max_volume_yesterday_pct: Optional[float] = Field(None, ge=0, description="Max volume yesterday %")
     
     # Volume window filters (volume in last N minutes)
     min_vol_1min: Optional[int] = Field(None, ge=0, description="Min volume in last 1 minute")
