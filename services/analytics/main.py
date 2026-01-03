@@ -32,6 +32,7 @@ from rvol_calculator import RVOLCalculator
 from shared.utils.atr_calculator import ATRCalculator
 from intraday_tracker import IntradayTracker
 from http_clients import http_clients
+from volume_window_tracker import VolumeWindowTracker, VolumeWindowResult
 
 # Configurar logger
 configure_logging(service_name="analytics")
@@ -46,9 +47,11 @@ timescale_client: Optional[TimescaleClient] = None
 rvol_calculator: Optional[RVOLCalculator] = None
 atr_calculator: Optional[ATRCalculator] = None
 intraday_tracker: Optional[IntradayTracker] = None
+volume_window_tracker: Optional[VolumeWindowTracker] = None
 event_bus: Optional[EventBus] = None
 background_task: Optional[asyncio.Task] = None
 vwap_consumer_task: Optional[asyncio.Task] = None
+volume_tracker_task: Optional[asyncio.Task] = None
 
 # Estado de mercado (se actualiza via EventBus, no en cada iteración)
 is_holiday_mode: bool = False
@@ -135,6 +138,11 @@ async def handle_day_changed(event: Event) -> None:
         old_size = len(vwap_cache)
         vwap_cache.clear()
         logger.info("vwap_cache_reset", old_size=old_size)
+        
+        # 🔄 Reset Volume Window Tracker para nuevo día
+        if volume_window_tracker:
+            cleared = volume_window_tracker.clear_all()
+            logger.info("volume_window_tracker_reset", symbols_cleared=cleared)
     else:
         logger.info(
             "⏭️ skipping_cache_reset",
@@ -150,7 +158,7 @@ async def handle_day_changed(event: Event) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, timescale_client, rvol_calculator, atr_calculator, intraday_tracker, event_bus, background_task
+    global redis_client, timescale_client, rvol_calculator, atr_calculator, intraday_tracker, volume_window_tracker, event_bus, background_task, volume_tracker_task
     
     logger.info("analytics_service_starting")
     
@@ -186,6 +194,10 @@ async def lifespan(app: FastAPI):
     intraday_tracker = IntradayTracker(
         polygon_api_key=settings.POLYGON_API_KEY
     )
+    
+    # Inicializar VolumeWindowTracker (vol_1min, vol_5min, etc.)
+    volume_window_tracker = VolumeWindowTracker()
+    logger.info("volume_window_tracker_initialized", stats=volume_window_tracker.get_stats())
     
     # 📅 Verificar estado del mercado UNA VEZ al iniciar
     await check_initial_market_status()
@@ -235,7 +247,10 @@ async def lifespan(app: FastAPI):
     # Iniciar consumer de VWAP desde aggregates
     vwap_consumer_task = asyncio.create_task(consume_aggregates_for_vwap())
     
-    logger.info("analytics_service_started", vwap_consumer_enabled=True)
+    # Iniciar consumer de Volume Windows desde aggregates
+    volume_tracker_task = asyncio.create_task(consume_aggregates_for_volume_windows())
+    
+    logger.info("analytics_service_started", vwap_consumer_enabled=True, volume_tracker_enabled=True)
     
     yield
     
@@ -257,6 +272,15 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
         logger.info("vwap_consumer_stopped")
+    
+    # 🔄 Stop Volume Tracker consumer
+    if volume_tracker_task:
+        volume_tracker_task.cancel()
+        try:
+            await volume_tracker_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("volume_tracker_consumer_stopped")
     
     # 🔔 Stop EventBus
     if event_bus:
@@ -394,6 +418,129 @@ async def consume_aggregates_for_vwap():
                     pass
             
             logger.error("vwap_consumer_error", error=str(e))
+            await asyncio.sleep(1)
+
+
+# ============================================================================
+# Volume Window Tracker Consumer
+# ============================================================================
+
+async def consume_aggregates_for_volume_windows():
+    """
+    Consume stream de aggregates para mantener el VolumeWindowTracker actualizado.
+    
+    Usa el campo 'av' (accumulated volume today) de cada aggregate.
+    Este es el volumen acumulado del día, que usamos para calcular vol_Nmin.
+    
+    Fórmula: vol_5min = av[now] - av[5 min ago]
+    """
+    stream_name = "stream:realtime:aggregates"
+    consumer_group = "analytics_volume_window_consumer"
+    consumer_name = "analytics_volume_window_1"
+    
+    logger.info("volume_window_consumer_started", stream=stream_name)
+    
+    # Crear consumer group si no existe
+    try:
+        await redis_client.create_consumer_group(
+            stream_name,
+            consumer_group,
+            mkstream=True
+        )
+        logger.info("volume_window_consumer_group_created", group=consumer_group)
+    except Exception as e:
+        logger.debug("volume_window_consumer_group_exists", error=str(e))
+    
+    update_count = 0
+    last_stats_log = datetime.now()
+    
+    while True:
+        try:
+            # Skip en holiday mode
+            if is_holiday_mode:
+                await asyncio.sleep(30)
+                continue
+            
+            # Leer mensajes en batch
+            messages = await redis_client.read_stream(
+                stream_name=stream_name,
+                consumer_group=consumer_group,
+                consumer_name=consumer_name,
+                count=500,  # Batch grande
+                block=1000  # 1 segundo
+            )
+            
+            if messages:
+                message_ids_to_ack = []
+                batch_updates = 0
+                
+                for stream, stream_messages in messages:
+                    for message_id, data in stream_messages:
+                        symbol = data.get('symbol')
+                        # Campo puede ser 'av' (Polygon raw) o 'volume_accumulated' (transformado)
+                        av_str = data.get('volume_accumulated') or data.get('av')
+                        # Usar timestamp REAL del aggregate (en ms), no datetime.now()
+                        ts_end_str = data.get('timestamp_end')
+                        
+                        if symbol and av_str:
+                            try:
+                                av = int(float(av_str))
+                                # Convertir timestamp de ms a segundos
+                                agg_ts = int(int(ts_end_str) / 1000) if ts_end_str else int(datetime.now().timestamp())
+                                if av > 0:
+                                    volume_window_tracker.update(symbol, av, agg_ts)
+                                    batch_updates += 1
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        message_ids_to_ack.append(message_id)
+                
+                # ACK mensajes
+                if message_ids_to_ack:
+                    try:
+                        await redis_client.xack(
+                            stream_name,
+                            consumer_group,
+                            *message_ids_to_ack
+                        )
+                    except Exception as e:
+                        logger.error("volume_window_xack_error", error=str(e))
+                
+                update_count += batch_updates
+                
+                # Log stats cada 30 segundos
+                now = datetime.now()
+                if (now - last_stats_log).total_seconds() >= 30:
+                    stats = volume_window_tracker.get_stats()
+                    logger.info(
+                        "volume_window_tracker_stats",
+                        updates_since_last=update_count,
+                        symbols_active=stats["symbols_active"],
+                        memory_mb=stats["memory_mb"]
+                    )
+                    update_count = 0
+                    last_stats_log = now
+        
+        except asyncio.CancelledError:
+            logger.info("volume_window_consumer_cancelled")
+            raise
+        
+        except Exception as e:
+            # Auto-healing
+            if 'NOGROUP' in str(e):
+                logger.warn("volume_window_consumer_group_missing_recreating")
+                try:
+                    await redis_client.create_consumer_group(
+                        stream_name,
+                        consumer_group,
+                        start_id="0",
+                        mkstream=True
+                    )
+                    continue
+                except Exception:
+                    pass
+            
+            logger.error("volume_window_consumer_error", error=str(e))
             await asyncio.sleep(1)
 
 
@@ -562,6 +709,15 @@ async def run_analytics_processing():
                     # Si no hay VWAP en snapshot ni cache, mantener el existente o None
                     elif 'vwap' not in ticker_data or not ticker_data.get('vwap'):
                         ticker_data['vwap'] = None
+                    
+                    # 🔄 AÑADIR VOLUME WINDOWS (vol_1min, vol_5min, etc.)
+                    if volume_window_tracker:
+                        vol_windows = volume_window_tracker.get_all_windows(symbol)
+                        ticker_data['vol_1min'] = vol_windows.vol_1min
+                        ticker_data['vol_5min'] = vol_windows.vol_5min
+                        ticker_data['vol_10min'] = vol_windows.vol_10min
+                        ticker_data['vol_15min'] = vol_windows.vol_15min
+                        ticker_data['vol_30min'] = vol_windows.vol_30min
                     
                     enriched_tickers.append(ticker_data)
                 

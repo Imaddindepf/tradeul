@@ -51,6 +51,13 @@ export interface Ticker {
   rvol?: number;
   rvol_slot?: number;
   
+  // Volume window metrics (volume in last N minutes)
+  vol_1min?: number;
+  vol_5min?: number;
+  vol_10min?: number;
+  vol_15min?: number;
+  vol_30min?: number;
+  
   // VWAP
   vwap?: number;           // Volume Weighted Average Price (today)
   price_vs_vwap?: number;  // % distance from VWAP

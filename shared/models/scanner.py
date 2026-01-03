@@ -59,6 +59,17 @@ class ScannerTicker(BaseModel):
     avg_volume_10d: Optional[int] = Field(None, description="10-day average daily volume")
     avg_volume_3m: Optional[int] = Field(None, description="3-month (~63 trading days) average daily volume")
     avg_volume_30d: Optional[int] = Field(None, description="30-day average volume (legacy)")
+    
+    # Dollar Volume = price × avg_volume_10d (liquidity metric in $/day)
+    dollar_volume: Optional[float] = Field(None, description="Dollar volume (price × avg_volume_10d) in $/day")
+    
+    # Volume window metrics (volume traded in last N minutes)
+    vol_1min: Optional[int] = Field(None, description="Volume traded in last 1 minute")
+    vol_5min: Optional[int] = Field(None, description="Volume traded in last 5 minutes")
+    vol_10min: Optional[int] = Field(None, description="Volume traded in last 10 minutes")
+    vol_15min: Optional[int] = Field(None, description="Volume traded in last 15 minutes")
+    vol_30min: Optional[int] = Field(None, description="Volume traded in last 30 minutes")
+    
     float_shares: Optional[int] = Field(None, description="Float shares")
     shares_outstanding: Optional[int] = Field(None, description="Shares outstanding")
     market_cap: Optional[int] = Field(None, description="Market capitalization")
@@ -232,6 +243,22 @@ class FilterParameters(BaseModel):
     max_avg_volume_10d: Optional[int] = Field(None, ge=0, description="Maximum 10-day average volume")
     min_avg_volume_3m: Optional[int] = Field(None, ge=0, description="Minimum 3-month average volume")
     max_avg_volume_3m: Optional[int] = Field(None, ge=0, description="Maximum 3-month average volume")
+    
+    # Dollar Volume filters (price × avg_volume_10d)
+    min_dollar_volume: Optional[float] = Field(None, ge=0, description="Minimum dollar volume ($/day)")
+    max_dollar_volume: Optional[float] = Field(None, ge=0, description="Maximum dollar volume ($/day)")
+    
+    # Volume window filters (volume in last N minutes)
+    min_vol_1min: Optional[int] = Field(None, ge=0, description="Min volume in last 1 minute")
+    max_vol_1min: Optional[int] = Field(None, ge=0, description="Max volume in last 1 minute")
+    min_vol_5min: Optional[int] = Field(None, ge=0, description="Min volume in last 5 minutes")
+    max_vol_5min: Optional[int] = Field(None, ge=0, description="Max volume in last 5 minutes")
+    min_vol_10min: Optional[int] = Field(None, ge=0, description="Min volume in last 10 minutes")
+    max_vol_10min: Optional[int] = Field(None, ge=0, description="Max volume in last 10 minutes")
+    min_vol_15min: Optional[int] = Field(None, ge=0, description="Min volume in last 15 minutes")
+    max_vol_15min: Optional[int] = Field(None, ge=0, description="Max volume in last 15 minutes")
+    min_vol_30min: Optional[int] = Field(None, ge=0, description="Min volume in last 30 minutes")
+    max_vol_30min: Optional[int] = Field(None, ge=0, description="Max volume in last 30 minutes")
     
     # Data freshness filters
     max_data_age_seconds: Optional[int] = Field(None, ge=0, description="Max age of last trade in seconds")

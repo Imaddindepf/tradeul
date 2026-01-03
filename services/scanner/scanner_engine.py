@@ -262,13 +262,19 @@ class ScannerEngine:
                     snapshot = PolygonSnapshot(**ticker_data)
                     rvol = ticker_data.get('rvol')
                     
-                    # Extraer ATR data, intraday high/low y VWAP del snapshot enriquecido
+                    # Extraer ATR data, intraday high/low, VWAP y volume windows del snapshot enriquecido
                     atr_data = {
                         'atr': ticker_data.get('atr'),
                         'atr_percent': ticker_data.get('atr_percent'),
                         'intraday_high': ticker_data.get('intraday_high'),
                         'intraday_low': ticker_data.get('intraday_low'),
-                        'vwap': ticker_data.get('vwap')  # VWAP enriquecido por analytics
+                        'vwap': ticker_data.get('vwap'),  # VWAP enriquecido por analytics
+                        # Volume window metrics (volumen en los últimos N minutos)
+                        'vol_1min': ticker_data.get('vol_1min'),
+                        'vol_5min': ticker_data.get('vol_5min'),
+                        'vol_10min': ticker_data.get('vol_10min'),
+                        'vol_15min': ticker_data.get('vol_15min'),
+                        'vol_30min': ticker_data.get('vol_30min'),
                     }
                     
                     enriched_snapshots.append((snapshot, rvol, atr_data))
@@ -414,7 +420,7 @@ class ScannerEngine:
             
         except Exception as e:
             logger.error("Error calculating avg_volumes batch", error=str(e))
-        
+
         return results
     
     async def _process_snapshots_optimized(
@@ -681,6 +687,13 @@ class ScannerEngine:
             intraday_high = atr_data.get('intraday_high') if atr_data else None
             intraday_low = atr_data.get('intraday_low') if atr_data else None
             
+            # Extract volume window metrics (from enriched snapshot)
+            vol_1min = atr_data.get('vol_1min') if atr_data else None
+            vol_5min = atr_data.get('vol_5min') if atr_data else None
+            vol_10min = atr_data.get('vol_10min') if atr_data else None
+            vol_15min = atr_data.get('vol_15min') if atr_data else None
+            vol_30min = atr_data.get('vol_30min') if atr_data else None
+            
             # Calculate price distance from intraday high/low (includes pre/post market)
             price_from_intraday_high = None
             price_from_intraday_low = None
@@ -735,6 +748,12 @@ class ScannerEngine:
                 low=day_data.l if day_data else None,
                 intraday_high=intraday_high,
                 intraday_low=intraday_low,
+                # Volume window metrics
+                vol_1min=vol_1min,
+                vol_5min=vol_5min,
+                vol_10min=vol_10min,
+                vol_15min=vol_15min,
+                vol_30min=vol_30min,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
@@ -836,6 +855,13 @@ class ScannerEngine:
             intraday_high = atr_data.get('intraday_high') if atr_data else None
             intraday_low = atr_data.get('intraday_low') if atr_data else None
             
+            # Extract volume window metrics (from enriched snapshot)
+            vol_1min = atr_data.get('vol_1min') if atr_data else None
+            vol_5min = atr_data.get('vol_5min') if atr_data else None
+            vol_10min = atr_data.get('vol_10min') if atr_data else None
+            vol_15min = atr_data.get('vol_15min') if atr_data else None
+            vol_30min = atr_data.get('vol_30min') if atr_data else None
+            
             # Calculate price distance from intraday high/low (includes pre/post market)
             price_from_intraday_high = None
             price_from_intraday_low = None
@@ -911,6 +937,12 @@ class ScannerEngine:
                 low=day_data.l if day_data else None,
                 intraday_high=intraday_high,
                 intraday_low=intraday_low,
+                # Volume window metrics
+                vol_1min=vol_1min,
+                vol_5min=vol_5min,
+                vol_10min=vol_10min,
+                vol_15min=vol_15min,
+                vol_30min=vol_30min,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
@@ -918,6 +950,8 @@ class ScannerEngine:
                 avg_volume_10d=avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d,
                 avg_volume_3m=avg_volumes.get('avg_volume_3m') if avg_volumes else None,
                 avg_volume_30d=metadata.avg_volume_30d,
+                # Dollar Volume = price × avg_volume_10d (liquidity metric)
+                dollar_volume=(price * (avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d)) if price and (avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d) else None,
                 float_shares=metadata.float_shares,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
@@ -1113,6 +1147,14 @@ class ScannerEngine:
                     return False
             if params.max_avg_volume_3m is not None:
                 if ticker.avg_volume_3m is None or ticker.avg_volume_3m > params.max_avg_volume_3m:
+                    return False
+            
+            # Dollar Volume filters (price × avg_volume_10d)
+            if params.min_dollar_volume is not None:
+                if ticker.dollar_volume is None or ticker.dollar_volume < params.min_dollar_volume:
+                    return False
+            if params.max_dollar_volume is not None:
+                if ticker.dollar_volume is None or ticker.dollar_volume > params.max_dollar_volume:
                     return False
             
             # Data freshness filter (rechazar tickers con datos muy antiguos)

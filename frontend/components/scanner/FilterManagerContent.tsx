@@ -173,6 +173,67 @@ const FILTERS: FilterConfig[] = [
     defaultMax: 10000000,
     placeholder: '100'
   },
+  {
+    key: 'dollar_volume',
+    label: 'Dollar Volume',
+    type: 'units',
+    minKey: 'min_dollar_volume',
+    maxKey: 'max_dollar_volume',
+    defaultMin: 1000000,
+    defaultMax: 100000000,
+    unit: '$',
+    placeholder: '1'
+  },
+  {
+    key: 'vol_1min',
+    label: '1m vol',
+    type: 'units',
+    minKey: 'min_vol_1min',
+    maxKey: 'max_vol_1min',
+    defaultMin: 10000,
+    defaultMax: 500000,
+    placeholder: '10'
+  },
+  {
+    key: 'vol_5min',
+    label: '5m vol',
+    type: 'units',
+    minKey: 'min_vol_5min',
+    maxKey: 'max_vol_5min',
+    defaultMin: 50000,
+    defaultMax: 2000000,
+    placeholder: '50'
+  },
+  {
+    key: 'vol_10min',
+    label: '10m vol',
+    type: 'units',
+    minKey: 'min_vol_10min',
+    maxKey: 'max_vol_10min',
+    defaultMin: 100000,
+    defaultMax: 5000000,
+    placeholder: '100'
+  },
+  {
+    key: 'vol_15min',
+    label: '15m vol',
+    type: 'units',
+    minKey: 'min_vol_15min',
+    maxKey: 'max_vol_15min',
+    defaultMin: 150000,
+    defaultMax: 7500000,
+    placeholder: '150'
+  },
+  {
+    key: 'vol_30min',
+    label: '30m vol',
+    type: 'units',
+    minKey: 'min_vol_30min',
+    maxKey: 'max_vol_30min',
+    defaultMin: 300000,
+    defaultMax: 15000000,
+    placeholder: '300'
+  },
 ];
 
 const OPERATORS: { value: OperatorType; label: string; needsMax?: boolean }[] = [

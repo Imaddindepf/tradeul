@@ -541,6 +541,103 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
         },
       }),
+      columnHelper.accessor('dollar_volume', {
+        header: '$ Vol',
+        size: 90,
+        minSize: 70,
+        maxSize: 130,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          // Format as currency with K/M/B suffix
+          const formatDollarVolume = (v: number) => {
+            if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+            if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+            if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
+            return `$${v.toFixed(0)}`;
+          };
+          return <div className="font-mono text-slate-600">{formatDollarVolume(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('vol_1min', {
+        header: '1m vol',
+        size: 75,
+        minSize: 55,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('vol_5min', {
+        header: '5m vol',
+        size: 75,
+        minSize: 55,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('vol_10min', {
+        header: '10m vol',
+        size: 80,
+        minSize: 60,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('vol_15min', {
+        header: '15m vol',
+        size: 80,
+        minSize: 60,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+      columnHelper.accessor('vol_30min', {
+        header: '30m vol',
+        size: 80,
+        minSize: 60,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
       columnHelper.accessor('price_vs_vwap', {
         header: 'vs VWAP',
         size: 75,
