@@ -134,6 +134,45 @@ class MarketDataCalculator:
             logger.error("get_ticker_details_error", ticker=ticker, error=str(e))
             return None
     
+    async def get_free_float(self, ticker: str) -> Optional[int]:
+        """
+        Obtiene el free float REAL desde Polygon /stocks/vX/float endpoint.
+        
+        IMPORTANTE: Este es el float correcto para cálculos de Baby Shelf.
+        weighted_shares_outstanding NO es el float real.
+        
+        Returns:
+            Free float (shares publicly tradeable) or None
+        """
+        try:
+            client = await self._get_client()
+            
+            url = f"{self.base_url}/vX/float"
+            params = {
+                "ticker": ticker,
+                "apiKey": self.polygon_api_key
+            }
+            
+            response = await client.get(url, params=params)
+            
+            if response.status_code != 200:
+                logger.debug("polygon_free_float_not_available", ticker=ticker, status=response.status_code)
+                return None
+            
+            data = response.json()
+            
+            if data.get("status") == "OK" and data.get("results"):
+                free_float = data["results"][0].get("free_float")
+                if free_float:
+                    logger.info("free_float_fetched", ticker=ticker, free_float=free_float)
+                    return int(free_float)
+            
+            return None
+            
+        except Exception as e:
+            logger.error("get_free_float_error", ticker=ticker, error=str(e))
+            return None
+    
     async def get_current_price(self, ticker: str) -> Optional[Decimal]:
         """
         Obtiene el precio actual desde Polygon snapshot
@@ -174,7 +213,7 @@ class MarketDataCalculator:
     
     def calculate_ib6_float_value(
         self, 
-        float_shares: int, 
+        free_float: int, 
         highest_60_day_close: Decimal
     ) -> Decimal:
         """
@@ -185,7 +224,7 @@ class MarketDataCalculator:
         This is the total market value of the company's public float.
         The baby shelf limit (what can be raised in 12 months) is IB6 / 3.
         """
-        return Decimal(str(float_shares)) * highest_60_day_close
+        return Decimal(str(free_float)) * highest_60_day_close
     
     def calculate_current_raisable_amount(
         self,
@@ -221,7 +260,7 @@ class MarketDataCalculator:
     def calculate_price_to_exceed_baby_shelf(
         self,
         total_capacity: Decimal,
-        float_shares: int
+        free_float: int
     ) -> Decimal:
         """
         Calcula el precio necesario para que la empresa deje de ser baby shelf
@@ -232,14 +271,14 @@ class MarketDataCalculator:
         If the stock price reaches this level, the company would no longer be
         subject to baby shelf restrictions for this shelf.
         """
-        if float_shares <= 0:
+        if free_float <= 0:
             return Decimal("0")
         
-        return (total_capacity * Decimal("3")) / Decimal(str(float_shares))
+        return (total_capacity * Decimal("3")) / Decimal(str(free_float))
     
     def is_baby_shelf_company(
         self,
-        float_shares: int,
+        free_float: int,
         highest_60_day_close: Decimal
     ) -> bool:
         """
@@ -248,13 +287,13 @@ class MarketDataCalculator:
         Una empresa es "baby shelf" si su float value < $75M
         Float value = Float × Highest_60_Day_Close
         """
-        float_value = Decimal(str(float_shares)) * highest_60_day_close
+        float_value = Decimal(str(free_float)) * highest_60_day_close
         return float_value < Decimal(str(self.BABY_SHELF_THRESHOLD))
     
     async def calculate_all_shelf_metrics(
         self,
         ticker: str,
-        float_shares: Optional[int] = None,
+        free_float: Optional[int] = None,
         total_shelf_capacity: Optional[Decimal] = None,
         total_amount_raised: Decimal = Decimal("0"),
         raised_last_12mo: Decimal = Decimal("0")
@@ -268,7 +307,7 @@ class MarketDataCalculator:
         result = {
             "ticker": ticker,
             "highest_60_day_close": None,
-            "float_shares": float_shares,
+            "free_float": free_float,
             "ib6_float_value": None,
             "is_baby_shelf": None,
             "baby_shelf_restriction": None,
@@ -286,23 +325,33 @@ class MarketDataCalculator:
         result["highest_60_day_close"] = float(highest_close)
         
         # Get float if not provided
-        if not float_shares:
-            details = await self.get_ticker_details(ticker)
-            if details:
-                float_shares = details.get("weighted_shares_outstanding") or details.get("shares_outstanding")
+        # IMPORTANTE: Usar free_float real de Polygon /stocks/vX/float
+        # weighted_shares_outstanding NO es el float real para Baby Shelf
+        if not free_float:
+            # Primero intentar obtener free_float real
+            free_float = await self.get_free_float(ticker)
+            if free_float:
+                free_float = free_float
+                logger.info("using_free_float_for_baby_shelf", ticker=ticker, free_float=free_float)
+            else:
+                # Fallback a weighted_shares_outstanding solo si no hay free_float
+                details = await self.get_ticker_details(ticker)
+                if details:
+                    free_float = details.get("weighted_shares_outstanding") or details.get("shares_outstanding")
+                    logger.warning("using_weighted_shares_as_fallback", ticker=ticker, shares=free_float)
         
-        if not float_shares:
+        if not free_float:
             logger.warning("cannot_calculate_shelf_metrics_no_float", ticker=ticker)
             return result
         
-        result["float_shares"] = float_shares
+        result["free_float"] = free_float
         
         # Calculate IB6 Float Value
-        ib6_value = self.calculate_ib6_float_value(float_shares, highest_close)
+        ib6_value = self.calculate_ib6_float_value(free_float, highest_close)
         result["ib6_float_value"] = float(ib6_value)
         
         # Check if baby shelf
-        is_baby = self.is_baby_shelf_company(float_shares, highest_close)
+        is_baby = self.is_baby_shelf_company(free_float, highest_close)
         result["is_baby_shelf"] = is_baby
         result["baby_shelf_restriction"] = is_baby
         
@@ -319,7 +368,7 @@ class MarketDataCalculator:
             # Calculate price to exceed
             price_to_exceed = self.calculate_price_to_exceed_baby_shelf(
                 total_shelf_capacity,
-                float_shares
+                free_float
             )
             result["price_to_exceed_baby_shelf"] = float(price_to_exceed)
         
@@ -333,7 +382,7 @@ class MarketDataCalculator:
         ticker: str,
         total_atm_capacity: Decimal,
         remaining_atm_capacity: Decimal,
-        float_shares: Optional[int] = None
+        free_float: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Calcula las limitaciones del ATM por Baby Shelf
@@ -351,7 +400,7 @@ class MarketDataCalculator:
         # Get shelf metrics
         shelf_metrics = await self.calculate_all_shelf_metrics(
             ticker,
-            float_shares=float_shares,
+            free_float=free_float,
             total_shelf_capacity=total_atm_capacity
         )
         

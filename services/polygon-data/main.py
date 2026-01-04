@@ -46,13 +46,15 @@ async def lifespan(app: FastAPI):
     minute_downloader = MinuteAggsDownloader()
     day_downloader = DayAggsDownloader()
     
-    # Initialize and start scheduler
+    # Scheduler DESACTIVADO - Data Maintenance centraliza la orquestación
+    # FlatFilesWatcher en data_maintenance se encarga de sincronizar flat files
     scheduler = DailyUpdateScheduler()
-    scheduler.start()
+    # scheduler.start()  # DISABLED: Managed by data_maintenance/FlatFilesWatcher
     
     # Log initial stats
     logger.info("Minute aggs stats", **minute_downloader.get_stats())
     logger.info("Day aggs stats", **day_downloader.get_stats())
+    logger.info("⚠️ Scheduler DISABLED - Managed by Data Maintenance Service")
     
     yield
     

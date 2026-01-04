@@ -298,7 +298,7 @@ class TimescaleClient:
         query = """
             INSERT INTO tickers_unified (
                 symbol, company_name, exchange, sector, industry,
-                market_cap, float_shares, shares_outstanding,
+                market_cap, free_float, shares_outstanding,
                 avg_volume_30d, avg_volume_10d, avg_price_30d,
                 beta, is_etf, is_actively_trading, updated_at
             ) VALUES (
@@ -310,7 +310,7 @@ class TimescaleClient:
                 sector = EXCLUDED.sector,
                 industry = EXCLUDED.industry,
                 market_cap = EXCLUDED.market_cap,
-                float_shares = EXCLUDED.float_shares,
+                free_float = EXCLUDED.free_float,
                 shares_outstanding = EXCLUDED.shares_outstanding,
                 avg_volume_30d = EXCLUDED.avg_volume_30d,
                 avg_volume_10d = EXCLUDED.avg_volume_10d,
@@ -328,7 +328,7 @@ class TimescaleClient:
             metadata.get("sector"),
             metadata.get("industry"),
             metadata.get("market_cap"),
-            metadata.get("float_shares"),
+            metadata.get("free_float"),
             metadata.get("shares_outstanding"),
             metadata.get("avg_volume_30d"),
             metadata.get("avg_volume_10d"),
@@ -348,7 +348,7 @@ class TimescaleClient:
             INSERT INTO scan_results (
                 time, symbol, session, price, volume, volume_today,
                 change_percent, rvol, rvol_slot, price_from_high,
-                price_from_low, market_cap, float_shares, score,
+                price_from_low, market_cap, free_float, score,
                 filters_matched, metadata
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
@@ -368,7 +368,7 @@ class TimescaleClient:
             scan_data.get("price_from_high"),
             scan_data.get("price_from_low"),
             scan_data.get("market_cap"),
-            scan_data.get("float_shares"),
+            scan_data.get("free_float"),
             scan_data.get("score"),
             scan_data.get("filters_matched", []),
             scan_data.get("metadata")

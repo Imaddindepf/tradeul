@@ -56,7 +56,7 @@ async def save_metadata(conn: asyncpg.Connection, metadata: dict):
     query = """
     INSERT INTO tickers_unified (
         symbol, company_name, exchange, sector, industry,
-        market_cap, float_shares, shares_outstanding,
+        market_cap, free_float, shares_outstanding,
         avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
         is_etf, is_actively_trading, updated_at
     ) VALUES (

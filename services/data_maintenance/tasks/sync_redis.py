@@ -157,7 +157,9 @@ class SyncRedisTask:
         Formato Redis:
         ticker:metadata:{symbol} = {
             "market_cap": ...,
-            "float_shares": ...,
+            "free_float": ...,
+            "free_float_percent": ...,
+            "shares_outstanding": ...,
             "sector": ...,
             "industry": ...,
             ...
@@ -168,7 +170,7 @@ class SyncRedisTask:
             query = """
                 SELECT 
                     symbol, company_name, exchange, sector, industry,
-                    market_cap, float_shares, shares_outstanding,
+                    market_cap, free_float, free_float_percent, shares_outstanding,
                     avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
                     description, homepage_url, phone_number, address,
                     total_employees, list_date,

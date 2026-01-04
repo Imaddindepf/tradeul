@@ -101,27 +101,35 @@ class DeduplicationService:
     # WARRANTS
     # ========================================================================
     
-    def extract_warrant_type(self, notes: str) -> str:
+    def extract_warrant_type(self, notes: str = '', warrant_type: str = '', series_name: str = '') -> str:
         """
-        Extraer el tipo de warrant de las notes para agrupar duplicados.
+        Extraer el tipo de warrant para agrupar duplicados.
+        
+        FIX v4.3: Ahora busca en warrant_type, series_name Y notes (en ese orden de prioridad).
+        Antes solo buscaba en notes, lo que causaba duplicados cuando notes estaba vacío.
         
         Tipos reconocidos: Public, Private, SPA, Pre-Funded, Common, Unknown
         """
-        if not notes:
+        # Combinar todas las fuentes de texto
+        combined = f"{warrant_type} {series_name} {notes}".lower()
+        
+        if not combined.strip():
             return "Unknown"
         
-        notes_lower = notes.lower()
-        
         # Orden importa - más específico primero
-        if 'pre-funded' in notes_lower or 'prefunded' in notes_lower:
+        if 'pre-funded' in combined or 'prefunded' in combined:
             return "Pre-Funded"
-        if 'spa warrant' in notes_lower or 'securities purchase agreement' in notes_lower:
+        if 'spa warrant' in combined or 'securities purchase agreement' in combined:
             return "SPA"
-        if 'private' in notes_lower:
+        if 'private' in combined or 'pipe' in combined:
             return "Private"
-        if 'public' in notes_lower:
+        if 'public' in combined or 'spac' in combined:
             return "Public"
-        if 'common warrant' in notes_lower or 'common stock warrant' in notes_lower:
+        if 'placement agent' in combined:
+            return "Placement-Agent"
+        if 'underwriter' in combined:
+            return "Underwriter"
+        if 'common warrant' in combined or 'common stock warrant' in combined:
             return "Common"
         
         return "Unknown"
@@ -147,12 +155,22 @@ class DeduplicationService:
                 w['outstanding'] = outstanding
         
         # Paso 2: Agrupar por (tipo, exercise_price)
+        # FIX v4.3: Usar warrant_type, series_name Y notes para extraer tipo
         groups = {}
         for w in warrants:
             try:
                 notes = normalize_grok_value(w.get('notes'), 'string') or ''
-                warrant_type = self.extract_warrant_type(notes)
+                wt_field = normalize_grok_value(w.get('warrant_type'), 'string') or ''
+                series_name = normalize_grok_value(w.get('series_name'), 'string') or ''
+                warrant_type = self.extract_warrant_type(notes, wt_field, series_name)
                 exercise_price = safe_get_for_key(w, 'exercise_price', 'number')
+                
+                # Normalizar precio a 2 decimales para evitar duplicados por precisión
+                try:
+                    if exercise_price is not None:
+                        exercise_price = round(float(exercise_price), 2)
+                except (ValueError, TypeError):
+                    pass
                 
                 key = (warrant_type, exercise_price)
                 
@@ -203,7 +221,9 @@ class DeduplicationService:
                    input_count=len(warrants),
                    output_count=len(unique),
                    types_found=list(set(self.extract_warrant_type(
-                       normalize_grok_value(w.get('notes'), 'string') or ''
+                       normalize_grok_value(w.get('notes'), 'string') or '',
+                       normalize_grok_value(w.get('warrant_type'), 'string') or '',
+                       normalize_grok_value(w.get('series_name'), 'string') or ''
                    ) for w in unique)))
         
         return unique
@@ -466,11 +486,41 @@ class DeduplicationService:
     
     def classify_shelf_status(self, shelfs: List[Dict], ticker: str) -> List[Dict]:
         """
-        Clasificar shelf registrations por su estado: Active o Expired.
+        Clasificar shelf registrations por su estado: Active, Expired, o Resale.
+        
+        FIX v4.3: Ahora detecta y marca shelfs de RESALE como no dilutivos.
+        Un resale shelf permite a shareholders existentes vender sus acciones,
+        NO crea nuevas acciones (no es dilutivo).
         """
         now = datetime.now(timezone.utc)
         
         for s in shelfs:
+            # Primero verificar si es un resale shelf (no dilutivo)
+            series_name = (s.get('series_name') or '').lower()
+            notes = (s.get('notes') or '').lower()
+            security_type = (s.get('security_type') or '').lower()
+            
+            # Detectar resale shelfs
+            is_resale = (
+                'resale' in series_name or
+                'resale' in notes or
+                'selling stockholder' in notes or
+                'selling shareholder' in notes or
+                'secondary offering' in notes or
+                security_type == 'resale'
+            )
+            
+            if is_resale:
+                s['status'] = 'Resale'
+                s['is_dilutive'] = False
+                s['exclude_from_dilution'] = True
+                logger.debug("shelf_marked_resale",
+                           ticker=ticker,
+                           series_name=s.get('series_name'),
+                           reason="Resale shelf - not dilutive")
+                continue
+            
+            # Verificar expiración
             exp_date_str = s.get('expiration_date')
             
             if exp_date_str:
@@ -485,25 +535,31 @@ class DeduplicationService:
                     
                     if exp_date < now:
                         s['status'] = 'Expired'
+                        s['is_dilutive'] = False
                     else:
                         s['status'] = 'Active'
+                        s['is_dilutive'] = True
                 except Exception as e:
                     logger.warning("shelf_date_parse_failed",
                                  ticker=ticker,
                                  exp_date_str=str(exp_date_str),
                                  error=str(e))
                     s['status'] = 'Active'
+                    s['is_dilutive'] = True
             else:
                 s['status'] = 'Active'
+                s['is_dilutive'] = True
         
         active_count = sum(1 for s in shelfs if s.get('status') == 'Active')
         expired_count = sum(1 for s in shelfs if s.get('status') == 'Expired')
+        resale_count = sum(1 for s in shelfs if s.get('status') == 'Resale')
         
         logger.info("shelf_status_classification",
                    ticker=ticker,
                    total=len(shelfs),
                    active=active_count,
-                   expired=expired_count)
+                   expired=expired_count,
+                   resale=resale_count)
         
         return shelfs
     

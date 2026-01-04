@@ -469,10 +469,24 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>
         ),
       }),
-      columnHelper.accessor('float_shares', {
-        header: t('scanner.tableHeaders.float'),
+      columnHelper.accessor('free_float', {
+        id: 'free_float',
+        header: 'Free Float',
         size: 90,
         minSize: 70,
+        maxSize: 140,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => (
+          <div className="font-mono text-slate-600">{formatNumber(info.getValue())}</div>
+        ),
+      }),
+      columnHelper.accessor('shares_outstanding', {
+        id: 'shares_outstanding',
+        header: 'Outstanding',
+        size: 95,
+        minSize: 75,
         maxSize: 140,
         enableResizing: true,
         enableSorting: true,

@@ -17,6 +17,7 @@ import httpx
 from shared.utils.redis_client import RedisClient
 from shared.utils.timescale_client import TimescaleClient
 from shared.utils.logger import get_logger
+from shared.utils.polygon_helpers import get_free_float_with_fallback
 
 # API Keys desde environment
 POLYGON_API_KEY = os.getenv("POLYGON_API_KEY", "vjzI76TMiepqrMZKphpfs3SA54JFkhEx")
@@ -30,7 +31,8 @@ class EnrichMetadataTask:
     Tarea: Enriquecer metadata de tickers
     
     - Market cap
-    - Float shares
+    - Free float (from Polygon /stocks/vX/float)
+    - Free float percent
     - Shares outstanding
     - Sector
     - Industry
@@ -150,7 +152,6 @@ class EnrichMetadataTask:
         - Límite alto (15000) para cubrir todo el universo
         """
         try:
-            # Query INCLUYE company_name y exchange
             query = """
                 SELECT symbol
                 FROM tickers_unified
@@ -193,7 +194,7 @@ class EnrichMetadataTask:
             # 1. Intentar Polygon primero
             polygon_data = await self._fetch_from_polygon(client, symbol)
             
-            # 2. Extraer campos de Polygon (INCLUYE company_name y exchange)
+            # 2. Extraer campos de Polygon
             company_name = polygon_data.get('name') if polygon_data else None
             exchange = polygon_data.get('primary_exchange') if polygon_data else None
             market_cap = polygon_data.get('market_cap') if polygon_data else None
@@ -201,13 +202,28 @@ class EnrichMetadataTask:
                 polygon_data.get('share_class_shares_outstanding') or 
                 polygon_data.get('weighted_shares_outstanding')
             ) if polygon_data else None
-            float_shares = polygon_data.get('weighted_shares_outstanding') if polygon_data else None
             sector = polygon_data.get('sic_description') if polygon_data else None
             industry = polygon_data.get('sic_description') if polygon_data else None
             cik = polygon_data.get('cik') if polygon_data else None
             description = polygon_data.get('description') if polygon_data else None
             homepage_url = polygon_data.get('homepage_url') if polygon_data else None
             total_employees = polygon_data.get('total_employees') if polygon_data else None
+            ticker_type = polygon_data.get('type') if polygon_data else None
+            
+            # 2.5 Obtener FREE FLOAT (Polygon primero, FMP fallback)
+            # Polygon solo tiene datos para CS, FMP tiene para más tipos
+            free_float = None
+            free_float_percent = None
+            free_float_data = await get_free_float_with_fallback(symbol)
+            if free_float_data:
+                free_float = free_float_data.get('free_float')
+                free_float_percent = free_float_data.get('free_float_percent')
+                logger.debug(
+                    "free_float_obtained",
+                    symbol=symbol,
+                    free_float=free_float,
+                    source=free_float_data.get('source')
+                )
             
             # 3. Si faltan campos críticos, usar FMP como fallback
             needs_fmp = (
@@ -229,7 +245,6 @@ class EnrichMetadataTask:
                     exchange = exchange or fmp_data.get('exchange')
                     market_cap = market_cap or fmp_data.get('mktCap')
                     shares_outstanding = shares_outstanding or fmp_data.get('sharesOutstanding')
-                    float_shares = float_shares or fmp_data.get('sharesOutstanding')
                     sector = sector or fmp_data.get('sector')
                     industry = industry or fmp_data.get('industry')
                     cik = cik or fmp_data.get('cik')
@@ -249,7 +264,8 @@ class EnrichMetadataTask:
                     company_name=company_name,
                     exchange=exchange,
                     market_cap=market_cap,
-                    float_shares=float_shares,
+                    free_float=free_float,
+                    free_float_percent=free_float_percent,
                     shares_outstanding=shares_outstanding,
                     sector=sector,
                     industry=industry,
@@ -336,7 +352,8 @@ class EnrichMetadataTask:
         company_name: Optional[str] = None,
         exchange: Optional[str] = None,
         market_cap: Optional[float] = None,
-        float_shares: Optional[int] = None,
+        free_float: Optional[int] = None,
+        free_float_percent: Optional[float] = None,
         shares_outstanding: Optional[int] = None,
         sector: Optional[str] = None,
         industry: Optional[str] = None,
@@ -346,21 +363,21 @@ class EnrichMetadataTask:
         total_employees: Optional[int] = None,
         beta: Optional[float] = None
     ):
-        """Actualizar metadata en tickers_unified (incluye company_name y exchange)"""
-        # Query INCLUYE company_name y exchange
+        """Actualizar metadata en tickers_unified"""
         query = """
             INSERT INTO tickers_unified (
-                symbol, company_name, exchange, market_cap, float_shares, shares_outstanding,
-                sector, industry, cik, description, homepage_url,
+                symbol, company_name, exchange, market_cap, free_float, free_float_percent,
+                shares_outstanding, sector, industry, cik, description, homepage_url,
                 total_employees, beta, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
             ON CONFLICT (symbol)
             DO UPDATE SET
                 company_name = COALESCE(EXCLUDED.company_name, tickers_unified.company_name),
                 exchange = COALESCE(EXCLUDED.exchange, tickers_unified.exchange),
                 market_cap = COALESCE(EXCLUDED.market_cap, tickers_unified.market_cap),
-                float_shares = COALESCE(EXCLUDED.float_shares, tickers_unified.float_shares),
+                free_float = COALESCE(EXCLUDED.free_float, tickers_unified.free_float),
+                free_float_percent = COALESCE(EXCLUDED.free_float_percent, tickers_unified.free_float_percent),
                 shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, tickers_unified.shares_outstanding),
                 sector = COALESCE(EXCLUDED.sector, tickers_unified.sector),
                 industry = COALESCE(EXCLUDED.industry, tickers_unified.industry),
@@ -379,7 +396,8 @@ class EnrichMetadataTask:
                 company_name,
                 exchange,
                 int(market_cap) if market_cap else None,
-                int(float_shares) if float_shares else None,
+                int(free_float) if free_float else None,
+                float(free_float_percent) if free_float_percent else None,
                 int(shares_outstanding) if shares_outstanding else None,
                 sector, 
                 industry,

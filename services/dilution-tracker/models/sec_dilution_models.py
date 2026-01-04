@@ -526,7 +526,7 @@ class ShelfRegistrationModel(BaseModel):
     ib6_float_value: Optional[Decimal] = Field(None, description="IB6 float value = Float × Highest60DayClose × (1/3)")
     highest_60_day_close: Optional[Decimal] = Field(None, description="Highest closing price in last 60 days")
     outstanding_shares_calc: Optional[int] = Field(None, description="Outstanding shares used for calculation")
-    float_shares_calc: Optional[int] = Field(None, description="Float shares used for calculation")
+    free_float_calc: Optional[int] = Field(None, description="Float shares used for calculation")
     last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
@@ -815,7 +815,7 @@ class SECDilutionProfile(BaseModel):
     # Context
     current_price: Optional[Decimal] = None
     shares_outstanding: Optional[int] = None
-    float_shares: Optional[int] = None
+    free_float: Optional[int] = None
     
     # Historical shares outstanding (from SEC EDGAR XBRL)
     historical_shares: List[dict] = Field(

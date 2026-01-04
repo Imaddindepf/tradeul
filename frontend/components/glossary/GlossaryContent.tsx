@@ -52,7 +52,9 @@ const INDICATORS = {
     ],
     fundamental: [
         { id: 'market_cap', name: 'Market Cap', desc: 'Total market capitalization (price x shares outstanding)' },
-        { id: 'float_shares', name: 'Float', desc: 'Shares available for public trading' },
+        { id: 'free_float', name: 'Free Float', desc: 'Shares available for public trading (from Polygon)' },
+        { id: 'free_float_percent', name: 'Free Float %', desc: 'Percentage of shares available for public trading' },
+        { id: 'shares_outstanding', name: 'Shares Outstanding', desc: 'Total shares outstanding' },
         { id: 'sector', name: 'Sector', desc: 'Business sector classification' },
     ],
 };

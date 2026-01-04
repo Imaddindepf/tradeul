@@ -1611,7 +1611,7 @@ class SECDilutionService:
                 )
             
             # 7. Obtener precio actual y shares outstanding
-            current_price, shares_outstanding, float_shares = await self._get_current_market_data(ticker)
+            current_price, shares_outstanding, free_float = await self._get_current_market_data(ticker)
             
             # 7. Construir profile completo
             profile = self._build_profile(
@@ -1621,14 +1621,14 @@ class SECDilutionService:
                 extracted_data=extracted_data,
                 current_price=current_price,
                 shares_outstanding=shares_outstanding,
-                float_shares=float_shares,
+                free_float=free_float,
                 source_filings=relevant_filings
             )
             
             # 8. NUEVO: Calcular métricas de Baby Shelf
             profile = await self._enrich_profile_with_baby_shelf_calculations(
                 profile,
-                float_shares=float_shares
+                free_float=free_float
             )
             
             logger.info("sec_scrape_completed", ticker=ticker)
@@ -1771,12 +1771,12 @@ class SECDilutionService:
         2. Precio desde Polygon API (snapshot actual)
         
         Returns:
-            Tuple (current_price, shares_outstanding, float_shares)
+            Tuple (current_price, shares_outstanding, free_float)
         """
         try:
             # 1. Obtener shares outstanding y float de ticker_metadata
             query = """
-            SELECT shares_outstanding, float_shares
+            SELECT shares_outstanding, free_float
             FROM ticker_metadata
             WHERE symbol = $1
             """
@@ -1787,12 +1787,12 @@ class SECDilutionService:
                 return None, None, None
             
             shares_outstanding = result['shares_outstanding']
-            float_shares = result['float_shares']
+            free_float = result['free_float']
             
             # 2. Obtener precio actual desde Polygon API (snapshot)
             current_price = await self._get_price_from_polygon(ticker)
             
-            return current_price, shares_outstanding, float_shares
+            return current_price, shares_outstanding, free_float
             
         except Exception as e:
             logger.error("get_current_market_data_failed", ticker=ticker, error=str(e))
@@ -1887,7 +1887,7 @@ class SECDilutionService:
     async def _enrich_profile_with_baby_shelf_calculations(
         self,
         profile: SECDilutionProfile,
-        float_shares: Optional[int] = None
+        free_float: Optional[int] = None
     ) -> SECDilutionProfile:
         """
         Enriquece el perfil con cálculos de Baby Shelf, IB6 Float Value, etc.
@@ -1905,11 +1905,11 @@ class SECDilutionService:
             logger.warning("market_calculator_not_available", ticker=ticker)
             return profile
         
-        # Usar float_shares del perfil si no se proporciona
-        float_shares = float_shares or profile.float_shares
+        # Usar free_float del perfil si no se proporciona
+        free_float = free_float or profile.free_float
         
-        if not float_shares:
-            logger.warning("no_float_shares_for_baby_shelf_calc", ticker=ticker)
+        if not free_float:
+            logger.warning("no_free_float_for_baby_shelf_calc", ticker=ticker)
             return profile
         
         try:
@@ -1922,12 +1922,12 @@ class SECDilutionService:
             
             # Calcular IB6 Float Value
             ib6_float_value = self.market_calculator.calculate_ib6_float_value(
-                float_shares, highest_close
+                free_float, highest_close
             )
             
             # Determinar si es Baby Shelf
             is_baby_shelf = self.market_calculator.is_baby_shelf_company(
-                float_shares, highest_close
+                free_float, highest_close
             )
             
             logger.info("baby_shelf_calculated", ticker=ticker,
@@ -1940,7 +1940,7 @@ class SECDilutionService:
                 shelf.highest_60_day_close = highest_close
                 shelf.ib6_float_value = ib6_float_value
                 shelf.outstanding_shares_calc = profile.shares_outstanding
-                shelf.float_shares_calc = float_shares
+                shelf.free_float_calc = free_float
                 shelf.is_baby_shelf = is_baby_shelf
                 shelf.baby_shelf_restriction = is_baby_shelf
                 shelf.last_update_date = datetime.now().date()
@@ -1962,7 +1962,7 @@ class SECDilutionService:
                     if is_baby_shelf:
                         price_to_exceed = self.market_calculator.calculate_price_to_exceed_baby_shelf(
                             shelf.total_capacity,
-                            float_shares
+                            free_float
                         )
                         shelf.price_to_exceed_baby_shelf = price_to_exceed
             
@@ -2008,7 +2008,7 @@ class SECDilutionService:
         extracted_data: Dict,
         current_price: Optional[Decimal],
         shares_outstanding: Optional[int],
-        float_shares: Optional[int],
+        free_float: Optional[int],
         source_filings: List[Dict]
     ) -> SECDilutionProfile:
         """Construir SECDilutionProfile desde datos extraídos"""
@@ -2270,7 +2270,7 @@ class SECDilutionService:
             cik=cik,
             current_price=current_price,
             shares_outstanding=shares_outstanding,
-            float_shares=float_shares,
+            free_float=free_float,
             warrants=warrants,
             atm_offerings=atm_offerings,
             shelf_registrations=shelf_registrations,

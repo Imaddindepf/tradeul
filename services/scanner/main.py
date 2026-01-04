@@ -259,7 +259,7 @@ async def discovery_loop():
     
     while is_running:
         try:
-            # 🚨 HOLIDAY MODE: Reducir frecuencia en festivos
+            # HOLIDAY MODE: Reducir frecuencia en festivos
             if is_holiday_mode:
                 logger.debug("holiday_mode_active_reduced_scan_frequency")
                 await asyncio.sleep(60)  # Solo cada minuto en festivos

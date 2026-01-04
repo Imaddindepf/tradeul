@@ -24,7 +24,7 @@ class RiskScorer:
         cash_need_score: int,
         dilution_risk_score: int,
         market_cap: Optional[int] = None,
-        float_shares: Optional[int] = None,
+        free_float: Optional[int] = None,
         recent_filings_count: int = 0
     ) -> int:
         """
@@ -39,7 +39,7 @@ class RiskScorer:
             cash_need_score: Score de necesidad de cash (0-100)
             dilution_risk_score: Score de riesgo de dilución (0-100)
             market_cap: Market capitalization
-            float_shares: Float shares
+            free_float: Float shares
             recent_filings_count: Filings dilutivos últimos 6 meses
         
         Returns:
@@ -55,7 +55,7 @@ class RiskScorer:
             # Market factors score (20% weight)
             market_score = self._calculate_market_risk_score(
                 market_cap=market_cap,
-                float_shares=float_shares,
+                free_float=free_float,
                 recent_filings=recent_filings_count
             )
             
@@ -70,7 +70,7 @@ class RiskScorer:
     def _calculate_market_risk_score(
         self,
         market_cap: Optional[int],
-        float_shares: Optional[int],
+        free_float: Optional[int],
         recent_filings: int
     ) -> int:
         """
@@ -95,12 +95,12 @@ class RiskScorer:
                 score += 10
         
         # 2. Float (30 puntos)
-        if float_shares is not None:
-            if float_shares < 5_000_000:  # < 5M
+        if free_float is not None:
+            if free_float < 5_000_000:  # < 5M
                 score += 30
-            elif float_shares < 10_000_000:  # < 10M
+            elif free_float < 10_000_000:  # < 10M
                 score += 20
-            elif float_shares < 20_000_000:  # < 20M
+            elif free_float < 20_000_000:  # < 20M
                 score += 10
         
         # 3. Recent dilutive filings (30 puntos)

@@ -12,10 +12,12 @@ Funcionalidades:
 4. Cálculo de indicadores (ATR, RVOL)
 5. Sincronización de Redis
 6. API para monitoreo y triggers manuales
+7. FlatFilesWatcher: Monitorea y sincroniza flat files de Polygon (SIN afectar caches)
 
 Arquitectura:
 - DailyMaintenanceScheduler: Ejecuta el ciclo completo a las 3:00 AM ET
 - MaintenanceOrchestrator: Coordina las tareas individuales
+- FlatFilesWatcher: Sincroniza flat files después del cierre del mercado
 - Tareas individuales: Cada una es independiente y auto-validada
 """
 
@@ -42,6 +44,7 @@ from shared.utils.logger import get_logger
 from daily_maintenance_scheduler import DailyMaintenanceScheduler
 from maintenance_orchestrator import MaintenanceOrchestrator
 from realtime_ticker_monitor import RealtimeTickerMonitor
+from tasks.sync_flat_files import SyncFlatFilesTask, FlatFilesWatcher
 
 logger = get_logger(__name__)
 
@@ -49,14 +52,15 @@ logger = get_logger(__name__)
 redis_client: RedisClient = None
 timescale_client: TimescaleClient = None
 daily_scheduler: DailyMaintenanceScheduler = None
+flat_files_watcher: FlatFilesWatcher = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida del servicio"""
-    global redis_client, timescale_client, daily_scheduler
+    global redis_client, timescale_client, daily_scheduler, flat_files_watcher
     
-    logger.info("🚀 Starting Data Maintenance Service v2.0")
+    logger.info("🚀 Starting Data Maintenance Service v2.1")
     
     # Inicializar clientes
     redis_client = RedisClient()
@@ -78,9 +82,15 @@ async def lifespan(app: FastAPI):
     realtime_monitor = RealtimeTickerMonitor(redis_client, timescale_client)
     monitor_task = asyncio.create_task(realtime_monitor.start())
     
+    # Iniciar FlatFilesWatcher (monitorea flat files de Polygon después del cierre)
+    # Recibe daily_scheduler para usar su lógica de holidays (sin duplicar)
+    flat_files_watcher = FlatFilesWatcher(redis_client, daily_scheduler)
+    watcher_task = asyncio.create_task(flat_files_watcher.run())
+    
     logger.info("=" * 60)
     logger.info("📅 Schedule: Daily maintenance at 3:00 AM ET")
     logger.info("   (1 hour before pre-market opens at 4:00 AM ET)")
+    logger.info("📁 FlatFilesWatcher: Monitors Polygon S3 every 30min after close")
     logger.info("📊 Pattern Matching: Dedicated server 37.27.183.194:8025")
     logger.info("=" * 60)
     
@@ -89,11 +99,20 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("🛑 Shutting down Data Maintenance Service")
     
+    # Detener FlatFilesWatcher
+    flat_files_watcher.stop()
+    watcher_task.cancel()
+    
     await realtime_monitor.stop()
     monitor_task.cancel()
     
     daily_scheduler.stop()
     scheduler_task.cancel()
+    
+    try:
+        await watcher_task
+    except asyncio.CancelledError:
+        pass
     
     try:
         await monitor_task
@@ -234,7 +253,7 @@ async def trigger_maintenance(request: Optional[TriggerRequest] = None):
         
         if request:
             if request.target_date:
-            target = date.fromisoformat(request.target_date)
+                target = date.fromisoformat(request.target_date)
             clear_caches = request.clear_caches
         
         logger.info(
@@ -312,11 +331,6 @@ async def get_next_run():
     if now_et.hour >= 3:
         next_maintenance += timedelta(days=1)
     
-    # Calcular próxima ejecución pattern update (8:00 PM ET)
-    next_pattern = now_et.replace(hour=20, minute=0, second=0, microsecond=0)
-    if now_et.hour >= 20:
-        next_pattern += timedelta(days=1)
-    
     return {
         "current_time_et": now_et.strftime("%Y-%m-%d %H:%M:%S %Z"),
         "maintenance": {
@@ -324,11 +338,15 @@ async def get_next_run():
             "time_until": str(next_maintenance - now_et).split(".")[0],
             "running": daily_scheduler.is_running if daily_scheduler else False
         },
+        "flat_files_watcher": {
+            "running": flat_files_watcher.is_running if flat_files_watcher else False,
+            "check_interval": "30 minutes",
+            "active_hours": "5 PM - 9 AM ET (after market close)",
+            "note": "Monitors Polygon S3 and syncs flat files + Pattern Matching automatically"
+        },
         "pattern_matching": {
             "server": "37.27.183.194:8025",
-            "note": "Runs on dedicated server with own cron at 8:00 PM ET",
-            "next_run_et": next_pattern.strftime("%Y-%m-%d %H:%M:%S %Z"),
-            "time_until": str(next_pattern - now_et).split(".")[0]
+            "note": "Managed by FlatFilesWatcher (no separate cron needed)"
         }
     }
 
@@ -373,6 +391,166 @@ async def trigger_pattern_update(request: Optional[PatternUpdateRequest] = None)
         return {"status": "error", "error": "Timeout (10 min)"}
     except Exception as e:
         logger.error("manual_pattern_trigger_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+# =============================================================================
+# FLAT FILES ENDPOINTS (SIN AFECTAR CACHES)
+# =============================================================================
+
+class FlatFilesSyncRequest(BaseModel):
+    target_date: Optional[str] = None  # ISO format: "2026-01-02"
+
+
+@app.get("/flat-files/status")
+async def get_flat_files_status():
+    """
+    Ver estado de los flat files.
+    
+    Muestra:
+    - Último día de trading
+    - Si el flat file está disponible en Polygon
+    - Si ya lo tenemos descargado
+    - Estado del Pattern Matching
+    
+    NOTA: Este endpoint NO modifica nada, solo consulta.
+    USA daily_scheduler para lógica de holidays (sin duplicar).
+    """
+    from zoneinfo import ZoneInfo
+    
+    try:
+        sync_task = SyncFlatFilesTask()
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        today = now_et.date()
+        
+        # Usar daily_scheduler para obtener último día de trading (sin duplicar holidays)
+        last_trading = await daily_scheduler._get_last_trading_day_async(today)
+        
+        # Verificar si existe en Polygon
+        minute_exists = await sync_task.check_file_exists_in_polygon(last_trading, "minute_aggs")
+        day_exists = await sync_task.check_file_exists_in_polygon(last_trading, "day_aggs")
+        
+        # Verificar estado de Pattern Matching
+        pm_status = await sync_task.get_pattern_matching_status()
+        
+        # Verificar si ya sincronizamos
+        sync_key = f"flat_files:synced:{last_trading.isoformat()}"
+        already_synced = await redis_client.get(sync_key) is not None
+        
+        return {
+            "current_time_et": now_et.strftime("%Y-%m-%d %H:%M:%S"),
+            "last_trading_day": last_trading.isoformat(),
+            "polygon_s3": {
+                "minute_aggs_available": minute_exists,
+                "day_aggs_available": day_exists
+            },
+            "pattern_matching": {
+                "server": "37.27.183.194:8025",
+                "newest_flat_file": pm_status.get("newest_flat_file"),
+                "total_files": pm_status.get("total_files"),
+                "needs_update": pm_status.get("newest_flat_file") != last_trading.isoformat() if pm_status.get("newest_flat_file") else True
+            },
+            "sync_status": {
+                "already_synced_today": already_synced,
+                "watcher_running": flat_files_watcher.is_running if flat_files_watcher else False
+            }
+        }
+        
+    except Exception as e:
+        logger.error("flat_files_status_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/flat-files/sync")
+async def sync_flat_files(request: Optional[FlatFilesSyncRequest] = None):
+    """
+    Sincronizar flat files de Polygon MANUALMENTE.
+    
+    IMPORTANTE: Esta operación:
+    - NO limpia caches
+    - NO afecta datos del usuario
+    - Solo descarga flat files y actualiza Pattern Matching
+    
+    Puede ejecutarse en cualquier momento (incluso fines de semana)
+    sin afectar la experiencia del usuario.
+    
+    USA daily_scheduler para lógica de holidays (sin duplicar).
+    
+    Args:
+        target_date: Fecha específica (ISO format: "2026-01-02")
+                     Si no se proporciona, usa el último día de trading
+    """
+    from zoneinfo import ZoneInfo
+    
+    try:
+        sync_task = SyncFlatFilesTask()
+        
+        if request and request.target_date:
+            target = date.fromisoformat(request.target_date)
+        else:
+            # Usar daily_scheduler para obtener último día de trading (sin duplicar holidays)
+            now_et = datetime.now(ZoneInfo("America/New_York"))
+            target = await daily_scheduler._get_last_trading_day_async(now_et.date())
+        
+        logger.info(
+            "📁 Manual flat files sync requested",
+            target_date=target.isoformat()
+        )
+        
+        result = await sync_task.sync_for_date(target)
+        
+        # Si fue exitoso, marcar como sincronizado
+        if result.get("success"):
+            sync_key = f"flat_files:synced:{target.isoformat()}"
+            await redis_client.set(sync_key, "1", ttl=86400 * 7)
+        
+        return result
+        
+    except Exception as e:
+        logger.error("flat_files_sync_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/flat-files/check-polygon")
+async def check_polygon_availability():
+    """
+    Verificar qué archivos están disponibles en Polygon S3.
+    
+    Útil para debugging y verificar si Polygon ya liberó los archivos.
+    
+    NOTA: Este endpoint NO modifica nada, solo consulta Polygon S3.
+    """
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    
+    try:
+        sync_task = SyncFlatFilesTask()
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        today = now_et.date()
+        
+        results = {}
+        
+        # Verificar últimos 5 días
+        for i in range(1, 6):
+            check_date = today - timedelta(days=i)
+            date_str = check_date.isoformat()
+            
+            minute_exists = await sync_task.check_file_exists_in_polygon(check_date, "minute_aggs")
+            day_exists = await sync_task.check_file_exists_in_polygon(check_date, "day_aggs")
+            
+            results[date_str] = {
+                "weekday": check_date.strftime("%A"),
+                "minute_aggs": minute_exists,
+                "day_aggs": day_exists
+            }
+        
+        return {
+            "checked_at": now_et.isoformat(),
+            "dates": results
+        }
+        
+    except Exception as e:
+        logger.error("check_polygon_failed", error=str(e))
         return {"status": "error", "error": str(e)}
 
 

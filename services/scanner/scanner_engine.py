@@ -518,7 +518,7 @@ class ScannerEngine:
                     continue  # Sin metadata, skip
                 
                 # Build ticker completo (incluye cálculos de change_percent, etc)
-                # metadata incluye: market_cap, sector, industry, exchange, avg_volume_30d, float_shares
+                # metadata incluye: market_cap, sector, industry, exchange, avg_volume_30d, free_float, free_float_percent
                 # NOTA: RVOL ya viene calculado por Analytics (no usa avg_volume_30d aquí)
                 avg_vols = avg_volumes_map.get(symbol, {})
                 ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol, atr_data, avg_vols)
@@ -763,7 +763,8 @@ class ScannerEngine:
                 # Volume Today/Yesterday %
                 volume_today_pct=round((volume_today / metadata.avg_volume_10d) * 100, 1) if volume_today and metadata.avg_volume_10d else None,
                 volume_yesterday_pct=round((prev_day.v / metadata.avg_volume_10d) * 100, 1) if prev_day and prev_day.v and metadata.avg_volume_10d else None,
-                float_shares=metadata.float_shares,
+                free_float=metadata.free_float,
+                free_float_percent=metadata.free_float_percent,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
                 sector=metadata.sector,
@@ -963,7 +964,8 @@ class ScannerEngine:
                 # Volume Today/Yesterday %
                 volume_today_pct=volume_today_pct,
                 volume_yesterday_pct=volume_yesterday_pct,
-                float_shares=metadata.float_shares,
+                free_float=metadata.free_float,
+                free_float_percent=metadata.free_float_percent,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
                 sector=metadata.sector,

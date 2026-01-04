@@ -19,11 +19,11 @@ export interface MarketSession {
 export interface Ticker {
   symbol: string;
   rank?: number;
-  
+
   // Real-time subscription status
   isSubscribedToPolygon?: boolean;  // ✅ Nuevo: indica si está suscrito al WS de Polygon
   lastAggregateTime?: number;       // Timestamp del último aggregate recibido
-  
+
   // Price data
   price?: number;
   last_price?: number;
@@ -35,7 +35,7 @@ export interface Ticker {
   intraday_low?: number;
   bid?: number;
   ask?: number;
-  
+
   // Change metrics
   change?: number;
   change_percent?: number;
@@ -43,7 +43,7 @@ export interface Ticker {
   gap?: number;
   gap_percent?: number;
   gapPercent?: number;
-  
+
   // Volume metrics
   volume?: number;
   volume_today?: number;
@@ -53,34 +53,35 @@ export interface Ticker {
   rvol_slot?: number;
   volume_today_pct?: number;     // Volume today as % of avg 10d
   volume_yesterday_pct?: number; // Volume yesterday as % of avg 10d
-  
+
   // Volume window metrics (volume in last N minutes)
   vol_1min?: number;
   vol_5min?: number;
   vol_10min?: number;
   vol_15min?: number;
   vol_30min?: number;
-  
+
   // VWAP
   vwap?: number;           // Volume Weighted Average Price (today)
   price_vs_vwap?: number;  // % distance from VWAP
-  
+
   // Volatility metrics
   atr_percent?: number;
-  
+
   // Company fundamentals
   market_cap?: number;
-  float_shares?: number;
-  float?: number;
+  free_float?: number;
+  free_float_percent?: number;
+  shares_outstanding?: number;
   sector?: string;
   industry?: string;
-  
+
   // Metadata
   timestamp?: string;
-  
+
   // UI State (animaciones)
   priceFlash?: 'up' | 'down' | null;  // Flash animation direction
-  
+
   // Allow any additional properties from backend
   [key: string]: any;
 }
@@ -174,14 +175,15 @@ export interface FilingTag {
 export interface TickerAnalysis {
   summary?: {
     ticker: string;
-  company_name?: string;
+    company_name?: string;
     description?: string;
     sector?: string;
     industry?: string;
     exchange?: string;
-  market_cap?: number;
+    market_cap?: number;
     shares_outstanding?: number;
-    float_shares?: number;
+    free_float?: number;
+    free_float_percent?: number;
     institutional_ownership?: number;
     homepage_url?: string;
     list_date?: string;

@@ -790,11 +790,12 @@ class ContextualDilutionExtractor:
     def _filter_warrants(self, warrants: List[Dict]) -> List[Dict]:
         """
         Filtra warrants según las reglas de DilutionTracker:
-        - MANTENER: Common Warrants, Pre-Funded Warrants
+        - MANTENER: Common Warrants, Pre-Funded Warrants, Public Warrants, Private Warrants (SPAC)
         - REMOVER: Underwriter Warrants, Placement Agent Warrants
         
-        Razón: Underwriter/Placement Agent warrants son cantidades pequeñas
-        que raramente se ejercen.
+        FIX v4.3: NO filtrar SPAC Private Warrants.
+        Los Private Warrants de un SPAC son para sponsors/affiliates y SON dilutivos.
+        Solo filtrar si el NOMBRE explícitamente dice "placement agent" o "underwriter".
         """
         filtered = []
         removed_count = 0
@@ -805,9 +806,24 @@ class ContextualDilutionExtractor:
             name = (w.get('series_name') or '').lower()
             warrant_type = (w.get('warrant_type') or '').lower()
             
-            # Patrones a filtrar
-            is_underwriter = 'underwriter' in name or warrant_type == 'underwriter'
-            is_placement_agent = 'placement agent' in name or warrant_type == 'placement agent'
+            # SPAC Private Warrants - NO FILTRAR
+            # Detectar si es un SPAC private warrant (para sponsors/affiliates)
+            is_spac_private = (
+                'private' in name or 
+                'pipe' in name or
+                'sponsor' in name or
+                'founder' in name
+            )
+            
+            # Si es private warrant, mantener (incluso si warrant_type dice placement agent por error del LLM)
+            if is_spac_private:
+                filtered.append(w)
+                continue
+            
+            # Patrones a filtrar - solo si el NOMBRE explícitamente los menciona
+            # (no confiar en warrant_type que puede ser mal extraído por el LLM)
+            is_underwriter = 'underwriter warrant' in name or 'underwriter' in name
+            is_placement_agent = 'placement agent warrant' in name or 'placement agent' in name
             
             if is_underwriter or is_placement_agent:
                 removed_count += 1
@@ -1203,34 +1219,68 @@ class ContextualDilutionExtractor:
 
     def _instrument_key(self, instrument: Dict, inst_type: str) -> str:
         """
-        Clave de dedupe/upsert: prioriza issue_date + tipo + (precio si aplica) + series_name.
-        Mantiene estabilidad incluso si cambia ligeramente el nombre.
+        Clave de dedupe/upsert: usa campos estables (mes+tipo+precio).
+        NO incluye nombre literal para evitar duplicados por variaciones de texto.
+        
+        FIX v4.3: Removido name[:32] del key - causaba duplicados cuando
+        el mismo warrant se extraía con nombres ligeramente diferentes.
         """
         issue_date = instrument.get('issue_date') or instrument.get('agreement_start_date') or instrument.get('filing_date') or ''
-        name = (instrument.get('series_name') or '').strip().lower()
+        # Normalizar a YYYY-MM (ignora día exacto para agrupar mismo mes)
+        issue_month = issue_date[:7] if len(str(issue_date)) >= 7 else str(issue_date)
+        
+        # Helper para normalizar precio a 2 decimales
+        def normalize_price(p):
+            if p is None or p == '':
+                return ''
+            try:
+                return f"{float(str(p).replace('$','').replace(',','')):.2f}"
+            except (ValueError, TypeError):
+                return str(p)
+        
+        # Helper para extraer warrant_type de series_name si warrant_type está vacío
+        def get_warrant_type(inst):
+            wt = (inst.get('warrant_type') or '').strip().lower()
+            if wt:
+                return wt
+            # Fallback: extraer de series_name
+            name = (inst.get('series_name') or '').lower()
+            if 'pre-funded' in name or 'prefunded' in name:
+                return 'pre-funded'
+            if 'private' in name or 'pipe' in name:
+                return 'private'
+            if 'public' in name:
+                return 'public'
+            if 'placement agent' in name:
+                return 'placement agent'
+            if 'common' in name:
+                return 'common'
+            return 'unknown'
+        
         if inst_type == 'warrant':
-            wt = (instrument.get('warrant_type') or '').strip().lower()
-            price = instrument.get('exercise_price') or ''
-            return f"warrant|{issue_date}|{wt}|{price}|{name[:32]}"
+            wt = get_warrant_type(instrument)
+            price = normalize_price(instrument.get('exercise_price'))
+            # Key: mes + tipo + precio (SIN nombre)
+            return f"warrant|{issue_month}|{wt}|{price}"
         if inst_type == 'note':
-            price = instrument.get('conversion_price') or ''
-            return f"note|{issue_date}|{price}|{name[:32]}"
+            price = normalize_price(instrument.get('conversion_price'))
+            return f"note|{issue_month}|{price}"
         if inst_type == 'preferred':
-            price = instrument.get('conversion_price') or ''
+            price = normalize_price(instrument.get('conversion_price'))
             series = (instrument.get('series') or '').strip().lower()
-            return f"preferred|{issue_date}|{series}|{price}|{name[:32]}"
+            return f"preferred|{issue_month}|{series}|{price}"
         if inst_type == 'atm':
             agent = (instrument.get('placement_agent') or '').strip().lower()
             cap = instrument.get('total_capacity') or ''
-            return f"atm|{issue_date}|{agent}|{cap}|{name[:32]}"
+            return f"atm|{issue_month}|{agent}|{cap}"
         if inst_type == 'shelf':
             cap = instrument.get('total_capacity') or ''
             file_no = instrument.get('file_number') or instrument.get('fileNo') or ''
-            return f"shelf|{issue_date}|{file_no}|{cap}|{name[:32]}"
+            return f"shelf|{issue_month}|{file_no}|{cap}"
         if inst_type == 's1':
             file_no = instrument.get('file_number') or ''
-            return f"s1|{issue_date}|{file_no}|{name[:32]}"
-        return f"{inst_type}|{issue_date}|{name[:64]}"
+            return f"s1|{issue_month}|{file_no}"
+        return f"{inst_type}|{issue_month}"
 
     def _merge_instruments(self, base: Dict, incoming: Dict) -> Dict:
         """Merge conservando el mejor dato y acumulando sources."""

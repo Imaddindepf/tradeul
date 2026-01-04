@@ -164,7 +164,7 @@ class PolygonDataLoader:
                 sector=self._map_sic_to_sector(details.sic_description) if details.sic_description else None,
                 industry=details.sic_description,
                 market_cap=details.market_cap,
-                float_shares=details.weighted_shares_outstanding,
+                free_float=details.weighted_shares_outstanding,
                 # FIX: Usar weighted_shares_outstanding como fallback cuando share_class_shares_outstanding es None
                 # Esto es común en foreign issuers (ej: AZI) donde Polygon solo tiene weighted
                 shares_outstanding=details.share_class_shares_outstanding or details.weighted_shares_outstanding,

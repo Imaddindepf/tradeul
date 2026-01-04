@@ -54,7 +54,8 @@ interface TickerDescription {
     avgVolume?: number;
     marketCap?: number;
     sharesOutstanding?: number;
-    floatShares?: number;
+    freeFloat?: number;
+    freeFloatPercent?: number;
     yearLow?: number;
     yearHigh?: number;
     range52Week?: string;
@@ -348,7 +349,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
                 <StatRow label={t('description.price')} value={`$${formatNumber(stats.price)}`} />
                 <StatRow label={t('description.sharesOut')} value={formatCompact(stats.sharesOutstanding)} />
                 <StatRow label={t('description.marketCap')} value={formatCompact(stats.marketCap)} />
-                <StatRow label={t('description.float')} value={formatCompact(stats.floatShares)} />
+                <StatRow label="Free Float" value={formatCompact(stats.freeFloat)} />
                 <StatRow label={t('description.avgVol')} value={formatCompact(stats.avgVolume)} />
               </div>
 
@@ -411,7 +412,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
               <SectionHeader title={t('description.marketInfo')} />
               <StatRow label={t('description.exchange')} value={company.exchange || '-'} />
               <StatRow label={t('description.currency')} value="USD" />
-              <StatRow label={t('description.float')} value={formatCompact(stats.floatShares)} />
+              <StatRow label={t('description.float')} value={formatCompact(stats.freeFloat)} />
               <StatRow label={t('description.employees')} value={formatCompact(company.employees)} />
               {company.ipoDate && <StatRow label={t('description.ipoDate')} value={company.ipoDate} />}
             </div>

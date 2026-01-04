@@ -251,7 +251,7 @@ class HistoricalLoader:
                     
                     # Add float data if available
                     if float_info:
-                        metadata.float_shares = float_info.get("floatShares")
+                        metadata.free_float = float_info.get("floatShares")
                         metadata.shares_outstanding = float_info.get("outstandingShares")
                     
                     # Cache and save
@@ -504,7 +504,7 @@ class HistoricalLoader:
             sector=profile.sector if profile else None,
             industry=profile.industry if profile else None,
             market_cap=profile.mktCap if profile else (quote.marketCap if quote else None),
-            float_shares=None,  # Will be populated from float data
+            free_float=None,  # Will be populated from float data
             shares_outstanding=quote.sharesOutstanding if quote else None,
             avg_volume_30d=profile.volAvg if profile else (quote.avgVolume if quote else None),
             avg_volume_10d=None,

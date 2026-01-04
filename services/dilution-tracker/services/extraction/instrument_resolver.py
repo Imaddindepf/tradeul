@@ -150,6 +150,8 @@ def generate_instrument_id(
     normalmente hay UN solo offering. El 6-K closing siempre se refiere
     al mismo offering que el F-1 del mismo mes.
     
+    FIX v4.3: Ahora detecta Private/PIPE warrants como subtipo separado.
+    
     Formato: {month_year}:{subtype}
     Ejemplo: "2025-12:common"
     """
@@ -157,7 +159,7 @@ def generate_instrument_id(
     issue_date = instrument.get('issue_date') or ''
     month_year = issue_date[:7] if issue_date else 'unknown'
     
-    # Determinar subtipo
+    # Determinar subtipo - ORDEN IMPORTA
     series_name = (instrument.get('series_name') or '').lower()
     
     if 'pre-funded' in series_name or 'prefunded' in series_name:
@@ -166,6 +168,11 @@ def generate_instrument_id(
         subtype = 'placement_agent'
     elif 'underwriter' in series_name:
         subtype = 'underwriter'
+    elif 'private' in series_name or 'pipe' in series_name or 'sponsor' in series_name:
+        # SPAC Private Warrants, PIPE warrants
+        subtype = 'private'
+    elif 'public' in series_name:
+        subtype = 'public'
     else:
         subtype = 'common'
     
@@ -186,6 +193,8 @@ def generate_instrument_id_v2(
     Intenta extraer mes/año de:
     1. issue_date
     2. series_name (e.g., "December 2025 Common Warrants")
+    
+    FIX v4.3: Ahora detecta Private Warrants como subtipo separado.
     """
     # 1. Mes/Año de emisión
     issue_date = instrument.get('issue_date') or ''
@@ -212,14 +221,21 @@ def generate_instrument_id_v2(
     if not month_year:
         month_year = 'unknown'
     
-    # 2. Subtipo
+    # 2. Subtipo - ORDEN IMPORTA (más específico primero)
+    # FIX v4.3: Detectar Private Warrants (SPAC private/PIPE) como separados de common
     name_lower = (instrument.get('series_name') or '').lower()
+    
     if 'pre-funded' in name_lower or 'prefunded' in name_lower:
         subtype = 'prefunded'
     elif 'placement agent' in name_lower:
         subtype = 'pa'
     elif 'underwriter' in name_lower:
         subtype = 'uw'
+    elif 'private' in name_lower or 'pipe' in name_lower or 'sponsor' in name_lower:
+        # SPAC Private Warrants, PIPE warrants - son diferentes de Public/Common
+        subtype = 'private'
+    elif 'public' in name_lower:
+        subtype = 'public'
     else:
         subtype = 'common'
     

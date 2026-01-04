@@ -142,15 +142,15 @@ class DailyMaintenanceScheduler:
     async def _has_pending_data_load(self, target_date: date) -> bool:
         """Verificar si hay datos pendientes de cargar para una fecha"""
         status_key = f"maintenance:status:{target_date.isoformat()}"
-                status_raw = await self.redis.get(status_key)
-                
-                if not status_raw:
+        status_raw = await self.redis.get(status_key)
+        
+        if not status_raw:
             return True
         
-                try:
-                    status = json.loads(status_raw) if isinstance(status_raw, str) else status_raw
+        try:
+            status = json.loads(status_raw) if isinstance(status_raw, str) else status_raw
             return not status.get("all_success", False)
-                except:
+        except:
             return True
     
     # =========================================================================
@@ -233,10 +233,10 @@ class DailyMaintenanceScheduler:
             if await self._is_trading_day(current_date):
                 await self._execute_cache_cleanup(current_date)
             else:
-            logger.info(
+                logger.info(
                     "skipping_cache_cleanup_not_trading_day",
-                date=str(current_date)
-            )
+                    date=str(current_date)
+                )
                 self.last_cache_cleanup_date = current_date
     
     # =========================================================================

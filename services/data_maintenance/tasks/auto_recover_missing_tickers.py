@@ -389,30 +389,30 @@ class AutoRecoverMissingTickersTask:
                             weighted_shares = details.get('weighted_shares_outstanding')
                             share_class_shares = details.get('share_class_shares_outstanding')
                             shares_outstanding = share_class_shares or weighted_shares
-                            float_shares = shares_outstanding
+                            free_float = shares_outstanding
                             sector = details.get('sic_description') or details.get('sector')
                             industry = details.get('industry')
                             
                             # Guardar en tickers_unified
                             await self.db.execute("""
                                 INSERT INTO tickers_unified (
-                                    symbol, market_cap, float_shares, shares_outstanding,
+                                    symbol, market_cap, free_float, shares_outstanding,
                                     sector, industry
                                 )
                                 VALUES ($1, $2, $3, $4, $5, $6)
                                 ON CONFLICT (symbol) DO UPDATE SET
                                     market_cap = COALESCE(EXCLUDED.market_cap, ticker_metadata.market_cap),
-                                    float_shares = COALESCE(EXCLUDED.float_shares, ticker_metadata.float_shares),
+                                    free_float = COALESCE(EXCLUDED.free_float, ticker_metadata.free_float),
                                     shares_outstanding = COALESCE(EXCLUDED.shares_outstanding, ticker_metadata.shares_outstanding),
                                     sector = COALESCE(EXCLUDED.sector, ticker_metadata.sector),
                                     industry = COALESCE(EXCLUDED.industry, ticker_metadata.industry)
-                            """, symbol, market_cap, float_shares, shares_outstanding, sector, industry)
+                            """, symbol, market_cap, free_float, shares_outstanding, sector, industry)
                             
                             # Guardar en Redis también
                             metadata_dict = {
                                 'symbol': symbol,
                                 'market_cap': market_cap,
-                                'float_shares': float_shares,
+                                'free_float': free_float,
                                 'shares_outstanding': shares_outstanding,
                                 'sector': sector,
                                 'industry': industry

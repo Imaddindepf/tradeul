@@ -112,7 +112,9 @@ interface ScreenerResult {
     minus_di_14: number | null;
     adx_trend: number | null;
     market_cap: number | null;
-    float_shares: number | null;
+    free_float: number | null;
+    free_float_percent: number | null;
+    shares_outstanding: number | null;
     sector: string | null;
 }
 
@@ -169,7 +171,7 @@ const PARAMETRIC_PERIODS = {
 const AVAILABLE_FIELDS = [
     { value: 'price', label: 'Price', type: 'number', unit: '$' },
     { value: 'market_cap', label: 'Market Cap', type: 'units' },
-    { value: 'float_shares', label: 'Float', type: 'units' },
+    { value: 'free_float', label: 'Free Float', type: 'units' },
     { value: 'volume', label: 'Volume', type: 'units' },
     { value: 'avg_volume_20', label: 'Avg Vol', type: 'units', parametric: 'vol_avg', defaultPeriod: 20 },
     { value: 'change_1d', label: 'Change 1D', type: 'percent', unit: '%' },
@@ -211,7 +213,7 @@ const SORT_OPTIONS = [
     { value: 'change_1d', label: 'Change 1D' },
     { value: 'change_5d', label: 'Change 5D' },
     { value: 'market_cap', label: 'Market Cap' },
-    { value: 'float_shares', label: 'Float' },
+    { value: 'free_float', label: 'Free Float' },
     { value: 'rsi_14', label: 'RSI' },
     { value: 'price', label: 'Price' },
     { value: 'volume', label: 'Volume' },
@@ -684,9 +686,10 @@ const screenerColumns = [
         size: 70,
         cell: (info) => <span className="text-slate-600">{formatVolume(info.getValue())}</span>,
     }),
-    screenerColumnHelper.accessor('float_shares', {
-        header: 'Float',
-        size: 65,
+    screenerColumnHelper.accessor('free_float', {
+        id: 'free_float',
+        header: 'Free Float',
+        size: 75,
         cell: (info) => <span className="text-slate-600">{formatVolume(info.getValue())}</span>,
     }),
     screenerColumnHelper.accessor('rsi_14', {

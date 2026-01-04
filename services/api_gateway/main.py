@@ -469,7 +469,8 @@ async def get_ticker_details(symbol: str):
                 change_percent,
                 volume,
                 market_cap,
-                float_shares,
+                free_float,
+                free_float_percent,
                 avg_volume_30d,
                 timestamp
             FROM ticker_metadata
@@ -569,7 +570,7 @@ async def get_ticker_metadata(symbol: str):
         query = """
             SELECT 
                 symbol, company_name, exchange, sector, industry,
-                market_cap, float_shares, shares_outstanding,
+                market_cap, free_float, free_float_percent, shares_outstanding,
                 avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
                 description, homepage_url, phone_number, address,
                 total_employees, list_date,
@@ -750,7 +751,8 @@ async def get_ticker_description(
             avgVolume=profile_data.get("averageVolume") or (metadata.get("avg_volume_30d") if metadata else None),
             marketCap=profile_data.get("marketCap") or (metadata.get("market_cap") if metadata else None),
             sharesOutstanding=metadata.get("shares_outstanding") if metadata else None,
-            floatShares=metadata.get("float_shares") if metadata else None,
+            freeFloat=metadata.get("free_float") if metadata else None,
+            freeFloatPercent=metadata.get("free_float_percent") if metadata else None,
             dayLow=None,  # Not in stable/profile
             dayHigh=None,
             yearLow=float(profile_data.get("range", "0-0").split("-")[0]) if profile_data.get("range") else None,

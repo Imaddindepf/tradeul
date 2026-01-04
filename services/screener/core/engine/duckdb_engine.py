@@ -119,7 +119,7 @@ class ScreenerEngine:
                 CREATE TABLE IF NOT EXISTS metadata (
                     symbol VARCHAR PRIMARY KEY,
                     market_cap BIGINT,
-                    float_shares BIGINT,
+                    free_float BIGINT,
                     sector VARCHAR,
                     industry VARCHAR
                 )
@@ -143,7 +143,7 @@ class ScreenerEngine:
                 CREATE TABLE IF NOT EXISTS metadata (
                     symbol VARCHAR PRIMARY KEY,
                     market_cap BIGINT,
-                    float_shares BIGINT,
+                    free_float BIGINT,
                     sector VARCHAR,
                     industry VARCHAR
                 )
@@ -253,7 +253,7 @@ class ScreenerEngine:
                             'gap_percent', 'relative_volume', 'rsi_14', 'atr_14', 
                             'atr_percent', 'from_52w_high', 'from_52w_low', 
                             'bb_width', 'bb_position', 'dist_sma_20', 'dist_sma_50',
-                            'market_cap', 'float_shares', 'adx_14', 'squeeze_momentum',
+                            'market_cap', 'free_float', 'adx_14', 'squeeze_momentum',
                             'keltner_upper', 'keltner_lower', 'plus_di_14', 'minus_di_14']
         sort_field = sort_by if sort_by in valid_sort_fields else "volume"
         
@@ -301,7 +301,7 @@ class ScreenerEngine:
                             'gap_percent', 'relative_volume', 'rsi_14', 'atr_14', 
                             'atr_percent', 'from_52w_high', 'from_52w_low', 
                             'bb_width', 'bb_position', 'dist_sma_20', 'dist_sma_50',
-                            'market_cap', 'float_shares', 'adx_14', 'squeeze_momentum']
+                            'market_cap', 'free_float', 'adx_14', 'squeeze_momentum']
         sort_field = sort_by if sort_by in valid_sort_fields else "volume"
         
         # Limit
@@ -561,7 +561,7 @@ class ScreenerEngine:
                      WHEN d.adx_14 > 25 AND d.minus_di_14 > d.plus_di_14 THEN -1
                      ELSE 0 END as adx_trend,
                 m.market_cap,
-                m.float_shares,
+                m.free_float,
                 m.sector
             FROM latest_data d
             LEFT JOIN metadata m ON d.symbol = m.symbol

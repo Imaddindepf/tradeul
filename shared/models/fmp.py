@@ -199,7 +199,7 @@ class FMPFloat(BaseModel):
     symbol: str
     date: Optional[str] = Field(None, description="Date of data")
     freeFloat: Optional[float] = Field(None, description="Free float")
-    floatShares: Optional[float] = Field(None, description="Float shares")
+    freeFloat: Optional[float] = Field(None, description="Free float shares")
     outstandingShares: Optional[float] = Field(None, description="Outstanding shares")
     source: Optional[str] = Field(None, description="Data source")
 

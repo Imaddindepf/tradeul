@@ -89,9 +89,9 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
         has_active_shelf = False
         
         # Calculate float value for Baby Shelf check
-        float_shares = profile.float_shares or profile.shares_outstanding or 0
+        free_float = profile.free_float or profile.shares_outstanding or 0
         current_price = float(profile.current_price or 0)
-        float_value = float_shares * current_price
+        float_value = free_float * current_price
         is_baby_shelf_restricted = float_value < 75_000_000  # $75M threshold
         
         for shelf in (profile.shelf_registrations or []):

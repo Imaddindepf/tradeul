@@ -133,7 +133,7 @@ class DataAggregator:
                         "equity_lines": [el.model_dump() if hasattr(el, 'model_dump') else el.dict() for el in sec_dilution_profile.equity_lines],
                         "current_price": float(sec_dilution_profile.current_price) if sec_dilution_profile.current_price else None,
                         "shares_outstanding": sec_dilution_profile.shares_outstanding,
-                        "float_shares": sec_dilution_profile.float_shares,
+                        "free_float": sec_dilution_profile.free_float,
                         "dilution_analysis": sec_dilution_profile.calculate_potential_dilution(),
                         "last_scraped_at": sec_dilution_profile.metadata.last_scraped_at.isoformat() if sec_dilution_profile.metadata.last_scraped_at else None
                     }
@@ -228,7 +228,7 @@ class DataAggregator:
                 sector,
                 industry,
                 market_cap,
-                float_shares,
+                free_float,
                 shares_outstanding,
                 description,
                 homepage_url,
@@ -496,7 +496,7 @@ class DataAggregator:
                 cash_need_score,
                 dilution_risk_score,
                 latest.get('market_cap'),
-                latest.get('float_shares'),
+                latest.get('free_float'),
                 dilutive_count
             )
             

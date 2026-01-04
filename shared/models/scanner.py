@@ -74,7 +74,8 @@ class ScannerTicker(BaseModel):
     vol_15min: Optional[int] = Field(None, description="Volume traded in last 15 minutes")
     vol_30min: Optional[int] = Field(None, description="Volume traded in last 30 minutes")
     
-    float_shares: Optional[int] = Field(None, description="Float shares")
+    free_float: Optional[int] = Field(None, description="Free float (shares available for public trading)")
+    free_float_percent: Optional[float] = Field(None, description="Free float percentage from Polygon")
     shares_outstanding: Optional[int] = Field(None, description="Shares outstanding")
     market_cap: Optional[int] = Field(None, description="Market capitalization")
     
@@ -382,7 +383,8 @@ class TickerMetadata(BaseModel):
     
     # Capitalización y shares
     market_cap: Optional[int] = None
-    float_shares: Optional[int] = None
+    free_float: Optional[int] = None
+    free_float_percent: Optional[float] = None
     shares_outstanding: Optional[int] = None
     
     # Métricas de volumen y precio
@@ -425,7 +427,7 @@ class TickerMetadata(BaseModel):
     is_actively_trading: bool = True
     updated_at: datetime = Field(default_factory=datetime.now)
     
-    @validator('market_cap', 'float_shares', 'shares_outstanding', 'avg_volume_30d', 'avg_volume_10d', 'avg_volume_5d', 'avg_volume_3m', 'total_employees', 'round_lot', pre=True)
+    @validator('market_cap', 'free_float', 'shares_outstanding', 'avg_volume_30d', 'avg_volume_10d', 'avg_volume_5d', 'avg_volume_3m', 'total_employees', 'round_lot', pre=True)
     def convert_to_int(cls, v):
         """Convert float to int for numeric fields"""
         if v is not None and isinstance(v, float):

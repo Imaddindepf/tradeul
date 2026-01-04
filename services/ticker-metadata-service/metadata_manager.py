@@ -128,7 +128,7 @@ class MetadataManager:
                 
                 # Capitalización y shares
                 market_cap=ticker_details.get("market_cap"),
-                float_shares=ticker_details.get("weighted_shares_outstanding"),
+                free_float=ticker_details.get("weighted_shares_outstanding"),
                 shares_outstanding=ticker_details.get("share_class_shares_outstanding"),
                 
                 # Métricas (se calculan por separado)
@@ -231,7 +231,7 @@ class MetadataManager:
         stats = {
             "symbol": metadata.symbol,
             "market_cap": metadata.market_cap,
-            "float_shares": metadata.float_shares,
+            "free_float": metadata.free_float,
             "shares_outstanding": metadata.shares_outstanding,
             "avg_volume_30d": metadata.avg_volume_30d,
             "avg_volume_10d": metadata.avg_volume_10d,
@@ -251,7 +251,7 @@ class MetadataManager:
         query = """
             SELECT 
                 symbol, company_name, exchange, sector, industry,
-                market_cap, float_shares, shares_outstanding,
+                market_cap, free_float, shares_outstanding,
                 avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
                 description, homepage_url, phone_number, address,
                 total_employees, list_date,
@@ -278,7 +278,7 @@ class MetadataManager:
         query = """
             INSERT INTO tickers_unified (
                 symbol, company_name, exchange, sector, industry,
-                market_cap, float_shares, shares_outstanding,
+                market_cap, free_float, shares_outstanding,
                 avg_volume_30d, avg_volume_10d, avg_price_30d, beta,
                 description, homepage_url, phone_number, address,
                 total_employees, list_date,
@@ -300,7 +300,7 @@ class MetadataManager:
                 sector = EXCLUDED.sector,
                 industry = EXCLUDED.industry,
                 market_cap = EXCLUDED.market_cap,
-                float_shares = EXCLUDED.float_shares,
+                free_float = EXCLUDED.free_float,
                 shares_outstanding = EXCLUDED.shares_outstanding,
                 avg_volume_30d = EXCLUDED.avg_volume_30d,
                 avg_volume_10d = EXCLUDED.avg_volume_10d,
@@ -352,7 +352,7 @@ class MetadataManager:
             metadata.sector,
             metadata.industry,
             metadata.market_cap,
-            metadata.float_shares,
+            metadata.free_float,
             metadata.shares_outstanding,
             metadata.avg_volume_30d,
             metadata.avg_volume_10d,
@@ -400,7 +400,7 @@ class MetadataManager:
             sector=data.get("sector"),
             industry=data.get("industry"),
             market_cap=data.get("market_cap"),
-            float_shares=data.get("float_shares"),
+            free_float=data.get("free_float"),
             shares_outstanding=data.get("shares_outstanding"),
             avg_volume_30d=data.get("avg_volume_30d"),
             avg_volume_10d=data.get("avg_volume_10d"),

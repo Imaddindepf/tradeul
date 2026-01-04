@@ -398,7 +398,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
               <div className="text-slate-700 font-medium">
                 <span className="text-slate-500">Mkt Cap & EV:</span> {tickerData?.summary?.market_cap ? `$${(tickerData.summary.market_cap / 1_000_000_000).toFixed(2)}B` : '--'}
                 <span className="mx-3">•</span>
-                <span className="text-slate-500">Float & OS:</span> {tickerData?.summary?.float_shares && tickerData?.summary?.shares_outstanding ? `${(tickerData.summary.float_shares / 1_000_000).toFixed(1)}M / ${(tickerData.summary.shares_outstanding / 1_000_000).toFixed(1)}M` : '--'}
+                <span className="text-slate-500">Float & OS:</span> {tickerData?.summary?.free_float && tickerData?.summary?.shares_outstanding ? `${(tickerData.summary.free_float / 1_000_000).toFixed(1)}M / ${(tickerData.summary.shares_outstanding / 1_000_000).toFixed(1)}M` : '--'}
                 <span className="mx-3">•</span>
                 <span className="text-slate-500">Inst Own:</span> {tickerData?.summary?.institutional_ownership ? `${tickerData.summary.institutional_ownership.toFixed(1)}%` : '--'}
               </div>

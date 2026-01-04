@@ -51,7 +51,7 @@ class SECDilutionRepository:
             profile_query = """
             SELECT 
                 ticker, cik, company_name, current_price, 
-                shares_outstanding, float_shares,
+                shares_outstanding, free_float,
                 last_scraped_at, source_filings, 
                 scrape_success, scrape_error
             FROM sec_dilution_profiles
@@ -109,7 +109,7 @@ class SECDilutionRepository:
                 cik=profile_row['cik'],
                 current_price=profile_row['current_price'],
                 shares_outstanding=profile_row['shares_outstanding'],
-                float_shares=profile_row['float_shares'],
+                free_float=profile_row['free_float'],
                 warrants=warrants,
                 atm_offerings=atm_offerings,
                 shelf_registrations=shelf_registrations,
@@ -144,7 +144,7 @@ class SECDilutionRepository:
             profile_query = """
             INSERT INTO sec_dilution_profiles (
                 ticker, cik, company_name, current_price,
-                shares_outstanding, float_shares,
+                shares_outstanding, free_float,
                 last_scraped_at, source_filings,
                 scrape_success, scrape_error
             )
@@ -154,7 +154,7 @@ class SECDilutionRepository:
                 company_name = EXCLUDED.company_name,
                 current_price = EXCLUDED.current_price,
                 shares_outstanding = EXCLUDED.shares_outstanding,
-                float_shares = EXCLUDED.float_shares,
+                free_float = EXCLUDED.free_float,
                 last_scraped_at = EXCLUDED.last_scraped_at,
                 source_filings = EXCLUDED.source_filings,
                 scrape_success = EXCLUDED.scrape_success,
@@ -171,7 +171,7 @@ class SECDilutionRepository:
                 profile.company_name,
                 profile.current_price,
                 profile.shares_outstanding,
-                profile.float_shares,
+                profile.free_float,
                 profile.metadata.last_scraped_at,
                 json_module.dumps(profile.metadata.source_filings),
                 profile.metadata.scrape_success,

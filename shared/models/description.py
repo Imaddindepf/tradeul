@@ -153,8 +153,9 @@ class MarketStats(BaseModel):
     
     # Market Cap & Float
     marketCap: Optional[float] = None
-    sharesOutstanding: Optional[float] = None  # Changed to float
-    floatShares: Optional[float] = None  # Changed to float
+    sharesOutstanding: Optional[float] = None  # Total shares outstanding
+    freeFloat: Optional[float] = None  # Real public float from Polygon /stocks/vX/float
+    freeFloatPercent: Optional[float] = None  # Free float percentage from Polygon
     
     # Ranges
     dayLow: Optional[float] = None

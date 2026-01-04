@@ -174,7 +174,7 @@ class TickerEnricher:
             polygon_data.get('share_class_shares_outstanding') or 
             polygon_data.get('weighted_shares_outstanding')
         ) if polygon_data else None
-        float_shares = polygon_data.get('weighted_shares_outstanding') if polygon_data else None
+        free_float = polygon_data.get('weighted_shares_outstanding') if polygon_data else None
         sector = polygon_data.get('sic_description') if polygon_data else None
         industry = polygon_data.get('sic_description') if polygon_data else None
         cik = polygon_data.get('cik') if polygon_data else None
@@ -202,7 +202,7 @@ class TickerEnricher:
                 exchange = exchange or fmp_data.get('exchange')
                 market_cap = market_cap or fmp_data.get('mktCap')
                 shares_outstanding = shares_outstanding or fmp_data.get('sharesOutstanding')
-                float_shares = float_shares or fmp_data.get('sharesOutstanding')
+                free_float = free_float or fmp_data.get('sharesOutstanding')
                 sector = sector or fmp_data.get('sector')
                 industry = industry or fmp_data.get('industry')
                 cik = cik or fmp_data.get('cik')
@@ -228,7 +228,7 @@ class TickerEnricher:
                 company_name=company_name,
                 exchange=exchange,
                 market_cap=market_cap,
-                float_shares=float_shares,
+                free_float=free_float,
                 shares_outstanding=shares_outstanding,
                 sector=sector,
                 industry=industry,
@@ -258,7 +258,7 @@ class TickerEnricher:
         company_name: Optional[str],
         exchange: Optional[str],
         market_cap: Optional[float],
-        float_shares: Optional[int],
+        free_float: Optional[int],
         shares_outstanding: Optional[int],
         sector: Optional[str],
         industry: Optional[str],
@@ -274,7 +274,7 @@ class TickerEnricher:
                 company_name = COALESCE($2, company_name),
                 exchange = COALESCE($3, exchange),
                 market_cap = COALESCE($4, market_cap),
-                float_shares = COALESCE($5, float_shares),
+                free_float = COALESCE($5, free_float),
                 shares_outstanding = COALESCE($6, shares_outstanding),
                 sector = COALESCE($7, sector),
                 industry = COALESCE($8, industry),
@@ -294,7 +294,7 @@ class TickerEnricher:
                 company_name,
                 exchange,
                 int(market_cap) if market_cap else None,
-                int(float_shares) if float_shares else None,
+                int(free_float) if free_float else None,
                 int(shares_outstanding) if shares_outstanding else None,
                 sector,
                 industry,
