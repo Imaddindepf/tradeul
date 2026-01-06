@@ -16,6 +16,8 @@ class ChartType(str, Enum):
     LINE = "line"
     HEATMAP = "heatmap"
     PIE = "pie"
+    CANDLESTICK = "candlestick"
+    OHLC = "ohlc"
 
 
 @dataclass
@@ -45,8 +47,19 @@ class StatsOutput:
     type: str = "stats"
 
 
+@dataclass
+class MissingDataOutput:
+    """Resultado cuando los datos no están disponibles"""
+    symbol: str
+    message: str
+    request_id: str
+    can_retry: bool
+    estimated_wait_seconds: int
+    type: str = "missing_data"
+
+
 # Registro global de outputs (para capturar en ejecución)
-_outputs: List[Union[TableOutput, ChartOutput, StatsOutput]] = []
+_outputs: List[Union[TableOutput, ChartOutput, StatsOutput, MissingDataOutput]] = []
 
 
 def clear_outputs():
@@ -55,9 +68,46 @@ def clear_outputs():
     _outputs = []
 
 
-def get_outputs() -> List[Union[TableOutput, ChartOutput, StatsOutput]]:
+def get_outputs() -> List[Union[TableOutput, ChartOutput, StatsOutput, MissingDataOutput]]:
     """Retorna los outputs registrados"""
     return _outputs.copy()
+
+
+def display_missing_data(
+    symbol: str,
+    message: str,
+    request_id: str = "pending",
+    can_retry: bool = True,
+    estimated_wait_seconds: int = 5
+) -> MissingDataOutput:
+    """
+    Muestra un mensaje de datos faltantes.
+    
+    El frontend puede usar esto para:
+    - Mostrar un mensaje informativo
+    - Esperar y reintentar automáticamente
+    - Suscribirse a un callback cuando los datos estén disponibles
+    
+    Args:
+        symbol: Símbolo del ticker
+        message: Mensaje descriptivo
+        request_id: ID de la solicitud de ingesta
+        can_retry: Si el frontend puede reintentar
+        estimated_wait_seconds: Tiempo estimado de espera
+    
+    Returns:
+        MissingDataOutput
+    """
+    output = MissingDataOutput(
+        symbol=symbol,
+        message=message,
+        request_id=request_id,
+        can_retry=can_retry,
+        estimated_wait_seconds=estimated_wait_seconds
+    )
+    
+    _outputs.append(output)
+    return output
 
 
 def display_table(
@@ -76,6 +126,17 @@ def display_table(
     Returns:
         TableOutput con los datos formateados
     """
+    # Manejar DataFrame vacío o None
+    if df is None or df.empty:
+        output = TableOutput(
+            title=title,
+            columns=[],
+            rows=[],
+            total=0
+        )
+        _outputs.append(output)
+        return output
+    
     if columns:
         display_df = df[columns] if all(c in df.columns for c in columns) else df
     else:
@@ -125,20 +186,29 @@ def create_chart(
     title: str = "Chart",
     size: Optional[str] = None,
     color: Optional[str] = None,
-    labels: Optional[Dict[str, str]] = None
+    labels: Optional[Dict[str, str]] = None,
+    # Parámetros para gráficos de velas (candlestick/OHLC)
+    open: Optional[str] = None,
+    high: Optional[str] = None,
+    low: Optional[str] = None,
+    close: Optional[str] = None
 ) -> ChartOutput:
     """
     Crea un gráfico Plotly.
     
     Args:
         df: DataFrame con los datos
-        chart_type: Tipo de gráfico ('bar', 'scatter', 'line', 'heatmap', 'pie')
-        x: Columna para eje X
+        chart_type: Tipo de gráfico ('bar', 'scatter', 'line', 'heatmap', 'pie', 'candlestick', 'ohlc')
+        x: Columna para eje X (timestamp para candlestick)
         y: Columna para eje Y
         title: Título del gráfico
         size: Columna para tamaño de puntos (scatter)
         color: Columna para color
         labels: Diccionario de etiquetas personalizadas
+        open: Columna para precio de apertura (candlestick/ohlc)
+        high: Columna para precio máximo (candlestick/ohlc)
+        low: Columna para precio mínimo (candlestick/ohlc)
+        close: Columna para precio de cierre (candlestick/ohlc)
     
     Returns:
         ChartOutput con la configuración de Plotly
@@ -146,6 +216,18 @@ def create_chart(
     Raises:
         ChartLimitError: Si hay más de MAX_CHART_POINTS puntos de datos
     """
+    # GUARDRAIL: Verificar que el DataFrame no esté vacío
+    if df is None or df.empty:
+        raise ValueError("No hay datos para graficar. El DataFrame está vacío.")
+    
+    # GUARDRAIL: Verificar que las columnas existen
+    if x and x not in df.columns:
+        available = list(df.columns)
+        raise KeyError(f"Columna '{x}' no existe. Columnas disponibles: {available}")
+    if y and y not in df.columns:
+        available = list(df.columns)
+        raise KeyError(f"Columna '{y}' no existe. Columnas disponibles: {available}")
+    
     # GUARDRAIL: Limitar puntos de datos para no colapsar el navegador
     if len(df) > MAX_CHART_POINTS:
         raise ChartLimitError(
@@ -255,6 +337,77 @@ def create_chart(
                 "y": pivot.index.tolist(),
                 "colorscale": "RdYlGn"
             })
+    
+    elif chart_type_enum == ChartType.CANDLESTICK:
+        # Gráfico de velas japonesas
+        # Detectar automáticamente columnas OHLC si no se especifican
+        open_col = open or 'open'
+        high_col = high or 'high'
+        low_col = low or 'low'
+        close_col = close or 'close'
+        x_col = x or 'time' if 'time' in df.columns else 'timestamp'
+        
+        # Convertir timestamp si es necesario
+        if x_col in df.columns:
+            x_data = df[x_col].tolist()
+            # Si es timestamp numérico, convertir a ISO string para Plotly
+            if len(x_data) > 0 and isinstance(x_data[0], (int, float)):
+                import datetime
+                x_data = [datetime.datetime.fromtimestamp(t).isoformat() for t in x_data]
+        else:
+            x_data = df.index.tolist()
+        
+        plotly_config["data"].append({
+            "type": "candlestick",
+            "x": x_data,
+            "open": df[open_col].tolist() if open_col in df.columns else [],
+            "high": df[high_col].tolist() if high_col in df.columns else [],
+            "low": df[low_col].tolist() if low_col in df.columns else [],
+            "close": df[close_col].tolist() if close_col in df.columns else [],
+            "increasing": {"line": {"color": "#22c55e"}, "fillcolor": "#22c55e"},
+            "decreasing": {"line": {"color": "#ef4444"}, "fillcolor": "#ef4444"}
+        })
+        
+        plotly_config["layout"]["xaxis"] = {
+            "title": "Fecha/Hora",
+            "type": "date",
+            "rangeslider": {"visible": False}
+        }
+        plotly_config["layout"]["yaxis"] = {"title": "Precio ($)"}
+    
+    elif chart_type_enum == ChartType.OHLC:
+        # Gráfico OHLC (barras)
+        open_col = open or 'open'
+        high_col = high or 'high'
+        low_col = low or 'low'
+        close_col = close or 'close'
+        x_col = x or 'time' if 'time' in df.columns else 'timestamp'
+        
+        if x_col in df.columns:
+            x_data = df[x_col].tolist()
+            if len(x_data) > 0 and isinstance(x_data[0], (int, float)):
+                import datetime
+                x_data = [datetime.datetime.fromtimestamp(t).isoformat() for t in x_data]
+        else:
+            x_data = df.index.tolist()
+        
+        plotly_config["data"].append({
+            "type": "ohlc",
+            "x": x_data,
+            "open": df[open_col].tolist() if open_col in df.columns else [],
+            "high": df[high_col].tolist() if high_col in df.columns else [],
+            "low": df[low_col].tolist() if low_col in df.columns else [],
+            "close": df[close_col].tolist() if close_col in df.columns else [],
+            "increasing": {"line": {"color": "#22c55e"}},
+            "decreasing": {"line": {"color": "#ef4444"}}
+        })
+        
+        plotly_config["layout"]["xaxis"] = {
+            "title": "Fecha/Hora",
+            "type": "date",
+            "rangeslider": {"visible": False}
+        }
+        plotly_config["layout"]["yaxis"] = {"title": "Precio ($)"}
     
     output = ChartOutput(
         title=title,

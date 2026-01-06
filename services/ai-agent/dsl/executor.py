@@ -14,9 +14,9 @@ import pandas as pd
 from .query import Query, ALLOWED_COLUMNS, ALLOWED_SOURCES, QueryValidationError
 from .column import col, Column, Condition
 from .display import (
-    display_table, create_chart, print_stats,
+    display_table, create_chart, print_stats, display_missing_data,
     clear_outputs, get_outputs,
-    TableOutput, ChartOutput, StatsOutput
+    TableOutput, ChartOutput, StatsOutput, MissingDataOutput
 )
 
 
@@ -55,6 +55,15 @@ class ExecutionResult:
                     "title": output.title,
                     "stats": output.stats
                 })
+            elif isinstance(output, MissingDataOutput):
+                outputs_data.append({
+                    "type": "missing_data",
+                    "symbol": output.symbol,
+                    "message": output.message,
+                    "request_id": output.request_id,
+                    "can_retry": output.can_retry,
+                    "estimated_wait_seconds": output.estimated_wait_seconds
+                })
         
         return {
             "success": self.success,
@@ -84,16 +93,76 @@ class DSLExecutor:
     # Operaciones permitidas
     ALLOWED_FUNCTIONS = {
         'Query', 'col', 'display_table', 'create_chart', 'print_stats',
-        # Nuevas funciones para datos historicos y SEC
+        'display_missing_data',  # Para datos faltantes
+        # Funciones para datos historicos y SEC
         'get_bars', 'get_dilution', 'get_sec_filings', 'get_warrants',
-        'add_technicals', 'compare_symbols'
+        'add_technicals', 'compare_symbols',
+        # Funciones de análisis
+        'get_hourly_movers',
+        # Funciones inteligentes con detección de datos faltantes
+        'smart_get_data', 'check_ticker_exists',
+        # Funciones de servicios internos
+        'get_full_ticker_info', 'search_tickers', 'get_snapshot',
+        # Funciones avanzadas de tiempo - franjas horarias específicas
+        'get_bars_range', 'get_bars_for_date', 'get_last_n_minutes',
+        'get_top_movers_at_time',
+        # Funciones de sesiones extendidas (pre/post market)
+        'get_premarket_movers', 'get_postmarket_movers',
+        # Funciones Python básicas (para cálculos)
+        'len', 'round', 'abs', 'min', 'max', 'sum', 'float', 'int', 'str', 'list',
+        'range', 'enumerate', 'zip', 'sorted', 'reversed', 'print',
+        # Pandas
+        'pd', 'DataFrame',
+        # Datetime y timezone
+        'datetime', 'timedelta', 'dt', 'pytz', 'ET', 'now_et'
     }
     
     ALLOWED_METHODS = {
         # Query methods
         'select', 'from_source', 'where', 'order_by', 'limit', 'execute',
         # Column methods
-        'between', 'isin', 'contains', 'is_null', 'not_null'
+        'between', 'isin', 'contains', 'is_null', 'not_null',
+        # DataFrame/pandas methods - para manipulación de datos
+        'DataFrame', 'Series', 'concat', 'merge', 'read_csv', 'read_json',
+        'head', 'tail', 'iloc', 'loc', 'sort_values', 'reset_index',
+        'drop', 'dropna', 'fillna', 'groupby', 'agg', 'aggregate',
+        'mean', 'sum', 'count', 'min', 'max', 'std', 'var', 'median',
+        'apply', 'map', 'filter', 'assign', 'rename', 'copy',
+        'to_dict', 'to_list', 'tolist', 'values', 'items', 'keys',
+        'astype', 'dtypes', 'columns', 'index', 'shape',
+        # Series methods
+        'first', 'last', 'shift', 'diff', 'pct_change', 'cumsum', 'cumprod',
+        'rolling', 'expanding', 'ewm',
+        # String methods
+        'upper', 'lower', 'strip', 'split', 'join', 'replace', 'format',
+        'startswith', 'endswith',
+        # List methods
+        'append', 'extend', 'pop', 'remove', 'get',
+        # Dict methods
+        'update', 'clear',
+        # Datetime
+        'strftime', 'strptime', 'timestamp', 'isoformat',
+        # Numpy-like
+        'round', 'abs', 'sqrt', 'log', 'exp',
+    }
+    
+    # Métodos PROHIBIDOS por seguridad (acceso a BD, Redis, sistema)
+    BLOCKED_METHODS = {
+        # Database - conexiones directas
+        'connect', 'execute_sql', 'cursor', 'commit', 'rollback', 
+        'fetchall', 'fetchone', 'fetchmany', 'create_pool', 'acquire',
+        # Redis - operaciones directas (contexto: redis_client.XXX)
+        'hget', 'hset', 'hgetall', 'lpush', 'rpush', 'lpop', 'rpop',
+        'publish', 'subscribe', 'psubscribe', 'pipeline', 'xread', 'xadd',
+        'zadd', 'zrange', 'smembers', 'sadd', 'srem',
+        # Sistema/IO - acceso a archivos y sistema
+        'system', 'popen', 'spawn', 'fork', 'subprocess',
+        'unlink', 'rmdir', 'mkdir', 'makedirs', 'chdir', 'getcwd',
+        # Network - conexiones externas
+        'urlopen', 'socket', 'create_connection',
+        # Peligrosos - ejecución de código
+        'eval', 'exec', 'compile', '__import__', 'globals', 'locals',
+        'getattr', 'setattr', 'delattr', 'hasattr',
     }
     
     def __init__(self, data_provider, timeout_seconds: float = 30.0):
@@ -213,21 +282,30 @@ class DSLExecutor:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 raise DSLSecurityError("Imports no permitidos")
             
-            # No permitir exec/eval
+            # Validar llamadas a funciones
             if isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name):
                     func_name = node.func.id
+                    # Bloquear funciones peligrosas
                     if func_name in ('exec', 'eval', 'compile', '__import__', 'open', 'input'):
-                        raise DSLSecurityError(f"Función '{func_name}' no permitida")
+                        raise DSLSecurityError(f"Función '{func_name}' no permitida por seguridad")
+                    # Verificar que esté en funciones permitidas
                     if func_name not in self.ALLOWED_FUNCTIONS:
                         raise DSLSecurityError(f"Función '{func_name}' no permitida. "
                                              f"Funciones válidas: {self.ALLOWED_FUNCTIONS}")
                 
                 elif isinstance(node.func, ast.Attribute):
                     method_name = node.func.attr
+                    # PRIMERO: Bloquear métodos peligrosos (BD, Redis, IO)
+                    if method_name in self.BLOCKED_METHODS:
+                        raise DSLSecurityError(f"Método '{method_name}' bloqueado por seguridad")
+                    # LUEGO: Permitir si está en la lista blanca O si no es sospechoso
+                    # Esto permite métodos de pandas/numpy sin listarlos todos
                     if method_name not in self.ALLOWED_METHODS:
-                        raise DSLSecurityError(f"Método '{method_name}' no permitido. "
-                                             f"Métodos válidos: {self.ALLOWED_METHODS}")
+                        # Permitir métodos que empiezan con letras minúsculas (métodos normales de pandas)
+                        # pero bloquear los que no reconocemos y parecen peligrosos
+                        if method_name.startswith('_'):
+                            raise DSLSecurityError(f"Método privado '{method_name}' no permitido")
             
             # No permitir clases
             if isinstance(node, ast.ClassDef):
@@ -251,17 +329,64 @@ class DSLExecutor:
         
         # Contexto de ejecucion con funciones permitidas
         local_context = {
+            # DSL core
             'Query': Query,
             'col': col,
             'display_table': display_table,
             'create_chart': create_chart,
             'print_stats': print_stats,
+            'display_missing_data': display_missing_data,
             # Funciones de datos historicos (wrappers)
             'get_bars': self._wrap_get_bars,
             'get_dilution': self._wrap_get_dilution,
             'get_sec_filings': self._wrap_get_sec_filings,
             'get_warrants': self._wrap_get_warrants,
             'add_technicals': add_technicals,
+            # Funciones de análisis
+            'get_hourly_movers': self._wrap_get_hourly_movers,
+            # Funciones inteligentes con detección de datos faltantes
+            'smart_get_data': self._wrap_smart_get_data,
+            'check_ticker_exists': self._wrap_check_ticker_exists,
+            # Funciones de servicios internos (api_gateway, ticker_metadata)
+            'get_full_ticker_info': self._wrap_get_full_ticker_info,
+            'search_tickers': self._wrap_search_tickers,
+            'get_snapshot': self._wrap_get_snapshot,
+            # Funciones avanzadas de tiempo - para consultas temporales específicas
+            'get_bars_range': self._wrap_get_bars_range,
+            'get_bars_for_date': self._wrap_get_bars_for_date,
+            'get_last_n_minutes': self._wrap_get_last_n_minutes,
+            'get_top_movers_at_time': self._wrap_get_top_movers_at_time,
+            # Funciones de sesiones extendidas (pre/post market)
+            'get_premarket_movers': self._wrap_get_premarket_movers,
+            'get_postmarket_movers': self._wrap_get_postmarket_movers,
+            # Funciones Python básicas para cálculos
+            'len': len,
+            'round': round,
+            'abs': abs,
+            'min': min,
+            'max': max,
+            'sum': sum,
+            'float': float,
+            'int': int,
+            'str': str,
+            'list': list,
+            'dict': dict,
+            'range': range,
+            'enumerate': enumerate,
+            'zip': zip,
+            'sorted': sorted,
+            'reversed': reversed,
+            'print': print,
+            # Pandas para manipulación avanzada
+            'pd': pd,
+            # Datetime para cálculos de tiempo
+            'datetime': __import__('datetime').datetime,  # Clase datetime.datetime
+            'timedelta': __import__('datetime').timedelta,  # Clase timedelta
+            'dt': __import__('datetime'),  # Módulo completo (dt.datetime, dt.timedelta)
+            # Timezone ET para cálculos de mercado
+            'pytz': __import__('pytz'),
+            'ET': __import__('pytz').timezone('America/New_York'),
+            'now_et': lambda: __import__('datetime').datetime.now(__import__('pytz').timezone('America/New_York')),
         }
         
         # Variables para almacenar resultados intermedios
@@ -377,6 +502,14 @@ class DSLExecutor:
                         if isinstance(left, Column):
                             return left != right
                         left = left != right
+                    elif isinstance(op, ast.Is):
+                        left = left is right
+                    elif isinstance(op, ast.IsNot):
+                        left = left is not right
+                    elif isinstance(op, ast.In):
+                        left = left in right
+                    elif isinstance(op, ast.NotIn):
+                        left = left not in right
                 except TypeError:
                     # Tipos incompatibles para comparacion
                     return False
@@ -403,8 +536,14 @@ class DSLExecutor:
                 return left * right
             elif isinstance(node.op, ast.Div):
                 return left / right
+            elif isinstance(node.op, ast.FloorDiv):
+                return left // right
+            elif isinstance(node.op, ast.Mod):
+                return left % right
+            elif isinstance(node.op, ast.Pow):
+                return left ** right
             
-            raise DSLSecurityError(f"Operador binario no soportado")
+            raise DSLSecurityError(f"Operador binario no soportado: {type(node.op).__name__}")
         
         elif isinstance(node, ast.IfExp):
             # Expresiones ternarias: x if cond else y
@@ -412,6 +551,251 @@ class DSLExecutor:
             if test:
                 return await self._execute_node(node.body, context, variables)
             return await self._execute_node(node.orelse, context, variables)
+        
+        elif isinstance(node, ast.Await):
+            # Soportar await para funciones async como get_bars()
+            return await self._execute_node(node.value, context, variables)
+        
+        elif isinstance(node, ast.For):
+            # Soporte para bucles for limitados (con proteccion anti-infinito)
+            MAX_ITERATIONS = 100  # Limite de seguridad aumentado
+            
+            iterable = await self._execute_node(node.iter, context, variables)
+            
+            # Verificar que es iterable valido
+            if not hasattr(iterable, '__iter__'):
+                raise DSLSecurityError(f"El objeto no es iterable")
+            
+            # Convertir a lista para contar iteraciones
+            items = list(iterable)
+            if len(items) > MAX_ITERATIONS:
+                raise DSLSecurityError(f"Bucle excede el limite de {MAX_ITERATIONS} iteraciones")
+            
+            result = None
+            for item in items:
+                # Asignar variable del bucle
+                if isinstance(node.target, ast.Name):
+                    variables[node.target.id] = item
+                elif isinstance(node.target, ast.Tuple):
+                    # Desempaquetado: for x, y in items
+                    if isinstance(item, (tuple, list)) and len(item) == len(node.target.elts):
+                        for t, v in zip(node.target.elts, item):
+                            if isinstance(t, ast.Name):
+                                variables[t.id] = v
+                
+                # Ejecutar cuerpo del bucle con soporte para break/continue
+                try:
+                    for body_node in node.body:
+                        result = await self._execute_node(body_node, context, variables)
+                except StopIteration as e:
+                    if str(e) == "break":
+                        break
+                    elif str(e) == "continue":
+                        continue
+            
+            return result
+        
+        elif isinstance(node, ast.If):
+            # Soporte para condicionales if/elif/else
+            test_result = await self._execute_node(node.test, context, variables)
+            
+            if test_result:
+                # Ejecutar el cuerpo del if
+                result = None
+                for body_node in node.body:
+                    result = await self._execute_node(body_node, context, variables)
+                return result
+            elif node.orelse:
+                # Ejecutar elif o else
+                result = None
+                for else_node in node.orelse:
+                    result = await self._execute_node(else_node, context, variables)
+                return result
+            
+            return None
+        
+        elif isinstance(node, ast.Subscript):
+            # Soporte para acceso por indice: df['column'], list[0]
+            value = await self._execute_node(node.value, context, variables)
+            slice_val = await self._execute_node(node.slice, context, variables)
+            return value[slice_val]
+        
+        elif isinstance(node, ast.JoinedStr):
+            # Soporte para f-strings: f"Texto {variable}"
+            parts = []
+            for val in node.values:
+                if isinstance(val, ast.Constant):
+                    parts.append(str(val.value))
+                elif isinstance(val, ast.FormattedValue):
+                    formatted = await self._execute_node(val.value, context, variables)
+                    parts.append(str(formatted))
+            return ''.join(parts)
+        
+        elif isinstance(node, ast.BoolOp):
+            # Soporte para operaciones booleanas: and, or
+            # Evaluación lazy (cortocircuito)
+            if isinstance(node.op, ast.And):
+                result = True
+                for val in node.values:
+                    result = await self._execute_node(val, context, variables)
+                    if not result:
+                        return result  # Cortocircuito: si uno es False, retorna
+                return result
+            elif isinstance(node.op, ast.Or):
+                result = False
+                for val in node.values:
+                    result = await self._execute_node(val, context, variables)
+                    if result:
+                        return result  # Cortocircuito: si uno es True, retorna
+                return result
+            raise DSLSecurityError(f"Operador booleano no soportado: {type(node.op).__name__}")
+        
+        elif isinstance(node, ast.Slice):
+            # Soporte para slices: df[1:5], list[:-1], df.iloc[0:10]
+            lower = await self._execute_node(node.lower, context, variables) if node.lower else None
+            upper = await self._execute_node(node.upper, context, variables) if node.upper else None
+            step = await self._execute_node(node.step, context, variables) if node.step else None
+            return slice(lower, upper, step)
+        
+        elif isinstance(node, ast.ListComp):
+            # Soporte para list comprehensions: [x*2 for x in items if x > 0]
+            MAX_COMP_ITEMS = 100
+            result = []
+            
+            # Solo soportamos un generador por ahora
+            if len(node.generators) != 1:
+                raise DSLSecurityError("Solo se soporta un generador en list comprehension")
+            
+            gen = node.generators[0]
+            iterable = await self._execute_node(gen.iter, context, variables)
+            items = list(iterable)[:MAX_COMP_ITEMS]
+            
+            for item in items:
+                # Asignar variable del loop
+                if isinstance(gen.target, ast.Name):
+                    variables[gen.target.id] = item
+                
+                # Evaluar condiciones (ifs)
+                include = True
+                for if_clause in gen.ifs:
+                    if not await self._execute_node(if_clause, context, variables):
+                        include = False
+                        break
+                
+                if include:
+                    result.append(await self._execute_node(node.elt, context, variables))
+            
+            return result
+        
+        elif isinstance(node, ast.DictComp):
+            # Soporte para dict comprehensions: {k: v for k, v in items}
+            MAX_COMP_ITEMS = 100
+            result = {}
+            
+            if len(node.generators) != 1:
+                raise DSLSecurityError("Solo se soporta un generador en dict comprehension")
+            
+            gen = node.generators[0]
+            iterable = await self._execute_node(gen.iter, context, variables)
+            items = list(iterable)[:MAX_COMP_ITEMS]
+            
+            for item in items:
+                if isinstance(gen.target, ast.Name):
+                    variables[gen.target.id] = item
+                elif isinstance(gen.target, ast.Tuple):
+                    if isinstance(item, (tuple, list)) and len(item) == len(gen.target.elts):
+                        for t, v in zip(gen.target.elts, item):
+                            if isinstance(t, ast.Name):
+                                variables[t.id] = v
+                
+                include = True
+                for if_clause in gen.ifs:
+                    if not await self._execute_node(if_clause, context, variables):
+                        include = False
+                        break
+                
+                if include:
+                    key = await self._execute_node(node.key, context, variables)
+                    value = await self._execute_node(node.value, context, variables)
+                    result[key] = value
+            
+            return result
+        
+        elif isinstance(node, ast.Lambda):
+            # Soporte para funciones lambda: lambda x: x * 2
+            # Crear una función que capture el contexto actual
+            def make_lambda(lambda_node, ctx, vars_copy):
+                async def lambda_func(*args):
+                    local_vars = vars_copy.copy()
+                    # Asignar argumentos a los parámetros
+                    for param, arg in zip(lambda_node.args.args, args):
+                        local_vars[param.arg] = arg
+                    return await self._execute_node(lambda_node.body, ctx, local_vars)
+                
+                # Versión síncrona para pandas apply/map
+                def sync_lambda_func(*args):
+                    local_vars = vars_copy.copy()
+                    for param, arg in zip(lambda_node.args.args, args):
+                        local_vars[param.arg] = arg
+                    # Ejecutar síncronamente (para compatibilidad con pandas)
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # Ya estamos en un loop, ejecutar directamente si es posible
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(
+                                asyncio.run,
+                                self._execute_node(lambda_node.body, ctx, local_vars)
+                            )
+                            return future.result()
+                    return asyncio.run(self._execute_node(lambda_node.body, ctx, local_vars))
+                
+                return sync_lambda_func
+            
+            return make_lambda(node, context, variables.copy())
+        
+        elif isinstance(node, ast.AugAssign):
+            # Soporte para asignación aumentada: x += 1, x -= 1, etc.
+            target_name = node.target.id if isinstance(node.target, ast.Name) else None
+            if not target_name:
+                raise DSLSecurityError("AugAssign solo soportado para variables simples")
+            
+            current = variables.get(target_name, context.get(target_name))
+            if current is None:
+                raise DSLSecurityError(f"Variable '{target_name}' no definida para AugAssign")
+            
+            value = await self._execute_node(node.value, context, variables)
+            
+            if isinstance(node.op, ast.Add):
+                result = current + value
+            elif isinstance(node.op, ast.Sub):
+                result = current - value
+            elif isinstance(node.op, ast.Mult):
+                result = current * value
+            elif isinstance(node.op, ast.Div):
+                result = current / value
+            elif isinstance(node.op, ast.FloorDiv):
+                result = current // value
+            elif isinstance(node.op, ast.Mod):
+                result = current % value
+            else:
+                raise DSLSecurityError(f"Operador AugAssign no soportado: {type(node.op).__name__}")
+            
+            variables[target_name] = result
+            return result
+        
+        elif isinstance(node, ast.Pass):
+            # Soporte para pass (no hace nada)
+            return None
+        
+        elif isinstance(node, ast.Break):
+            # Señal para romper bucles
+            raise StopIteration("break")
+        
+        elif isinstance(node, ast.Continue):
+            # Señal para continuar bucles
+            raise StopIteration("continue")
         
         else:
             raise DSLSecurityError(f"Nodo AST no soportado: {type(node).__name__}")
@@ -448,4 +832,516 @@ class DSLExecutor:
         if warrants:
             return pd.DataFrame(warrants)
         return pd.DataFrame()
+    
+    async def _wrap_get_hourly_movers(
+        self,
+        min_market_cap: float = 0,
+        min_change: float = None,
+        direction: str = "up",
+        limit: int = 20
+    ):
+        """
+        Obtiene las acciones que más se han movido en la última hora.
+        
+        Combina datos del scanner actual con Polygon para calcular el cambio
+        porcentual de la última hora de forma precisa.
+        
+        Args:
+            min_market_cap: Capitalización mínima (ej: 1000000000 para $1B)
+            min_change: Cambio mínimo % para filtrar (opcional)
+            direction: "up" para ganadoras, "down" para perdedoras, "all" para ambos
+            limit: Máximo de resultados
+        
+        Returns:
+            DataFrame con symbol, price, price_1h_ago, chg_1h, market_cap, volume_today
+        """
+        from .functions import calculate_hourly_change
+        
+        # 1. Obtener tickers del scanner con filtros básicos
+        scanner_data = await self.data_provider.get_source_data('scanner')
+        
+        if not scanner_data:
+            return pd.DataFrame()
+        
+        # 2. Filtrar por market_cap si se especifica
+        if min_market_cap > 0:
+            scanner_data = [
+                t for t in scanner_data 
+                if t.get('market_cap', 0) and t.get('market_cap', 0) >= min_market_cap
+            ]
+        
+        # 3. Pre-filtrar por cambio del día si queremos solo subiendo/bajando
+        if direction == "up":
+            scanner_data = [t for t in scanner_data if t.get('change_percent', 0) > 0]
+        elif direction == "down":
+            scanner_data = [t for t in scanner_data if t.get('change_percent', 0) < 0]
+        
+        # 4. Ordenar por cambio del día para tomar los más relevantes
+        scanner_data.sort(key=lambda x: abs(x.get('change_percent', 0)), reverse=True)
+        
+        # 5. Tomar los top para analizar (limitar a 30 para no saturar Polygon)
+        candidates = scanner_data[:min(30, limit * 2)]
+        
+        if not candidates:
+            return pd.DataFrame()
+        
+        # 6. Extraer símbolos y precios actuales
+        symbols = [t['symbol'] for t in candidates]
+        current_prices = {t['symbol']: t.get('price', 0) for t in candidates}
+        
+        # 7. Calcular cambio de la última hora usando Polygon
+        df = await calculate_hourly_change(
+            self.data_provider,
+            symbols,
+            current_prices
+        )
+        
+        if df.empty:
+            return df
+        
+        # 8. Agregar datos adicionales del scanner
+        scanner_dict = {t['symbol']: t for t in candidates}
+        df['market_cap'] = df['symbol'].map(lambda s: scanner_dict.get(s, {}).get('market_cap', 0))
+        df['volume_today'] = df['symbol'].map(lambda s: scanner_dict.get(s, {}).get('volume_today', 0))
+        df['change_percent'] = df['symbol'].map(lambda s: scanner_dict.get(s, {}).get('change_percent', 0))
+        df['sector'] = df['symbol'].map(lambda s: scanner_dict.get(s, {}).get('sector', ''))
+        
+        # 9. Filtrar por dirección
+        if direction == "up":
+            df = df[df['chg_1h'] > 0]
+        elif direction == "down":
+            df = df[df['chg_1h'] < 0]
+            df = df.sort_values('chg_1h', ascending=True)
+        
+        # 10. Filtrar por cambio mínimo si se especifica
+        if min_change is not None:
+            df = df[abs(df['chg_1h']) >= min_change]
+        
+        # 11. Limitar resultados
+        df = df.head(limit).reset_index(drop=True)
+        
+        return df
+    
+    async def _wrap_smart_get_data(self, symbol: str):
+        """
+        Obtiene datos de un ticker de forma inteligente.
+        
+        Si el ticker está en el scanner, retorna sus datos.
+        Si no está, muestra un mensaje de datos faltantes y
+        opcionalmente dispara una solicitud de ingesta.
+        
+        Returns:
+            DataFrame con los datos del ticker o None si no existe
+        """
+        symbol = symbol.upper()
+        
+        # Buscar en scanner
+        scanner_data = await self.data_provider.get_source_data('scanner')
+        
+        for ticker in scanner_data:
+            if ticker.get('symbol', '').upper() == symbol:
+                # Encontrado - retornar como DataFrame
+                return pd.DataFrame([ticker])
+        
+        # No encontrado - mostrar mensaje de datos faltantes
+        display_missing_data(
+            symbol=symbol,
+            message=f"El ticker {symbol} no está en el scanner actual. "
+                    f"Puede que no esté activo o no cumpla los filtros del scanner.",
+            request_id=f"scan_{symbol}",
+            can_retry=True,
+            estimated_wait_seconds=5
+        )
+        
+        return pd.DataFrame()
+    
+    async def _wrap_check_ticker_exists(self, symbol: str) -> bool:
+        """
+        Verifica si un ticker existe en el scanner o tiene datos disponibles.
+        
+        Útil para validar antes de hacer operaciones costosas.
+        
+        Returns:
+            True si el ticker existe, False si no
+        """
+        symbol = symbol.upper()
+        
+        # Buscar en scanner
+        scanner_data = await self.data_provider.get_source_data('scanner')
+        
+        for ticker in scanner_data:
+            if ticker.get('symbol', '').upper() == symbol:
+                return True
+        
+        # Intentar obtener metadata
+        try:
+            metadata = await self.data_provider.redis.get(f"metadata:{symbol}")
+            if metadata:
+                return True
+        except:
+            pass
+        
+        return False
+    
+    async def _wrap_get_full_ticker_info(self, symbol: str):
+        """
+        Obtiene información completa de un ticker usando TODOS los servicios.
+        
+        Esta es la función más poderosa - combina:
+        - Scanner (datos tiempo real)
+        - API Gateway (snapshot de Polygon)
+        - Ticker Metadata (info de compañía)
+        
+        Returns:
+            DataFrame con toda la información disponible
+        """
+        result = await self.data_provider.get_ticker_full_info(symbol)
+        
+        if not result.get("found"):
+            # Mostrar mensaje de datos no encontrados
+            display_missing_data(
+                symbol=symbol,
+                message=f"No se encontró información para {symbol}. "
+                        f"Verifica que el símbolo sea correcto.",
+                can_retry=False
+            )
+            return pd.DataFrame()
+        
+        # Convertir a DataFrame para fácil visualización
+        data = result.get("data", {})
+        row = {
+            "symbol": symbol,
+            "price": data.get("price"),
+            "change_percent": data.get("change_percent"),
+            "volume": data.get("volume"),
+            "open": data.get("open"),
+            "high": data.get("high"),
+            "low": data.get("low"),
+            "prev_close": data.get("prev_close"),
+            "vwap": data.get("vwap"),
+            "company_name": data.get("company_name"),
+            "sector": data.get("sector"),
+            "industry": data.get("industry"),
+            "market_cap": data.get("market_cap"),
+            "sources": ", ".join(result.get("sources", []))
+        }
+        
+        return pd.DataFrame([row])
+    
+    async def _wrap_search_tickers(self, query: str, limit: int = 10):
+        """
+        Busca tickers por nombre o símbolo.
+        
+        Usa el servicio ticker_metadata que tiene búsqueda optimizada
+        con PostgreSQL (índices GIN para full-text search).
+        
+        Args:
+            query: Texto a buscar (ej: "Apple", "AAPL", "tech")
+            limit: Máximo de resultados
+        
+        Returns:
+            DataFrame con los resultados de búsqueda
+        """
+        results = await self.data_provider.search_tickers(query, limit)
+        
+        if not results:
+            display_missing_data(
+                symbol=query,
+                message=f"No se encontraron tickers para '{query}'",
+                can_retry=False
+            )
+            return pd.DataFrame()
+        
+        return pd.DataFrame(results)
+    
+    async def _wrap_get_snapshot(self, symbol: str):
+        """
+        Obtiene snapshot de Polygon para un ticker específico.
+        
+        Útil cuando quieres datos actuales de un ticker que NO está
+        en el scanner (porque no cumple los filtros).
+        
+        El api_gateway ya tiene cache de 5 minutos.
+        
+        Returns:
+            DataFrame con los datos del snapshot
+        """
+        snapshot = await self.data_provider.get_ticker_snapshot_from_polygon(symbol)
+        
+        if not snapshot:
+            display_missing_data(
+                symbol=symbol,
+                message=f"No se pudo obtener snapshot de {symbol} desde Polygon",
+                can_retry=True,
+                estimated_wait_seconds=60  # Polygon rate limit
+            )
+            return pd.DataFrame()
+        
+        # Extraer datos del snapshot
+        ticker = snapshot.get("ticker", {})
+        day = ticker.get("day", {})
+        prev = ticker.get("prevDay", {})
+        
+        row = {
+            "symbol": symbol,
+            "price": day.get("c"),
+            "open": day.get("o"),
+            "high": day.get("h"),
+            "low": day.get("l"),
+            "volume": day.get("v"),
+            "vwap": day.get("vw"),
+            "prev_close": prev.get("c"),
+            "change_percent": round(
+                ((day.get("c", 0) - prev.get("c", 1)) / prev.get("c", 1)) * 100, 2
+            ) if prev.get("c") else None
+        }
+        
+        return pd.DataFrame([row])
+    
+    # =============================================
+    # FUNCIONES AVANZADAS DE TIEMPO
+    # Para consultas temporales específicas (franjas horarias, días pasados)
+    # =============================================
+    
+    async def _wrap_get_bars_range(
+        self,
+        symbol: str,
+        from_datetime: str,
+        to_datetime: str,
+        interval: str = "5min"
+    ):
+        """
+        Obtiene barras en un rango de tiempo específico.
+        
+        Args:
+            symbol: Ticker
+            from_datetime: Inicio 'YYYY-MM-DD HH:MM' o 'YYYY-MM-DD'
+            to_datetime: Fin 'YYYY-MM-DD HH:MM' o 'YYYY-MM-DD'
+            interval: 1min, 5min, 15min, 30min, 1hour, 4hour, 1day
+        
+        Returns:
+            DataFrame con barras filtradas al rango exacto
+        
+        Ejemplo:
+            # Obtener 15:00-16:00 de ayer
+            df = await get_bars_range('AAPL', '2024-01-05 15:00', '2024-01-05 16:00')
+        """
+        from data.service_clients import get_service_clients
+        
+        clients = get_service_clients()
+        return await clients.get_bars_range(symbol, from_datetime, to_datetime, interval)
+    
+    async def _wrap_get_bars_for_date(
+        self,
+        symbol: str,
+        date: str,
+        start_time: str = "09:30",
+        end_time: str = "16:00",
+        interval: str = "5min"
+    ):
+        """
+        Obtiene barras de una fecha específica en una franja horaria.
+        
+        Args:
+            symbol: Ticker
+            date: Fecha - 'yesterday', 'today', '2024-01-05', 'hace 3 dias'
+            start_time: Hora inicio 'HH:MM' (default: apertura 09:30)
+            end_time: Hora fin 'HH:MM' (default: cierre 16:00)
+            interval: Timeframe
+        
+        Returns:
+            DataFrame con barras de esa fecha y franja horaria
+        
+        Ejemplos:
+            # Última hora de ayer (15:00-16:00)
+            df = await get_bars_for_date('AAPL', 'yesterday', '15:00', '16:00')
+            
+            # Pre-market de hoy (04:00-09:30)
+            df = await get_bars_for_date('AAPL', 'today', '04:00', '09:30')
+            
+            # Mañana de hace 7 días
+            df = await get_bars_for_date('NVDA', 'hace 7 dias', '09:30', '12:00')
+        """
+        from data.service_clients import get_service_clients
+        
+        # Procesar fecha especial en español
+        date_lower = date.lower().strip()
+        if date_lower in ['yesterday', 'ayer']:
+            date = 'yesterday'
+        elif date_lower in ['today', 'hoy']:
+            date = 'today'
+        elif 'hace' in date_lower and 'dia' in date_lower:
+            # Extraer número de días
+            import re
+            match = re.search(r'(\d+)', date_lower)
+            if match:
+                days_ago = int(match.group(1))
+                from datetime import datetime, timedelta
+                import pytz
+                ET = pytz.timezone('America/New_York')
+                target = datetime.now(ET) - timedelta(days=days_ago)
+                date = target.strftime('%Y-%m-%d')
+        
+        clients = get_service_clients()
+        return await clients.get_bars_for_date(symbol, date, start_time, end_time, interval)
+    
+    async def _wrap_get_last_n_minutes(
+        self,
+        symbol: str,
+        date: str = "yesterday",
+        minutes: int = 15,
+        interval: str = "1min"
+    ):
+        """
+        Obtiene los últimos N minutos de trading de una fecha específica.
+        
+        Args:
+            symbol: Ticker
+            date: Fecha ('yesterday', 'today', '2024-01-05')
+            minutes: Minutos antes del cierre (default: 15)
+            interval: Timeframe para las barras
+        
+        Returns:
+            DataFrame con las últimas N minutos del día
+        
+        Ejemplo:
+            # Últimos 15 minutos de ayer
+            df = await get_last_n_minutes('AAPL', 'yesterday', minutes=15)
+            
+            # Últimos 30 minutos de hace 3 días
+            df = await get_last_n_minutes('NVDA', 'hace 3 dias', minutes=30)
+        """
+        from data.service_clients import get_service_clients
+        
+        # Procesar fecha especial en español
+        date_lower = date.lower().strip()
+        if date_lower in ['yesterday', 'ayer']:
+            date = 'yesterday'
+        elif date_lower in ['today', 'hoy']:
+            date = 'today'
+        elif 'hace' in date_lower and 'dia' in date_lower:
+            import re
+            match = re.search(r'(\d+)', date_lower)
+            if match:
+                days_ago = int(match.group(1))
+                from datetime import datetime, timedelta
+                import pytz
+                ET = pytz.timezone('America/New_York')
+                target = datetime.now(ET) - timedelta(days=days_ago)
+                date = target.strftime('%Y-%m-%d')
+        
+        clients = get_service_clients()
+        return await clients.get_last_n_minutes_of_date(symbol, date, minutes, interval)
+    
+    async def _wrap_get_top_movers_at_time(
+        self,
+        date: str,
+        start_time: str,
+        end_time: str,
+        direction: str = "up",
+        limit: int = 20
+    ):
+        """
+        Obtiene los top movers (subiendo/bajando) en una franja horaria específica del pasado.
+        
+        Args:
+            date: Fecha ('yesterday', 'hace 2 dias', '2024-01-05')
+            start_time: Hora inicio 'HH:MM'
+            end_time: Hora fin 'HH:MM'
+            direction: 'up' o 'down'
+            limit: Número de resultados
+        
+        Returns:
+            DataFrame con symbol, price_start, price_end, change_pct
+        
+        Ejemplo:
+            # Top acciones subiendo de 15:00-16:00 de ayer
+            df = await get_top_movers_at_time('yesterday', '15:00', '16:00', direction='up')
+            
+            # Top acciones cayendo en la primera hora de hace 3 días
+            df = await get_top_movers_at_time('hace 3 dias', '09:30', '10:30', direction='down')
+        """
+        from data.service_clients import get_service_clients
+        
+        # Procesar fecha especial
+        date_lower = date.lower().strip()
+        if date_lower in ['yesterday', 'ayer']:
+            date = 'yesterday'
+        elif date_lower in ['today', 'hoy']:
+            date = 'today'
+        elif 'hace' in date_lower and 'dia' in date_lower:
+            import re
+            match = re.search(r'(\d+)', date_lower)
+            if match:
+                days_ago = int(match.group(1))
+                from datetime import datetime, timedelta
+                import pytz
+                ET = pytz.timezone('America/New_York')
+                target = datetime.now(ET) - timedelta(days=days_ago)
+                date = target.strftime('%Y-%m-%d')
+        
+        clients = get_service_clients()
+        return await clients.get_top_movers_at_time(date, start_time, end_time, direction, limit)
+    
+    async def _wrap_get_premarket_movers(
+        self,
+        date: str = "today",
+        direction: str = "up",
+        limit: int = 20
+    ):
+        """
+        Obtiene los top movers en pre-market de una fecha específica.
+        
+        Pre-market: 04:00 - 09:30 ET
+        
+        Args:
+            date: Fecha ('yesterday', 'today', 'hace 3 dias')
+            direction: 'up' o 'down'
+            limit: Número de resultados
+        
+        Returns:
+            DataFrame con symbol, price_start, price_end, change_pct, volume
+        
+        Ejemplo:
+            # Top subiendo en pre-market de hoy
+            df = await get_premarket_movers('today', direction='up')
+            
+            # Top cayendo en pre-market de ayer
+            df = await get_premarket_movers('yesterday', direction='down')
+        """
+        from data.service_clients import get_service_clients
+        
+        clients = get_service_clients()
+        return await clients.get_extended_hours_movers(date, session='premarket', direction=direction, limit=limit)
+    
+    async def _wrap_get_postmarket_movers(
+        self,
+        date: str = "yesterday",
+        direction: str = "up",
+        limit: int = 20
+    ):
+        """
+        Obtiene los top movers en post-market de una fecha específica.
+        
+        Post-market: 16:00 - 20:00 ET
+        
+        Args:
+            date: Fecha ('yesterday', 'today', 'hace 3 dias')
+            direction: 'up' o 'down'
+            limit: Número de resultados
+        
+        Returns:
+            DataFrame con symbol, price_start, price_end, change_pct, volume
+        
+        Ejemplo:
+            # Top subiendo en post-market de ayer
+            df = await get_postmarket_movers('yesterday', direction='up')
+            
+            # Top cayendo en post-market de hace 2 días
+            df = await get_postmarket_movers('hace 2 dias', direction='down')
+        """
+        from data.service_clients import get_service_clients
+        
+        clients = get_service_clients()
+        return await clients.get_extended_hours_movers(date, session='postmarket', direction=direction, limit=limit)
 

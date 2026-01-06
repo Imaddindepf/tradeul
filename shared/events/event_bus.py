@@ -37,6 +37,11 @@ class EventType(str, Enum):
     SERVICE_STARTED = "service:started"
     SERVICE_STOPPED = "service:stopped"
 
+    # Eventos de solicitud de datos (AI Agent)
+    DATA_REQUEST = "data:request"           # Solicitud de ingesta de datos
+    DATA_REQUEST_COMPLETED = "data:request:completed"  # Datos disponibles
+    DATA_REQUEST_FAILED = "data:request:failed"        # Falló la ingesta
+
 
 class Event:
     """Representa un evento del sistema"""

@@ -440,3 +440,68 @@ class DataProvider:
             return []
         return await self._timescale.get_tickers_with_atm()
 
+    # =============================================
+    # SERVICIOS INTERNOS - Datos Enriquecidos
+    # =============================================
+    
+    async def get_ticker_full_info(self, symbol: str) -> Dict[str, Any]:
+        """
+        Obtiene información completa de un ticker usando todos los servicios disponibles.
+        
+        Estrategia inteligente:
+        1. Scanner (tiempo real, si el ticker está activo)
+        2. API Gateway → Polygon (snapshot si no está en scanner)
+        3. Ticker Metadata (sector, industry, company info)
+        4. Polygon directo (barras históricas si se necesitan)
+        
+        Returns:
+            Dict con toda la info disponible y las fuentes usadas
+        """
+        from .service_clients import get_service_clients
+        
+        symbol = symbol.upper()
+        clients = get_service_clients()
+        
+        return await clients.get_ticker_full_info(symbol)
+    
+    async def search_tickers(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Busca tickers por nombre o símbolo.
+        
+        Usa ticker_metadata_service que tiene búsqueda optimizada con PostgreSQL.
+        """
+        from .service_clients import get_service_clients
+        
+        clients = get_service_clients()
+        return await clients.search_tickers(query, limit)
+    
+    async def get_ticker_snapshot_from_polygon(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Obtiene snapshot de Polygon via api_gateway.
+        
+        Útil cuando el ticker no está en el scanner pero queremos datos actuales.
+        api_gateway ya tiene cache de 5 minutos.
+        """
+        from .service_clients import get_service_clients
+        
+        clients = get_service_clients()
+        return await clients.get_ticker_snapshot(symbol)
+    
+    async def get_chart_from_gateway(
+        self,
+        symbol: str,
+        interval: str = "1hour",
+        limit: int = 500
+    ) -> List[Dict[str, Any]]:
+        """
+        Obtiene datos de chart via api_gateway.
+        
+        api_gateway selecciona automáticamente:
+        - Polygon para intraday
+        - FMP para daily
+        """
+        from .service_clients import get_service_clients
+        
+        clients = get_service_clients()
+        return await clients.get_chart_data(symbol, interval, limit)
+

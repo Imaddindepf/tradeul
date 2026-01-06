@@ -241,6 +241,72 @@ def compare_performance(
 
 
 # =============================================
+# HOURLY CHANGE CALCULATOR
+# =============================================
+
+async def calculate_hourly_change(
+    data_provider,
+    symbols: List[str],
+    current_prices: Dict[str, float]
+) -> pd.DataFrame:
+    """
+    Calcula el cambio porcentual de la última hora para una lista de símbolos.
+    
+    Usa Polygon para obtener el precio de hace 1 hora y lo compara con el precio actual.
+    
+    Args:
+        data_provider: DataProvider instance con acceso a Polygon
+        symbols: Lista de símbolos a analizar
+        current_prices: Dict con precios actuales {symbol: price}
+    
+    Returns:
+        DataFrame con symbol, price, price_1h_ago, chg_1h
+    """
+    import asyncio
+    
+    results = []
+    
+    # Limitar a 30 símbolos para no sobrecargar Polygon
+    symbols_to_check = symbols[:30]
+    
+    async def get_price_1h_ago(symbol: str) -> Optional[Dict]:
+        try:
+            # Obtener barras de la última hora (2 barras de 1h para tener la anterior)
+            bars = await data_provider.get_bars(symbol, days=1, timeframe='1h')
+            
+            if bars and len(bars) >= 2:
+                # La penúltima barra es hace 1 hora
+                price_1h_ago = bars[-2]['close'] if len(bars) >= 2 else bars[-1]['open']
+                current = current_prices.get(symbol, bars[-1]['close'])
+                
+                chg_1h = ((current - price_1h_ago) / price_1h_ago) * 100 if price_1h_ago > 0 else 0
+                
+                return {
+                    'symbol': symbol,
+                    'price': round(current, 2),
+                    'price_1h_ago': round(price_1h_ago, 2),
+                    'chg_1h': round(chg_1h, 2)
+                }
+            return None
+        except Exception as e:
+            return None
+    
+    # Ejecutar en paralelo (grupos de 10 para no saturar)
+    for i in range(0, len(symbols_to_check), 10):
+        batch = symbols_to_check[i:i+10]
+        tasks = [get_price_1h_ago(s) for s in batch]
+        batch_results = await asyncio.gather(*tasks)
+        results.extend([r for r in batch_results if r is not None])
+    
+    if results:
+        df = pd.DataFrame(results)
+        df = df.sort_values('chg_1h', ascending=False).reset_index(drop=True)
+        return df
+    
+    return pd.DataFrame(columns=['symbol', 'price', 'price_1h_ago', 'chg_1h'])
+
+
+# =============================================
 # EXPORT
 # =============================================
 
@@ -251,6 +317,7 @@ __all__ = [
     'calculate_macd',
     'calculate_bollinger',
     'add_technicals',
-    'compare_performance'
+    'compare_performance',
+    'calculate_hourly_change'
 ]
 
