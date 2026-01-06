@@ -24,13 +24,6 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.Q.description',
         shortcut: 'Q'
     },
-    DES: {
-        id: 'description',
-        label: 'DES',
-        name: 'Description',
-        descriptionKey: 'terminalCommands.tickerCommands.DES.description',
-        shortcut: 'D'
-    },
     G: {
         id: 'graph',
         label: 'G',
@@ -72,6 +65,13 @@ export const TICKER_COMMANDS = {
         name: 'Pattern Matching',
         descriptionKey: 'terminalCommands.tickerCommands.PM.description',
         shortcut: 'Ctrl+P'
+    },
+    FAN: {
+        id: 'fan',
+        label: 'FAN',
+        name: 'Financial Analyst',
+        descriptionKey: 'terminalCommands.tickerCommands.FAN.description',
+        shortcut: 'Ctrl+Shift+F'
     },
 } as const;
 
@@ -214,6 +214,13 @@ export const GLOBAL_COMMANDS = {
         name: 'Insider Trading',
         descriptionKey: 'terminalCommands.globalCommands.INSIDER.description',
         shortcut: 'Ctrl+I'
+    },
+    FAN: {
+        id: 'fan',
+        label: 'FAN',
+        name: 'Financial Analyst',
+        descriptionKey: 'terminalCommands.globalCommands.FAN.description',
+        shortcut: 'Ctrl+Shift+F'
     },
 } as const;
 

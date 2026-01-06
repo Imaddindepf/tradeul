@@ -252,9 +252,10 @@ class WarrantModel(BaseModel):
         return parse_flexible_decimal(v)
     
     @validator('outstanding', 'potential_new_shares', 'total_issued', 'exercised', 
-               'expired', 'remaining', 'original_outstanding', 'replaced_by_id',
-               'replaces_id', 'amendment_of_id', 'price_adjustment_count',
-               'exercise_events_count', 'last_exercise_quantity', 'forced_exercise_days', pre=True)
+               'expired', 'remaining', 'original_outstanding', 'original_total_issued',
+               'merged_from_count', 'replaced_by_id', 'replaces_id', 'amendment_of_id', 
+               'price_adjustment_count', 'exercise_events_count', 'last_exercise_quantity', 
+               'forced_exercise_days', pre=True)
     def parse_int(cls, v):
         return parse_flexible_int(v)
     
@@ -340,7 +341,7 @@ class WarrantLifecycleEvent(BaseModel):
     def parse_decimal(cls, v):
         return parse_flexible_decimal(v)
     
-    @validator('warrants_affected', 'shares_issued', 'outstanding_after', 
+    @validator('warrant_id', 'warrants_affected', 'shares_issued', 'outstanding_after', 
                'exercised_cumulative', 'expired_cumulative', pre=True)
     def parse_int(cls, v):
         return parse_flexible_int(v)
@@ -424,7 +425,7 @@ class WarrantPriceAdjustment(BaseModel):
     def parse_decimal(cls, v):
         return parse_flexible_decimal(v)
     
-    @validator('quantity_before', 'quantity_after', pre=True)
+    @validator('warrant_id', 'quantity_before', 'quantity_after', pre=True)
     def parse_int(cls, v):
         return parse_flexible_int(v)
     
@@ -547,6 +548,10 @@ class ShelfRegistrationModel(BaseModel):
         if v is None:
             return False
         return v
+    
+    @validator('outstanding_shares_calc', 'free_float_calc', pre=True)
+    def parse_int(cls, v):
+        return parse_flexible_int(v)
     
     class Config:
         json_schema_extra = {
@@ -739,7 +744,7 @@ class ConvertiblePreferredModel(BaseModel):
     def parse_decimal(cls, v):
         return parse_flexible_decimal(v)
     
-    @validator('total_shares_when_converted', 'remaining_shares_when_converted', pre=True)
+    @validator('total_shares_when_converted', 'remaining_shares_when_converted', 'merged_from_count', pre=True)
     def parse_int(cls, v):
         return parse_flexible_int(v)
 

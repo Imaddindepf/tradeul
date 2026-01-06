@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 
 const DILUTION_API = process.env.NEXT_PUBLIC_DILUTION_API_URL || 'https://dilution.tradeul.com';
@@ -9,6 +9,254 @@ interface AITerminalWindowProps {
     ticker: string;
     companyName?: string;
     onComplete?: (success: boolean) => void;
+}
+
+// ============================================
+// PARTICLE DOCUMENT ANIMATION COMPONENT
+// ============================================
+interface Particle {
+    x: number;
+    y: number;
+    baseX: number;
+    baseY: number;
+    size: number;
+    color: string;
+    alpha: number;
+    velocity: { x: number; y: number };
+    type: 'document' | 'spark' | 'scan';
+    life?: number;
+    maxLife?: number;
+}
+
+function SECDocumentAnimation({ ticker, thinkingTime }: { ticker: string; thinkingTime: number }) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const particlesRef = useRef<Particle[]>([]);
+    const frameRef = useRef<number>(0);
+    const scanLineRef = useRef<number>(0);
+
+    const initParticles = useCallback((width: number, height: number) => {
+        const particles: Particle[] = [];
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        // Document dimensions
+        const docWidth = Math.min(140, width * 0.35);
+        const docHeight = docWidth * 1.35;
+        const docLeft = centerX - docWidth / 2;
+        const docTop = centerY - docHeight / 2;
+        const spacing = 5;
+
+        // Document border (dotted rectangle)
+        // Top border
+        for (let x = docLeft; x <= docLeft + docWidth; x += spacing) {
+            particles.push({
+                x: x, y: docTop, baseX: x, baseY: docTop,
+                size: 2, color: '#3b82f6', alpha: 0.8,
+                velocity: { x: 0, y: 0 }, type: 'document'
+            });
+        }
+        // Bottom border
+        for (let x = docLeft; x <= docLeft + docWidth; x += spacing) {
+            particles.push({
+                x: x, y: docTop + docHeight, baseX: x, baseY: docTop + docHeight,
+                size: 2, color: '#3b82f6', alpha: 0.8,
+                velocity: { x: 0, y: 0 }, type: 'document'
+            });
+        }
+        // Left border
+        for (let y = docTop; y <= docTop + docHeight; y += spacing) {
+            particles.push({
+                x: docLeft, y: y, baseX: docLeft, baseY: y,
+                size: 2, color: '#3b82f6', alpha: 0.8,
+                velocity: { x: 0, y: 0 }, type: 'document'
+            });
+        }
+        // Right border
+        for (let y = docTop; y <= docTop + docHeight; y += spacing) {
+            particles.push({
+                x: docLeft + docWidth, y: y, baseX: docLeft + docWidth, baseY: y,
+                size: 2, color: '#3b82f6', alpha: 0.8,
+                velocity: { x: 0, y: 0 }, type: 'document'
+            });
+        }
+
+        // "SEC" text in dots at top of document
+        const secText = [
+            // S
+            [0,0],[1,0],[2,0],[0,1],[0,2],[1,2],[2,2],[2,3],[0,4],[1,4],[2,4],
+            // E
+            [4,0],[5,0],[6,0],[4,1],[4,2],[5,2],[4,3],[4,4],[5,4],[6,4],
+            // C
+            [8,0],[9,0],[10,0],[8,1],[8,2],[8,3],[8,4],[9,4],[10,4]
+        ];
+        const secScale = 4;
+        const secStartX = centerX - (11 * secScale) / 2;
+        const secStartY = docTop + 15;
+        secText.forEach(([px, py]) => {
+            particles.push({
+                x: secStartX + px * secScale, 
+                y: secStartY + py * secScale,
+                baseX: secStartX + px * secScale, 
+                baseY: secStartY + py * secScale,
+                size: 2.5, color: '#60a5fa', alpha: 1,
+                velocity: { x: 0, y: 0 }, type: 'document'
+            });
+        });
+
+        // Document content lines (dotted)
+        const lineY = secStartY + 35;
+        const lineSpacing = 12;
+        const lineLengths = [0.85, 0.7, 0.9, 0.6, 0.75, 0.8];
+        for (let i = 0; i < lineLengths.length; i++) {
+            const y = lineY + i * lineSpacing;
+            const lineWidth = (docWidth - 20) * lineLengths[i];
+            for (let x = docLeft + 10; x < docLeft + 10 + lineWidth; x += 4) {
+                particles.push({
+                    x: x, y: y, baseX: x, baseY: y,
+                    size: 1.5, color: '#3b82f6', alpha: 0.5,
+                    velocity: { x: 0, y: 0 }, type: 'document'
+                });
+            }
+        }
+
+        return particles;
+    }, []);
+
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const resize = () => {
+            const rect = canvas.parentElement?.getBoundingClientRect();
+            if (rect) {
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+                particlesRef.current = initParticles(canvas.width, canvas.height);
+            }
+        };
+
+        resize();
+        window.addEventListener('resize', resize);
+
+        let animationId: number;
+
+        const animate = () => {
+            if (!ctx || !canvas) return;
+            
+            ctx.fillStyle = '#0a0a0f';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const time = Date.now() / 1000;
+            scanLineRef.current = (scanLineRef.current + 1.5) % (canvas.height + 100);
+
+            // Draw document particles with wave effect
+            particlesRef.current.forEach((p, i) => {
+                if (p.type === 'document') {
+                    const wave = Math.sin(time * 2 + i * 0.05) * 1.5;
+                    const breathe = Math.sin(time * 1.5) * 0.5;
+                    
+                    ctx.beginPath();
+                    ctx.arc(p.baseX + wave, p.baseY + breathe, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.alpha * (0.7 + Math.sin(time * 3 + i * 0.1) * 0.3);
+                    ctx.fill();
+                }
+            });
+
+            // Scan line effect
+            const scanY = scanLineRef.current - 50;
+            const gradient = ctx.createLinearGradient(0, scanY - 30, 0, scanY + 30);
+            gradient.addColorStop(0, 'rgba(251, 191, 36, 0)');
+            gradient.addColorStop(0.5, 'rgba(251, 191, 36, 0.15)');
+            gradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
+            ctx.fillStyle = gradient;
+            ctx.globalAlpha = 1;
+            ctx.fillRect(0, scanY - 30, canvas.width, 60);
+
+            // Golden spark particles
+            const sparksCount = 12;
+            for (let i = 0; i < sparksCount; i++) {
+                const sparkTime = time * 0.8 + i * (Math.PI * 2 / sparksCount);
+                const radius = 80 + Math.sin(time * 2 + i) * 20;
+                const sparkX = canvas.width / 2 + Math.cos(sparkTime) * radius;
+                const sparkY = canvas.height / 2 + Math.sin(sparkTime * 1.5) * radius * 0.6;
+                
+                const sparkSize = 3 + Math.sin(time * 4 + i) * 1.5;
+                const sparkAlpha = 0.6 + Math.sin(time * 3 + i * 0.5) * 0.4;
+                
+                // Glow
+                const glowGradient = ctx.createRadialGradient(sparkX, sparkY, 0, sparkX, sparkY, sparkSize * 4);
+                glowGradient.addColorStop(0, `rgba(251, 191, 36, ${sparkAlpha * 0.5})`);
+                glowGradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
+                ctx.fillStyle = glowGradient;
+                ctx.globalAlpha = 1;
+                ctx.fillRect(sparkX - sparkSize * 4, sparkY - sparkSize * 4, sparkSize * 8, sparkSize * 8);
+                
+                // Core
+                ctx.beginPath();
+                ctx.arc(sparkX, sparkY, sparkSize, 0, Math.PI * 2);
+                ctx.fillStyle = '#fbbf24';
+                ctx.globalAlpha = sparkAlpha;
+                ctx.fill();
+            }
+
+            // Flying sparks (random directions)
+            for (let i = 0; i < 6; i++) {
+                const flyTime = (time * 1.2 + i * 1.5) % 3;
+                const startX = canvas.width / 2 + (i % 2 === 0 ? 60 : -60);
+                const startY = canvas.height / 2;
+                const angle = (i / 6) * Math.PI * 2 + time * 0.3;
+                const distance = flyTime * 50;
+                
+                const fx = startX + Math.cos(angle) * distance;
+                const fy = startY + Math.sin(angle) * distance;
+                const fAlpha = Math.max(0, 1 - flyTime / 2);
+                
+                ctx.beginPath();
+                ctx.arc(fx, fy, 2, 0, Math.PI * 2);
+                ctx.fillStyle = '#f59e0b';
+                ctx.globalAlpha = fAlpha;
+                ctx.fill();
+            }
+
+            ctx.globalAlpha = 1;
+            frameRef.current++;
+            animationId = requestAnimationFrame(animate);
+        };
+
+        animate();
+
+        return () => {
+            window.removeEventListener('resize', resize);
+            cancelAnimationFrame(animationId);
+        };
+    }, [initParticles]);
+
+    return (
+        <div className="relative w-full h-64 rounded-lg overflow-hidden bg-[#0a0a0f]">
+            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+            
+            {/* Ticker label */}
+            <div className="absolute top-3 left-3 font-mono text-xs tracking-widest text-amber-400/80 uppercase">
+                {ticker}
+            </div>
+            
+            {/* Status text */}
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#0a0a0f] to-transparent">
+                <div className="text-center">
+                    <p className="text-blue-400 text-sm font-medium">
+                        Analyzing SEC Filings
+                    </p>
+                    <p className="text-slate-500 text-xs mt-1 font-mono">
+                        {thinkingTime}s • Deep analysis in progress
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 /**
@@ -334,22 +582,15 @@ export function AITerminalWindow({
                 ref={terminalRef}
                 className="flex-1 p-4 overflow-y-auto overflow-x-hidden text-sm leading-relaxed bg-white"
             >
-                {/* Thinking state */}
+                {/* Thinking state - Beautiful particle animation */}
                 {isThinking && (
                     <motion.div
-                        animate={{ opacity: [0.5, 1, 0.5] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                        className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg mb-4"
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.5 }}
+                        className="mb-4"
                     >
-                        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                        <div>
-                            <div className="font-medium text-blue-700">
-                                Analyzing SEC filings for {ticker}...
-                            </div>
-                            <div className="text-xs text-blue-500 mt-1">
-                                {thinkingTime}s elapsed {thinkingTime > 10 && '• Deep analysis in progress'}
-                            </div>
-                        </div>
+                        <SECDocumentAnimation ticker={ticker} thinkingTime={thinkingTime} />
                     </motion.div>
                 )}
 

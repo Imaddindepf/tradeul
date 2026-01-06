@@ -67,7 +67,7 @@ function adaptMarketSession(session: MarketSession) {
   };
 }
 
-const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners', 'new_highs', 'new_lows', 'high_volume'];
+const DEFAULT_CATEGORIES = ['gappers_up', 'gappers_down', 'momentum_up', 'winners', 'new_highs', 'new_lows', 'high_volume', 'post_market'];
 
 export default function ScannerPage() {
   const { t } = useTranslation();
@@ -151,7 +151,7 @@ export default function ScannerPage() {
     // === Tablas del scanner ===
     if (title.startsWith('Scanner: ')) {
       const categoryName = title.replace('Scanner: ', '');
-      const categoryIds = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 'winners', 'losers', 'new_highs', 'new_lows', 'anomalies', 'high_volume', 'reversals', 'with_news'];
+      const categoryIds = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 'winners', 'losers', 'new_highs', 'new_lows', 'anomalies', 'high_volume', 'reversals', 'post_market', 'with_news'];
       for (const categoryId of categoryIds) {
         const category = getScannerCategory(categoryId);
         if (category && category.name === categoryName) {

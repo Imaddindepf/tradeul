@@ -76,16 +76,22 @@ async def extract_dilution(
                 detail="Contextual extractor not available (missing API keys)"
             )
 
-        # Ejecutar extracción
-        logger.info("extraction_start", ticker=ticker, cik=cik, save=save, force=force)
-        result = await extractor.extract_all(ticker, cik)
+        # Ejecutar extracción v4.4 con Gemini Pro Dedup
+        logger.info("extraction_start", ticker=ticker, cik=cik, save=save, force=force,
+                   use_gemini_pro_dedup=True)
+        result = await extractor.extract_all(
+            ticker=ticker,
+            cik=cik,
+            company_name=company_name,
+            use_gemini_pro_dedup=True  # Usar Gemini 3 Pro para dedup + split adjustment
+        )
 
         # Construir respuesta
         response = {
             "ticker": ticker,
             "cik": cik,
             "company_name": company_name,
-            "version": "contextual_v4.1",
+            "version": "contextual_v4.4",
             "status": "success",
             "extracted_at": datetime.utcnow().isoformat(),
             "summary": {

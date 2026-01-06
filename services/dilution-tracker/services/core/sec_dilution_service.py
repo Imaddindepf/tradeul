@@ -281,7 +281,9 @@ class SECDilutionService:
     async def _extract_with_contextual_v4(
         self,
         ticker: str,
-        cik: str
+        cik: str,
+        company_name: str = "",
+        use_gemini_pro_dedup: bool = True
     ) -> Optional[Dict]:
         """
         Extracción v4 basada en contexto largo de Gemini.
@@ -292,6 +294,12 @@ class SECDilutionService:
         - ATM detection desde material events
         - Nombres consistentes con patrón [Month Year] [Type]
         
+        Args:
+            ticker: Símbolo del ticker
+            cik: CIK de la empresa
+            company_name: Nombre de la empresa (para Gemini Pro dedup)
+            use_gemini_pro_dedup: Si True, usa Gemini 3 Pro para deduplicación inteligente
+        
         Returns:
             Dict con formato compatible con _build_profile
         """
@@ -300,12 +308,16 @@ class SECDilutionService:
             return None
         
         try:
-            logger.info("contextual_extraction_starting", ticker=ticker, cik=cik)
+            logger.info("contextual_extraction_starting", 
+                       ticker=ticker, cik=cik, 
+                       gemini_pro_dedup=use_gemini_pro_dedup)
             
-            # Ejecutar extracción v4
+            # Ejecutar extracción v4.4 (con Gemini Pro dedup si habilitado)
             result = await self._contextual_extractor.extract_all(
                 ticker=ticker,
-                cik=cik
+                cik=cik,
+                company_name=company_name,
+                use_gemini_pro_dedup=use_gemini_pro_dedup
             )
             
             if not result:
@@ -317,11 +329,13 @@ class SECDilutionService:
                 'warrants': result.get('warrants', []),
                 'atm_offerings': result.get('atm_offerings', []),
                 'shelf_registrations': result.get('shelf_registrations', []),
-                'completed_offerings': [],  # v4 no extrae completed offerings aún
+                'completed_offerings': result.get('completed_offerings', []),  # FIX: Ahora sí extraemos completed offerings
                 's1_offerings': result.get('s1_offerings', []),
                 'convertible_notes': result.get('convertible_notes', []),
                 'convertible_preferred': result.get('convertible_preferred', []),
-                'equity_lines': [],
+                'equity_lines': result.get('equity_lines', []),
+                # FIX BUG #1: Propagar flag para evitar doble ajuste de splits por Python
+                '_gemini_pro_adjusted': result.get('_gemini_pro_adjusted', False),
             }
             
             # Logging detallado
@@ -1443,199 +1457,320 @@ class SECDilutionService:
         9. Obtener precio actual y shares outstanding
         """
         try:
-            logger.info("starting_sec_scrape_hybrid", ticker=ticker)
+            # ================================================================
+            # PROTECTION: Prevent duplicate concurrent requests for same ticker
+            # ================================================================
+            processing_key = f"dilution:processing:{ticker}"
             
-            # 1. Obtener CIK
-            cik, company_name = await self._get_cik_and_company_name(ticker)
-            if not cik:
-                logger.error("cik_not_found", ticker=ticker)
+            # Check if already processing
+            is_processing = await self.redis.get(processing_key)
+            if is_processing:
+                logger.warning("ticker_already_processing", 
+                              ticker=ticker, 
+                              started_at=is_processing,
+                              action="waiting_for_existing")
+                
+                # Wait for existing processing to complete (max 120 seconds)
+                wait_start = time.time()
+                max_wait = 120
+                poll_interval = 2
+                
+                while time.time() - wait_start < max_wait:
+                    await asyncio.sleep(poll_interval)
+                    
+                    # Check if still processing
+                    still_processing = await self.redis.get(processing_key)
+                    if not still_processing:
+                        # Processing finished, try to get from cache
+                        logger.info("existing_processing_completed", 
+                                   ticker=ticker, 
+                                   wait_time=int(time.time() - wait_start))
+                        
+                        cached = await self.cache_service.get_from_redis(ticker)
+                        if cached:
+                            return cached
+                        
+                        # Also try PostgreSQL
+                        db_profile = await self.repository.get_profile(ticker)
+                        if db_profile:
+                            return db_profile
+                        
+                        # Still no data, break and continue with fresh scraping
+                        break
+                    
+                    # Log progress while waiting
+                    if int(time.time() - wait_start) % 10 == 0:
+                        logger.info("waiting_for_existing_processing", 
+                                   ticker=ticker, 
+                                   elapsed=int(time.time() - wait_start))
+                
+                # If we waited too long, log and continue anyway
+                if time.time() - wait_start >= max_wait:
+                    logger.warning("wait_timeout_proceeding_anyway", 
+                                  ticker=ticker, 
+                                  max_wait=max_wait)
+            
+            # Mark as processing (TTL 10 minutes to auto-expire if crash)
+            await self.redis.set(
+                processing_key, 
+                datetime.utcnow().isoformat(), 
+                ttl=600  # 10 minutes
+            )
+            
+            try:
+                logger.info("starting_sec_scrape_hybrid", ticker=ticker)
+                
+                # 1. Obtener CIK
+                cik, company_name = await self._get_cik_and_company_name(ticker)
+                if not cik:
+                    logger.error("cik_not_found", ticker=ticker)
+                    return None
+                
+                logger.info("cik_found", ticker=ticker, cik=cik, company_name=company_name)
+                
+                # ================================================================
+                # 2. NUEVO: Full-Text Search Discovery (TODAS las keywords dilutivas)
+                # ================================================================
+                fulltext_discovery = None
+                priority_filings_from_fulltext = []
+                prospectus_data = []
+                
+                try:
+                    logger.info("fulltext_discovery_starting", ticker=ticker, cik=cik)
+                    
+                    # Comprehensive discovery con TODAS las keywords
+                    fulltext_discovery = await self._fulltext_search.comprehensive_dilution_discovery(
+                        cik=cik,
+                        ticker=ticker,
+                        start_date="2015-01-01"  # 10 años para warrants de larga duración
+                    )
+                    
+                    if fulltext_discovery:
+                        summary = fulltext_discovery.get("summary", {})
+                        logger.info("fulltext_discovery_completed",
+                                  ticker=ticker,
+                                  total_filings=summary.get("total_filings_with_dilution", 0),
+                                  categories=len(summary.get("categories_detected", [])),
+                                  has_warrants=summary.get("has_warrants"),
+                                  has_atm=summary.get("has_atm"),
+                                  has_shelf=summary.get("has_shelf"),
+                                  has_convertibles=summary.get("has_convertibles"))
+                        
+                        # Obtener filings prioritarios del Full-Text Search
+                        priority_filings_from_fulltext = fulltext_discovery.get("priority_filings", [])
+                        
+                        # Datos estructurados de S-1/424B4 (ya parseados!)
+                        prospectus_data = fulltext_discovery.get("prospectus_data", [])
+                        if prospectus_data:
+                            logger.info("prospectus_structured_data_found",
+                                      ticker=ticker,
+                                      count=len(prospectus_data))
+                        
+                except Exception as e:
+                    logger.warning("fulltext_discovery_failed_continuing", 
+                                 ticker=ticker, error=str(e))
+                
+                # ================================================================
+                # 3. Buscar filings adicionales (método tradicional como fallback)
+                # ================================================================
+                filings = await self._fetch_all_filings_from_sec_api_io(ticker, cik)
+                
+                # 3.5 CRÍTICO: Buscar TODOS los 424B
+                filings_424b = await self._fetch_424b_filings(cik, max_count=100)
+                if filings_424b:
+                    logger.info("424b_filings_found", ticker=ticker, count=len(filings_424b))
+                    filings.extend(filings_424b)
+                
+                if not filings and not priority_filings_from_fulltext:
+                    logger.warning("no_filings_found", ticker=ticker, cik=cik)
+                    return self._create_empty_profile(ticker, cik, company_name)
+                
+                logger.info("filings_found_total", ticker=ticker, 
+                           count=len(filings), 
+                           with_424b=len(filings_424b),
+                           from_fulltext=len(priority_filings_from_fulltext))
+                
+                # ================================================================
+                # 4. Filtrar y PRIORIZAR filings usando Full-Text Search results
+                # ================================================================
+                
+                # Si no tenemos filings tradicionales pero sí del fulltext, usar esos
+                if not filings and priority_filings_from_fulltext:
+                    logger.info("using_fulltext_filings_as_primary", 
+                               ticker=ticker,
+                               fulltext_count=len(priority_filings_from_fulltext))
+                    # Convertir priority_filings a formato compatible
+                    filings = self._convert_fulltext_filings(priority_filings_from_fulltext)
+                
+                relevant_filings = self._filter_relevant_filings(filings)
+                
+                # Boost priority para filings encontrados por Full-Text Search
+                if priority_filings_from_fulltext:
+                    relevant_filings = self._boost_priority_filings(
+                        relevant_filings, 
+                        priority_filings_from_fulltext
+                    )
+                
+                logger.info("relevant_filings_selected", ticker=ticker, count=len(relevant_filings), 
+                           forms=[f['form_type'] for f in relevant_filings[:20]])
+                
+                filing_contents = await self._download_filings(relevant_filings)
+                
+                logger.info("filing_contents_downloaded", ticker=ticker, count=len(filing_contents),
+                           total_chars=sum(len(f['content']) for f in filing_contents))
+                
+                # ================================================================
+                # 4. CONTEXTUAL EXTRACTION v4 (ÚNICO MÉTODO)
+                # ================================================================
+                # ContextualDilutionExtractor usa contexto largo de Gemini
+                # ================================================================
+                
+                if not self._contextual_extractor:
+                    logger.error("contextual_extractor_not_configured", ticker=ticker)
+                    return self._create_empty_profile(ticker, cik, company_name)
+                
+                logger.info("starting_contextual_extraction_v4", ticker=ticker, 
+                           use_gemini_pro_dedup=True)
+                
+                try:
+                    # v4.4: Gemini Pro Dedup habilitado por defecto
+                    extracted_data = await self._extract_with_contextual_v4(
+                        ticker=ticker,
+                        cik=cik,
+                        company_name=company_name,
+                        use_gemini_pro_dedup=True  # Usar Gemini 3 Pro para dedup + split adjustment
+                    )
+                except Exception as e:
+                    logger.error("contextual_extraction_v4_failed", ticker=ticker, error=str(e))
+                    return self._create_empty_profile(ticker, cik, company_name)
+                
+                if not extracted_data:
+                    logger.warning("contextual_extraction_no_data", ticker=ticker)
+                    return self._create_empty_profile(ticker, cik, company_name)
+                
+                logger.info("extraction_complete", ticker=ticker, source="contextual_v4")
+                
+                # Enriquecer con datos estructurados de S-1/424B4 API (si hay)
+                if prospectus_data:
+                    extracted_data = self._enrich_with_prospectus_data(
+                        extracted_data, 
+                        prospectus_data
+                    )
+                
+                # Añadir metadata del Full-Text Discovery
+                if fulltext_discovery:
+                    extracted_data['_fulltext_discovery'] = {
+                        'categories_detected': fulltext_discovery.get('summary', {}).get('categories_detected', []),
+                        'total_filings_scanned': fulltext_discovery.get('summary', {}).get('total_filings_with_dilution', 0),
+                        'has_warrants': fulltext_discovery.get('summary', {}).get('has_warrants', False),
+                        'has_atm': fulltext_discovery.get('summary', {}).get('has_atm', False),
+                        'has_shelf': fulltext_discovery.get('summary', {}).get('has_shelf', False),
+                        'has_convertibles': fulltext_discovery.get('summary', {}).get('has_convertibles', False),
+                    }
+                
+                # 6. Ajustar warrants por stock splits
+                # SKIP si Gemini Pro ya ajustó (evitar doble ajuste)
+                gemini_already_adjusted = extracted_data.get('_gemini_pro_adjusted', False)
+                
+                if not gemini_already_adjusted:
+                    if extracted_data.get('warrants'):
+                        extracted_data['warrants'] = await self._adjust_warrants_for_splits(
+                            ticker, 
+                            extracted_data['warrants']
+                        )
+                    
+                    # 6b. Ajustar convertible notes por stock splits
+                    if extracted_data.get('convertible_notes'):
+                        extracted_data['convertible_notes'] = await self._adjust_convertible_notes_for_splits(
+                            ticker, 
+                            extracted_data['convertible_notes']
+                        )
+                    
+                    # 6c. Ajustar convertible preferred por stock splits
+                    if extracted_data.get('convertible_preferred'):
+                        extracted_data['convertible_preferred'] = await self._adjust_convertible_preferred_for_splits(
+                            ticker, 
+                            extracted_data['convertible_preferred']
+                        )
+                else:
+                    logger.info("skip_python_split_adjustment", 
+                               ticker=ticker, 
+                               reason="gemini_pro_already_adjusted")
+                
+                # 7. Obtener precio actual y shares outstanding
+                current_price, shares_outstanding, free_float = await self._get_current_market_data(ticker)
+                
+                # 7. Construir profile completo
+                profile = self._build_profile(
+                    ticker=ticker,
+                    cik=cik,
+                    company_name=company_name,
+                    extracted_data=extracted_data,
+                    current_price=current_price,
+                    shares_outstanding=shares_outstanding,
+                    free_float=free_float,
+                    source_filings=relevant_filings
+                )
+                
+                # 8. NUEVO: Calcular métricas de Baby Shelf
+                profile = await self._enrich_profile_with_baby_shelf_calculations(
+                    profile,
+                    free_float=free_float
+                )
+                
+                # 9. VALIDACIÓN CON GEMINI - Corregir precios, completar datos
+                try:
+                    from services.extraction.gemini_pro_deduplicator import validate_with_gemini_pro
+                    
+                    instruments_to_validate = {
+                        "warrants": [w.dict() if hasattr(w, 'dict') else w for w in profile.warrants],
+                        "convertible_notes": [n.dict() if hasattr(n, 'dict') else n for n in profile.convertible_notes],
+                        "completed_offerings": [o.dict() if hasattr(o, 'dict') else o for o in profile.completed_offerings],
+                        "s1_offerings": [s.dict() if hasattr(s, 'dict') else s for s in profile.s1_offerings],
+                        "equity_lines": [e.dict() if hasattr(e, 'dict') else e for e in profile.equity_lines] if hasattr(profile, 'equity_lines') else [],
+                        "atm_offerings": [a.dict() if hasattr(a, 'dict') else a for a in profile.atm_offerings],
+                    }
+                    
+                    logger.info("gemini_validation_starting", ticker=ticker)
+                    validation_result = await validate_with_gemini_pro(
+                        ticker=ticker,
+                        company_name=company_name,
+                        instruments=instruments_to_validate
+                    )
+                    
+                    # Aplicar correcciones si hay
+                    if validation_result and "validated_instruments" in validation_result:
+                        profile = self._apply_validation_corrections(profile, validation_result)
+                        logger.info("gemini_validation_applied", 
+                                   ticker=ticker,
+                                   summary=validation_result.get("validation_summary", {}))
+                    
+                except ImportError as e:
+                    logger.warning("gemini_validation_import_error", ticker=ticker, error=str(e))
+                except Exception as e:
+                    logger.warning("gemini_validation_error", ticker=ticker, error=str(e))
+                    # Continuar sin validación - no bloquear el flujo
+                
+                logger.info("sec_scrape_completed", ticker=ticker)
+                return profile
+                
+            except Exception as e:
+                logger.error("scrape_and_analyze_failed", ticker=ticker, error=str(e))
                 return None
             
-            logger.info("cik_found", ticker=ticker, cik=cik, company_name=company_name)
-            
-            # ================================================================
-            # 2. NUEVO: Full-Text Search Discovery (TODAS las keywords dilutivas)
-            # ================================================================
-            fulltext_discovery = None
-            priority_filings_from_fulltext = []
-            prospectus_data = []
-            
-            try:
-                logger.info("fulltext_discovery_starting", ticker=ticker, cik=cik)
-                
-                # Comprehensive discovery con TODAS las keywords
-                fulltext_discovery = await self._fulltext_search.comprehensive_dilution_discovery(
-                    cik=cik,
-                    ticker=ticker,
-                    start_date="2015-01-01"  # 10 años para warrants de larga duración
-                )
-                
-                if fulltext_discovery:
-                    summary = fulltext_discovery.get("summary", {})
-                    logger.info("fulltext_discovery_completed",
-                              ticker=ticker,
-                              total_filings=summary.get("total_filings_with_dilution", 0),
-                              categories=len(summary.get("categories_detected", [])),
-                              has_warrants=summary.get("has_warrants"),
-                              has_atm=summary.get("has_atm"),
-                              has_shelf=summary.get("has_shelf"),
-                              has_convertibles=summary.get("has_convertibles"))
+            finally:
+                # Always clean up processing lock
+                try:
+                    await self.redis.delete(processing_key)
+                    logger.debug("processing_lock_released", ticker=ticker)
+                except Exception as cleanup_error:
+                    logger.warning("processing_lock_cleanup_failed", 
+                                  ticker=ticker, 
+                                  error=str(cleanup_error))
                     
-                    # Obtener filings prioritarios del Full-Text Search
-                    priority_filings_from_fulltext = fulltext_discovery.get("priority_filings", [])
-                    
-                    # Datos estructurados de S-1/424B4 (ya parseados!)
-                    prospectus_data = fulltext_discovery.get("prospectus_data", [])
-                    if prospectus_data:
-                        logger.info("prospectus_structured_data_found",
-                                  ticker=ticker,
-                                  count=len(prospectus_data))
-                    
-            except Exception as e:
-                logger.warning("fulltext_discovery_failed_continuing", 
-                             ticker=ticker, error=str(e))
-            
-            # ================================================================
-            # 3. Buscar filings adicionales (método tradicional como fallback)
-            # ================================================================
-            filings = await self._fetch_all_filings_from_sec_api_io(ticker, cik)
-            
-            # 3.5 CRÍTICO: Buscar TODOS los 424B
-            filings_424b = await self._fetch_424b_filings(cik, max_count=100)
-            if filings_424b:
-                logger.info("424b_filings_found", ticker=ticker, count=len(filings_424b))
-                filings.extend(filings_424b)
-            
-            if not filings and not priority_filings_from_fulltext:
-                logger.warning("no_filings_found", ticker=ticker, cik=cik)
-                return self._create_empty_profile(ticker, cik, company_name)
-            
-            logger.info("filings_found_total", ticker=ticker, 
-                       count=len(filings), 
-                       with_424b=len(filings_424b),
-                       from_fulltext=len(priority_filings_from_fulltext))
-            
-            # ================================================================
-            # 4. Filtrar y PRIORIZAR filings usando Full-Text Search results
-            # ================================================================
-            
-            # Si no tenemos filings tradicionales pero sí del fulltext, usar esos
-            if not filings and priority_filings_from_fulltext:
-                logger.info("using_fulltext_filings_as_primary", 
-                           ticker=ticker,
-                           fulltext_count=len(priority_filings_from_fulltext))
-                # Convertir priority_filings a formato compatible
-                filings = self._convert_fulltext_filings(priority_filings_from_fulltext)
-            
-            relevant_filings = self._filter_relevant_filings(filings)
-            
-            # Boost priority para filings encontrados por Full-Text Search
-            if priority_filings_from_fulltext:
-                relevant_filings = self._boost_priority_filings(
-                    relevant_filings, 
-                    priority_filings_from_fulltext
-                )
-            
-            logger.info("relevant_filings_selected", ticker=ticker, count=len(relevant_filings), 
-                       forms=[f['form_type'] for f in relevant_filings[:20]])
-            
-            filing_contents = await self._download_filings(relevant_filings)
-            
-            logger.info("filing_contents_downloaded", ticker=ticker, count=len(filing_contents),
-                       total_chars=sum(len(f['content']) for f in filing_contents))
-            
-            # ================================================================
-            # 4. CONTEXTUAL EXTRACTION v4 (ÚNICO MÉTODO)
-            # ================================================================
-            # ContextualDilutionExtractor usa contexto largo de Gemini
-            # ================================================================
-            
-            if not self._contextual_extractor:
-                logger.error("contextual_extractor_not_configured", ticker=ticker)
-                return self._create_empty_profile(ticker, cik, company_name)
-            
-            logger.info("starting_contextual_extraction_v4", ticker=ticker)
-            
-            try:
-                extracted_data = await self._extract_with_contextual_v4(
-                    ticker=ticker,
-                    cik=cik
-                )
-            except Exception as e:
-                logger.error("contextual_extraction_v4_failed", ticker=ticker, error=str(e))
-                return self._create_empty_profile(ticker, cik, company_name)
-            
-            if not extracted_data:
-                logger.warning("contextual_extraction_no_data", ticker=ticker)
-                return self._create_empty_profile(ticker, cik, company_name)
-            
-            logger.info("extraction_complete", ticker=ticker, source="contextual_v4")
-            
-            # Enriquecer con datos estructurados de S-1/424B4 API (si hay)
-            if prospectus_data:
-                extracted_data = self._enrich_with_prospectus_data(
-                    extracted_data, 
-                    prospectus_data
-                )
-            
-            # Añadir metadata del Full-Text Discovery
-            if fulltext_discovery:
-                extracted_data['_fulltext_discovery'] = {
-                    'categories_detected': fulltext_discovery.get('summary', {}).get('categories_detected', []),
-                    'total_filings_scanned': fulltext_discovery.get('summary', {}).get('total_filings_with_dilution', 0),
-                    'has_warrants': fulltext_discovery.get('summary', {}).get('has_warrants', False),
-                    'has_atm': fulltext_discovery.get('summary', {}).get('has_atm', False),
-                    'has_shelf': fulltext_discovery.get('summary', {}).get('has_shelf', False),
-                    'has_convertibles': fulltext_discovery.get('summary', {}).get('has_convertibles', False),
-                }
-            
-            # 6. Ajustar warrants por stock splits
-            if extracted_data.get('warrants'):
-                extracted_data['warrants'] = await self._adjust_warrants_for_splits(
-                    ticker, 
-                    extracted_data['warrants']
-                )
-            
-            # 6b. Ajustar convertible notes por stock splits
-            if extracted_data.get('convertible_notes'):
-                extracted_data['convertible_notes'] = await self._adjust_convertible_notes_for_splits(
-                    ticker, 
-                    extracted_data['convertible_notes']
-                )
-            
-            # 6c. Ajustar convertible preferred por stock splits (precio RAW del doc, ajuste en Python)
-            if extracted_data.get('convertible_preferred'):
-                extracted_data['convertible_preferred'] = await self._adjust_convertible_preferred_for_splits(
-                    ticker, 
-                    extracted_data['convertible_preferred']
-                )
-            
-            # 7. Obtener precio actual y shares outstanding
-            current_price, shares_outstanding, free_float = await self._get_current_market_data(ticker)
-            
-            # 7. Construir profile completo
-            profile = self._build_profile(
-                ticker=ticker,
-                cik=cik,
-                company_name=company_name,
-                extracted_data=extracted_data,
-                current_price=current_price,
-                shares_outstanding=shares_outstanding,
-                free_float=free_float,
-                source_filings=relevant_filings
-            )
-            
-            # 8. NUEVO: Calcular métricas de Baby Shelf
-            profile = await self._enrich_profile_with_baby_shelf_calculations(
-                profile,
-                free_float=free_float
-            )
-            
-            logger.info("sec_scrape_completed", ticker=ticker)
-            return profile
-            
         except Exception as e:
-            logger.error("scrape_and_analyze_failed", ticker=ticker, error=str(e))
+            # Outer exception handler for the initial lock check
+            logger.error("scrape_and_analyze_outer_failed", ticker=ticker, error=str(e))
             return None
     
     async def _parse_warrant_tables(self, filing_contents: List[Dict]) -> Dict:
@@ -1774,6 +1909,8 @@ class SECDilutionService:
             Tuple (current_price, shares_outstanding, free_float)
         """
         try:
+            logger.debug("get_current_market_data_starting", ticker=ticker)
+            
             # 1. Obtener shares outstanding y float de ticker_metadata
             query = """
             SELECT shares_outstanding, free_float
@@ -1784,13 +1921,18 @@ class SECDilutionService:
             result = await self.db.fetchrow(query, ticker)
             
             if not result:
+                logger.warning("ticker_metadata_not_found", ticker=ticker)
                 return None, None, None
             
             shares_outstanding = result['shares_outstanding']
             free_float = result['free_float']
             
+            logger.debug("ticker_metadata_found", ticker=ticker, shares=shares_outstanding, float=free_float)
+            
             # 2. Obtener precio actual desde Polygon API (snapshot)
             current_price = await self._get_price_from_polygon(ticker)
+            
+            logger.info("market_data_fetched", ticker=ticker, price=current_price, shares=shares_outstanding, float=free_float)
             
             return current_price, shares_outstanding, free_float
             
@@ -1809,16 +1951,20 @@ class SECDilutionService:
             polygon_api_key = settings.POLYGON_API_KEY
             
             if not polygon_api_key:
-                logger.warning("polygon_api_key_missing")
+                logger.warning("polygon_api_key_missing", ticker=ticker)
                 return None
             
             url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}"
+            
+            logger.debug("polygon_price_request", ticker=ticker, url=url)
             
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
                     url,
                     params={"apiKey": polygon_api_key}
                 )
+                
+                logger.debug("polygon_price_response", ticker=ticker, status=response.status_code)
                 
                 if response.status_code == 200:
                     data = response.json()
@@ -1841,6 +1987,7 @@ class SECDilutionService:
                         price = day.get('c')
                     
                     if price:
+                        logger.info("polygon_price_fetched", ticker=ticker, price=price)
                         return Decimal(str(price))
                 
                 logger.warning("polygon_snapshot_no_price", ticker=ticker, status=response.status_code)
@@ -1991,13 +2138,139 @@ class SECDilutionService:
                         atm.atm_limited_by_baby_shelf = False
                 
                 # SIEMPRE recalcular potential_shares usando remaining_capacity y current_price
-                if current_price > 0 and atm.remaining_capacity:
-                    atm.potential_shares_at_current_price = int(float(atm.remaining_capacity) / current_price)
+                if current_price and current_price > 0 and atm.remaining_capacity:
+                    atm.potential_shares_at_current_price = int(Decimal(str(atm.remaining_capacity)) / current_price)
             
             return profile
             
         except Exception as e:
             logger.error("baby_shelf_calc_failed", ticker=ticker, error=str(e))
+            return profile
+    
+    def _apply_validation_corrections(
+        self,
+        profile: SECDilutionProfile,
+        validation_result: Dict[str, Any]
+    ) -> SECDilutionProfile:
+        """
+        Aplica las correcciones de la validación Gemini al profile.
+        
+        Correcciones posibles:
+        - Precios de warrants (corregidos por split)
+        - Campos faltantes de convertibles
+        - Completed offerings adicionales
+        - Equity lines detectadas
+        - Status de S-1s corregidos
+        """
+        try:
+            validated = validation_result.get("validated_instruments", {})
+            
+            # 1. Corregir warrants
+            if validated.get("warrants"):
+                # Crear mapa de warrants validados por nombre
+                validated_warrants = {w.get("series_name", "").lower(): w for w in validated["warrants"]}
+                
+                for warrant in profile.warrants:
+                    key = (warrant.series_name or "").lower()
+                    if key in validated_warrants:
+                        vw = validated_warrants[key]
+                        
+                        # Si el precio fue corregido
+                        if vw.get("exercise_price_was_wrong"):
+                            old_price = warrant.exercise_price
+                            warrant.exercise_price = Decimal(str(vw.get("exercise_price", old_price)))
+                            warrant.original_exercise_price = Decimal(str(vw.get("original_wrong_price", old_price)))
+                            logger.info("warrant_price_corrected",
+                                       series=warrant.series_name,
+                                       old=float(old_price) if old_price else None,
+                                       new=float(warrant.exercise_price))
+                        
+                        # Actualizar outstanding si se encontró
+                        if vw.get("outstanding"):
+                            warrant.outstanding_warrants = vw["outstanding"]
+                        
+                        # Actualizar last_update_date
+                        if vw.get("last_update_date"):
+                            try:
+                                warrant.last_update_date = datetime.strptime(
+                                    vw["last_update_date"], "%Y-%m-%d"
+                                ).date()
+                            except:
+                                pass
+            
+            # 2. Completar convertible notes
+            if validated.get("convertible_notes"):
+                validated_notes = {n.get("series_name", "").lower(): n for n in validated["convertible_notes"]}
+                
+                for note in profile.convertible_notes:
+                    key = (note.series_name or "").lower()
+                    if key in validated_notes:
+                        vn = validated_notes[key]
+                        
+                        # Completar campos faltantes
+                        if not note.total_principal_amount and vn.get("total_principal_amount"):
+                            note.total_principal_amount = Decimal(str(vn["total_principal_amount"]))
+                        
+                        if not note.conversion_price and vn.get("conversion_price"):
+                            note.conversion_price = Decimal(str(vn["conversion_price"]))
+                        
+                        if not note.total_shares_when_converted and vn.get("total_shares_when_converted"):
+                            note.total_shares_when_converted = vn["total_shares_when_converted"]
+                        
+                        if not note.price_protection and vn.get("price_protection"):
+                            note.price_protection = vn["price_protection"]
+                        
+                        if not note.pp_clause and vn.get("pp_clause"):
+                            note.pp_clause = vn["pp_clause"]
+            
+            # 3. Añadir completed offerings encontrados
+            if validated.get("completed_offerings"):
+                from models.sec_dilution_models import CompletedOfferingModel
+                
+                existing_dates = {o.offering_date for o in profile.completed_offerings if o.offering_date}
+                
+                for vo in validated["completed_offerings"]:
+                    offering_date = vo.get("offering_date")
+                    if offering_date and offering_date not in existing_dates:
+                        try:
+                            new_offering = CompletedOfferingModel(
+                                ticker=profile.ticker,
+                                offering_type=vo.get("offering_type"),
+                                shares_issued=vo.get("shares_issued"),
+                                price_per_share=Decimal(str(vo["price_per_share"])) if vo.get("price_per_share") else None,
+                                amount_raised=Decimal(str(vo["amount_raised"])) if vo.get("amount_raised") else None,
+                                offering_date=offering_date,
+                                notes=vo.get("source")
+                            )
+                            profile.completed_offerings.append(new_offering)
+                            logger.info("completed_offering_added",
+                                       ticker=profile.ticker,
+                                       type=vo.get("offering_type"),
+                                       date=offering_date)
+                        except Exception as e:
+                            logger.warning("completed_offering_add_failed", error=str(e))
+            
+            # 4. Corregir S-1 status
+            if validated.get("s1_offerings"):
+                validated_s1 = {s.get("series_name", "").lower(): s for s in validated["s1_offerings"]}
+                
+                for s1 in profile.s1_offerings:
+                    key = (s1.series_name or "").lower()
+                    if key in validated_s1:
+                        vs = validated_s1[key]
+                        
+                        if vs.get("status_was_wrong") and vs.get("status"):
+                            old_status = s1.status
+                            s1.status = vs["status"]
+                            logger.info("s1_status_corrected",
+                                       series=s1.series_name,
+                                       old=old_status,
+                                       new=s1.status)
+            
+            return profile
+            
+        except Exception as e:
+            logger.error("apply_validation_corrections_failed", error=str(e))
             return profile
     
     def _build_profile(
@@ -2082,7 +2355,7 @@ class SECDilutionService:
                 agreement_start_date=a.get('agreement_start_date'),
                 filing_date=a.get('filing_date'),
                 filing_url=a.get('filing_url'),
-                potential_shares_at_current_price=int(a.get('remaining_capacity', 0) / current_price) if current_price and a.get('remaining_capacity') else None,
+                potential_shares_at_current_price=int(Decimal(str(a.get('remaining_capacity', 0))) / current_price) if current_price and a.get('remaining_capacity') else None,
                 notes=a.get('notes')
             )
             for a in [self._sanitize_field_lengths(x, atm_limits) for x in extracted_data.get('atm_offerings', [])]

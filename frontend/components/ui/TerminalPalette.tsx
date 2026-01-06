@@ -25,19 +25,20 @@ type TickerResult = {
     displayName: string;
 };
 
-// Scanner commands
+// Scanner commands with accurate criteria descriptions
 const SCANNER_COMMANDS = [
-    { id: 'gappers_up', label: 'Gap Up', description: 'Gap up >= 2%' },
-    { id: 'gappers_down', label: 'Gap Down', description: 'Gap down <= -2%' },
-    { id: 'momentum_up', label: 'Momentum Up', description: 'Change >= 3%' },
-    { id: 'momentum_down', label: 'Momentum Down', description: 'Change <= -3%' },
-    { id: 'winners', label: 'Winners', description: 'Change >= 5%' },
-    { id: 'losers', label: 'Losers', description: 'Change <= -5%' },
-    { id: 'new_highs', label: 'New Highs', description: 'Daily highs' },
-    { id: 'new_lows', label: 'New Lows', description: 'Daily lows' },
-    { id: 'anomalies', label: 'Anomalies', description: 'RVOL >= 3.0' },
-    { id: 'high_volume', label: 'High Volume', description: 'RVOL >= 2.0' },
-    { id: 'reversals', label: 'Reversals', description: 'Direction changes' },
+    { id: 'gappers_up', label: 'Gap Up', description: 'Gap ≥2% from prev close' },
+    { id: 'gappers_down', label: 'Gap Down', description: 'Gap ≤-2% from prev close' },
+    { id: 'momentum_up', label: 'Momentum Up', description: 'Ignition: Chg5min ≥1.5%, HOD ≤2%, VWAP+, RVOL ≥500%' },
+    { id: 'momentum_down', label: 'Momentum Down', description: 'Strong drop: Change ≤-3%' },
+    { id: 'winners', label: 'Winners', description: 'Top gainers: Change ≥5%' },
+    { id: 'losers', label: 'Losers', description: 'Top losers: Change ≤-5%' },
+    { id: 'new_highs', label: 'New Highs', description: 'Price = intraday high (incl. pre/post)' },
+    { id: 'new_lows', label: 'New Lows', description: 'Price = intraday low (incl. pre/post)' },
+    { id: 'anomalies', label: 'Anomalies', description: 'Z-Score ≥3: trades today vs avg 5d (statistical anomaly)' },
+    { id: 'high_volume', label: 'High Volume', description: 'High relative volume: RVOL ≥200%' },
+    { id: 'reversals', label: 'Reversals', description: 'Gap ≥2% but reversing direction' },
+    { id: 'post_market', label: 'Post-Market', description: 'PM Vol ≥20K or PM Chg ≥0.5%' },
     { id: 'with_news', label: 'With News', description: 'Scanner tickers with news today' },
 ];
 

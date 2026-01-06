@@ -54,6 +54,9 @@ is_running = False
 is_holiday_mode = False
 current_trading_date: Optional[date] = None
 
+# 🔔 Event para despertar el loop cuando cambia la sesión
+session_wake_event: asyncio.Event = asyncio.Event()
+
 
 # =============================================
 # HOLIDAY MODE MANAGEMENT (Event-Driven)
@@ -118,6 +121,29 @@ async def handle_day_changed(event: Event) -> None:
     await check_initial_market_status()
 
 
+async def handle_session_changed(event: Event) -> None:
+    """
+    Handler para el evento SESSION_CHANGED.
+    Despierta el loop inmediatamente cuando la sesión cambia (ej: CLOSED → PRE_MARKET).
+    
+    Esto elimina el problema del sleep(300) que causaba retrasos de hasta 5 minutos
+    al inicio del pre-market.
+    """
+    new_session = event.data.get('new_session')
+    previous_session = event.data.get('previous_session')
+    
+    logger.info(
+        "🔔 session_changed_event_received",
+        previous_session=previous_session,
+        new_session=new_session
+    )
+    
+    # Si la sesión cambió a algo que NO es CLOSED, despertar el loop
+    if new_session and new_session != "CLOSED":
+        logger.info("⏰ waking_up_snapshot_loop", reason=f"session_changed_to_{new_session}")
+        session_wake_event.set()
+
+
 # =============================================
 # LIFECYCLE
 # =============================================
@@ -152,11 +178,12 @@ async def lifespan(app: FastAPI):
     # 📅 Verificar estado del mercado UNA VEZ al iniciar
     await check_initial_market_status()
     
-    # 🔔 Inicializar EventBus y suscribirse a DAY_CHANGED
+    # 🔔 Inicializar EventBus y suscribirse a eventos
     event_bus = EventBus(redis_client, "data_ingest")
     event_bus.subscribe(EventType.DAY_CHANGED, handle_day_changed)
+    event_bus.subscribe(EventType.SESSION_CHANGED, handle_session_changed)
     await event_bus.start_listening()
-    logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED")
+    logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED, SESSION_CHANGED")
     
     logger.info("Data Ingest Service started (paused)")
     
@@ -204,10 +231,17 @@ app = FastAPI(
 # =============================================
 
 async def consume_snapshots_loop():
-    """Background task to consume snapshots continuously"""
+    """
+    Background task to consume snapshots continuously.
+    
+    ARQUITECTURA EVENT-DRIVEN:
+    - Cuando mercado abierto (PRE_MARKET/MARKET_OPEN/POST_MARKET): consume cada 5 seg
+    - Cuando mercado cerrado (CLOSED): espera evento SESSION_CHANGED o timeout de 5 min
+    - Esto elimina el problema del retraso de hasta 5 min al inicio del pre-market
+    """
     global is_running
     
-    logger.info("Starting snapshot consumer loop")
+    logger.info("Starting snapshot consumer loop (event-driven)")
     
     while is_running:
         try:
@@ -218,21 +252,34 @@ async def consume_snapshots_loop():
                     "holiday_mode_active_skipping_snapshot",
                     trading_date=str(current_trading_date)
                 )
-                await asyncio.sleep(300)  # Sleep largo, no hay nada que hacer
+                # En festivos, esperar evento o 5 minutos (lo que llegue primero)
+                try:
+                    await asyncio.wait_for(session_wake_event.wait(), timeout=300)
+                    session_wake_event.clear()
+                    logger.info("🔔 woken_up_from_holiday_sleep_by_event")
+                except asyncio.TimeoutError:
+                    pass  # Timeout normal, continuar
                 continue
             
             # Check if we should be running (based on market session)
             session = await get_current_market_session()
             
             if session and session != MarketSession.CLOSED:
-                # Mercado abierto: consume rápido
+                # Mercado abierto: consume rápido (cada 5 segundos)
                 await snapshot_consumer.consume_snapshot()
                 await asyncio.sleep(settings.snapshot_interval)
             else:
-                # Mercado cerrado (fin de semana normal, no festivo):
-                # Sigue consumiendo pero menos frecuente
+                # Mercado cerrado: consume y luego espera evento O 5 minutos
                 await snapshot_consumer.consume_snapshot()
-                await asyncio.sleep(300)  # Cada 5 minutos
+                
+                # 🔔 EVENT-DRIVEN: Esperar hasta que llegue SESSION_CHANGED o pasen 5 min
+                # Esto permite despertar INMEDIATAMENTE cuando empiece el pre-market
+                try:
+                    await asyncio.wait_for(session_wake_event.wait(), timeout=300)
+                    session_wake_event.clear()
+                    logger.info("🔔 woken_up_by_session_change_event")
+                except asyncio.TimeoutError:
+                    pass  # Timeout normal de 5 min, continuar con siguiente ciclo
         
         except asyncio.CancelledError:
             logger.info("Snapshot consumer loop cancelled")

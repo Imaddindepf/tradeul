@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import {
     createChart,
     ColorType,
@@ -15,12 +15,19 @@ import {
     PriceScaleMode,
     SeriesMarker
 } from 'lightweight-charts';
-import { RefreshCw, Maximize2, Minimize2, BarChart3, Search, ZoomIn, ZoomOut, Radio, Minus, Trash2, MousePointer, Newspaper, ExternalLink } from 'lucide-react';
+import { RefreshCw, Maximize2, Minimize2, BarChart3, ZoomIn, ZoomOut, Radio, Minus, Trash2, MousePointer, Newspaper, ExternalLink, ChevronDown, Activity, LineChart, TrendingUp, Waves, Target } from 'lucide-react';
 import { useLiveChartData, type ChartInterval, type ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
 import { useChartDrawings, type Drawing, type DrawingTool } from '@/hooks/useChartDrawings';
+import { useIndicatorWorker, type IndicatorType, OVERLAY_INDICATORS, PANEL_INDICATORS } from '@/hooks/useIndicatorWorker';
+import { IndicatorPanel } from './IndicatorPanel';
 import { useNewsStore } from '@/stores/useNewsStore';
 import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
 import { getUserTimezone, getTimezoneAbbrev } from '@/lib/date-utils';
+import { TickerSearch, TickerSearchRef } from '@/components/common/TickerSearch';
+import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import { useWebSocket } from '@/contexts/AuthWebSocketContext';
+import { getMarketSession } from '@/lib/api';
+import type { MarketSession } from '@/lib/types';
 
 // Window state for persistence
 interface ChartWindowState {
@@ -30,6 +37,8 @@ interface ChartWindowState {
     showMA?: boolean;
     showEMA?: boolean;
     showVolume?: boolean;
+    activeOverlays?: string[];
+    activePanels?: string[];
     [key: string]: unknown;
 }
 
@@ -80,6 +89,40 @@ const INTERVALS: IntervalConfig[] = [
     { label: '4 Hours', shortLabel: '4H', interval: '4hour' },
     { label: '1 Day', shortLabel: '1D', interval: '1day' },
 ];
+
+// Grouped intervals for dropdown
+const INTERVAL_GROUPS = {
+    intraday: [
+        { label: '1m', interval: '1min' as Interval },
+        { label: '5m', interval: '5min' as Interval },
+        { label: '15m', interval: '15min' as Interval },
+        { label: '30m', interval: '30min' as Interval },
+    ],
+    hourly: [
+        { label: '1H', interval: '1hour' as Interval },
+        { label: '4H', interval: '4hour' as Interval },
+    ],
+    daily: [
+        { label: '1D', interval: '1day' as Interval },
+    ],
+};
+
+// Interval in seconds for news marker matching
+const INTERVAL_SECONDS: Record<Interval, number> = {
+    '1min': 60,
+    '5min': 300,
+    '15min': 900,
+    '30min': 1800,
+    '1hour': 3600,
+    '4hour': 14400,
+    '1day': 86400,
+};
+
+// Helper to round timestamp to interval
+function roundToInterval(timestamp: number, interval: Interval): number {
+    const seconds = INTERVAL_SECONDS[interval];
+    return Math.floor(timestamp / seconds) * seconds;
+}
 
 // Time ranges in days
 const TIME_RANGES: { id: TimeRange; label: string; days: number }[] = [
@@ -264,10 +307,18 @@ function TradingChartComponent({
     const ma50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
     const ema12SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
     const ema26SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const tickerSearchRef = useRef<TickerSearchRef>(null);
+
+    // User preferences
+    const font = useUserPreferencesStore(selectFont);
+
+    // Market session for LIVE indicator
+    const ws = useWebSocket();
+    const [marketSession, setMarketSession] = useState<MarketSession | null>(null);
 
     // Persist window state
     const { state: windowState, updateState: updateWindowState } = useWindowState<ChartWindowState>();
-    
+
     // Use persisted state or props/defaults
     const [currentTicker, setCurrentTicker] = useState(windowState.ticker || initialTicker);
     const [selectedInterval, setSelectedInterval] = useState<Interval>(windowState.interval || '1day');
@@ -279,13 +330,88 @@ function TradingChartComponent({
     const [showVolume, setShowVolume] = useState(windowState.showVolume ?? true);
     const [showNewsMarkers, setShowNewsMarkers] = useState(false);
     const [hoveredBar, setHoveredBar] = useState<ChartBar | null>(null);
-    
+
+    // === INDICADORES AVANZADOS (Worker-based) ===
+    const { calculate, clearCache, results: indicatorResults, isCalculating: indicatorsLoading, isReady: workerReady } = useIndicatorWorker();
+
+    // Overlays activos (sobre el precio): sma200, bb, keltner, vwap
+    const [activeOverlays, setActiveOverlays] = useState<string[]>(windowState.activeOverlays || []);
+
+    // Paneles activos (debajo del chart): rsi, macd, stoch, adx, atr, squeeze
+    const [activePanels, setActivePanels] = useState<string[]>(windowState.activePanels || []);
+
+    // Refs para series de overlays calculados por worker
+    const sma200SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const bbUpperSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const bbMiddleSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const bbLowerSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const keltnerUpperSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const keltnerMiddleSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const keltnerLowerSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+    const vwapSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
+    // Toggle helpers para overlays y paneles
+    const toggleOverlay = useCallback((id: string) => {
+        setActiveOverlays(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
+    }, []);
+
+    const togglePanel = useCallback((id: string) => {
+        setActivePanels(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
+    }, []);
+
+    const removePanel = useCallback((id: string) => {
+        setActivePanels(prev => prev.filter(x => x !== id));
+    }, []);
+
+    // Dropdown states
+    const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
+    const [showIndicatorDropdown, setShowIndicatorDropdown] = useState(false);
+    const [showToolsDropdown, setShowToolsDropdown] = useState(false);
+
     // Persist state changes
     useEffect(() => {
-        updateWindowState({ ticker: currentTicker, interval: selectedInterval, range: selectedRange, showMA, showEMA, showVolume });
-    }, [currentTicker, selectedInterval, selectedRange, showMA, showEMA, showVolume, updateWindowState]);
+        updateWindowState({
+            ticker: currentTicker,
+            interval: selectedInterval,
+            range: selectedRange,
+            showMA,
+            showEMA,
+            showVolume,
+            activeOverlays,
+            activePanels,
+        });
+    }, [currentTicker, selectedInterval, selectedRange, showMA, showEMA, showVolume, activeOverlays, activePanels, updateWindowState]);
 
     const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval);
+
+    // Fetch market session and subscribe to updates
+    useEffect(() => {
+        // Initial fetch
+        getMarketSession().then(setMarketSession).catch(() => { });
+
+        // Subscribe to WebSocket updates
+        const subscription = ws.messages$.subscribe((message: any) => {
+            if (message.type === 'market_session_change' && message.data) {
+                setMarketSession({
+                    current_session: message.data.current_session,
+                    trading_date: message.data.trading_date,
+                    timestamp: message.data.timestamp,
+                } as MarketSession);
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, [ws.messages$]);
+
+    // Check if market is actually open (not just WebSocket connected)
+    const isMarketOpen = marketSession?.current_session === 'MARKET_OPEN' ||
+        marketSession?.current_session === 'PRE_MARKET' ||
+        marketSession?.current_session === 'POST_MARKET';
+    const showLiveIndicator = isLive && isMarketOpen;
 
     // News for markers
     const allNews = useNewsStore((state) => state.articles);
@@ -592,6 +718,86 @@ function TradingChartComponent({
         });
         ema26SeriesRef.current = ema26Series;
 
+        // === SERIES CALCULADAS POR WORKER ===
+
+        // SMA 200 (red, importante para tendencia)
+        const sma200Series = chart.addLineSeries({
+            color: '#ef4444',
+            lineWidth: 2,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false, // Se activa cuando el usuario lo selecciona
+        });
+        sma200SeriesRef.current = sma200Series;
+
+        // Bollinger Bands (blue)
+        const bbUpperSeries = chart.addLineSeries({
+            color: 'rgba(59, 130, 246, 0.6)',
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false,
+        });
+        bbUpperSeriesRef.current = bbUpperSeries;
+
+        const bbMiddleSeries = chart.addLineSeries({
+            color: 'rgba(59, 130, 246, 0.4)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false,
+        });
+        bbMiddleSeriesRef.current = bbMiddleSeries;
+
+        const bbLowerSeries = chart.addLineSeries({
+            color: 'rgba(59, 130, 246, 0.6)',
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false,
+        });
+        bbLowerSeriesRef.current = bbLowerSeries;
+
+        // Keltner Channels (teal)
+        const keltnerUpperSeries = chart.addLineSeries({
+            color: 'rgba(20, 184, 166, 0.6)',
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false,
+        });
+        keltnerUpperSeriesRef.current = keltnerUpperSeries;
+
+        const keltnerMiddleSeries = chart.addLineSeries({
+            color: 'rgba(20, 184, 166, 0.4)',
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false,
+        });
+        keltnerMiddleSeriesRef.current = keltnerMiddleSeries;
+
+        const keltnerLowerSeries = chart.addLineSeries({
+            color: 'rgba(20, 184, 166, 0.6)',
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false,
+        });
+        keltnerLowerSeriesRef.current = keltnerLowerSeries;
+
+        // VWAP (orange)
+        const vwapSeries = chart.addLineSeries({
+            color: '#f97316',
+            lineWidth: 2,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            visible: false,
+        });
+        vwapSeriesRef.current = vwapSeries;
+
         // Crosshair move handler for tooltip
         // IMPORTANTE: Verificar param.point para evitar loop infinito
         // setMarkers() dispara crosshairMove internamente pero sin point
@@ -809,11 +1015,11 @@ function TradingChartComponent({
 
         const newsMarkers: SeriesMarker<Time>[] = [];
 
-        // Create a map of candle data for quick lookup
+        // Create a map of candle data for quick lookup - rounded to current interval
         const candleDataMap = new Map<number, { time: number; open: number; high: number; low: number; close: number }>();
         for (const bar of data) {
-            // Round to minute for matching
-            const roundedTime = Math.floor(bar.time / 60) * 60;
+            // Round to current interval for matching (not just 1 minute)
+            const roundedTime = roundToInterval(bar.time, selectedInterval);
             candleDataMap.set(roundedTime, {
                 time: bar.time,
                 open: bar.open,
@@ -830,7 +1036,8 @@ function TradingChartComponent({
             // Parse news published time
             const newsDate = new Date(news.published);
             const newsTimestamp = Math.floor(newsDate.getTime() / 1000);
-            const roundedNewsTime = Math.floor(newsTimestamp / 60) * 60;
+            // Round to current interval (5m, 15m, 1H, etc.)
+            const roundedNewsTime = roundToInterval(newsTimestamp, selectedInterval);
 
             // Find matching candle
             const candleData = candleDataMap.get(roundedNewsTime);
@@ -892,7 +1099,7 @@ function TradingChartComponent({
         if (uniqueMarkers.length > 0) {
             console.log('[Chart] News markers added:', uniqueMarkers.length, 'with price lines');
         }
-    }, [showNewsMarkers, tickerNews, data]);
+    }, [showNewsMarkers, tickerNews, data, selectedInterval, currentTicker]);
 
     // Handler for clicking on news markers
     const handleNewsMarkerClick = useCallback((time: number) => {
@@ -1287,6 +1494,143 @@ function TradingChartComponent({
         }
     }, [showVolume]);
 
+    // ============================================================================
+    // CALCULAR INDICADORES EN WORKER (no bloqueante)
+    // ============================================================================
+
+    // Combinar indicadores activos para enviar al worker
+    const allActiveIndicators = useMemo(() => {
+        const indicators: IndicatorType[] = [];
+
+        // Overlays calculados por worker
+        if (activeOverlays.includes('sma200')) indicators.push('sma200');
+        if (activeOverlays.includes('bb')) indicators.push('bb');
+        if (activeOverlays.includes('keltner')) indicators.push('keltner');
+        if (activeOverlays.includes('vwap')) indicators.push('vwap');
+
+        // Paneles (oscillators)
+        activePanels.forEach(panel => {
+            if (['rsi', 'macd', 'stoch', 'adx', 'atr', 'bbWidth', 'squeeze', 'obv', 'rvol'].includes(panel)) {
+                indicators.push(panel as IndicatorType);
+            }
+        });
+
+        return indicators;
+    }, [activeOverlays, activePanels]);
+
+    // Calcular indicadores cuando cambian los datos o los indicadores activos
+    // También recalcula cuando llegan más barras (lazy loading), cambia el intervalo o el rango
+    const lastBarCountRef = useRef(0);
+    const lastIntervalRef = useRef(selectedInterval);
+    const lastRangeRef = useRef(selectedRange);
+
+    useEffect(() => {
+        // Limpiar cache si cambió el intervalo o el rango (nuevos datos = nuevo cálculo)
+        const intervalChanged = lastIntervalRef.current !== selectedInterval;
+        const rangeChanged = lastRangeRef.current !== selectedRange;
+
+        if (intervalChanged || rangeChanged) {
+            console.log('[TradingChart] Settings changed, clearing cache:', {
+                interval: intervalChanged ? `${lastIntervalRef.current} -> ${selectedInterval}` : 'same',
+                range: rangeChanged ? `${lastRangeRef.current} -> ${selectedRange}` : 'same'
+            });
+            clearCache(currentTicker);
+            lastIntervalRef.current = selectedInterval;
+            lastRangeRef.current = selectedRange;
+            lastBarCountRef.current = 0; // Forzar recálculo
+        }
+
+        if (!workerReady || !data.length || allActiveIndicators.length === 0) return;
+
+        calculate(currentTicker, data, allActiveIndicators, selectedInterval);
+        lastBarCountRef.current = data.length;
+    }, [workerReady, data, data.length, allActiveIndicators, currentTicker, selectedInterval, selectedRange, calculate, clearCache]);
+
+    // ============================================================================
+    // ACTUALIZAR SERIES DE OVERLAYS cuando llegan resultados del worker
+    // ============================================================================
+
+    useEffect(() => {
+        console.log('[TradingChart] indicatorResults changed:', {
+            hasOverlays: !!indicatorResults?.overlays,
+            overlayKeys: Object.keys(indicatorResults?.overlays || {}),
+            panelKeys: Object.keys(indicatorResults?.panels || {}),
+            chartReady: !!chartRef.current
+        });
+
+        if (!indicatorResults?.overlays || !chartRef.current) return;
+
+        const { overlays } = indicatorResults;
+
+        // SMA 200
+        if (sma200SeriesRef.current && overlays.sma200) {
+            sma200SeriesRef.current.setData(overlays.sma200.map(d => ({
+                time: d.time as UTCTimestamp,
+                value: d.value,
+            })));
+            sma200SeriesRef.current.applyOptions({ visible: activeOverlays.includes('sma200') });
+        }
+
+        // Bollinger Bands
+        if (overlays.bb) {
+            if (bbUpperSeriesRef.current) {
+                bbUpperSeriesRef.current.setData(overlays.bb.upper.map(d => ({
+                    time: d.time as UTCTimestamp,
+                    value: d.value,
+                })));
+                bbUpperSeriesRef.current.applyOptions({ visible: activeOverlays.includes('bb') });
+            }
+            if (bbMiddleSeriesRef.current) {
+                bbMiddleSeriesRef.current.setData(overlays.bb.middle.map(d => ({
+                    time: d.time as UTCTimestamp,
+                    value: d.value,
+                })));
+                bbMiddleSeriesRef.current.applyOptions({ visible: activeOverlays.includes('bb') });
+            }
+            if (bbLowerSeriesRef.current) {
+                bbLowerSeriesRef.current.setData(overlays.bb.lower.map(d => ({
+                    time: d.time as UTCTimestamp,
+                    value: d.value,
+                })));
+                bbLowerSeriesRef.current.applyOptions({ visible: activeOverlays.includes('bb') });
+            }
+        }
+
+        // Keltner Channels
+        if (overlays.keltner) {
+            if (keltnerUpperSeriesRef.current) {
+                keltnerUpperSeriesRef.current.setData(overlays.keltner.upper.map(d => ({
+                    time: d.time as UTCTimestamp,
+                    value: d.value,
+                })));
+                keltnerUpperSeriesRef.current.applyOptions({ visible: activeOverlays.includes('keltner') });
+            }
+            if (keltnerMiddleSeriesRef.current) {
+                keltnerMiddleSeriesRef.current.setData(overlays.keltner.middle.map(d => ({
+                    time: d.time as UTCTimestamp,
+                    value: d.value,
+                })));
+                keltnerMiddleSeriesRef.current.applyOptions({ visible: activeOverlays.includes('keltner') });
+            }
+            if (keltnerLowerSeriesRef.current) {
+                keltnerLowerSeriesRef.current.setData(overlays.keltner.lower.map(d => ({
+                    time: d.time as UTCTimestamp,
+                    value: d.value,
+                })));
+                keltnerLowerSeriesRef.current.applyOptions({ visible: activeOverlays.includes('keltner') });
+            }
+        }
+
+        // VWAP
+        if (vwapSeriesRef.current && overlays.vwap) {
+            vwapSeriesRef.current.setData(overlays.vwap.map(d => ({
+                time: d.time as UTCTimestamp,
+                value: d.value,
+            })));
+            vwapSeriesRef.current.applyOptions({ visible: activeOverlays.includes('vwap') });
+        }
+    }, [indicatorResults, activeOverlays]);
+
     const handleTickerChange = (e: React.FormEvent) => {
         e.preventDefault();
         const newTicker = inputValue.trim().toUpperCase();
@@ -1294,7 +1638,18 @@ function TradingChartComponent({
             setCurrentTicker(newTicker);
             onTickerChange?.(newTicker);
         }
+        tickerSearchRef.current?.close();
     };
+
+    const handleTickerSelect = useCallback((selected: { symbol: string }) => {
+        const newTicker = selected.symbol.toUpperCase();
+        setInputValue(newTicker);
+        if (newTicker !== currentTicker) {
+            setCurrentTicker(newTicker);
+            onTickerChange?.(newTicker);
+        }
+        tickerSearchRef.current?.close();
+    }, [currentTicker, onTickerChange]);
 
     const toggleFullscreen = () => {
         const container = containerRef.current?.parentElement?.parentElement;
@@ -1354,7 +1709,7 @@ function TradingChartComponent({
     const isPositive = priceChange >= 0;
 
     return (
-        <div className="h-full flex flex-col bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="h-full flex flex-col bg-white border border-slate-200 rounded-lg">
             {/* Minimal Header (for Description) */}
             {minimal ? (
                 <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
@@ -1396,50 +1751,42 @@ function TradingChartComponent({
                 </div>
             ) : (
                 <>
-                    {/* Full Header */}
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-slate-200 bg-slate-50">
-                        <div className="flex items-center gap-4">
-                            {/* Ticker search */}
+                    {/* Compact Header - Single Row */}
+                    <div className="flex items-center justify-between px-2 py-1 border-b border-slate-200 bg-slate-50 text-[11px]" style={{ fontFamily: `var(--font-${font})` }}>
+                        {/* Left: Ticker + Price */}
+                        <div className="flex items-center gap-2">
+                            {/* Compact Ticker Search */}
                             <form onSubmit={handleTickerChange} className="flex items-center">
-                                <div className="relative">
-                                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                                    <input
-                                        type="text"
-                                        value={inputValue}
-                                        onChange={(e) => setInputValue(e.target.value.toUpperCase())}
-                                        placeholder="TICKER"
-                                        className="w-24 pl-7 pr-2 py-1.5 text-xs font-semibold tracking-wide
-                                                 bg-white border border-slate-300 rounded-l-md
-                                                 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                                                 text-slate-800 placeholder-slate-400"
-                                    />
-                                </div>
+                                <TickerSearch
+                                    ref={tickerSearchRef}
+                                    value={inputValue}
+                                    onChange={setInputValue}
+                                    onSelect={handleTickerSelect}
+                                    placeholder="Ticker"
+                                    className="w-20"
+                                    autoFocus={false}
+                                />
                                 <button
                                     type="submit"
-                                    className="px-3 py-1.5 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 
-                                             text-xs font-semibold transition-colors border border-blue-600"
+                                    className="px-2 py-1 bg-blue-600 text-white rounded-r text-[10px] font-medium hover:bg-blue-700"
                                 >
                                     Go
                                 </button>
                             </form>
 
-                            {/* Price info */}
+                            {/* Price info compact */}
                             {displayBar && (
-                                <div className="flex items-center gap-3">
-                                    <span className="text-lg font-bold text-slate-800">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-slate-800 text-sm">
                                         ${formatPrice(displayBar.close)}
                                     </span>
-                                    <span className={`flex items-center gap-1 text-sm font-semibold px-2 py-0.5 rounded ${isPositive
-                                        ? 'text-emerald-700 bg-emerald-50'
-                                        : 'text-red-700 bg-red-50'
-                                        }`}>
-                                        {isPositive ? '▲' : '▼'}
-                                        {formatPrice(Math.abs(priceChange))} ({priceChangePercent >= 0 ? '+' : ''}{priceChangePercent.toFixed(2)}%)
+                                    <span className={`text-[10px] font-medium px-1 rounded ${isPositive ? 'text-emerald-600 bg-emerald-50' : 'text-red-600 bg-red-50'}`}>
+                                        {isPositive ? '+' : ''}{priceChangePercent.toFixed(2)}%
                                     </span>
-                                    {/* Live indicator */}
-                                    {isLive && (
-                                        <span className="flex items-center gap-1 text-xs font-medium text-red-500 animate-pulse">
-                                            <Radio className="w-3 h-3" />
+                                    {/* Live indicator - only when market is open */}
+                                    {showLiveIndicator && (
+                                        <span className="flex items-center gap-0.5 text-[9px] font-medium text-red-500 animate-pulse">
+                                            <Radio className="w-2.5 h-2.5" />
                                             LIVE
                                         </span>
                                     )}
@@ -1447,409 +1794,542 @@ function TradingChartComponent({
                             )}
                         </div>
 
-                        {/* Right controls */}
+                        {/* Center: Interval Dropdown */}
                         <div className="flex items-center gap-1">
-                            {/* SMA toggle */}
-                            <button
-                                onClick={() => setShowMA(!showMA)}
-                                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${showMA
-                                    ? 'bg-amber-100 text-amber-700 border border-amber-300'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent'
-                                    }`}
-                                title="SMA (20, 50)"
-                            >
-                                SMA
-                            </button>
+                            {/* Quick intervals */}
+                            {['1m', '5m', '15m', '1H', '1D'].map((label) => {
+                                const int = INTERVALS.find(i => i.shortLabel === label);
+                                if (!int) return null;
+                                return (
+                                    <button
+                                        key={int.interval}
+                                        onClick={() => setSelectedInterval(int.interval)}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${selectedInterval === int.interval
+                                            ? 'bg-blue-600 text-white'
+                                            : 'text-slate-500 hover:bg-slate-100'
+                                            }`}
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
 
-                            {/* EMA toggle */}
-                            <button
-                                onClick={() => setShowEMA(!showEMA)}
-                                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${showEMA
-                                    ? 'bg-pink-100 text-pink-700 border border-pink-300'
-                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent'
-                                    }`}
-                                title="EMA (12, 26)"
-                            >
-                                EMA
-                            </button>
+                            {/* More intervals dropdown */}
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowIntervalDropdown(!showIntervalDropdown)}
+                                    className="px-1 py-0.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100"
+                                >
+                                    <ChevronDown className="w-3 h-3" />
+                                </button>
+                                {showIntervalDropdown && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setShowIntervalDropdown(false)} />
+                                        <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 min-w-[80px]">
+                                            {INTERVALS.map((int) => (
+                                                <button
+                                                    key={int.interval}
+                                                    onClick={() => { setSelectedInterval(int.interval); setShowIntervalDropdown(false); }}
+                                                    className={`w-full px-2 py-1 text-left text-[10px] hover:bg-slate-50 ${selectedInterval === int.interval ? 'bg-blue-50 text-blue-600' : 'text-slate-600'}`}
+                                                >
+                                                    {int.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
 
-                            {/* Volume toggle */}
-                            <button
-                                onClick={() => setShowVolume(!showVolume)}
-                                className={`p-1.5 rounded transition-colors ${showVolume
-                                    ? 'bg-blue-100 text-blue-600'
-                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                                    }`}
-                                title="Volume"
-                            >
-                                <BarChart3 className="w-4 h-4" />
-                            </button>
+                            <div className="w-px h-4 bg-slate-200 mx-0.5" />
 
-                            {/* News markers toggle */}
-                            <button
-                                onClick={() => setShowNewsMarkers(!showNewsMarkers)}
-                                className={`p-1.5 rounded transition-colors ${showNewsMarkers
-                                    ? 'bg-blue-100 text-blue-600'
-                                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
-                                    }`}
-                                title={`News Markers (${tickerNews.length})`}
-                            >
-                                <Newspaper className="w-4 h-4" />
-                            </button>
+                            {/* Range */}
+                            {['1M', '3M', '1Y', 'ALL'].map((r) => {
+                                const range = TIME_RANGES.find(tr => tr.id === r);
+                                if (!range) return null;
+                                return (
+                                    <button
+                                        key={range.id}
+                                        onClick={() => handleRangeChange(range.id)}
+                                        className={`px-1 py-0.5 rounded text-[9px] font-medium ${selectedRange === range.id
+                                            ? 'bg-slate-700 text-white'
+                                            : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                                            }`}
+                                    >
+                                        {range.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
 
-                            <div className="w-px h-5 bg-slate-200 mx-1" />
-
-                            {/* Zoom controls */}
-                            <button
-                                onClick={zoomIn}
-                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-                                title="Zoom In"
-                            >
-                                <ZoomIn className="w-4 h-4" />
-                            </button>
-                            <button
-                                onClick={zoomOut}
-                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-                                title="Zoom Out"
-                            >
-                                <ZoomOut className="w-4 h-4" />
-                            </button>
-
-                            <div className="w-px h-5 bg-slate-200 mx-1" />
-
+                        {/* Right: Actions only (Indicators & Tools in sidebar) */}
+                        <div className="flex items-center gap-0.5">
                             {/* Refresh */}
-                            <button
-                                onClick={refetch}
-                                disabled={loading}
-                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 
-                                         disabled:opacity-50 transition-colors"
-                                title="Refresh"
-                            >
-                                <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                            <button onClick={refetch} disabled={loading} className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 disabled:opacity-50" title="Refresh">
+                                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                             </button>
 
                             {/* Fullscreen */}
-                            <button
-                                onClick={toggleFullscreen}
-                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition-colors"
-                                title="Fullscreen"
-                            >
-                                {isFullscreen ? (
-                                    <Minimize2 className="w-4 h-4" />
-                                ) : (
-                                    <Maximize2 className="w-4 h-4" />
-                                )}
+                            <button onClick={toggleFullscreen} className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100" title="Fullscreen">
+                                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                             </button>
                         </div>
                     </div>
 
-                    {/* Interval + Range selector */}
-                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 bg-white">
-                        {/* Interval buttons */}
-                        <div className="flex items-center gap-1">
-                            {INTERVALS.map((int) => (
-                                <button
-                                    key={int.interval}
-                                    onClick={() => setSelectedInterval(int.interval)}
-                                    className={`px-2 py-1 text-xs font-medium rounded transition-all ${selectedInterval === int.interval
-                                        ? 'bg-blue-600 text-white shadow-sm'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                >
-                                    {int.shortLabel}
-                                </button>
-                            ))}
+                    {/* Legend row - only when indicators active */}
+                    {(showMA || showEMA) && (
+                        <div className="flex items-center justify-end px-2 py-0.5 border-b border-slate-50 bg-white">
+                            <div className="flex items-center gap-2 text-[9px]">
+                                {showMA && (
+                                    <>
+                                        <span className="flex items-center gap-1">
+                                            <span className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS.ma20 }}></span>
+                                            <span className="text-slate-400">MA20</span>
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                            <span className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS.ma50 }}></span>
+                                            <span className="text-slate-400">MA50</span>
+                                        </span>
+                                    </>
+                                )}
+                                {showEMA && (
+                                    <>
+                                        <span className="flex items-center gap-1">
+                                            <span className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS.ema12 }}></span>
+                                            <span className="text-slate-400">EMA12</span>
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                            <span className="w-3 h-0.5 rounded" style={{ background: CHART_COLORS.ema26 }}></span>
+                                            <span className="text-slate-400">EMA26</span>
+                                        </span>
+                                    </>
+                                )}
+                            </div>
                         </div>
-
-                        {/* Time Range buttons */}
-                        <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-slate-400 mr-1">Range:</span>
-                            {TIME_RANGES.map((range) => (
-                                <button
-                                    key={range.id}
-                                    onClick={() => handleRangeChange(range.id)}
-                                    className={`px-2 py-0.5 text-[10px] font-medium rounded transition-all ${selectedRange === range.id
-                                        ? 'bg-slate-700 text-white'
-                                        : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                                        }`}
-                                >
-                                    {range.label}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Legend row */}
-                    <div className="flex items-center justify-end px-3 py-1 border-b border-slate-50 bg-white">
-                        <div className="flex items-center gap-3 text-[10px]">
-                            {showMA && (
-                                <>
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ma20 }}></span>
-                                        <span className="text-slate-500">MA20</span>
-                                    </span>
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ma50 }}></span>
-                                        <span className="text-slate-500">MA50</span>
-                                    </span>
-                                </>
-                            )}
-                            {showEMA && (
-                                <>
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ema12 }}></span>
-                                        <span className="text-slate-500">EMA12</span>
-                                    </span>
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="w-4 h-0.5 rounded" style={{ background: CHART_COLORS.ema26 }}></span>
-                                        <span className="text-slate-500">EMA26</span>
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    </div>
+                    )}
                 </>
             )}
 
-            {/* Chart container with drawing toolbar */}
-            <div className="flex-1 min-h-0 flex bg-white overflow-hidden">
-                {/* Drawing Tools Sidebar */}
-                <div className="w-10 flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col items-center py-2 gap-1">
-                    {/* Selection tool */}
-                    <button
-                        onClick={() => setActiveTool('none')}
-                        className={`p-2 rounded transition-colors ${activeTool === 'none'
-                            ? 'bg-white text-slate-700 shadow-sm'
-                            : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'
-                            }`}
-                        title="Seleccionar (Esc)"
-                    >
-                        <MousePointer className="w-4 h-4" />
-                    </button>
+            {/* Chart container with sidebar - min-h-0 permite que flex-1 funcione correctamente */}
+            <div className="flex-1 min-h-0 flex bg-white">
+                {/* Left Sidebar: Expandable sections */}
+                <div className="w-9 flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col py-1 text-[8px] relative">
 
-                    {/* Horizontal line */}
-                    <button
-                        onClick={() => setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line')}
-                        className={`p-2 rounded transition-colors ${activeTool === 'horizontal_line'
-                            ? 'bg-blue-100 text-blue-600 shadow-sm'
-                            : 'text-slate-400 hover:text-slate-600 hover:bg-white/50'
-                            }`}
-                        title="Línea horizontal (H)"
-                    >
-                        <Minus className="w-4 h-4" />
-                    </button>
+                    {/* INDICATORS Section - Expandable */}
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowIndicatorDropdown(!showIndicatorDropdown)}
+                            className={`w-full h-8 flex flex-col items-center justify-center gap-0.5 transition-colors ${(showMA || showEMA || showVolume || showNewsMarkers) ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-white/50'}`}
+                            title="Indicators"
+                        >
+                            <Activity className="w-4 h-4" />
+                            <span className="text-[7px] font-medium">IND</span>
+                        </button>
 
-                    <div className="w-6 h-px bg-slate-200 my-1" />
+                        {/* Indicator Dropdown - Expandido con todas las categorías */}
+                        {showIndicatorDropdown && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorDropdown(false)} />
+                                <div className="absolute left-full top-0 ml-0.5 bg-white border border-slate-200 rounded shadow-lg z-50 min-w-[140px] max-h-[400px] overflow-y-auto">
 
-                    {/* Tip de ayuda */}
-                    <div className="text-[8px] text-slate-400 text-center px-1 leading-tight">
-                        Doble click<br />para editar
+                                    {/* === OVERLAYS === */}
+                                    <div className="px-1.5 py-0.5 text-[8px] font-semibold text-slate-400 bg-slate-50 border-b border-slate-100 sticky top-0 flex items-center gap-1">
+                                        <TrendingUp className="w-2.5 h-2.5" />
+                                        OVERLAYS
+                                    </div>
+
+                                    <button onClick={() => setShowMA(!showMA)} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${showMA ? 'text-amber-600 bg-amber-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0" style={{ background: CHART_COLORS.ma20 }}></span>
+                                        <span className="flex-1 text-left">SMA 20/50</span>
+                                        {showMA && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => toggleOverlay('sma200')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activeOverlays.includes('sma200') ? 'text-red-600 bg-red-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0 bg-red-500"></span>
+                                        <span className="flex-1 text-left">SMA 200</span>
+                                        {activeOverlays.includes('sma200') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => setShowEMA(!showEMA)} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${showEMA ? 'text-pink-600 bg-pink-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0" style={{ background: CHART_COLORS.ema12 }}></span>
+                                        <span className="flex-1 text-left">EMA 12/26</span>
+                                        {showEMA && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => toggleOverlay('bb')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activeOverlays.includes('bb') ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
+                                        <Waves className="w-2.5 h-2.5 text-blue-500 flex-shrink-0" />
+                                        <span className="flex-1 text-left">Bollinger</span>
+                                        {activeOverlays.includes('bb') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => toggleOverlay('keltner')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activeOverlays.includes('keltner') ? 'text-teal-600 bg-teal-50/50' : 'text-slate-600'}`}>
+                                        <Waves className="w-2.5 h-2.5 text-teal-500 flex-shrink-0" />
+                                        <span className="flex-1 text-left">Keltner</span>
+                                        {activeOverlays.includes('keltner') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => toggleOverlay('vwap')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activeOverlays.includes('vwap') ? 'text-orange-600 bg-orange-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0 bg-orange-500"></span>
+                                        <span className="flex-1 text-left">VWAP</span>
+                                        {activeOverlays.includes('vwap') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    {/* === OSCILLATORS (Paneles separados) === */}
+                                    <div className="px-1.5 py-0.5 text-[8px] font-semibold text-slate-400 bg-slate-50 border-y border-slate-100 mt-1 flex items-center gap-1">
+                                        <Target className="w-2.5 h-2.5" />
+                                        OSCILLATORS
+                                    </div>
+
+                                    <button onClick={() => togglePanel('rsi')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('rsi') ? 'text-violet-600 bg-violet-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0 bg-violet-500"></span>
+                                        <span className="flex-1 text-left">RSI (14)</span>
+                                        {activePanels.includes('rsi') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => togglePanel('macd')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('macd') ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
+                                        <BarChart3 className="w-2.5 h-2.5 text-blue-500 flex-shrink-0" />
+                                        <span className="flex-1 text-left">MACD</span>
+                                        {activePanels.includes('macd') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => togglePanel('stoch')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('stoch') ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0 bg-blue-500"></span>
+                                        <span className="flex-1 text-left">Stochastic</span>
+                                        {activePanels.includes('stoch') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => togglePanel('adx')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('adx') ? 'text-violet-600 bg-violet-50/50' : 'text-slate-600'}`}>
+                                        <TrendingUp className="w-2.5 h-2.5 text-violet-500 flex-shrink-0" />
+                                        <span className="flex-1 text-left">ADX/DMI</span>
+                                        {activePanels.includes('adx') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    {/* === VOLATILITY === */}
+                                    <div className="px-1.5 py-0.5 text-[8px] font-semibold text-slate-400 bg-slate-50 border-y border-slate-100 mt-1 flex items-center gap-1">
+                                        <Activity className="w-2.5 h-2.5" />
+                                        VOLATILITY
+                                    </div>
+
+                                    <button onClick={() => togglePanel('atr')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('atr') ? 'text-indigo-600 bg-indigo-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0 bg-indigo-500"></span>
+                                        <span className="flex-1 text-left">ATR (14)</span>
+                                        {activePanels.includes('atr') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => togglePanel('squeeze')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('squeeze') ? 'text-red-600 bg-red-50/50' : 'text-slate-600'}`}>
+                                        <Target className="w-2.5 h-2.5 text-red-500 flex-shrink-0" />
+                                        <span className="flex-1 text-left">TTM Squeeze</span>
+                                        {activePanels.includes('squeeze') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    {/* === VOLUME === */}
+                                    <div className="px-1.5 py-0.5 text-[8px] font-semibold text-slate-400 bg-slate-50 border-y border-slate-100 mt-1 flex items-center gap-1">
+                                        <BarChart3 className="w-2.5 h-2.5" />
+                                        VOLUME
+                                    </div>
+
+                                    <button onClick={() => setShowVolume(!showVolume)} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${showVolume ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
+                                        <BarChart3 className="w-2.5 h-2.5 flex-shrink-0" />
+                                        <span className="flex-1 text-left">Volume</span>
+                                        {showVolume && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => togglePanel('obv')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('obv') ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
+                                        <span className="w-2 h-0.5 rounded flex-shrink-0 bg-blue-500"></span>
+                                        <span className="flex-1 text-left">OBV</span>
+                                        {activePanels.includes('obv') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    <button onClick={() => togglePanel('rvol')} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activePanels.includes('rvol') ? 'text-emerald-600 bg-emerald-50/50' : 'text-slate-600'}`}>
+                                        <BarChart3 className="w-2.5 h-2.5 text-emerald-500 flex-shrink-0" />
+                                        <span className="flex-1 text-left">RVOL</span>
+                                        {selectedInterval && ['1minute', '5minute', '15minute', '30minute'].includes(selectedInterval) && (
+                                            <span className="text-[7px] text-emerald-400">⚡</span>
+                                        )}
+                                        {activePanels.includes('rvol') && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    {/* === OTHER === */}
+                                    <div className="border-t border-slate-100 my-0.5" />
+
+                                    <button onClick={() => setShowNewsMarkers(!showNewsMarkers)} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${showNewsMarkers ? 'text-amber-600 bg-amber-50/50' : 'text-slate-600'}`}>
+                                        <Newspaper className="w-2.5 h-2.5 flex-shrink-0" />
+                                        <span className="flex-1 text-left">News</span>
+                                        {tickerNews.length > 0 && <span className="text-[7px] text-slate-400">{tickerNews.length}</span>}
+                                        {showNewsMarkers && <span className="text-[8px] text-emerald-500">✓</span>}
+                                    </button>
+
+                                    {/* Indicador de cálculo */}
+                                    {indicatorsLoading && (
+                                        <div className="px-1.5 py-1 text-[8px] text-blue-500 bg-blue-50 border-t border-slate-100 flex items-center gap-1">
+                                            <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                            Calculating...
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
+
+                    <div className="w-6 h-px bg-slate-200 mx-auto my-0.5" />
+
+                    {/* TOOLS Section - Expandable */}
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowToolsDropdown(!showToolsDropdown)}
+                            className={`w-full h-8 flex flex-col items-center justify-center gap-0.5 transition-colors ${activeTool !== 'none' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-white/50'}`}
+                            title="Drawing Tools"
+                        >
+                            <LineChart className="w-4 h-4" />
+                            <span className="text-[7px] font-medium">TOOLS</span>
+                        </button>
+
+                        {/* Tools Dropdown - Compact flyout */}
+                        {showToolsDropdown && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowToolsDropdown(false)} />
+                                <div className="absolute left-full top-0 ml-0.5 bg-white border border-slate-200 rounded shadow-lg z-50 min-w-[110px] max-h-[300px] overflow-y-auto">
+                                    <div className="px-1.5 py-0.5 text-[8px] font-semibold text-slate-400 bg-slate-50 border-b border-slate-100 sticky top-0">TOOLS</div>
+
+                                    <button onClick={() => { setActiveTool('none'); setShowToolsDropdown(false); }} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activeTool === 'none' ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
+                                        <MousePointer className="w-2.5 h-2.5 flex-shrink-0" />
+                                        <span className="flex-1 text-left">Select</span>
+                                        <span className="text-[7px] text-slate-400">Esc</span>
+                                    </button>
+
+                                    <button onClick={() => { setActiveTool('horizontal_line'); setShowToolsDropdown(false); }} className={`w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] hover:bg-slate-50 ${activeTool === 'horizontal_line' ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
+                                        <Minus className="w-2.5 h-2.5 flex-shrink-0" />
+                                        <span className="flex-1 text-left">H-Line</span>
+                                        <span className="text-[7px] text-slate-400">H</span>
+                                    </button>
+
+                                    {drawings.length > 0 && (
+                                        <>
+                                            <div className="border-t border-slate-100 my-0.5" />
+                                            <button onClick={() => { clearAllDrawings(); setShowToolsDropdown(false); }} className="w-full flex items-center gap-1.5 px-1.5 py-[3px] text-[9px] text-red-600 hover:bg-red-50">
+                                                <Trash2 className="w-2.5 h-2.5 flex-shrink-0" />
+                                                <span className="flex-1 text-left">Clear</span>
+                                                <span className="text-[7px]">{drawings.length}</span>
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Spacer */}
                     <div className="flex-1" />
 
-                    {/* Clear all */}
-                    {drawings.length > 0 && (
-                        <button
-                            onClick={clearAllDrawings}
-                            className="p-2 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                            title={`Borrar todos (${drawings.length})`}
-                        >
-                            <Trash2 className="w-4 h-4" />
-                        </button>
-                    )}
+                    {/* Quick actions at bottom */}
+                    <div className="w-6 h-px bg-slate-200 mx-auto my-0.5" />
+
+                    <button onClick={zoomIn} className="w-full h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-white/50" title="Zoom In (+)">
+                        <ZoomIn className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={zoomOut} className="w-full h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-white/50" title="Zoom Out (-)">
+                        <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
                 </div>
 
-                {/* Chart area */}
-                <div
-                    className="flex-1 min-w-0 relative"
-                    style={{
-                        cursor: hoveredDrawingId && activeTool === 'none'
-                            ? 'ns-resize'  // Sobre línea = mover línea
-                            : isDrawing
-                                ? 'crosshair'
-                                : 'default'
-                    }}
-                    onMouseDown={activeTool === 'none' ? handleDragStart : undefined}
-                >
-                    {/* Drag overlay - captura todos los eventos durante drag */}
-                    {dragState.active && (
-                        <div
-                            className="absolute inset-0 z-50"
-                            style={{ cursor: 'ns-resize' }}
-                            onMouseMove={handleDragMove}
-                            onMouseUp={handleDragEnd}
-                            onMouseLeave={handleDragEnd}
-                        />
-                    )}
-
-                    {/* Drawing mode indicator */}
-                    {isDrawing && (
-                        <div className="absolute top-2 left-2 z-20 flex items-center gap-2 px-2 py-1 bg-blue-500 text-white text-xs font-medium rounded shadow-lg">
-                            <span>Click para añadir línea horizontal</span>
-                            <button
-                                onClick={cancelDrawing}
-                                className="hover:bg-blue-600 rounded px-1"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Drag indicator */}
-                    {dragState.active && (
-                        <div className="absolute top-2 right-2 z-20 px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded shadow-lg">
-                            ↕ Arrastrando...
-                        </div>
-                    )}
-
-                    {/* Edit popup - aparece al doble click en línea */}
-                    {editPopup.visible && editingDrawing && (
-                        <>
-                            {/* Backdrop para cerrar */}
+                {/* Content area: main chart + indicator panels */}
+                <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+                    {/* Chart area - calcula altura dinámicamente basada en paneles activos */}
+                    <div
+                        className="min-w-0 relative"
+                        style={{
+                            height: activePanels.length > 0
+                                ? `calc(100% - ${activePanels.length * 100}px)`
+                                : '100%',
+                            minHeight: '200px',
+                            cursor: hoveredDrawingId && activeTool === 'none'
+                                ? 'ns-resize'
+                                : isDrawing
+                                    ? 'crosshair'
+                                    : 'default'
+                        }}
+                        onMouseDown={activeTool === 'none' ? handleDragStart : undefined}
+                    >
+                        {/* Drag overlay - captura todos los eventos durante drag */}
+                        {dragState.active && (
                             <div
-                                className="absolute inset-0 z-40"
-                                onClick={closeEditPopup}
+                                className="absolute inset-0 z-50"
+                                style={{ cursor: 'ns-resize' }}
+                                onMouseMove={handleDragMove}
+                                onMouseUp={handleDragEnd}
+                                onMouseLeave={handleDragEnd}
                             />
-                            {/* Popup */}
-                            <div
-                                className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 min-w-[160px]"
-                                style={{
-                                    left: Math.min(editPopup.x, (containerRef.current?.clientWidth || 300) - 180),
-                                    top: Math.min(editPopup.y, (containerRef.current?.clientHeight || 200) - 150),
-                                }}
-                            >
-                                <div className="text-xs font-semibold text-slate-700 mb-2 pb-2 border-b border-slate-100">
-                                    Editar línea
-                                </div>
+                        )}
 
-                                {/* Colores */}
-                                <div className="mb-3">
-                                    <div className="text-[10px] text-slate-500 mb-1.5">Color</div>
-                                    <div className="flex gap-1.5">
-                                        {drawingColors.map(color => (
-                                            <button
-                                                key={color}
-                                                onClick={() => handleEditColor(color)}
-                                                className={`w-6 h-6 rounded-full transition-all ${editingDrawing.color === color
-                                                    ? 'ring-2 ring-offset-1 ring-slate-400 scale-110'
-                                                    : 'hover:scale-110'
-                                                    }`}
-                                                style={{ backgroundColor: color }}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Grosor */}
-                                <div className="mb-3">
-                                    <div className="text-[10px] text-slate-500 mb-1.5">Grosor</div>
-                                    <div className="flex gap-1">
-                                        {[1, 2, 3, 4].map(width => (
-                                            <button
-                                                key={width}
-                                                onClick={() => handleEditLineWidth(width)}
-                                                className={`flex-1 h-7 flex items-center justify-center rounded border transition-all ${editingDrawing.lineWidth === width
-                                                    ? 'bg-blue-50 border-blue-300'
-                                                    : 'border-slate-200 hover:bg-slate-50'
-                                                    }`}
-                                            >
-                                                <div
-                                                    className="rounded-full"
-                                                    style={{
-                                                        width: '20px',
-                                                        height: `${width}px`,
-                                                        backgroundColor: editingDrawing.color
-                                                    }}
-                                                />
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Acciones */}
-                                <div className="flex gap-2 pt-2 border-t border-slate-100">
-                                    <button
-                                        onClick={handleEditDelete}
-                                        className="flex-1 px-2 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors"
-                                    >
-                                        Eliminar
-                                    </button>
-                                    <button
-                                        onClick={closeEditPopup}
-                                        className="flex-1 px-2 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
-                                    >
-                                        Cerrar
-                                    </button>
-                                </div>
-                            </div>
-                        </>
-                    )}
-
-                    {loading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
-                            <div className="flex items-center gap-2 text-slate-500">
-                                <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
-                                <span className="text-sm">Loading {currentTicker}...</span>
-                            </div>
-                        </div>
-                    )}
-
-                    {error && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
-                            <div className="text-center">
-                                <p className="text-red-500 text-sm mb-2">Failed to load chart</p>
-                                <p className="text-slate-400 text-xs mb-3">{error}</p>
+                        {/* Drawing mode indicator */}
+                        {isDrawing && (
+                            <div className="absolute top-2 left-2 z-20 flex items-center gap-2 px-2 py-1 bg-blue-500 text-white text-xs font-medium rounded shadow-lg">
+                                <span>Click para añadir línea horizontal</span>
                                 <button
-                                    onClick={refetch}
-                                    className="px-4 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors"
+                                    onClick={cancelDrawing}
+                                    className="hover:bg-blue-600 rounded px-1"
                                 >
-                                    Retry
+                                    ✕
                                 </button>
                             </div>
+                        )}
+
+                        {/* Drag indicator */}
+                        {dragState.active && (
+                            <div className="absolute top-2 right-2 z-20 px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded shadow-lg">
+                                ↕ Arrastrando...
+                            </div>
+                        )}
+
+                        {/* Edit popup - aparece al doble click en línea */}
+                        {editPopup.visible && editingDrawing && (
+                            <>
+                                {/* Backdrop para cerrar */}
+                                <div
+                                    className="absolute inset-0 z-40"
+                                    onClick={closeEditPopup}
+                                />
+                                {/* Popup */}
+                                <div
+                                    className="absolute z-50 bg-white rounded-lg shadow-xl border border-slate-200 p-3 min-w-[160px]"
+                                    style={{
+                                        left: Math.min(editPopup.x, (containerRef.current?.clientWidth || 300) - 180),
+                                        top: Math.min(editPopup.y, (containerRef.current?.clientHeight || 200) - 150),
+                                    }}
+                                >
+                                    <div className="text-xs font-semibold text-slate-700 mb-2 pb-2 border-b border-slate-100">
+                                        Editar línea
+                                    </div>
+
+                                    {/* Colores */}
+                                    <div className="mb-3">
+                                        <div className="text-[10px] text-slate-500 mb-1.5">Color</div>
+                                        <div className="flex gap-1.5">
+                                            {drawingColors.map(color => (
+                                                <button
+                                                    key={color}
+                                                    onClick={() => handleEditColor(color)}
+                                                    className={`w-6 h-6 rounded-full transition-all ${editingDrawing.color === color
+                                                        ? 'ring-2 ring-offset-1 ring-slate-400 scale-110'
+                                                        : 'hover:scale-110'
+                                                        }`}
+                                                    style={{ backgroundColor: color }}
+                                                />
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Grosor */}
+                                    <div className="mb-3">
+                                        <div className="text-[10px] text-slate-500 mb-1.5">Grosor</div>
+                                        <div className="flex gap-1">
+                                            {[1, 2, 3, 4].map(width => (
+                                                <button
+                                                    key={width}
+                                                    onClick={() => handleEditLineWidth(width)}
+                                                    className={`flex-1 h-7 flex items-center justify-center rounded border transition-all ${editingDrawing.lineWidth === width
+                                                        ? 'bg-blue-50 border-blue-300'
+                                                        : 'border-slate-200 hover:bg-slate-50'
+                                                        }`}
+                                                >
+                                                    <div
+                                                        className="rounded-full"
+                                                        style={{
+                                                            width: '20px',
+                                                            height: `${width}px`,
+                                                            backgroundColor: editingDrawing.color
+                                                        }}
+                                                    />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Acciones */}
+                                    <div className="flex gap-2 pt-2 border-t border-slate-100">
+                                        <button
+                                            onClick={handleEditDelete}
+                                            className="flex-1 px-2 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors"
+                                        >
+                                            Eliminar
+                                        </button>
+                                        <button
+                                            onClick={closeEditPopup}
+                                            className="flex-1 px-2 py-1.5 text-xs font-medium text-slate-600 bg-slate-100 rounded hover:bg-slate-200 transition-colors"
+                                        >
+                                            Cerrar
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {loading && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
+                                <div className="flex items-center gap-2 text-slate-500">
+                                    <RefreshCw className="w-5 h-5 animate-spin text-blue-500" />
+                                    <span className="text-sm">Loading {currentTicker}...</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {error && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-white/90 z-10">
+                                <div className="text-center">
+                                    <p className="text-red-500 text-sm mb-2">Failed to load chart</p>
+                                    <p className="text-slate-400 text-xs mb-3">{error}</p>
+                                    <button
+                                        onClick={refetch}
+                                        className="px-4 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors"
+                                    >
+                                        Retry
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        <div
+                            ref={containerRef}
+                            className="h-full w-full"
+                        />
+                    </div>
+
+                    {/* === INDICATOR PANELS (debajo del chart principal) === */}
+                    {activePanels.length > 0 && indicatorResults?.panels && (
+                        <div className="flex-shrink-0 flex flex-col">
+                            {activePanels.map(panelId => {
+                                const panelData = indicatorResults.panels[panelId as keyof typeof indicatorResults.panels];
+                                if (!panelData) return null;
+
+                                return (
+                                    <IndicatorPanel
+                                        key={panelId}
+                                        type={panelId}
+                                        data={panelData.data}
+                                        mainChart={chartRef.current}
+                                        height={100}
+                                        onClose={() => removePanel(panelId)}
+                                    />
+                                );
+                            })}
                         </div>
                     )}
-
-                    <div
-                        ref={containerRef}
-                        className="h-full w-full"
-                    />
                 </div>
             </div>
 
-            {/* Footer with OHLCV data + Load More */}
-            {displayBar && (
-                <div className="flex items-center justify-between px-3 py-1.5 border-t border-slate-200 bg-slate-50 text-[10px]">
-                    <div className="flex items-center gap-4 font-mono">
-                        <span className="text-slate-500">
-                            O: <span className="text-slate-700 font-medium">${formatPrice(displayBar.open)}</span>
-                        </span>
-                        <span className="text-slate-500">
-                            H: <span className="text-emerald-600 font-medium">${formatPrice(displayBar.high)}</span>
-                        </span>
-                        <span className="text-slate-500">
-                            L: <span className="text-red-600 font-medium">${formatPrice(displayBar.low)}</span>
-                        </span>
-                        <span className="text-slate-500">
-                            C: <span className="text-slate-700 font-medium">${formatPrice(displayBar.close)}</span>
-                        </span>
-                        <span className="text-slate-500">
-                            Vol: <span className="text-slate-700 font-medium">{formatVolume(displayBar.volume)}</span>
-                        </span>
+            {/* Footer with OHLCV data - Compact */}
+            {displayBar && !minimal && (
+                <div className="flex items-center justify-between px-2 py-1 border-t border-slate-200 bg-slate-50 text-[9px]" style={{ fontFamily: `var(--font-${font})` }}>
+                    <div className="flex items-center gap-2 font-mono">
+                        <span className="text-slate-400">O:<span className="text-slate-600">${formatPrice(displayBar.open)}</span></span>
+                        <span className="text-slate-400">H:<span className="text-emerald-600">${formatPrice(displayBar.high)}</span></span>
+                        <span className="text-slate-400">L:<span className="text-red-600">${formatPrice(displayBar.low)}</span></span>
+                        <span className="text-slate-400">C:<span className="text-slate-600">${formatPrice(displayBar.close)}</span></span>
+                        <span className="text-slate-400">V:<span className="text-slate-600">{formatVolume(displayBar.volume)}</span></span>
                     </div>
-                    <div className="flex items-center gap-3">
-                        {/* Auto-loading indicator */}
-                        {loadingMore && (
-                            <span className="flex items-center gap-1 text-blue-500 text-[10px]">
-                                <RefreshCw className="w-3 h-3 animate-spin" />
-                                Loading history...
-                            </span>
-                        )}
-                        <span className="text-slate-400">
-                            {data.length.toLocaleString()} bars • {selectedInterval.toUpperCase()} • {currentTicker}
-                            {hasMore && !loadingMore && ' • ← scroll for more'}
-                        </span>
+                    <div className="flex items-center gap-2 text-slate-400">
+                        {loadingMore && <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-500" />}
+                        <span>{data.length.toLocaleString()} bars</span>
+                        {hasMore && !loadingMore && <span>← more</span>}
                     </div>
                 </div>
             )}

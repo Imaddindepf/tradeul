@@ -74,6 +74,13 @@ class ScannerTicker(BaseModel):
     vol_15min: Optional[int] = Field(None, description="Volume traded in last 15 minutes")
     vol_30min: Optional[int] = Field(None, description="Volume traded in last 30 minutes")
     
+    # Price change window metrics (% change in last N minutes - per-second precision)
+    chg_1min: Optional[float] = Field(None, description="Price change % in last 1 minute")
+    chg_5min: Optional[float] = Field(None, description="Price change % in last 5 minutes")
+    chg_10min: Optional[float] = Field(None, description="Price change % in last 10 minutes")
+    chg_15min: Optional[float] = Field(None, description="Price change % in last 15 minutes")
+    chg_30min: Optional[float] = Field(None, description="Price change % in last 30 minutes")
+    
     free_float: Optional[int] = Field(None, description="Free float (shares available for public trading)")
     free_float_percent: Optional[float] = Field(None, description="Free float percentage from Polygon")
     shares_outstanding: Optional[int] = Field(None, description="Shares outstanding")
@@ -97,6 +104,16 @@ class ScannerTicker(BaseModel):
     # VWAP
     vwap: Optional[float] = Field(None, description="Volume Weighted Average Price (today)")
     price_vs_vwap: Optional[float] = Field(None, description="% distance from VWAP")
+    
+    # Post-Market metrics (activos solo durante POST_MARKET session 16:00-20:00 ET)
+    postmarket_change_percent: Optional[float] = Field(None, description="% change from regular session close (day.c)")
+    postmarket_volume: Optional[int] = Field(None, description="Volume traded in post-market only (min.av - day.v)")
+    
+    # Trades Anomaly Detection (Z-Score based)
+    trades_today: Optional[int] = Field(None, description="Number of transactions today (Polygon day.n)")
+    avg_trades_5d: Optional[float] = Field(None, description="Average trades per day (last 5 trading days)")
+    trades_z_score: Optional[float] = Field(None, description="Z-Score = (trades_today - avg) / std")
+    is_trade_anomaly: Optional[bool] = Field(None, description="True if Z-Score >= 3.0")
     
     # Session context
     session: MarketSession = Field(..., description="Current market session")
@@ -271,6 +288,18 @@ class FilterParameters(BaseModel):
     min_vol_30min: Optional[int] = Field(None, ge=0, description="Min volume in last 30 minutes")
     max_vol_30min: Optional[int] = Field(None, ge=0, description="Max volume in last 30 minutes")
     
+    # Price change window filters (% change in last N minutes)
+    min_chg_1min: Optional[float] = Field(None, description="Min % change in last 1 minute")
+    max_chg_1min: Optional[float] = Field(None, description="Max % change in last 1 minute")
+    min_chg_5min: Optional[float] = Field(None, description="Min % change in last 5 minutes")
+    max_chg_5min: Optional[float] = Field(None, description="Max % change in last 5 minutes")
+    min_chg_10min: Optional[float] = Field(None, description="Min % change in last 10 minutes")
+    max_chg_10min: Optional[float] = Field(None, description="Max % change in last 10 minutes")
+    min_chg_15min: Optional[float] = Field(None, description="Min % change in last 15 minutes")
+    max_chg_15min: Optional[float] = Field(None, description="Max % change in last 15 minutes")
+    min_chg_30min: Optional[float] = Field(None, description="Min % change in last 30 minutes")
+    max_chg_30min: Optional[float] = Field(None, description="Max % change in last 30 minutes")
+    
     # Data freshness filters
     max_data_age_seconds: Optional[int] = Field(None, ge=0, description="Max age of last trade in seconds")
     
@@ -282,7 +311,7 @@ class FilterParameters(BaseModel):
     min_market_cap: Optional[int] = Field(None, ge=0, description="Minimum market cap")
     max_market_cap: Optional[int] = Field(None, ge=0, description="Maximum market cap")
     
-    # Float filters
+    # Float filters (applies to free_float field)
     min_float: Optional[int] = Field(None, ge=0, description="Minimum float shares")
     max_float: Optional[int] = Field(None, ge=0, description="Maximum float shares")
     
@@ -294,6 +323,12 @@ class FilterParameters(BaseModel):
     # Advanced filters
     min_price_from_high: Optional[float] = Field(None, description="Min % from day high")
     max_price_from_high: Optional[float] = Field(None, description="Max % from day high")
+    
+    # Post-Market filters (only active during POST_MARKET session)
+    min_postmarket_change_percent: Optional[float] = Field(None, description="Min post-market % change from close")
+    max_postmarket_change_percent: Optional[float] = Field(None, description="Max post-market % change from close")
+    min_postmarket_volume: Optional[int] = Field(None, ge=0, description="Min post-market volume in shares")
+    max_postmarket_volume: Optional[int] = Field(None, ge=0, description="Max post-market volume in shares")
     
     # Custom expression (for advanced users)
     custom_expression: Optional[str] = Field(None, description="Python expression for custom filter")

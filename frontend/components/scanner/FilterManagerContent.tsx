@@ -90,8 +90,8 @@ const FILTERS: FilterConfig[] = [
     placeholder: '10'
   },
   {
-    key: 'float',
-    label: 'Float',
+    key: 'free_float',
+    label: 'Free Float',
     type: 'units',
     minKey: 'min_float',
     maxKey: 'max_float',

@@ -175,6 +175,8 @@ class ClearRealtimeCachesTask:
             "scanner:sequence:*",
             # Snapshot enriched del día anterior
             "snapshot:enriched:*",
+            # Financial Analyst reports - se limpian cada nuevo día de trading
+            "fan:report:*",
         ]
         
         for pattern in patterns_to_check:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ExternalLink,
@@ -54,7 +54,248 @@ interface SECDilutionSectionProps {
   onRefreshRequest?: () => void;
 }
 
-// Terminal Animation Component
+// ============================================
+// PARTICLE DOCUMENT ANIMATION COMPONENT
+// Beautiful dots-based SEC document animation
+// Clean white background, only blue dots
+// ============================================
+interface Particle {
+  x: number;
+  y: number;
+  baseX: number;
+  baseY: number;
+  size: number;
+  color: string;
+  alpha: number;
+  type: 'document' | 'spark';
+}
+
+function SECParticleAnimation({ ticker }: { ticker: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const particlesRef = useRef<Particle[]>([]);
+  const scanLineRef = useRef<number>(0);
+
+  const initParticles = useCallback((width: number, height: number) => {
+    const particles: Particle[] = [];
+    const centerX = width / 2;
+    const centerY = height / 2 - 10;
+
+    // Document dimensions
+    const docWidth = Math.min(140, width * 0.35);
+    const docHeight = docWidth * 1.35;
+    const docLeft = centerX - docWidth / 2;
+    const docTop = centerY - docHeight / 2;
+    const spacing = 5;
+
+    // Document border (dotted rectangle)
+    for (let x = docLeft; x <= docLeft + docWidth; x += spacing) {
+      particles.push({
+        x, y: docTop, baseX: x, baseY: docTop,
+        size: 2, color: '#3b82f6', alpha: 0.85, type: 'document'
+      });
+      particles.push({
+        x, y: docTop + docHeight, baseX: x, baseY: docTop + docHeight,
+        size: 2, color: '#3b82f6', alpha: 0.85, type: 'document'
+      });
+    }
+    for (let y = docTop; y <= docTop + docHeight; y += spacing) {
+      particles.push({
+        x: docLeft, y, baseX: docLeft, baseY: y,
+        size: 2, color: '#3b82f6', alpha: 0.85, type: 'document'
+      });
+      particles.push({
+        x: docLeft + docWidth, y, baseX: docLeft + docWidth, baseY: y,
+        size: 2, color: '#3b82f6', alpha: 0.85, type: 'document'
+      });
+    }
+
+    // "SEC" text in dots
+    const secText = [
+      [0, 0], [1, 0], [2, 0], [0, 1], [0, 2], [1, 2], [2, 2], [2, 3], [0, 4], [1, 4], [2, 4],
+      [4, 0], [5, 0], [6, 0], [4, 1], [4, 2], [5, 2], [4, 3], [4, 4], [5, 4], [6, 4],
+      [8, 0], [9, 0], [10, 0], [8, 1], [8, 2], [8, 3], [8, 4], [9, 4], [10, 4]
+    ];
+    const secScale = 4;
+    const secStartX = centerX - (11 * secScale) / 2;
+    const secStartY = docTop + 18;
+    secText.forEach(([px, py]) => {
+      particles.push({
+        x: secStartX + px * secScale, y: secStartY + py * secScale,
+        baseX: secStartX + px * secScale, baseY: secStartY + py * secScale,
+        size: 2.5, color: '#2563eb', alpha: 1, type: 'document'
+      });
+    });
+
+    // Document content lines
+    const lineY = secStartY + 38;
+    const lineSpacing = 12;
+    const lineLengths = [0.85, 0.65, 0.9, 0.5, 0.75, 0.6];
+    for (let i = 0; i < lineLengths.length; i++) {
+      const y = lineY + i * lineSpacing;
+      const lineWidth = (docWidth - 24) * lineLengths[i];
+      for (let x = docLeft + 12; x < docLeft + 12 + lineWidth; x += 4) {
+        particles.push({
+          x, y, baseX: x, baseY: y,
+          size: 1.5, color: '#60a5fa', alpha: 0.5, type: 'document'
+        });
+      }
+    }
+
+    return particles;
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const resize = () => {
+      const rect = canvas.parentElement?.getBoundingClientRect();
+      if (rect) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+        particlesRef.current = initParticles(canvas.width, canvas.height);
+      }
+    };
+
+    resize();
+    window.addEventListener('resize', resize);
+
+    let animationId: number;
+
+    const animate = () => {
+      if (!ctx || !canvas) return;
+
+      // Clear with transparent background
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const time = Date.now() / 1000;
+      scanLineRef.current = (scanLineRef.current + 1.5) % (canvas.height + 100);
+
+      // Draw document particles with wave effect
+      particlesRef.current.forEach((p, i) => {
+        if (p.type === 'document') {
+          const wave = Math.sin(time * 2 + i * 0.05) * 1.5;
+          const breathe = Math.sin(time * 1.5) * 0.5;
+
+          ctx.beginPath();
+          ctx.arc(p.baseX + wave, p.baseY + breathe, p.size, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.alpha * (0.7 + Math.sin(time * 3 + i * 0.1) * 0.3);
+          ctx.fill();
+        }
+      });
+
+      // Subtle scan line effect (light blue)
+      const scanY = scanLineRef.current - 50;
+      const gradient = ctx.createLinearGradient(0, scanY - 25, 0, scanY + 25);
+      gradient.addColorStop(0, 'rgba(59, 130, 246, 0)');
+      gradient.addColorStop(0.5, 'rgba(59, 130, 246, 0.08)');
+      gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+      ctx.fillStyle = gradient;
+      ctx.globalAlpha = 1;
+      ctx.fillRect(0, scanY - 25, canvas.width, 50);
+
+      // Blue orbiting sparks (matching theme)
+      const sparksCount = 8;
+      for (let i = 0; i < sparksCount; i++) {
+        const sparkTime = time * 0.6 + i * (Math.PI * 2 / sparksCount);
+        const radius = 75 + Math.sin(time * 1.5 + i) * 20;
+        const sparkX = canvas.width / 2 + Math.cos(sparkTime) * radius;
+        const sparkY = canvas.height / 2 - 10 + Math.sin(sparkTime * 1.3) * radius * 0.5;
+
+        const sparkSize = 3 + Math.sin(time * 3.5 + i) * 1;
+        const sparkAlpha = 0.4 + Math.sin(time * 2.5 + i * 0.5) * 0.3;
+
+        // Soft glow
+        const glowGradient = ctx.createRadialGradient(sparkX, sparkY, 0, sparkX, sparkY, sparkSize * 4);
+        glowGradient.addColorStop(0, `rgba(59, 130, 246, ${sparkAlpha * 0.3})`);
+        glowGradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+        ctx.fillStyle = glowGradient;
+        ctx.globalAlpha = 1;
+        ctx.fillRect(sparkX - sparkSize * 4, sparkY - sparkSize * 4, sparkSize * 8, sparkSize * 8);
+
+        // Core
+        ctx.beginPath();
+        ctx.arc(sparkX, sparkY, sparkSize, 0, Math.PI * 2);
+        ctx.fillStyle = '#3b82f6';
+        ctx.globalAlpha = sparkAlpha;
+        ctx.fill();
+      }
+
+      // Flying sparks
+      for (let i = 0; i < 6; i++) {
+        const flyTime = (time * 1.1 + i * 1.3) % 2.2;
+        const startX = canvas.width / 2 + (i % 2 === 0 ? 45 : -45);
+        const startY = canvas.height / 2 - 10;
+        const angle = (i / 6) * Math.PI * 2 + time * 0.15;
+        const distance = flyTime * 45;
+
+        const fx = startX + Math.cos(angle) * distance;
+        const fy = startY + Math.sin(angle) * distance;
+        const fAlpha = Math.max(0, 1 - flyTime / 1.6);
+
+        ctx.beginPath();
+        ctx.arc(fx, fy, 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#60a5fa';
+        ctx.globalAlpha = fAlpha * 0.7;
+        ctx.fill();
+      }
+
+      ctx.globalAlpha = 1;
+      animationId = requestAnimationFrame(animate);
+    };
+
+    animate();
+
+    return () => {
+      window.removeEventListener('resize', resize);
+      cancelAnimationFrame(animationId);
+    };
+  }, [initParticles]);
+
+  return (
+    <div className="relative w-full h-64">
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+
+      {/* Ticker badge */}
+      <div className="absolute top-3 left-3 font-mono text-xs tracking-wider text-blue-600 uppercase font-semibold">
+        {ticker}
+      </div>
+
+      {/* Status text at bottom */}
+      <div className="absolute bottom-4 left-0 right-0 text-center">
+        <p className="text-slate-600 text-sm font-medium">
+          Analyzing SEC Filings...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Processing Indicator with Particle Animation (no progress bar)
+function ProcessingTerminal({ ticker, status }: { ticker: string; status: 'queued' | 'processing' }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="w-full bg-white rounded-xl border border-slate-200 overflow-hidden"
+    >
+      <SECParticleAnimation ticker={ticker} />
+
+      {/* Simple status footer */}
+      <div className="px-4 py-3 border-t border-slate-100 text-center">
+        <p className="text-xs text-slate-400">
+          {status === 'queued' ? 'In queue...' : 'Deep analysis in progress'}
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+// Terminal Animation Component (original)
 function SECAnalysisTerminal({
   ticker,
   isActive,
@@ -250,7 +491,7 @@ function RiskRatingTag({ label, level, tooltip }: { label: string; level: RiskLe
     High: 'bg-red-100 text-red-700 border-red-200',
     Unknown: 'bg-slate-100 text-slate-500 border-slate-200'
   };
-  
+
   return (
     <div className="flex items-center gap-2" title={tooltip}>
       <span className="text-sm text-slate-600">{label}</span>
@@ -274,7 +515,7 @@ export function SECDilutionSection({
 
   // Usar datos pasados como prop
   const data = cachedData;
-  
+
   // Use risk_assessment from profile if available, fallback to separate endpoint
   useEffect(() => {
     // First, try to use risk_assessment from the profile response
@@ -293,8 +534,8 @@ export function SECDilutionSection({
   // Notificar al padre cuando hay datos (compatibilidad)
   useEffect(() => {
     if (data) {
-        onDataLoaded?.();
-      }
+      onDataLoaded?.();
+    }
   }, [data, onDataLoaded]);
 
   const handleRefresh = () => {
@@ -303,18 +544,13 @@ export function SECDilutionSection({
     // El padre controlará el refresh
   };
 
-  // Estado: Job en progreso (analyzing)
+  // Estado: Job en progreso (analyzing) - Mostrar terminal animado
   if (jobPending || jobStatus === 'queued' || jobStatus === 'processing') {
     return (
-      <div className="border border-slate-200 rounded-lg p-4">
-        <h4 className="font-medium text-slate-700 mb-1">SEC Analysis in Progress</h4>
-        <p className="text-sm text-slate-500">
-          Deep analysis of SEC filings is running in background.
-        </p>
-        <p className="text-xs text-slate-400 mt-2">
-          Status: {jobStatus === 'queued' ? 'Queued' : 'Processing'}
-        </p>
-      </div>
+      <ProcessingTerminal
+        ticker={ticker}
+        status={jobStatus === 'queued' ? 'queued' : 'processing'}
+      />
     );
   }
 
@@ -353,10 +589,10 @@ export function SECDilutionSection({
         <h4 className="font-medium text-slate-700 mb-1">Clean Dilution Profile</h4>
         <p className="text-sm text-slate-500">
           No active warrants, ATM offerings, or shelf registrations found.
-            </p>
+        </p>
         <p className="text-xs text-slate-400 mt-2">
-              Last checked: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
-            </p>
+          Last checked: {new Date(profile.metadata.last_scraped_at).toLocaleString()}
+        </p>
       </div>
     );
   }
@@ -381,28 +617,28 @@ export function SECDilutionSection({
 
         {/* Risk Rating Tags - Similar to DilutionTracker */}
         <div className="flex flex-wrap items-center gap-4">
-          <RiskRatingTag 
-            label="Overall Risk" 
+          <RiskRatingTag
+            label="Overall Risk"
             level={riskRatings?.overall_risk || 'Unknown'}
             tooltip="Combined assessment of all dilution risk factors"
           />
-          <RiskRatingTag 
-            label="Offering Ability" 
+          <RiskRatingTag
+            label="Offering Ability"
             level={riskRatings?.offering_ability || 'Unknown'}
             tooltip="Ability to conduct discounted offerings (shelf capacity)"
           />
-          <RiskRatingTag 
-            label="Overhead Supply" 
+          <RiskRatingTag
+            label="Overhead Supply"
             level={riskRatings?.overhead_supply || 'Unknown'}
             tooltip={`Potential dilution: ${riskRatings?.details?.overhead_supply?.dilution_pct?.toFixed(1) || '?'}% of O/S`}
           />
-          <RiskRatingTag 
-            label="Historical" 
+          <RiskRatingTag
+            label="Historical"
             level={riskRatings?.historical || 'Unknown'}
             tooltip={`O/S change 3yr: ${riskRatings?.details?.historical?.increase_pct?.toFixed(1) || '?'}%`}
           />
-          <RiskRatingTag 
-            label="Cash Need" 
+          <RiskRatingTag
+            label="Cash Need"
             level={riskRatings?.cash_need || 'Unknown'}
             tooltip={`Runway: ${riskRatings?.details?.cash_need?.runway_months?.toFixed(1) || '?'} months`}
           />
@@ -546,10 +782,10 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
   return (
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
       {warrants.map((warrant, idx) => {
-        const seriesName = warrant.series_name || (warrant.issue_date 
+        const seriesName = warrant.series_name || (warrant.issue_date
           ? `${new Date(warrant.issue_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Warrants`
           : 'Warrants');
-        
+
         // Helper para formatear fechas completas (YYYY-MM-DD)
         const formatDate = (dateStr?: string) => {
           if (!dateStr) return '—';
@@ -629,10 +865,10 @@ function WarrantsCard({ warrants }: { warrants: Warrant[] }) {
                   <span className="ml-2 text-slate-900">{formatDate(warrant.issue_date)}</span>
                 </div>
                 {warrant.exercisable_date && (
-                <div>
+                  <div>
                     <span className="text-slate-500">Exercisable Date:</span>
                     <span className="ml-2 text-slate-900">{formatDate(warrant.exercisable_date)}</span>
-                </div>
+                  </div>
                 )}
                 <div>
                   <span className="text-slate-500">Expiration Date:</span>
@@ -889,10 +1125,10 @@ function ConvertibleNotesCard({ notes }: { notes: ConvertibleNote[] }) {
     <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
       {notes.map((note, idx) => {
         const issueDate = note.issue_date ? new Date(note.issue_date) : null;
-        const seriesName = note.series_name || (issueDate 
+        const seriesName = note.series_name || (issueDate
           ? `${issueDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Convertible Note`
           : 'Convertible Note');
-        
+
         const isPaid = (note.remaining_principal_amount || 0) === 0 && (note.total_principal_amount || 0) > 0;
 
         return (
@@ -927,7 +1163,7 @@ function ConvertibleNotesCard({ notes }: { notes: ConvertibleNote[] }) {
                 <div>
                   <span className="text-slate-500">Remaining:</span>
                   <span className={`ml-2 font-semibold ${isPaid ? 'text-green-600' : 'text-slate-900'}`}>
-                    {note.remaining_principal_amount !== undefined 
+                    {note.remaining_principal_amount !== undefined
                       ? (isPaid ? '$0 (Paid)' : `$${Number(note.remaining_principal_amount).toLocaleString()}`)
                       : '—'}
                   </span>

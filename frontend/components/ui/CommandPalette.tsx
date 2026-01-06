@@ -21,6 +21,7 @@ import {
     FileText,
     DollarSign,
     Newspaper,
+    Moon,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -66,7 +67,8 @@ const SCANNER_COMMANDS: CommandItem[] = [
     { id: 'anomalies', label: 'SC Anomalies', description: 'scanner.anomaliesDescription', icon: Zap, shortcut: 'Ctrl+7', group: 'scanner' },
     { id: 'high_volume', label: 'SC High Volume', description: 'scanner.highVolumeDescription', icon: BarChart3, group: 'scanner' },
     { id: 'reversals', label: 'SC Reversals', description: 'scanner.reversalsDescription', icon: ScanSearch, group: 'scanner' },
-    { id: 'with_news', label: 'SC With News', description: 'scanner.withNewsDescription', icon: Newspaper, shortcut: 'Ctrl+8', group: 'scanner' },
+    { id: 'post_market', label: 'SC Post-Market', description: 'scanner.postMarketDescription', icon: Moon, shortcut: 'Ctrl+9', group: 'scanner' },
+    { id: 'with_news', label: 'SC With News', description: 'scanner.withNewsDescription', icon: Newspaper, shortcut: 'Ctrl+0', group: 'scanner' },
 ];
 
 export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCategories = [], searchValue = '', onSearchChange }: CommandPaletteProps) {
@@ -183,7 +185,8 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                 '5': 'winners',
                 '6': 'losers',
                 '7': 'anomalies',
-                '8': 'with_news',
+                '9': 'post_market',
+                '0': 'with_news',
                 'd': 'dilution-tracker',
                 'D': 'dilution-tracker',
             };

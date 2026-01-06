@@ -45,7 +45,7 @@ import { useMultiListSubscription } from '@/hooks/useRxWebSocket';
 const SCANNER_CATEGORIES = [
   'gappers_up', 'gappers_down', 'momentum_up', 'momentum_down',
   'winners', 'losers', 'new_highs', 'new_lows',
-  'anomalies', 'high_volume', 'reversals',
+  'anomalies', 'high_volume', 'reversals', 'post_market',
 ];
 
 interface NewsArticle {
@@ -467,7 +467,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
               className="font-bold text-blue-600 cursor-pointer hover:underline text-left"
               onClick={() => {
                 console.log('Opening description for:', symbol, exchange);
-                executeTickerCommand(symbol, 'description', exchange);
+                executeTickerCommand(symbol, 'fan', exchange);
               }}
             >
               {symbol}

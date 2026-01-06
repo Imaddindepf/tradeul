@@ -146,6 +146,9 @@ class EnrichMetadataTask:
         """
         Obtener símbolos que necesitan enriquecimiento
         
+        NOTA: Esta tarea ahora solo se usa como FALLBACK.
+        El refresh principal de metadata se hace a las 1:00 AM en refresh_all_metadata.py
+        
         Criterios:
         - Activos (is_actively_trading = true)
         - Sin company_name, sin exchange, sin market_cap, sin sector, sin shares_outstanding, o sin cik
@@ -363,7 +366,11 @@ class EnrichMetadataTask:
         total_employees: Optional[int] = None,
         beta: Optional[float] = None
     ):
-        """Actualizar metadata en tickers_unified"""
+        """Actualizar metadata en tickers_unified
+        
+        NOTA: Esta tarea ahora solo se usa como FALLBACK para tickers nuevos.
+        El refresh principal de metadata se hace a las 1:00 AM en refresh_all_metadata.py
+        """
         query = """
             INSERT INTO tickers_unified (
                 symbol, company_name, exchange, market_cap, free_float, free_float_percent,

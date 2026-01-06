@@ -43,7 +43,82 @@ import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useFiltersStore } from '@/stores/useFiltersStore';
 import { passesFilter } from '@/lib/scanner/filterEngine';
 
+// User Preferences Store - para persistir configuración de columnas en BD
+import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
+
 const columnHelper = createColumnHelper<Ticker>();
+
+// ============================================================================
+// DEFAULT VISIBLE COLUMNS PER CATEGORY
+// ============================================================================
+// Define qué columnas mostrar por defecto en cada categoría.
+// El usuario puede cambiar esto en Settings y se guarda en localStorage.
+// Columnas no listadas = ocultas por defecto (excepto row_number y symbol que no se ocultan)
+
+const DEFAULT_VISIBLE_COLUMNS: Record<string, string[]> = {
+  // Gappers: enfocado en gap % y volumen relativo
+  gappers_up: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+  gappers_down: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+
+  // Momentum: cambio % + chg_5min (vela de ignición) + RVOL alto
+  momentum_up: ['price', 'change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
+  momentum_down: ['price', 'change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
+
+  // Winners/Losers: top movers del día
+  winners: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'dollar_volume'],
+  losers: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'dollar_volume'],
+
+  // New Highs/Lows: precio histórico
+  new_highs: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap'],
+  new_lows: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap'],
+
+  // Anomalies: Z-Score de trades (actividad anormal)
+  anomalies: ['price', 'change_percent', 'trades_z_score', 'trades_today', 'avg_trades_5d', 'volume_today', 'rvol', 'market_cap'],
+
+  // High Volume: métricas de volumen detalladas
+  high_volume: ['price', 'change_percent', 'volume_today', 'rvol', 'dollar_volume', 'vol_1min', 'vol_5min'],
+
+  // Reversals: VWAP y momentum corto
+  reversals: ['price', 'change_percent', 'volume_today', 'rvol', 'price_vs_vwap', 'vol_5min'],
+
+  // Post-Market: SOLO esta tabla muestra columnas PM por defecto
+  post_market: ['price', 'change_percent', 'postmarket_change_percent', 'postmarket_volume', 'volume_today', 'market_cap'],
+
+  // With News: básico para contexto de noticias
+  with_news: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap'],
+};
+
+// Columnas base visibles para categorías no definidas
+const DEFAULT_BASE_COLUMNS = ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap'];
+
+// Genera el objeto de visibilidad de columnas (todas las columnas excepto las visibles = false)
+const ALL_HIDEABLE_COLUMNS = [
+  'price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float',
+  'shares_outstanding', 'minute_volume', 'avg_volume_5d', 'avg_volume_10d', 'avg_volume_3m',
+  'dollar_volume', 'volume_today_pct', 'volume_yesterday_pct', 'vol_1min', 'vol_5min',
+  'vol_10min', 'vol_15min', 'vol_30min', 'chg_1min', 'chg_5min', 'chg_10min', 'chg_15min', 'chg_30min',
+  'price_vs_vwap', 'postmarket_change_percent', 'postmarket_volume', 'spread', 'bid_size',
+  'ask_size', 'bid_ask_ratio', 'distance_from_nbbo', 'atr_percent', 'atr_used',
+  // Trades anomaly detection columns
+  'trades_today', 'avg_trades_5d', 'trades_z_score',
+];
+
+function getDefaultColumnVisibility(listName: string): Record<string, boolean> {
+  const visibleColumns = DEFAULT_VISIBLE_COLUMNS[listName] || DEFAULT_BASE_COLUMNS;
+  const visibility: Record<string, boolean> = {};
+
+  // Marcar todas las columnas ocultables como ocultas
+  ALL_HIDEABLE_COLUMNS.forEach(col => {
+    visibility[col] = false;
+  });
+
+  // Mostrar solo las columnas configuradas para esta categoría
+  visibleColumns.forEach(col => {
+    visibility[col] = true;
+  });
+
+  return visibility;
+}
 
 // ============================================================================
 // PROPS
@@ -105,20 +180,37 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       case 'gappers_down':
         return [{ id: 'change_percent', desc: false }];
       case 'momentum_up':
+        // Momentum Up ordena por cambio en 5 minutos (vela de ignición)
+        return [{ id: 'chg_5min', desc: true }];
       case 'winners':
         return [{ id: 'change_percent', desc: true }];
       case 'momentum_down':
       case 'losers':
         return [{ id: 'change_percent', desc: false }];
+      case 'post_market':
+        // Ordenar por cambio % post-market (mayor movimiento primero)
+        return [{ id: 'postmarket_change_percent', desc: true }];
       default:
         return [];
     }
   };
 
-  // Helper para localStorage key
+  // ========================================================================
+  // USER PREFERENCES STORE (sincroniza con BD)
+  // ========================================================================
+
+  // Acciones del store global
+  const saveColumnVisibilityToStore = useUserPreferencesStore((s) => s.saveColumnVisibility);
+  const saveColumnOrderToStore = useUserPreferencesStore((s) => s.saveColumnOrder);
+
+  // Datos del store global para esta lista
+  const storedColumnVisibility = useUserPreferencesStore((s) => s.columnVisibility[listName]);
+  const storedColumnOrder = useUserPreferencesStore((s) => s.columnOrder[listName]);
+
+  // Helper para localStorage key (solo para sorting que es local)
   const getStorageKey = (suffix: string) => `scanner_table_${listName}_${suffix}`;
 
-  // Cargar preferencias desde localStorage
+  // Cargar preferencias desde localStorage (solo para sorting)
   const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
     if (typeof window === 'undefined') return defaultValue;
     try {
@@ -129,7 +221,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     }
   };
 
-  // Guardar preferencias en localStorage
+  // Guardar preferencias en localStorage (solo para sorting)
   const saveToStorage = (key: string, value: unknown) => {
     if (typeof window === 'undefined') return;
     try {
@@ -139,29 +231,46 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     }
   };
 
-  const [sorting, setSorting] = useState<SortingState>(() => 
+  // Sorting: se guarda en localStorage (local)
+  const [sorting, setSorting] = useState<SortingState>(() =>
     loadFromStorage('sorting', getInitialSorting())
   );
-  const [columnOrder, setColumnOrder] = useState<string[]>(() => 
-    loadFromStorage('columnOrder', [])
+
+  // Column Order: usa store global (BD) o vacío
+  const [columnOrder, setColumnOrder] = useState<string[]>(() =>
+    storedColumnOrder || []
   );
-  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => 
-    loadFromStorage('columnVisibility', {})
-  );
+
+  // Column Visibility: usa store global (BD) o defaults de la categoría
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    // Si hay configuración guardada en el store global, usarla
+    if (storedColumnVisibility && Object.keys(storedColumnVisibility).length > 0) {
+      return storedColumnVisibility;
+    }
+    // Si no, usar los defaults de la categoría
+    return getDefaultColumnVisibility(listName);
+  });
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');
 
-  // Persistir cambios en localStorage
+  // Persistir sorting en localStorage (local)
   useEffect(() => {
     saveToStorage('sorting', sorting);
   }, [sorting]);
 
+  // Persistir columnOrder en store global (BD)
   useEffect(() => {
-    saveToStorage('columnOrder', columnOrder);
-  }, [columnOrder]);
+    if (columnOrder.length > 0) {
+      saveColumnOrderToStore(listName, columnOrder);
+    }
+  }, [columnOrder, listName, saveColumnOrderToStore]);
 
+  // Persistir columnVisibility en store global (BD)
   useEffect(() => {
-    saveToStorage('columnVisibility', columnVisibility);
-  }, [columnVisibility]);
+    if (Object.keys(columnVisibility).length > 0) {
+      saveColumnVisibilityToStore(listName, columnVisibility);
+    }
+  }, [columnVisibility, listName, saveColumnVisibilityToStore]);
+
   const [isReady, setIsReady] = useState(false);
   const [noDataAvailable, setNoDataAvailable] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -369,7 +478,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               e.stopPropagation();
               const symbol = info.getValue();
               const tickerData = info.row.original;
-              executeTickerCommand(symbol, 'description', tickerData.exchange);
+              executeTickerCommand(symbol, 'fan', tickerData.exchange);
             }}
             title={t('scanner.clickDescription')}
           >
@@ -684,6 +793,97 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
         },
       }),
+      // Price change window columns (% change in last N minutes - per-second precision)
+      columnHelper.accessor('chg_1min', {
+        header: '1m Chg%',
+        size: 80,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return <div className={`font-mono font-medium ${colorClass}`}>{prefix}{value.toFixed(2)}%</div>;
+        },
+      }),
+      columnHelper.accessor('chg_5min', {
+        header: '5m Chg%',
+        size: 80,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return <div className={`font-mono font-semibold ${colorClass}`}>{prefix}{value.toFixed(2)}%</div>;
+        },
+      }),
+      columnHelper.accessor('chg_10min', {
+        header: '10m Chg%',
+        size: 85,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return <div className={`font-mono font-medium ${colorClass}`}>{prefix}{value.toFixed(2)}%</div>;
+        },
+      }),
+      columnHelper.accessor('chg_15min', {
+        header: '15m Chg%',
+        size: 85,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return <div className={`font-mono font-medium ${colorClass}`}>{prefix}{value.toFixed(2)}%</div>;
+        },
+      }),
+      columnHelper.accessor('chg_30min', {
+        header: '30m Chg%',
+        size: 85,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return <div className={`font-mono font-medium ${colorClass}`}>{prefix}{value.toFixed(2)}%</div>;
+        },
+      }),
       columnHelper.accessor('price_vs_vwap', {
         header: 'vs VWAP',
         size: 75,
@@ -696,13 +896,122 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           const value = info.getValue();
           if (value === null || value === undefined)
             return <div className="text-slate-400">-</div>;
-          const colorClass = value > 0 
-            ? 'text-green-600' 
-            : value < 0 
-              ? 'text-red-600' 
+          const colorClass = value > 0
+            ? 'text-green-600'
+            : value < 0
+              ? 'text-red-600'
               : 'text-slate-600';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
+      // Post-Market columns (populated during POST_MARKET session 16:00-20:00 ET)
+      columnHelper.accessor('postmarket_change_percent', {
+        header: 'PM Chg%',
+        size: 85,
+        minSize: 70,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return (
+            <div className={`font-mono font-semibold ${colorClass}`}>
+              {prefix}{value.toFixed(2)}%
+            </div>
+          );
+        },
+      }),
+      columnHelper.accessor('postmarket_volume', {
+        header: 'PM Vol',
+        size: 90,
+        minSize: 70,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return (
+            <div className="font-mono text-purple-600 font-medium">
+              {formatNumber(value)}
+            </div>
+          );
+        },
+      }),
+      // Trades Anomaly Detection columns (Z-Score based)
+      columnHelper.accessor('trades_z_score', {
+        header: 'Z-Score',
+        size: 80,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          // Color based on anomaly level:
+          // < 2: normal (gray), 2-3: elevated (amber), >= 3: anomaly (red/fire)
+          const colorClass = value >= 3
+            ? 'text-red-600 font-bold'
+            : value >= 2
+              ? 'text-amber-600 font-semibold'
+              : 'text-slate-600';
+          const emoji = value >= 5 ? '🔥' : value >= 3 ? '⚠️' : '';
+          return (
+            <div className={`font-mono ${colorClass}`}>
+              {emoji}{value.toFixed(1)}
+            </div>
+          );
+        },
+      }),
+      columnHelper.accessor('trades_today', {
+        header: 'Trades',
+        size: 85,
+        minSize: 65,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          // Format large numbers (K/M)
+          return (
+            <div className="font-mono text-cyan-600">
+              {formatNumber(value)}
+            </div>
+          );
+        },
+      }),
+      columnHelper.accessor('avg_trades_5d', {
+        header: 'Avg 5d',
+        size: 80,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          return (
+            <div className="font-mono text-slate-500">
+              {formatNumber(Math.round(value))}
+            </div>
+          );
         },
       }),
       columnHelper.accessor('spread', {
@@ -719,10 +1028,10 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             return <div className="text-slate-400">-</div>;
           // Spread is in cents: 50.00 = $0.50
           // Color: green if tight (<10¢), yellow if medium (10-25¢), red if wide (>25¢)
-          const colorClass = value < 10 
-            ? 'text-green-600' 
-            : value < 25 
-              ? 'text-amber-600' 
+          const colorClass = value < 10
+            ? 'text-green-600'
+            : value < 25
+              ? 'text-amber-600'
               : 'text-red-600';
           return <div className={`font-mono ${colorClass}`}>{value.toFixed(1)}¢</div>;
         },
@@ -770,10 +1079,10 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           if (value === null || value === undefined)
             return <div className="text-slate-400">-</div>;
           // >1 = more demand (green), <1 = more supply (red)
-          const colorClass = value > 1.5 
-            ? 'text-green-600 font-semibold' 
-            : value < 0.67 
-              ? 'text-red-600 font-semibold' 
+          const colorClass = value > 1.5
+            ? 'text-green-600 font-semibold'
+            : value < 0.67
+              ? 'text-red-600 font-semibold'
               : 'text-slate-600';
           return <div className={`font-mono ${colorClass}`}>{value.toFixed(2)}</div>;
         },
@@ -960,7 +1269,17 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           lastUpdateTime={lastUpdateTime}
           listName={listName}
           onClose={onClose}
-          rightActions={<TableSettings table={table} />}
+          rightActions={
+            <TableSettings
+              table={table}
+              onResetToDefaults={() => {
+                // Restaurar defaults de la categoría
+                // El useEffect se encargará de guardar en el store global (BD)
+                setColumnVisibility(getDefaultColumnVisibility(listName));
+                setColumnOrder([]);
+              }}
+            />
+          }
         />
       </VirtualizedDataTable>
     </>

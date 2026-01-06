@@ -179,7 +179,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
     const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
 
     openWindow({
-      title: `Chart: ${ticker}`,
+      title: 'Chart',
       content: <ChartContent ticker={ticker} exchange={exchange} />,
       width: 900,
       height: 600,

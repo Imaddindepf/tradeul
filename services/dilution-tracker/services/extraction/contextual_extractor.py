@@ -50,10 +50,12 @@ logger = structlog.get_logger(__name__)
 # CONFIGURACIÓN
 # =============================================================================
 
-MAX_TOKENS_PER_BATCH = 200_000  # ~200K tokens por llamada (más conservador)
-CHARS_PER_TOKEN = 4  # Aproximación: 4 caracteres = 1 token
-MAX_CONTENT_PER_FILING = 30_000  # 30K chars max por filing
-MAX_FILINGS_PER_BATCH = 15  # Max 15 filings por batch de Gemini
+# Gemini 2.5 Flash: 1,048,576 tokens input, 65,536 tokens output
+# 4 chars ≈ 1 token → 1M tokens ≈ 4M chars
+MAX_TOKENS_PER_BATCH = 900_000  # ~900K tokens (dejamos margen para prompt)
+CHARS_PER_TOKEN = 4
+MAX_CONTENT_PER_FILING = 500_000  # 500K chars - leer filings COMPLETOS (algunos 424B tienen 300K+)
+MAX_FILINGS_PER_BATCH = 5  # Menos filings pero COMPLETOS (5 × 500K = 2.5M chars = ~625K tokens)
 
 
 # =============================================================================
@@ -159,6 +161,19 @@ Los ATM (At-The-Market) se anuncian en 6-K/8-K como:
 - "At-The-Market Offering Program"
 - Incluye: capacidad total, placement agent, fecha de inicio
 
+## CRÍTICO - COMPLETED OFFERINGS (424B4/424B5):
+Los filings 424B4 y 424B5 contienen los DETALLES FINALES de ofertas CERRADAS:
+- Busca "gross proceeds", "net proceeds", "aggregate offering price"
+- Busca número exacto de shares vendidos
+- Busca precio por acción del deal
+- Busca warrants emitidos junto con el offering
+- La FECHA del filing 424B = fecha aproximada del cierre
+
+Ejemplos de texto en 424B:
+- "We are offering X shares of common stock at $Y per share"
+- "Gross proceeds of approximately $Z million"
+- "Together with warrants to purchase up to X shares"
+
 ## REGLAS DE IDENTIFICACIÓN:
 Los nombres pueden variar entre filings:
 - "January 2025 Common Warrants" = "January 2025 Shareholder Warrants" = "January 2025 Private Placement Warrants"
@@ -195,9 +210,25 @@ Los nombres pueden variar entre filings:
       {{
         "series_name": "October 2024 ThinkEquity ATM",
         "total_capacity": 11750000,
+        "remaining_capacity": 8500000,
+        "amount_sold": 3250000,
         "placement_agent": "ThinkEquity",
         "agreement_date": "2024-10-17",
         "status": "Active|Exhausted|Terminated"
+      }}
+    ],
+    "completed_offerings": [
+      {{
+        "offering_type": "Private Placement|Public Offering|Warrant Exercise|Note Conversion|ATM Sale",
+        "offering_date": "YYYY-MM-DD",
+        "shares_issued": <número exacto de shares>,
+        "price_per_share": <precio exacto>,
+        "amount_raised": <gross proceeds en USD>,
+        "warrants_issued": <si se emitieron warrants junto>,
+        "warrant_coverage_pct": <% warrant coverage si aplica>,
+        "placement_agent": "nombre del agent",
+        "source_filing": "424B5|8-K|etc",
+        "notes": "detalles adicionales"
       }}
     ]
   }},
@@ -267,6 +298,7 @@ class ExtractionContext:
     s1_offerings: List[Dict] = field(default_factory=list)
     shelf_registrations: List[Dict] = field(default_factory=list)
     atm_offerings: List[Dict] = field(default_factory=list)
+    completed_offerings: List[Dict] = field(default_factory=list)  # NUEVO: offerings cerrados
     # Idempotencia / trazabilidad (no serializable a output final)
     processed_accessions: set = field(default_factory=set, repr=False)
     
@@ -312,14 +344,19 @@ class ExtractionContext:
     
     def to_dict(self) -> Dict:
         """Convierte a diccionario para resultado final"""
-        return {
+        result = {
             'warrants': self.warrants,
             'convertible_notes': self.convertible_notes,
             'convertible_preferred': self.convertible_preferred,
             's1_offerings': self.s1_offerings,
             'shelf_registrations': self.shelf_registrations,
             'atm_offerings': self.atm_offerings,
+            'completed_offerings': self.completed_offerings,  # NUEVO
         }
+        # Propagar flag de Gemini Pro para evitar doble ajuste de splits
+        if hasattr(self, '_gemini_pro_adjusted') and self._gemini_pro_adjusted:
+            result['_gemini_pro_adjusted'] = True
+        return result
 
 
 # =============================================================================
@@ -557,14 +594,21 @@ class ContextualDilutionExtractor:
         
         logger.info("contextual_extractor_initialized", model=self.model, timeout_ms=120000)
     
-    async def extract_all(self, ticker: str, cik: str) -> Dict:
+    async def extract_all(self, ticker: str, cik: str, company_name: str = "", use_gemini_pro_dedup: bool = True) -> Dict:
         """
         Extracción completa con contexto acumulado.
+        
+        Args:
+            ticker: Símbolo del ticker
+            cik: CIK de la empresa
+            company_name: Nombre de la empresa (para Gemini Pro)
+            use_gemini_pro_dedup: Si True, usa Gemini 3 Pro para deduplicación inteligente
         
         Returns:
             Dict con todos los instrumentos extraídos, deduplicados por contexto
         """
-        logger.info("contextual_extraction_start", ticker=ticker, cik=cik)
+        logger.info("contextual_extraction_start", ticker=ticker, cik=cik, 
+                   gemini_pro_dedup=use_gemini_pro_dedup)
         
         # Inicializar contexto
         context = ExtractionContext(ticker=ticker)
@@ -597,38 +641,51 @@ class ContextualDilutionExtractor:
                    ticker=ticker,
                    raw_warrants=len(context.warrants),
                    raw_notes=len(context.convertible_notes),
-                   raw_preferred=len(context.convertible_preferred))
+                   raw_preferred=len(context.convertible_preferred),
+                   raw_atm=len(context.atm_offerings),
+                   raw_shelf=len(context.shelf_registrations))
         
-        # PASO 5: Validación two-pass (v4.1)
-        context.warrants = self._validate_instruments(context.warrants, 'warrant')
-        context.convertible_notes = self._validate_instruments(context.convertible_notes, 'note')
+        # =========================================================================
+        # PASO 5: DEDUPLICACIÓN - Gemini 3 Pro vs Heurística
+        # =========================================================================
         
-        # PASO 6: Deduplicación semántica con IDs deterministas (v4.1)
-        context.warrants = self._semantic_deduplicate(context.warrants, 'warrant')
-        context.convertible_notes = self._semantic_deduplicate(context.convertible_notes, 'note')
-        context.convertible_preferred = self._semantic_deduplicate(context.convertible_preferred, 'preferred')
+        if use_gemini_pro_dedup:
+            # v4.4: Usar Gemini 3 Pro con Google Search para deduplicación inteligente
+            # - Busca splits en tiempo real
+            # - Ajusta precios automáticamente
+            # - Correlaciona nombres semánticamente
+            context = await self._gemini_pro_dedup(ticker, company_name, context)
+        else:
+            # Fallback: Pipeline heurístico original (v4.1-v4.3)
+            # PASO 5a: Validación two-pass
+            context.warrants = self._validate_instruments(context.warrants, 'warrant')
+            context.convertible_notes = self._validate_instruments(context.convertible_notes, 'note')
+            
+            # PASO 5b: Deduplicación semántica con IDs deterministas
+            context.warrants = self._semantic_deduplicate(context.warrants, 'warrant')
+            context.convertible_notes = self._semantic_deduplicate(context.convertible_notes, 'note')
+            context.convertible_preferred = self._semantic_deduplicate(context.convertible_preferred, 'preferred')
+            
+            logger.info("post_semantic_dedup",
+                       ticker=ticker,
+                       dedup_warrants=len(context.warrants),
+                       dedup_notes=len(context.convertible_notes),
+                       dedup_preferred=len(context.convertible_preferred))
+            
+            # PASO 5c: Event-Sourced Resolution - resuelve conflictos F-1 vs 6-K
+            context.warrants = self._resolve_source_conflicts(context.warrants, 'warrant')
+            context.convertible_notes = self._resolve_source_conflicts(context.convertible_notes, 'note')
+            context.convertible_preferred = self._resolve_source_conflicts(context.convertible_preferred, 'preferred')
         
-        # DEBUG: Log estado después de deduplicación semántica
-        logger.info("post_semantic_dedup",
+        # DEBUG: Log estado después de deduplicación
+        logger.info("post_dedup_state",
                    ticker=ticker,
-                   dedup_warrants=len(context.warrants),
-                   dedup_notes=len(context.convertible_notes),
-                   dedup_preferred=len(context.convertible_preferred))
+                   method="gemini_pro" if use_gemini_pro_dedup else "heuristic",
+                   final_warrants=len(context.warrants),
+                   final_notes=len(context.convertible_notes),
+                   final_preferred=len(context.convertible_preferred))
         
-        # PASO 7: Event-Sourced Resolution (v4.2) - resuelve conflictos F-1 vs 6-K
-        # Agrupa por MES+TIPO y elige la fuente más confiable (6-K > 424B4 > F-1)
-        context.warrants = self._resolve_source_conflicts(context.warrants, 'warrant')
-        context.convertible_notes = self._resolve_source_conflicts(context.convertible_notes, 'note')
-        context.convertible_preferred = self._resolve_source_conflicts(context.convertible_preferred, 'preferred')
-        
-        # DEBUG: Log estado después de resolución de conflictos
-        logger.info("post_conflict_resolution",
-                   ticker=ticker,
-                   resolved_warrants=len(context.warrants),
-                   resolved_notes=len(context.convertible_notes),
-                   resolved_preferred=len(context.convertible_preferred))
-        
-        # PASO 8: Filtrar warrants (remover underwriter/placement agent)
+        # PASO 6: Filtrar warrants (remover underwriter/placement agent)
         context.warrants = self._filter_warrants(context.warrants)
         
         logger.info("contextual_extraction_complete",
@@ -638,9 +695,108 @@ class ContextualDilutionExtractor:
                    preferred=len(context.convertible_preferred),
                    s1=len(context.s1_offerings),
                    shelf=len(context.shelf_registrations),
-                   atm=len(context.atm_offerings))
+                   atm=len(context.atm_offerings),
+                   completed=len(context.completed_offerings))
         
         return context.to_dict()
+    
+    async def _gemini_pro_dedup(self, ticker: str, company_name: str, context: ExtractionContext) -> ExtractionContext:
+        """
+        v4.4: Deduplicación inteligente con Gemini 3 Pro + Google Search.
+        
+        Ventajas:
+        - Busca stock splits en tiempo real
+        - Ajusta precios automáticamente por split
+        - Correlaciona nombres semánticamente (Common = Shareholder = Investor)
+        - Consolida datos eligiendo las mejores fuentes
+        """
+        try:
+            from services.extraction.gemini_pro_deduplicator import deduplicate_with_gemini_pro
+            
+            # Preparar instrumentos para dedup
+            instruments = {
+                "warrants": context.warrants,
+                "convertible_notes": context.convertible_notes,
+                "convertible_preferred": context.convertible_preferred,
+                "atm_offerings": context.atm_offerings,
+                "shelf_registrations": context.shelf_registrations
+            }
+            
+            # Llamar a Gemini Pro
+            result = await deduplicate_with_gemini_pro(
+                ticker=ticker,
+                company_name=company_name or ticker,
+                instruments=instruments
+            )
+            
+            # Extraer resultados
+            merged = result.get("merged_instruments", {})
+            unique = result.get("unique_instruments", {})
+            split_history = result.get("split_history", [])
+            summary = result.get("dedup_summary", {})
+            warnings = result.get("warnings", [])
+            
+            # Log resultados
+            logger.info("gemini_pro_dedup_result",
+                       ticker=ticker,
+                       input=summary.get("total_input", "?"),
+                       output=summary.get("total_output", "?"),
+                       merged_groups=summary.get("merged_groups", 0),
+                       split_adjustments=summary.get("split_adjustments_made", 0),
+                       splits_found=len(split_history),
+                       warnings=warnings)
+            
+            # Combinar merged + unique
+            context.warrants = merged.get("warrants", []) + unique.get("warrants", [])
+            context.convertible_notes = merged.get("convertible_notes", []) + unique.get("convertible_notes", [])
+            context.convertible_preferred = merged.get("convertible_preferred", []) + unique.get("convertible_preferred", [])
+            context.atm_offerings = merged.get("atm_offerings", []) + unique.get("atm_offerings", [])
+            context.shelf_registrations = merged.get("shelf_registrations", []) + unique.get("shelf_registrations", [])
+            
+            # Guardar metadata de split para referencia
+            if split_history:
+                context._split_history = split_history
+            
+            # Marcar que Gemini Pro ya ajustó precios por split
+            # Esto evita que Python vuelva a ajustar (doble ajuste)
+            split_adjustments = summary.get("split_adjustments_made", 0)
+            if split_adjustments > 0 or split_history:
+                context._gemini_pro_adjusted = True
+                logger.info("gemini_pro_marked_adjusted", 
+                           ticker=ticker, 
+                           split_adjustments=split_adjustments,
+                           splits=len(split_history))
+            
+            return context
+            
+        except ImportError as e:
+            logger.warning("gemini_pro_dedup_import_error", error=str(e))
+            # Fallback a heurística
+            return await self._fallback_heuristic_dedup(ticker, context)
+        except Exception as e:
+            logger.error("gemini_pro_dedup_error", ticker=ticker, error=str(e))
+            # Fallback a heurística
+            return await self._fallback_heuristic_dedup(ticker, context)
+    
+    async def _fallback_heuristic_dedup(self, ticker: str, context: ExtractionContext) -> ExtractionContext:
+        """Fallback a deduplicación heurística si Gemini Pro falla."""
+        logger.info("fallback_to_heuristic_dedup", ticker=ticker)
+        
+        # Validación
+        context.warrants = self._validate_instruments(context.warrants, 'warrant')
+        context.convertible_notes = self._validate_instruments(context.convertible_notes, 'note')
+        
+        # Dedup semántica
+        context.warrants = self._semantic_deduplicate(context.warrants, 'warrant')
+        context.convertible_notes = self._semantic_deduplicate(context.convertible_notes, 'note')
+        context.convertible_preferred = self._semantic_deduplicate(context.convertible_preferred, 'preferred')
+        
+        # Resolución de conflictos
+        context.warrants = self._resolve_source_conflicts(context.warrants, 'warrant')
+        context.convertible_notes = self._resolve_source_conflicts(context.convertible_notes, 'note')
+        context.convertible_preferred = self._resolve_source_conflicts(context.convertible_preferred, 'preferred')
+        
+        return context
     
     def _semantic_deduplicate(self, instruments: List[Dict], inst_type: str) -> List[Dict]:
         """
@@ -962,30 +1118,43 @@ class ContextualDilutionExtractor:
             for c in contents
         ])
         
-        # Llamar a Gemini
-        try:
-            response = self.gemini.models.generate_content(
-                model=self.model,
-                contents=[combined_content, REGISTRATION_CHAIN_PROMPT],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1
+        # Llamar a Gemini con retry para rate limiting
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self.gemini.models.generate_content(
+                    model=self.model,
+                    contents=[combined_content, REGISTRATION_CHAIN_PROMPT],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1
+                    )
                 )
-            )
-            
-            result = self._parse_json(response.text)
-            
-            # Agregar al contexto
-            self._add_chain_to_context(result, file_no, context)
-            
-            logger.info("chain_processed",
-                       file_no=file_no,
-                       chain_type=chain_type,
-                       offering=bool(result.get('offering')),
-                       warrants=len(result.get('warrants', [])))
-            
-        except Exception as e:
-            logger.error("chain_extraction_error", file_no=file_no, error=str(e))
+                
+                result = self._parse_json(response.text)
+                
+                # Agregar al contexto
+                self._add_chain_to_context(result, file_no, context)
+                
+                logger.info("chain_processed",
+                           file_no=file_no,
+                           chain_type=chain_type,
+                           offering=bool(result.get('offering')),
+                           warrants=len(result.get('warrants', [])))
+                
+                # Delay entre llamadas exitosas para evitar rate limit
+                time.sleep(2)
+                break
+                
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
+                    logger.warning("gemini_rate_limit_retry", file_no=file_no, attempt=attempt+1, wait=wait_time)
+                    time.sleep(wait_time)
+                else:
+                    logger.error("chain_extraction_error", file_no=file_no, error=str(e))
+                    break
     
     def _select_key_filings(self, chain_filings: List[Dict]) -> List[Dict]:
         """Selecciona los filings más importantes de una cadena"""
@@ -1153,18 +1322,32 @@ class ContextualDilutionExtractor:
             content_chars=min(len(content), MAX_CONTENT_PER_FILING),
         )
 
-        try:
-            response = self.gemini.models.generate_content(
-                model=self.model,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1
+        # Retry para rate limiting
+        import time
+        result = None
+        for attempt in range(3):
+            try:
+                response = self.gemini.models.generate_content(
+                    model=self.model,
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.1
+                    )
                 )
-            )
-            result = self._parse_json(response.text)
-        except Exception as e:
-            logger.error("transaction_extraction_error", form=form, date=ident["date"], error=str(e))
+                result = self._parse_json(response.text)
+                time.sleep(1)  # Delay entre llamadas
+                break
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait_time = (attempt + 1) * 10
+                    logger.warning("gemini_rate_limit_retry", form=form, attempt=attempt+1, wait=wait_time)
+                    time.sleep(wait_time)
+                else:
+                    logger.error("transaction_extraction_error", form=form, date=ident["date"], error=str(e))
+                    return
+
+        if result is None:
             return
 
         if not isinstance(result, dict):
@@ -1216,6 +1399,16 @@ class ContextualDilutionExtractor:
             atm['filing_url'] = atm.get('filing_url') or filing_url
             atm['_source'] = source_tag
             self._upsert_instrument(context.atm_offerings, atm, inst_type='atm')
+
+        # Upsert Completed Offerings (de 424B filings)
+        for co in new_instruments.get('completed_offerings', []) or []:
+            if not isinstance(co, dict):
+                continue
+            co['ticker'] = context.ticker
+            co['filing_url'] = co.get('filing_url') or filing_url
+            co['_source'] = source_tag
+            # No deduplicamos completed offerings - cada deal es único
+            context.completed_offerings.append(co)
 
     def _instrument_key(self, instrument: Dict, inst_type: str) -> str:
         """
@@ -1505,6 +1698,14 @@ class ContextualDilutionExtractor:
                 atm['ticker'] = context.ticker
                 context.atm_offerings.append(atm)
             
+            # Completed Offerings de material events (8-K closings, 424B)
+            for co in new_instruments.get('completed_offerings', []):
+                if not isinstance(co, dict):
+                    continue
+                co['_source'] = f"events_batch:{batch_num}"
+                co['ticker'] = context.ticker
+                context.completed_offerings.append(co)
+            
             # Log correlaciones identificadas
             correlations = result.get('correlations', [])
             if correlations:
@@ -1517,6 +1718,7 @@ class ContextualDilutionExtractor:
                        new_warrants=len(new_instruments.get('warrants', [])),
                        new_notes=len(new_instruments.get('convertible_notes', [])),
                        new_preferred=len(new_instruments.get('convertible_preferred', [])),
+                       new_completed=len(new_instruments.get('completed_offerings', [])),
                        updates=len(result.get('updates', [])))
             
         except Exception as e:

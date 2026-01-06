@@ -201,6 +201,10 @@
       "name": "Insider Trading",
       "description": "Form 4 - Compras/ventas de insiders"
     },
+    "fan": {
+      "name": "Financial Analyst",
+      "description": "Análisis financiero con datos en tiempo real"
+    },
     "help": {
       "name": "Help",
       "description": "Mostrar ayuda del terminal"
@@ -218,20 +222,22 @@
     "anomalies": "Anomalías",
     "highVolume": "Alto Volumen",
     "reversals": "Reversiones",
+    "postMarket": "Post-Market",
     "withNews": "Con Noticias",
     "marketClosed": "El mercado está cerrado. Los datos se actualizarán cuando abra.",
-    "clickDescription": "Clic para ver descripción",
-    "gapUpDescription": "Gap alcista ≥ 2%",
-    "gapDownDescription": "Gap bajista ≤ -2%",
-    "momentumUpDescription": "Cambio ≥ 3%",
-    "momentumDownDescription": "Cambio ≤ -3%",
-    "topGainersDescription": "Cambio ≥ 5%",
-    "topLosersDescription": "Cambio ≤ -5%",
-    "newHighsDescription": "Máximos diarios",
-    "newLowsDescription": "Mínimos diarios",
-    "anomaliesDescription": "RVOL ≥ 3.0",
-    "highVolumeDescription": "RVOL ≥ 2.0",
-    "reversalsDescription": "Cambios de dirección",
+    "clickDescription": "Clic para analizar",
+    "gapUpDescription": "Gap ≥ 2% desde cierre anterior",
+    "gapDownDescription": "Gap ≤ -2% desde cierre anterior",
+    "momentumUpDescription": "Ignición: Chg5min ≥1.5%, HOD ≤2%, VWAP+, RVOL ≥500%",
+    "momentumDownDescription": "Caída fuerte: Cambio ≤ -3%",
+    "topGainersDescription": "Mayores ganadores: Cambio ≥ 5%",
+    "topLosersDescription": "Mayores perdedores: Cambio ≤ -5%",
+    "newHighsDescription": "Precio = máximo intradiario (pre/post market)",
+    "newLowsDescription": "Precio = mínimo intradiario (pre/post market)",
+    "anomaliesDescription": "Z-Score ≥3: trades hoy vs prom 5d (anomalía estadística)",
+    "highVolumeDescription": "Alto volumen relativo: RVOL ≥ 200%",
+    "reversalsDescription": "Gap + reversión: Gap ≥2% pero cayendo (o viceversa)",
+    "postMarketDescription": "Post-market: PM Vol ≥20K o PM Chg ≥0.5%",
     "withNewsDescription": "Tickers del scanner con noticias de hoy",
     "noTickersWithNews": "Sin tickers con noticias",
     "noTickersWithNewsDescription": "Abre primero alguna tabla del scanner (Gap Up, Momentum, etc.)",
@@ -493,6 +499,9 @@
       },
       "PM": {
         "description": "Búsqueda de patrones similares con IA"
+      },
+      "FAN": {
+        "description": "Análisis financiero con datos en tiempo real"
       }
     },
     "globalCommands": {
@@ -555,6 +564,9 @@
       },
       "INSIDER": {
         "description": "Form 4 - Compras/ventas de insiders y clusters"
+      },
+      "FAN": {
+        "description": "Analista financiero con búsqueda en tiempo real"
       }
     }
   }

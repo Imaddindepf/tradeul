@@ -154,7 +154,7 @@ class SECCashHistoryService:
                     # Keep the one with larger absolute value (annual > quarterly)
                     existing_ocf = cf_by_date[date].get("operating_cf", 0) or 0
                     if abs(ocf) > abs(existing_ocf):
-                    cf_by_date[date] = entry
+                        cf_by_date[date] = entry
             cashflow_history = list(cf_by_date.values())
             
             # Sort by date

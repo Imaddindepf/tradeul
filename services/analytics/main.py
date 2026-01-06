@@ -33,6 +33,9 @@ from shared.utils.atr_calculator import ATRCalculator
 from intraday_tracker import IntradayTracker
 from http_clients import http_clients
 from volume_window_tracker import VolumeWindowTracker, VolumeWindowResult
+from price_window_tracker import PriceWindowTracker, PriceChangeResult
+from trades_anomaly_detector import TradesAnomalyDetector, AnomalyResult
+from trades_count_tracker import TradesCountTracker
 
 # Configurar logger
 configure_logging(service_name="analytics")
@@ -48,10 +51,15 @@ rvol_calculator: Optional[RVOLCalculator] = None
 atr_calculator: Optional[ATRCalculator] = None
 intraday_tracker: Optional[IntradayTracker] = None
 volume_window_tracker: Optional[VolumeWindowTracker] = None
+price_window_tracker: Optional[PriceWindowTracker] = None
+trades_anomaly_detector: Optional[TradesAnomalyDetector] = None
+trades_count_tracker: Optional[TradesCountTracker] = None
 event_bus: Optional[EventBus] = None
 background_task: Optional[asyncio.Task] = None
 vwap_consumer_task: Optional[asyncio.Task] = None
 volume_tracker_task: Optional[asyncio.Task] = None
+price_tracker_task: Optional[asyncio.Task] = None
+trades_tracker_task: Optional[asyncio.Task] = None
 
 # Estado de mercado (se actualiza via EventBus, no en cada iteración)
 is_holiday_mode: bool = False
@@ -143,6 +151,21 @@ async def handle_day_changed(event: Event) -> None:
         if volume_window_tracker:
             cleared = volume_window_tracker.clear_all()
             logger.info("volume_window_tracker_reset", symbols_cleared=cleared)
+        
+        # 🔄 Reset Price Window Tracker para nuevo día
+        if price_window_tracker:
+            cleared = price_window_tracker.clear_all()
+            logger.info("price_window_tracker_reset", symbols_cleared=cleared)
+        
+        # 🔄 Reset Trades Anomaly Detector para nuevo día
+        if trades_anomaly_detector:
+            await trades_anomaly_detector.reset_for_new_day()
+            logger.info("trades_anomaly_detector_reset")
+        
+        # 🔄 Reset Trades Count Tracker para nuevo día
+        if trades_count_tracker:
+            trades_count_tracker.reset_for_new_day()
+            logger.info("trades_count_tracker_reset")
     else:
         logger.info(
             "⏭️ skipping_cache_reset",
@@ -158,7 +181,7 @@ async def handle_day_changed(event: Event) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, timescale_client, rvol_calculator, atr_calculator, intraday_tracker, volume_window_tracker, event_bus, background_task, volume_tracker_task
+    global redis_client, timescale_client, rvol_calculator, atr_calculator, intraday_tracker, volume_window_tracker, price_window_tracker, trades_anomaly_detector, trades_count_tracker, event_bus, background_task, volume_tracker_task, price_tracker_task, trades_tracker_task
     
     logger.info("analytics_service_starting")
     
@@ -198,6 +221,23 @@ async def lifespan(app: FastAPI):
     # Inicializar VolumeWindowTracker (vol_1min, vol_5min, etc.)
     volume_window_tracker = VolumeWindowTracker()
     logger.info("volume_window_tracker_initialized", stats=volume_window_tracker.get_stats())
+    
+    # Inicializar PriceWindowTracker (chg_1min, chg_5min, etc.)
+    price_window_tracker = PriceWindowTracker()
+    logger.info("price_window_tracker_initialized", stats=price_window_tracker.get_stats())
+    
+    # Inicializar TradesAnomalyDetector (Z-Score de trades para anomalías)
+    # NOTA: Los baselines son pre-calculados por data_maintenance y almacenados en Redis
+    trades_anomaly_detector = TradesAnomalyDetector(
+        redis_client=redis_client,
+        lookback_days=5,
+        z_score_threshold=3.0
+    )
+    logger.info("trades_anomaly_detector_initialized", stats=trades_anomaly_detector.get_stats())
+    
+    # Inicializar TradesCountTracker (acumula trades del día desde WebSocket aggregates)
+    trades_count_tracker = TradesCountTracker(redis_client=redis_client)
+    logger.info("trades_count_tracker_initialized")
     
     # 📅 Verificar estado del mercado UNA VEZ al iniciar
     await check_initial_market_status()
@@ -250,7 +290,13 @@ async def lifespan(app: FastAPI):
     # Iniciar consumer de Volume Windows desde aggregates
     volume_tracker_task = asyncio.create_task(consume_aggregates_for_volume_windows())
     
-    logger.info("analytics_service_started", vwap_consumer_enabled=True, volume_tracker_enabled=True)
+    # Iniciar consumer de Price Windows desde aggregates
+    price_tracker_task = asyncio.create_task(consume_aggregates_for_price_windows())
+    
+    # Iniciar consumer de Trades Count desde aggregates
+    trades_tracker_task = asyncio.create_task(trades_count_tracker.run_consumer())
+    
+    logger.info("analytics_service_started", vwap_consumer_enabled=True, volume_tracker_enabled=True, price_tracker_enabled=True, trades_tracker_enabled=True)
     
     yield
     
@@ -264,7 +310,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     
-    # 🔄 Stop VWAP consumer
+    #  Stop VWAP consumer
     if vwap_consumer_task:
         vwap_consumer_task.cancel()
         try:
@@ -273,7 +319,7 @@ async def lifespan(app: FastAPI):
             pass
         logger.info("vwap_consumer_stopped")
     
-    # 🔄 Stop Volume Tracker consumer
+    # Stop Volume Tracker consumer
     if volume_tracker_task:
         volume_tracker_task.cancel()
         try:
@@ -281,6 +327,26 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
         logger.info("volume_tracker_consumer_stopped")
+    
+    # Stop Price Tracker consumer
+    if price_tracker_task:
+        price_tracker_task.cancel()
+        try:
+            await price_tracker_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("price_tracker_consumer_stopped")
+    
+    # Stop Trades Count Tracker
+    if trades_tracker_task:
+        trades_tracker_task.cancel()
+        try:
+            await trades_tracker_task
+        except asyncio.CancelledError:
+            pass
+    if trades_count_tracker:
+        await trades_count_tracker.stop()
+        logger.info("trades_count_tracker_stopped")
     
     # 🔔 Stop EventBus
     if event_bus:
@@ -290,6 +356,10 @@ async def lifespan(app: FastAPI):
     # 🚀 FIX: Cerrar HTTP client global
     if rvol_calculator:
         await rvol_calculator.close()
+    
+    # Cerrar HTTP client de TradesAnomalyDetector
+    if trades_anomaly_detector:
+        await trades_anomaly_detector.close()
     
     # Close HTTP clients
     await http_clients.close()
@@ -545,6 +615,129 @@ async def consume_aggregates_for_volume_windows():
 
 
 # ============================================================================
+# Price Window Tracker Consumer
+# ============================================================================
+
+async def consume_aggregates_for_price_windows():
+    """
+    Consume stream de aggregates para mantener el PriceWindowTracker actualizado.
+    
+    Usa el campo 'close' o 'c' (precio de cierre del minuto/segundo) de cada aggregate.
+    Este es el precio más reciente que usamos para calcular chg_Nmin.
+    
+    Fórmula: chg_5min = ((price_now - price_5min_ago) / price_5min_ago) * 100
+    """
+    stream_name = "stream:realtime:aggregates"
+    consumer_group = "analytics_price_window_consumer"
+    consumer_name = "analytics_price_window_1"
+    
+    logger.info("price_window_consumer_started", stream=stream_name)
+    
+    # Crear consumer group si no existe
+    try:
+        await redis_client.create_consumer_group(
+            stream_name,
+            consumer_group,
+            mkstream=True
+        )
+        logger.info("price_window_consumer_group_created", group=consumer_group)
+    except Exception as e:
+        logger.debug("price_window_consumer_group_exists", error=str(e))
+    
+    update_count = 0
+    last_stats_log = datetime.now()
+    
+    while True:
+        try:
+            # Skip en holiday mode
+            if is_holiday_mode:
+                await asyncio.sleep(30)
+                continue
+            
+            # Leer mensajes en batch
+            messages = await redis_client.read_stream(
+                stream_name=stream_name,
+                consumer_group=consumer_group,
+                consumer_name=consumer_name,
+                count=500,  # Batch grande
+                block=1000  # 1 segundo
+            )
+            
+            if messages:
+                message_ids_to_ack = []
+                batch_updates = 0
+                
+                for stream, stream_messages in messages:
+                    for message_id, data in stream_messages:
+                        symbol = data.get('symbol')
+                        # Campo puede ser 'close' (Polygon raw) o 'c' (transformado)
+                        price_str = data.get('close') or data.get('c')
+                        # Usar timestamp REAL del aggregate (en ms), no datetime.now()
+                        ts_end_str = data.get('timestamp_end')
+                        
+                        if symbol and price_str:
+                            try:
+                                price = float(price_str)
+                                # Convertir timestamp de ms a segundos
+                                agg_ts = int(int(ts_end_str) / 1000) if ts_end_str else int(datetime.now().timestamp())
+                                if price > 0:
+                                    price_window_tracker.update(symbol, price, agg_ts)
+                                    batch_updates += 1
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        message_ids_to_ack.append(message_id)
+                
+                # ACK mensajes
+                if message_ids_to_ack:
+                    try:
+                        await redis_client.xack(
+                            stream_name,
+                            consumer_group,
+                            *message_ids_to_ack
+                        )
+                    except Exception as e:
+                        logger.error("price_window_xack_error", error=str(e))
+                
+                update_count += batch_updates
+                
+                # Log stats cada 30 segundos
+                now = datetime.now()
+                if (now - last_stats_log).total_seconds() >= 30:
+                    stats = price_window_tracker.get_stats()
+                    logger.info(
+                        "price_window_tracker_stats",
+                        updates_since_last=update_count,
+                        symbols_active=stats["symbols_active"],
+                        memory_mb=stats["memory_mb"]
+                    )
+                    update_count = 0
+                    last_stats_log = now
+        
+        except asyncio.CancelledError:
+            logger.info("price_window_consumer_cancelled")
+            raise
+        
+        except Exception as e:
+            # Auto-healing
+            if 'NOGROUP' in str(e):
+                logger.warn("price_window_consumer_group_missing_recreating")
+                try:
+                    await redis_client.create_consumer_group(
+                        stream_name,
+                        consumer_group,
+                        start_id="0",
+                        mkstream=True
+                    )
+                    continue
+                except Exception:
+                    pass
+            
+            logger.error("price_window_consumer_error", error=str(e))
+            await asyncio.sleep(1)
+
+
+# ============================================================================
 # Background Processing
 # ============================================================================
 
@@ -718,6 +911,41 @@ async def run_analytics_processing():
                         ticker_data['vol_10min'] = vol_windows.vol_10min
                         ticker_data['vol_15min'] = vol_windows.vol_15min
                         ticker_data['vol_30min'] = vol_windows.vol_30min
+                    
+                    # 🔄 AÑADIR PRICE CHANGE WINDOWS (chg_1min, chg_5min, etc.)
+                    if price_window_tracker:
+                        price_windows = price_window_tracker.get_all_windows(symbol)
+                        ticker_data['chg_1min'] = price_windows.chg_1min
+                        ticker_data['chg_5min'] = price_windows.chg_5min
+                        ticker_data['chg_10min'] = price_windows.chg_10min
+                        ticker_data['chg_15min'] = price_windows.chg_15min
+                        ticker_data['chg_30min'] = price_windows.chg_30min
+                    
+                    # 🔥 AÑADIR TRADES ANOMALY DETECTION (Z-Score)
+                    # Obtener trades de hoy desde el tracker (acumulado desde WebSocket aggregates)
+                    trades_today = 0
+                    if trades_count_tracker:
+                        trades_today = trades_count_tracker.get_trades_today(symbol) or 0
+                    if trades_anomaly_detector and trades_today > 0:
+                        anomaly_result = await trades_anomaly_detector.detect_anomaly(
+                            symbol=symbol,
+                            trades_today=trades_today
+                        )
+                        if anomaly_result:
+                            ticker_data['trades_today'] = anomaly_result.trades_today
+                            ticker_data['avg_trades_5d'] = round(anomaly_result.avg_trades_5d, 0)
+                            ticker_data['trades_z_score'] = round(anomaly_result.z_score, 2)
+                            ticker_data['is_trade_anomaly'] = anomaly_result.is_anomaly
+                        else:
+                            ticker_data['trades_today'] = trades_today
+                            ticker_data['avg_trades_5d'] = None
+                            ticker_data['trades_z_score'] = None
+                            ticker_data['is_trade_anomaly'] = False
+                    else:
+                        ticker_data['trades_today'] = trades_today if trades_today > 0 else None
+                        ticker_data['avg_trades_5d'] = None
+                        ticker_data['trades_z_score'] = None
+                        ticker_data['is_trade_anomaly'] = False
                     
                     enriched_tickers.append(ticker_data)
                 

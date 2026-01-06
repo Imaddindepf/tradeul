@@ -621,26 +621,18 @@ class SharesDataService:
                     
                     # Adjust exercise price (multiply by factor for reverse split)
                     # E.g., reverse 50:1: $0.10 * 50 = $5.00
+                    # DETERMINISTIC: Si issue_date < split_date, SIEMPRE ajustar
+                    # No usar heurísticas de precio
                     if original_price is not None:
                         price_float = _parse_price_value(original_price)
                         if price_float > 0:
-                            # HEURISTIC: If price seems already adjusted (very high), skip adjustment
-                            # Typical pre-split prices are $0.001-$50. If price > $100 and would
-                            # become > $1000 after adjustment, it was likely already adjusted
-                            # in a recent SEC filing that reports post-split values
-                            would_be = price_float * factor
-                            if price_float > 100 and would_be > 1000 and factor > 10:
-                                logger.warning("warrant_skip_likely_already_adjusted",
+                            # Log la decisión de ajuste basada en fechas
+                            logger.debug("warrant_split_adjustment_decision",
                                              ticker=ticker,
-                                             price=price_float,
+                                       issue_date=issue_date,
+                                       original_price=price_float,
                                              factor=factor,
-                                             would_be=would_be,
-                                             reason="price_seems_post_split")
-                                warrant['split_adjusted'] = False
-                                warrant['_skip_reason'] = 'price_already_adjusted'
-                                adjusted_warrants.append(warrant)
-                                continue
-                            
+                                       reason="issue_date < split_date")
                             warrant['exercise_price'] = round(price_float * factor, 4)
                             # Store original as numeric (Pydantic expects Decimal)
                             warrant['original_exercise_price'] = price_float

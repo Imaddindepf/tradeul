@@ -8,9 +8,10 @@ import { Z_INDEX } from '@/lib/z-index';
 
 interface TableSettingsProps<T> {
   table: TanStackTable<T>;
+  onResetToDefaults?: () => void; // Custom reset function for category defaults
 }
 
-export function TableSettings<T>({ table }: TableSettingsProps<T>) {
+export function TableSettings<T>({ table, onResetToDefaults }: TableSettingsProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'visibility' | 'order'>('visibility');
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
@@ -201,12 +202,18 @@ export function TableSettings<T>({ table }: TableSettingsProps<T>) {
       <div className="p-2 border-t border-gray-200 bg-gray-50">
         <button
           onClick={() => {
-            table.resetColumnVisibility();
+            if (onResetToDefaults) {
+              // Use custom reset function (category defaults)
+              onResetToDefaults();
+            } else {
+              // Fallback to TanStack default behavior
+              table.resetColumnVisibility();
+            }
             table.setColumnOrder([]);
           }}
           className="w-full px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
         >
-          Restaurar
+          Restaurar defaults
         </button>
       </div>
     </div>

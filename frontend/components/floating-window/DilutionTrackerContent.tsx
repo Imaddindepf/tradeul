@@ -47,7 +47,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
   const searchParams = useSearchParams();
   const { openWindow, closeWindow } = useFloatingWindow();
   const { state: windowState, updateState: updateWindowState } = useWindowState<DilutionWindowState>();
-  
+
   // Use persisted state
   const savedTicker = windowState.ticker || initialTicker || '';
 
@@ -55,17 +55,17 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
   const [inputValue, setInputValue] = useState(savedTicker);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(savedTicker || null);
   const [activeTab, setActiveTab] = useState<TabType>(windowState.tab || "dilution");
-  
+
   // Track if auto-load has been done
   const autoLoadedRef = useRef(false);
-  
+
   // Persist state changes
   useEffect(() => {
     if (selectedTicker) {
       updateWindowState({ ticker: selectedTicker, tab: activeTab });
     }
   }, [selectedTicker, activeTab, updateWindowState]);
-  
+
   const [loading, setLoading] = useState(false);
   const [tickerData, setTickerData] = useState<TickerAnalysis | null>(null);
   const [cashRunwayData, setCashRunwayData] = useState<CashRunwayData | null>(null);
@@ -295,7 +295,7 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
       fetchTickerData(inputValue.trim().toUpperCase());
     }
   };
-  
+
   // Auto-load when windowState becomes available (after Zustand hydration)
   useEffect(() => {
     if (!autoLoadedRef.current && windowState.ticker && !selectedTicker) {

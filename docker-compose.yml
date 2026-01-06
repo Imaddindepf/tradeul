@@ -333,7 +333,7 @@ services:
     ports:
       - "127.0.0.1:8008:8008"
     volumes:
-      - polygon_data:/data/polygon  # Write metadata for screener
+      - polygon_data:/data/polygon # Write metadata for screener
     environment:
       - TIMEZONE=America/New_York
       - MAINTENANCE_SCHEDULE=MARKET_CLOSE
@@ -601,6 +601,27 @@ services:
           memory: 1024M
         reservations:
           memory: 256M
+
+  # =============================================
+  # FINANCIAL ANALYST SERVICE (Gemini AI)
+  # =============================================
+
+  financial_analyst:
+    build:
+      context: .
+      dockerfile: services/financial-analyst/Dockerfile
+    container_name: tradeul_financial_analyst
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    # No necesita puerto expuesto, solo accesible via API Gateway
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
   # =============================================
   # PATTERN MATCHING SERVICE (FAISS)

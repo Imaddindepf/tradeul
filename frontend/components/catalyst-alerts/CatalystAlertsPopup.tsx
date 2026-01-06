@@ -66,7 +66,7 @@ export function CatalystAlertsPopup() {
                   <TrendingDown className="w-4 h-4 text-rose-600" />
                 )}
                 <button
-                  onClick={() => executeTickerCommand(alert.ticker, 'description')}
+                  onClick={() => executeTickerCommand(alert.ticker, 'fan')}
                   className="font-bold text-blue-600 hover:underline"
                 >
                   {alert.ticker}

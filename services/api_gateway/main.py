@@ -189,6 +189,33 @@ app.include_router(ratio_analysis_router)  # Ratio analysis entre dos activos
 
 
 # ============================================================================
+# Financial Analyst Proxy (Gemini AI)
+# ============================================================================
+
+FINANCIAL_ANALYST_URL = os.getenv("FINANCIAL_ANALYST_URL", "http://financial_analyst:8099")
+
+@app.get("/api/report/{ticker}")
+async def proxy_financial_analyst_report(ticker: str, lang: str = Query("en")):
+    """Proxy to Financial Analyst service for AI-generated reports"""
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.get(
+                f"{FINANCIAL_ANALYST_URL}/api/report/{ticker}",
+                params={"lang": lang}
+            )
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                media_type="application/json"
+            )
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="AI report generation timed out")
+    except Exception as e:
+        logger.error("financial_analyst_proxy_error", error=str(e))
+        raise HTTPException(status_code=502, detail=f"Failed to reach Financial Analyst service: {str(e)}")
+
+
+# ============================================================================
 # Stream Broadcaster
 # ============================================================================
 

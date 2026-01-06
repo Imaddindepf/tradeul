@@ -15,7 +15,7 @@ import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
-import { DescriptionContent } from '@/components/description/DescriptionContent';
+// DescriptionContent removed - now using FinancialAnalystContent
 import { QuoteMonitor as QuoteMonitorContent } from '@/components/quote-monitor/QuoteMonitor';
 import { ChatContent } from '@/components/chat';
 import { NotesContent } from '@/components/notes/NotesContent';
@@ -26,6 +26,7 @@ import { RatioAnalysisContent } from '@/components/ratio-analysis';
 import { ScreenerContent } from '@/components/screener';
 import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
 import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
+import { FinancialAnalystContent } from '@/components/financial-analyst';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -56,6 +57,7 @@ export function useCommandExecutor() {
             'anomalies': { nameKey: 'scanner.anomalies', descriptionKey: 'scanner.anomaliesDescription' },
             'high_volume': { nameKey: 'scanner.highVolume', descriptionKey: 'scanner.highVolumeDescription' },
             'reversals': { nameKey: 'scanner.reversals', descriptionKey: 'scanner.reversalsDescription' },
+            'post_market': { nameKey: 'scanner.postMarket', descriptionKey: 'scanner.postMarketDescription' },
             'with_news': { nameKey: 'scanner.withNews', descriptionKey: 'scanner.withNewsDescription' },
         };
 
@@ -426,6 +428,19 @@ export function useCommandExecutor() {
                 });
                 return null;
 
+            case 'fan':
+                openWindow({
+                    title: 'Financial Analyst',
+                    content: <FinancialAnalystContent />,
+                    width: 500,
+                    height: 650,
+                    x: Math.max(50, screenWidth / 2 - 250),
+                    y: Math.max(70, screenHeight / 2 - 325),
+                    minWidth: 400,
+                    minHeight: 500,
+                });
+                return null;
+
             default:
                 break;
         }
@@ -462,7 +477,7 @@ export function useCommandExecutor() {
             case 'graph':
             case 'chart': // Alias para graph
                 openWindow({
-                    title: `Chart: ${normalizedTicker}`,
+                    title: 'Chart',
                     content: <ChartContent ticker={normalizedTicker} exchange={exchange} />,
                     width: 900,
                     height: 600,
@@ -473,22 +488,23 @@ export function useCommandExecutor() {
                 });
                 break;
 
-            case 'description':
+            case 'description': // Legacy: redirect to FAN
+            case 'des': // Alias
                 openWindow({
-                    title: `Description: ${normalizedTicker}`,
-                    content: <DescriptionContent ticker={normalizedTicker} exchange={exchange} />,
-                    width: 1100,
-                    height: 700,
-                    x: Math.max(50, screenWidth / 2 - 550),
-                    y: Math.max(70, screenHeight / 2 - 350),
-                    minWidth: 900,
-                    minHeight: 550,
+                    title: 'Financial Analyst',
+                    content: <FinancialAnalystContent initialTicker={normalizedTicker} />,
+                    width: 500,
+                    height: 650,
+                    x: Math.max(50, screenWidth / 2 - 250),
+                    y: Math.max(70, screenHeight / 2 - 325),
+                    minWidth: 400,
+                    minHeight: 500,
                 });
                 break;
 
             case 'dilution-tracker':
                 openWindow({
-                    title: `DT: ${normalizedTicker}`,
+                    title: 'Dilution Tracker',
                     content: <DilutionTrackerContent initialTicker={normalizedTicker} />,
                     width: 900,
                     height: 600,
@@ -501,7 +517,7 @@ export function useCommandExecutor() {
 
             case 'financials':
                 openWindow({
-                    title: `FA: ${normalizedTicker}`,
+                    title: 'Financials',
                     content: <FinancialsContent initialTicker={normalizedTicker} />,
                     width: 700,
                     height: 550,
@@ -514,7 +530,7 @@ export function useCommandExecutor() {
 
             case 'sec-filings':
                 openWindow({
-                    title: `SEC: ${normalizedTicker}`,
+                    title: 'SEC Filings',
                     content: <SECFilingsContent initialTicker={normalizedTicker} />,
                     width: 1000,
                     height: 650,
@@ -527,7 +543,7 @@ export function useCommandExecutor() {
 
             case 'news':
                 openWindow({
-                    title: `News: ${normalizedTicker}`,
+                    title: 'News',
                     content: <NewsContent initialTicker={normalizedTicker} />,
                     width: 900,
                     height: 600,
@@ -542,7 +558,7 @@ export function useCommandExecutor() {
             case 'span':
                 // Mostrar precio real-time del ticker en tira compacta
                 openWindow({
-                    title: `Quote: ${normalizedTicker}`,
+                    title: 'Quote',
                     content: (
                         <TickerStripWrapper
                             symbol={normalizedTicker}
@@ -564,13 +580,27 @@ export function useCommandExecutor() {
             case 'pm':
                 // Pattern Matching con ticker específico
                 openWindow({
-                    title: `Patterns: ${normalizedTicker}`,
+                    title: 'Pattern Matching',
                     content: <PatternMatchingContent initialTicker={normalizedTicker} />,
                     width: 700,
                     height: 650,
                     x: Math.max(50, screenWidth / 2 - 350),
                     y: Math.max(80, screenHeight / 2 - 325),
                     minWidth: 550,
+                    minHeight: 500,
+                });
+                break;
+
+            case 'fan':
+                // Financial Analyst con ticker específico
+                openWindow({
+                    title: 'Financial Analyst',
+                    content: <FinancialAnalystContent initialTicker={normalizedTicker} />,
+                    width: 500,
+                    height: 650,
+                    x: Math.max(50, screenWidth / 2 - 250),
+                    y: Math.max(70, screenHeight / 2 - 325),
+                    minWidth: 400,
                     minHeight: 500,
                 });
                 break;

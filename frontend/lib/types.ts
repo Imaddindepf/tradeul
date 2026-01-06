@@ -61,9 +61,26 @@ export interface Ticker {
   vol_15min?: number;
   vol_30min?: number;
 
+  // Price change window metrics (% change in last N minutes - per-second precision)
+  chg_1min?: number;
+  chg_5min?: number;
+  chg_10min?: number;
+  chg_15min?: number;
+  chg_30min?: number;
+
   // VWAP
   vwap?: number;           // Volume Weighted Average Price (today)
   price_vs_vwap?: number;  // % distance from VWAP
+
+  // Post-Market metrics (only populated during POST_MARKET session 16:00-20:00 ET)
+  postmarket_change_percent?: number;  // % change from regular session close
+  postmarket_volume?: number;          // Volume traded in post-market only
+
+  // Trades Anomaly Detection (Z-Score based)
+  trades_today?: number;        // Number of transactions today (Polygon day.n)
+  avg_trades_5d?: number;       // Average trades per day (last 5 trading days)
+  trades_z_score?: number;      // Z-Score = (trades_today - avg) / std
+  is_trade_anomaly?: boolean;   // True if Z-Score >= 3.0
 
   // Volatility metrics
   atr_percent?: number;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, X, Loader2, AlertCircle } from 'lucide-react';
 
@@ -21,14 +21,19 @@ type TickerSearchProps = {
     autoFocus?: boolean;
 };
 
-export function TickerSearch({
+export type TickerSearchRef = {
+    close: () => void;
+    focus: () => void;
+};
+
+export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(function TickerSearch({
     value,
     onChange,
     onSelect,
     placeholder,
     className = "",
     autoFocus = false
-}: TickerSearchProps) {
+}, ref) {
     const { t } = useTranslation();
     const defaultPlaceholder = placeholder || t('news.ticker');
     const [results, setResults] = useState<TickerResult[]>([]);
@@ -39,6 +44,13 @@ export function TickerSearch({
     const inputRef = useRef<HTMLInputElement>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const isInitialMount = useRef(true); // Track initial mount to avoid opening dropdown
+
+    // Expose methods to parent via ref
+    useImperativeHandle(ref, () => ({
+        close: () => setIsOpen(false),
+        focus: () => inputRef.current?.focus()
+    }));
 
     // Fetch results from API
     const fetchResults = useCallback(async (query: string) => {
@@ -103,7 +115,13 @@ export function TickerSearch({
     }, []);
 
     // Debounce search (150ms para sentir más responsive)
+    // Skip on initial mount to avoid opening dropdown when component loads with a value
     useEffect(() => {
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            return;
+        }
+
         const timer = setTimeout(() => {
             if (value && value.length >= 1) {
                 fetchResults(value);
@@ -260,5 +278,5 @@ export function TickerSearch({
             )}
         </div>
     );
-}
+});
 

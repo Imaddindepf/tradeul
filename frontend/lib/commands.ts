@@ -22,6 +22,7 @@ import {
   ScanSearch,
   TrendingUp,
   Users,
+  Brain,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -56,6 +57,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'screener', label: 'SCREEN', description: 'commands.screener.description', icon: ScanSearch, shortcut: 'Ctrl+Shift+S' },
   { id: 'mp', label: 'MP', description: 'commands.mp.description', icon: TrendingUp, shortcut: 'Ctrl+M' },
   { id: 'insider', label: 'INSIDER', description: 'commands.insider.description', icon: Users, shortcut: 'Ctrl+I' },
+  { id: 'fan', label: 'FAN', description: 'commands.fan.description', icon: Brain, shortcut: 'Ctrl+Shift+F' },
 ];
 
 /**

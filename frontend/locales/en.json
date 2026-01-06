@@ -201,6 +201,10 @@
       "name": "Insider Trading",
       "description": "Form 4 - Insider buys/sells"
     },
+    "fan": {
+      "name": "Financial Analyst",
+      "description": "Financial analysis with real-time data"
+    },
     "help": {
       "name": "Help",
       "description": "Show terminal help"
@@ -218,20 +222,22 @@
     "anomalies": "Anomalies",
     "highVolume": "High Volume",
     "reversals": "Reversals",
+    "postMarket": "Post-Market",
     "withNews": "With News",
     "marketClosed": "Market is closed. Data will update when the market opens.",
-    "clickDescription": "Click to view description",
-    "gapUpDescription": "Gap up ≥ 2%",
-    "gapDownDescription": "Gap down ≤ -2%",
-    "momentumUpDescription": "Change ≥ 3%",
-    "momentumDownDescription": "Change ≤ -3%",
-    "topGainersDescription": "Change ≥ 5%",
-    "topLosersDescription": "Change ≤ -5%",
-    "newHighsDescription": "Daily highs",
-    "newLowsDescription": "Daily lows",
-    "anomaliesDescription": "RVOL ≥ 3.0",
-    "highVolumeDescription": "RVOL ≥ 2.0",
-    "reversalsDescription": "Direction changes",
+    "clickDescription": "Click to analyze",
+    "gapUpDescription": "Gap ≥ 2% from prev close",
+    "gapDownDescription": "Gap ≤ -2% from prev close",
+    "momentumUpDescription": "Ignition: Chg5min ≥1.5%, HOD ≤2%, VWAP+, RVOL ≥500%",
+    "momentumDownDescription": "Strong drop: Change ≤ -3%",
+    "topGainersDescription": "Top gainers: Change ≥ 5%",
+    "topLosersDescription": "Top losers: Change ≤ -5%",
+    "newHighsDescription": "Price = intraday high (incl. pre/post)",
+    "newLowsDescription": "Price = intraday low (incl. pre/post)",
+    "anomaliesDescription": "Z-Score ≥3: trades today vs avg 5d (statistical anomaly)",
+    "highVolumeDescription": "High relative volume: RVOL ≥ 200%",
+    "reversalsDescription": "Gap + reversal: Gap ≥2% but falling (or vice versa)",
+    "postMarketDescription": "Post-market: PM Vol ≥20K or PM Chg ≥0.5%",
     "withNewsDescription": "Scanner tickers with today's news",
     "noTickersWithNews": "No tickers with news",
     "noTickersWithNewsDescription": "Open a scanner table first (Gap Up, Momentum, etc.)",
@@ -493,6 +499,9 @@
       },
       "PM": {
         "description": "AI pattern similarity search for this ticker"
+      },
+      "FAN": {
+        "description": "Financial analysis with real-time data"
       }
     },
     "globalCommands": {
@@ -555,6 +564,9 @@
       },
       "INSIDER": {
         "description": "Form 4 - Insider buys/sells & clusters"
+      },
+      "FAN": {
+        "description": "Financial analyst with real-time search"
       }
     }
   }

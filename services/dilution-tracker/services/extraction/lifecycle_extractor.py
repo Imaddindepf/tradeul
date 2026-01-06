@@ -495,9 +495,9 @@ class WarrantLifecycleExtractor:
             content = await self.sec_client.fetch_filing_content(url, f)
             
             if content:
-                # Truncar contenido largo
-                if len(content) > 30000:
-                    content = content[:30000]
+                # Leer contenido completo (Gemini 2.5 Flash soporta 1M tokens)
+                if len(content) > 500000:
+                    content = content[:500000]
                 
                 contents.append(f"""
 === {form_type} ({filed_at}) ===

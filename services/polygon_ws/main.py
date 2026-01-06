@@ -270,6 +270,8 @@ async def handle_aggregate(agg: PolygonAgg):
                 'volume_accumulated': str(agg.av),  # ← Volumen acumulado del día
                 'vwap': str(agg.a),  # Today's VWAP
                 'avg_trade_size': str(agg.z),  # Average trade size
+                # Trades: usar 'n' si existe (minute aggs), sino calcular desde volume/avg_trade_size
+                'trades': str(getattr(agg, 'n', 0) or (int(agg.v / agg.z) if agg.z > 0 else 0)),
                 'timestamp_start': str(agg.s),
                 'timestamp_end': str(agg.e),
                 'otc': 'true' if agg.otc else 'false'

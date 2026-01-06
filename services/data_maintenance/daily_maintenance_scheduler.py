@@ -2,16 +2,21 @@
 Daily Maintenance Scheduler
 ===========================
 
-Scheduler que ejecuta mantenimiento a las 3:00 AM ET.
+Scheduler que ejecuta mantenimiento en dos fases:
 
-LÓGICA CORREGIDA (v2.1):
+FASE 1 - 1:00 AM ET: Refresh de metadata
+- Actualiza shares_outstanding, market_cap, free_float de TODOS los tickers
+- Captura cambios por splits, emisiones, etc.
+- Sincroniza Redis y vista
+
+FASE 2 - 3:00 AM ET: Mantenimiento principal
 - SIEMPRE carga datos históricos si hay día de trading pendiente
 - SOLO limpia caches si HOY es día de trading
 
 Casos:
-- Día normal (Lun-Vie): Cargar datos ayer + Limpiar caches
+- Día normal (Lun-Vie): Metadata refresh → Cargar datos ayer → Limpiar caches
 - Fin de semana: SKIP (no hay datos nuevos)
-- Festivo después de trading: Cargar datos + NO limpiar caches
+- Festivo después de trading: Metadata + Cargar datos + NO limpiar caches
 - Día después de festivo: (datos ya cargados) + Limpiar caches
 """
 
@@ -59,14 +64,17 @@ class DailyMaintenanceScheduler:
         self.db = timescale_client
         self.is_running = False
         
-        # Configuración
-        self.maintenance_hour = 3
+        # Configuración de horarios (ET)
+        self.metadata_refresh_hour = 1      # 1:00 AM ET - Refresh metadata
+        self.metadata_refresh_minute = 0
+        self.maintenance_hour = 3           # 3:00 AM ET - Mantenimiento principal
         self.maintenance_minute = 0
-        self.cache_cleanup_hour = 3
+        self.cache_cleanup_hour = 3         # 3:45 AM ET - Limpieza de caches
         self.cache_cleanup_minute = 45
-        self.check_interval = 30
+        self.check_interval = 30            # Segundos entre checks
         
         # Estado
+        self.last_metadata_refresh_date: Optional[date] = None  # Último refresh de metadata
         self.last_data_load_date: Optional[date] = None  # Último día de trading cargado
         self.last_cache_cleanup_date: Optional[date] = None
         self._holidays_cache: Dict[str, bool] = {}
@@ -160,7 +168,11 @@ class DailyMaintenanceScheduler:
     async def run(self):
         """Loop principal del scheduler"""
         self.is_running = True
-        logger.info("daily_maintenance_scheduler_started", schedule="3:00 AM ET")
+        logger.info(
+            "daily_maintenance_scheduler_started", 
+            metadata_refresh="1:00 AM ET",
+            data_load="3:00 AM ET"
+        )
         
         await self._load_state()
         
@@ -183,11 +195,19 @@ class DailyMaintenanceScheduler:
     async def _load_state(self):
         """Cargar estado desde Redis"""
         try:
+            # Estado de metadata refresh
+            last_metadata = await self.redis.get("maintenance:last_metadata_refresh")
+            if last_metadata:
+                self.last_metadata_refresh_date = date.fromisoformat(last_metadata)
+                logger.info("loaded_last_metadata_refresh_date", date=str(self.last_metadata_refresh_date))
+            
+            # Estado de data load
             last_data = await self.redis.get("maintenance:last_data_load")
             if last_data:
                 self.last_data_load_date = date.fromisoformat(last_data)
                 logger.info("loaded_last_data_load_date", date=str(self.last_data_load_date))
             
+            # Estado de cache cleanup
             last_cleanup = await self.redis.get("maintenance:last_cache_cleanup")
             if last_cleanup:
                 self.last_cache_cleanup_date = date.fromisoformat(last_cleanup)
@@ -200,6 +220,20 @@ class DailyMaintenanceScheduler:
         current_date = now_et.date()
         current_hour = now_et.hour
         current_minute = now_et.minute
+        
+        # =============================================
+        # 0. REFRESH DE METADATA (1:00 AM ET)
+        # Actualiza shares_outstanding, market_cap, free_float de TODOS los tickers
+        # Se ejecuta ANTES del mantenimiento principal para tener datos frescos
+        # =============================================
+        is_metadata_refresh_time = (
+            current_hour == self.metadata_refresh_hour and
+            self.metadata_refresh_minute <= current_minute <= self.metadata_refresh_minute + 5
+        )
+        
+        if is_metadata_refresh_time and self.last_metadata_refresh_date != current_date:
+            # Ejecutar refresh de metadata
+            await self._execute_metadata_refresh(current_date)
         
         # =============================================
         # 1. CARGA DE DATOS HISTÓRICOS (3:00 AM ET)
@@ -242,6 +276,46 @@ class DailyMaintenanceScheduler:
     # =========================================================================
     # EJECUCIÓN DE TAREAS
     # =========================================================================
+    
+    async def _execute_metadata_refresh(self, current_date: date):
+        """
+        Ejecutar refresh de toda la metadata desde Polygon.
+        
+        Actualiza shares_outstanding, market_cap, free_float, beta, etc.
+        para TODOS los tickers activos.
+        """
+        logger.info("📊 starting_metadata_refresh", date=str(current_date))
+        
+        start_time = datetime.now()
+        
+        try:
+            from tasks.refresh_all_metadata import RefreshAllMetadataTask
+            
+            task = RefreshAllMetadataTask(self.redis, self.db)
+            result = await task.execute(current_date)
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            
+            if result.get("success"):
+                self.last_metadata_refresh_date = current_date
+                await self.redis.set("maintenance:last_metadata_refresh", current_date.isoformat())
+                
+                logger.info(
+                    "✅ metadata_refresh_completed",
+                    date=str(current_date),
+                    updated=result.get("updated", 0),
+                    total=result.get("total_tickers", 0),
+                    duration_seconds=round(elapsed, 2)
+                )
+            else:
+                logger.error(
+                    "❌ metadata_refresh_failed",
+                    date=str(current_date),
+                    error=result.get("error")
+                )
+                
+        except Exception as e:
+            logger.error("metadata_refresh_exception", date=str(current_date), error=str(e))
     
     async def _execute_data_load(self, target_date: date, clear_caches: bool = True):
         """

@@ -636,6 +636,84 @@ async def get_rvol_hist_avg_bulk(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/trades/baseline/bulk")
+async def get_trades_baseline_bulk(
+    symbol: str = Query(..., description="Ticker symbol"),
+    days: int = Query(5, ge=1, le=60, description="Lookback trading days")
+):
+    """
+    Calcula el baseline de trades (avg, std) para detección de anomalías.
+    
+    Usado por TradesAnomalyDetector en Analytics:
+    - Calcula promedio y desviación estándar de trades diarios
+    - Cachea en Redis HASH: trades:baseline:{SYMBOL}:{DAYS} → {avg, std}
+    - TTL: 8 horas
+    
+    Z-Score para anomalía: (trades_hoy - avg) / std
+    Si Z-Score > 3.0 → ANOMALÍA
+    """
+    try:
+        sym = symbol.upper()
+        
+        # Query: Suma de trades_count por día para los últimos N días de trading
+        query = """
+            WITH trading_days AS (
+                SELECT DISTINCT date
+                FROM volume_slots
+                WHERE symbol = $1 
+                  AND date < CURRENT_DATE
+                  AND trades_count IS NOT NULL
+                ORDER BY date DESC
+                LIMIT $2
+            ),
+            daily_trades AS (
+                SELECT 
+                    vs.date,
+                    SUM(vs.trades_count) as total_trades
+                FROM volume_slots vs
+                JOIN trading_days td ON vs.date = td.date
+                WHERE vs.symbol = $1
+                GROUP BY vs.date
+            )
+            SELECT 
+                AVG(total_trades) as avg_trades,
+                COALESCE(STDDEV(total_trades), 0) as std_trades,
+                COUNT(*) as days_count
+            FROM daily_trades
+        """
+        
+        result = await timescale_client.fetchrow(query, sym, days)
+        
+        if not result or result['avg_trades'] is None:
+            raise HTTPException(status_code=404, detail="No historical trades data")
+        
+        avg_trades = float(result['avg_trades'])
+        std_trades = float(result['std_trades'] or 0)
+        days_count = int(result['days_count'])
+        
+        # Guardar en Redis HASH
+        hash_key = f"trades:baseline:{sym}:{days}"
+        await redis_client.client.hset(hash_key, mapping={
+            'avg': str(round(avg_trades, 2)),
+            'std': str(round(std_trades, 2))
+        })
+        await redis_client.expire(hash_key, 28800)  # 8 horas TTL
+        
+        return {
+            "symbol": sym,
+            "days": days,
+            "days_count": days_count,
+            "avg_trades": round(avg_trades, 2),
+            "std_trades": round(std_trades, 2)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("error_getting_trades_baseline", symbol=symbol, days=days, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/metadata/load/{symbol}")
 async def load_ticker_metadata(symbol: str, background_tasks: BackgroundTasks):
     """Load/refresh metadata for a ticker"""

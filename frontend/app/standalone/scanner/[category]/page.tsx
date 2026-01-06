@@ -30,6 +30,7 @@ export default function StandaloneTablePage({ params }: StandaloneTablePageProps
     'anomalies': t('scanner.anomalies'),
     'high_volume': t('scanner.highVolume'),
     'reversals': t('scanner.reversals'),
+    'post_market': t('scanner.postMarket'),
   };
 
   const categoryName = categoryNameMap[category] || category;

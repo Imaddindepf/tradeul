@@ -5,8 +5,15 @@ calculates indicators (RVOL), and applies configurable filters
 
 ARQUITECTURA EVENT-DRIVEN:
 - Se suscribe a DAY_CHANGED del EventBus (market_session es la fuente de verdad)
+- Se suscribe a SESSION_CHANGED para capturar volumen regular al inicio de POST_MARKET
 - NO detecta días nuevos por sí mismo
 - Limpia cachés de gaps/tracking cuando market_session notifica nuevo día
+
+POST-MARKET VOLUME CAPTURE:
+- Cuando la sesión cambia de MARKET_OPEN a POST_MARKET
+- Captura el volumen de sesión regular (09:30-16:00 ET) para todos los tickers del scanner
+- Usa Polygon Aggregates API para sumar velas de minuto
+- Permite calcular postmarket_volume = current_volume - regular_volume
 """
 
 import asyncio
@@ -35,6 +42,7 @@ from shared.events import EventBus, EventType, Event
 from scanner_engine import ScannerEngine
 from scanner_categories import ScannerCategory
 from http_clients import http_clients
+from postmarket_capture import PostMarketVolumeCapture
 
 # Configure logging
 configure_logging(service_name="scanner")
@@ -49,12 +57,14 @@ redis_client: Optional[RedisClient] = None
 timescale_client: Optional[TimescaleClient] = None
 scanner_engine: Optional[ScannerEngine] = None
 event_bus: Optional[EventBus] = None
+postmarket_capture: Optional[PostMarketVolumeCapture] = None
 background_tasks: List[asyncio.Task] = []
 is_running = False
 
 # Estado de mercado (se actualiza via EventBus, no en cada iteración)
 is_holiday_mode: bool = False
 current_trading_date: Optional[date] = None
+current_session: Optional[str] = None  # Para detectar transiciones de sesión
 
 
 # =============================================
@@ -123,12 +133,57 @@ async def handle_day_changed(event: Event) -> None:
         
         if scanner_engine and scanner_engine.gap_tracker:
             scanner_engine.gap_tracker.clear_for_new_day()
+        
+        # 🌙 Limpiar cache de post-market volume para nuevo día
+        if scanner_engine:
+            scanner_engine.clear_postmarket_cache()
     else:
         logger.info(
             "⏭️ skipping_cache_clear",
             reason="holiday_mode_active",
             date=new_date_str
         )
+
+
+async def handle_session_changed(event: Event) -> None:
+    """
+    🌙 Handler para el evento SESSION_CHANGED.
+    
+    Detecta transiciones de sesión y ejecuta acciones específicas:
+    - MARKET_OPEN → POST_MARKET: Inicia captura de volumen regular
+    
+    El volumen regular se obtiene sumando velas de minuto de la API de Polygon
+    para el período 09:30-16:00 ET. Esto permite calcular el postmarket_volume
+    de manera precisa.
+    """
+    global current_session
+    
+    new_session = event.data.get('new_session')
+    previous_session = event.data.get('previous_session')
+    trading_date = event.data.get('trading_date')
+    
+    logger.info(
+        "🔔 session_changed_event_received",
+        previous_session=previous_session,
+        new_session=new_session,
+        trading_date=trading_date
+    )
+    
+    # Detectar transición MARKET_OPEN → POST_MARKET
+    if previous_session == "MARKET_OPEN" and new_session == "POST_MARKET":
+        logger.info(
+            "🌙 detected_transition_to_postmarket",
+            trading_date=trading_date
+        )
+        
+        # Trigger captura de volumen regular
+        if scanner_engine and trading_date:
+            asyncio.create_task(
+                scanner_engine.trigger_postmarket_capture(trading_date)
+            )
+    
+    # Actualizar estado global de sesión
+    current_session = new_session
 
 
 # =============================================
@@ -138,7 +193,7 @@ async def handle_day_changed(event: Event) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for the service"""
-    global redis_client, timescale_client, scanner_engine, event_bus
+    global redis_client, timescale_client, scanner_engine, event_bus, postmarket_capture
     
     logger.info("Starting Scanner Service")
     
@@ -149,10 +204,11 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient()
     await timescale_client.connect()
     
-    # Initialize HTTP clients with connection pooling
+    # Initialize HTTP clients with connection pooling (ahora incluye Polygon Aggregates)
     await http_clients.initialize(
         market_session_host=settings.market_session_host,
-        market_session_port=settings.market_session_port
+        market_session_port=settings.market_session_port,
+        polygon_api_key=settings.polygon_api_key
     )
     logger.info("http_clients_initialized_with_pooling")
     
@@ -171,22 +227,32 @@ async def lifespan(app: FastAPI):
     )
     logger.info("✅ SnapshotManager initialized")
     
-    # Initialize scanner engine
+    # 🌙 Initialize PostMarket Volume Capture (para post-market volume preciso)
+    postmarket_capture = PostMarketVolumeCapture(
+        redis_client=redis_client,
+        polygon_client=http_clients.polygon_aggregates,
+        max_concurrent=50  # Plan avanzado de Polygon permite ~100 req/s
+    )
+    logger.info("✅ PostMarketVolumeCapture initialized")
+    
+    # Initialize scanner engine (ahora con postmarket_capture)
     scanner_engine = ScannerEngine(
         redis_client,
         timescale_client,
-        snapshot_manager=snapshot_manager  # Pasar snapshot_manager
+        snapshot_manager=snapshot_manager,
+        postmarket_capture=postmarket_capture
     )
     await scanner_engine.initialize()
     
     # 📅 Verificar estado del mercado UNA VEZ al iniciar
     await check_initial_market_status()
     
-    # 🔔 Inicializar EventBus y suscribirse a DAY_CHANGED
+    # 🔔 Inicializar EventBus y suscribirse a eventos
     event_bus = EventBus(redis_client, "scanner")
     event_bus.subscribe(EventType.DAY_CHANGED, handle_day_changed)
+    event_bus.subscribe(EventType.SESSION_CHANGED, handle_session_changed)
     await event_bus.start_listening()
-    logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED")
+    logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED, SESSION_CHANGED")
     
     logger.info("Scanner Service started (paused)")
     
@@ -509,9 +575,96 @@ async def get_available_categories():
                 "name": "reversals",
                 "display_name": "Reversals",
                 "description": "Cambios de dirección significativos"
+            },
+            {
+                "name": "post_market",
+                "display_name": "Post-Market",
+                "description": "Activos en post-market (16:00-20:00 ET) con volumen y cambio significativo"
             }
         ]
     }
+
+
+@app.get("/api/scanner/postmarket/stats")
+async def get_postmarket_stats():
+    """
+    🌙 Obtiene estadísticas del sistema de captura de volumen post-market
+    
+    Returns:
+        Estadísticas de la captura: símbolos capturados, cache hits, errores, etc.
+    """
+    try:
+        if not postmarket_capture:
+            return {
+                "status": "not_initialized",
+                "message": "PostMarketVolumeCapture no está inicializado"
+            }
+        
+        stats = postmarket_capture.get_stats()
+        
+        return {
+            "status": "active",
+            "current_session": scanner_engine.current_session.value if scanner_engine else None,
+            "stats": stats
+        }
+    
+    except Exception as e:
+        logger.error("Error getting postmarket stats", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scanner/postmarket/capture")
+async def trigger_postmarket_capture_manual():
+    """
+    🌙 Fuerza la captura de volumen regular manualmente
+    
+    Útil cuando:
+    - El scanner se reinicia durante post-market
+    - Testing del sistema
+    - Recaptura después de un error
+    
+    Returns:
+        Resultado de la captura: símbolos procesados, volúmenes capturados
+    """
+    try:
+        if not scanner_engine:
+            raise HTTPException(status_code=500, detail="Scanner engine no inicializado")
+        
+        # Obtener fecha de trading actual
+        trading_date = None
+        try:
+            status_data = await redis_client.get(f"{settings.key_prefix_market}:session:status")
+            if status_data:
+                trading_date = status_data.get('trading_date')
+        except Exception:
+            pass
+        
+        if not trading_date:
+            # Usar fecha actual como fallback
+            trading_date = datetime.now().strftime('%Y-%m-%d')
+        
+        logger.info(
+            "🌙 manual_postmarket_capture_triggered",
+            trading_date=trading_date
+        )
+        
+        # Trigger la captura
+        await scanner_engine.trigger_postmarket_capture(trading_date)
+        
+        # Retornar stats después de la captura
+        stats = postmarket_capture.get_stats() if postmarket_capture else {}
+        
+        return {
+            "status": "capture_completed",
+            "trading_date": trading_date,
+            "stats": stats
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error in manual postmarket capture", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/categories/stats")

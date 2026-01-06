@@ -77,6 +77,8 @@ class MaintenanceOrchestrator:
         state = self._init_state(target_date)
         
         # Lista ordenada de tareas
+        # NOTA: enrich_metadata ya NO se ejecuta aquí - se hace a las 1:00 AM
+        #       en la tarea refresh_all_metadata del scheduler
         # Si skip_cache_clear=True, omitir clear_caches, sync_redis y notify_services
         if skip_cache_clear:
             tasks = [
@@ -84,8 +86,9 @@ class MaintenanceOrchestrator:
                 ("load_volume_slots", self._task_load_volume_slots),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
+                ("calculate_trades_baselines", self._task_calculate_trades_baselines),
                 ("sync_ticker_universe", self._task_sync_ticker_universe),
-                ("enrich_metadata", self._task_enrich_metadata),
+                # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
                 ("export_screener_metadata", self._task_export_screener_metadata),
             ]
             logger.info("📦 data_only_mode - skipping cache clear and notifications")
@@ -96,12 +99,13 @@ class MaintenanceOrchestrator:
                 ("load_volume_slots", self._task_load_volume_slots),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
-                    ("sync_ticker_universe", self._task_sync_ticker_universe),
-                ("enrich_metadata", self._task_enrich_metadata),
-                    ("export_screener_metadata", self._task_export_screener_metadata),
+                ("calculate_trades_baselines", self._task_calculate_trades_baselines),
+                ("sync_ticker_universe", self._task_sync_ticker_universe),
+                # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
+                ("export_screener_metadata", self._task_export_screener_metadata),
                 ("sync_redis", self._task_sync_redis),
                 ("notify_services", self._task_notify_services),
-                ]
+            ]
         
         all_success = True
         
@@ -182,8 +186,9 @@ class MaintenanceOrchestrator:
                 "load_volume_slots": TaskStatus.PENDING,
                 "calculate_atr": TaskStatus.PENDING,
                 "calculate_rvol": TaskStatus.PENDING,
+                "calculate_trades_baselines": TaskStatus.PENDING,
                 "sync_ticker_universe": TaskStatus.PENDING,
-                "enrich_metadata": TaskStatus.PENDING,
+                # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
                 "export_screener_metadata": TaskStatus.PENDING,
                 "sync_redis": TaskStatus.PENDING,
                 "notify_services": TaskStatus.PENDING,
@@ -320,6 +325,25 @@ class MaintenanceOrchestrator:
             from tasks.calculate_rvol_averages import CalculateRVOLHistoricalAveragesTask
             
             calculator = CalculateRVOLHistoricalAveragesTask(self.redis, self.db)
+            result = await calculator.execute(target_date)
+            
+            return result
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def _task_calculate_trades_baselines(self, target_date: date) -> Dict:
+        """
+        Tarea 6: Calcular trades baselines para detección de anomalías
+        
+        Pre-calcula avg_trades_5d y std_trades_5d para cada símbolo.
+        Guarda en Redis: trades:baseline:{symbol}:{days} → {avg, std}
+        Analytics solo lee de Redis para Z-Score en tiempo real.
+        """
+        try:
+            from tasks.calculate_trades_baselines import CalculateTradesBaselinesTask
+            
+            calculator = CalculateTradesBaselinesTask(self.redis, self.db)
             result = await calculator.execute(target_date)
             
             return result

@@ -289,6 +289,7 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         [t('scanner.anomalies')]: 'anomalies',
         [t('scanner.highVolume')]: 'high_volume',
         [t('scanner.reversals')]: 'reversals',
+        [t('scanner.postMarket')]: 'post_market',
       };
 
       listName = listName || LIST_NAME_MAP[categoryName] || '';

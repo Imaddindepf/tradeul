@@ -35,6 +35,7 @@ from shared.utils.redis_stream_manager import get_stream_manager
 from gap_calculator import GapCalculator, GapTracker
 from scanner_categories import ScannerCategorizer, ScannerCategory
 from http_clients import http_clients
+from postmarket_capture import PostMarketVolumeCapture
 
 logger = get_logger(__name__)
 
@@ -48,11 +49,13 @@ class ScannerEngine:
         self,
         redis_client: RedisClient,
         timescale_client: TimescaleClient,
-        snapshot_manager=None  # Optional SnapshotManager
+        snapshot_manager=None,  # Optional SnapshotManager
+        postmarket_capture=None  # Optional PostMarketVolumeCapture
     ):
         self.redis = redis_client
         self.db = timescale_client
         self.snapshot_manager = snapshot_manager  # 🔥 SnapshotManager para deltas
+        self.postmarket_capture = postmarket_capture  # 🌙 Post-market volume capture
         
         # Filters
         self.filters: List[FilterConfig] = []
@@ -99,6 +102,9 @@ class ScannerEngine:
         self._metadata_cache_maxsize: int = 200_000
         # TTL por defecto: 30 minutos
         self._metadata_cache_ttl_seconds: int = 1800
+        
+        # 🌙 Cache local de volúmenes regulares para acceso síncrono en _build_scanner_ticker_inline
+        self._regular_volumes_cache: Dict[str, int] = {}
     
     async def initialize(self) -> None:
         """Initialize the scanner engine"""
@@ -275,6 +281,17 @@ class ScannerEngine:
                         'vol_10min': ticker_data.get('vol_10min'),
                         'vol_15min': ticker_data.get('vol_15min'),
                         'vol_30min': ticker_data.get('vol_30min'),
+                        # Price change window metrics (cambio % en los últimos N minutos - per-second precision)
+                        'chg_1min': ticker_data.get('chg_1min'),
+                        'chg_5min': ticker_data.get('chg_5min'),
+                        'chg_10min': ticker_data.get('chg_10min'),
+                        'chg_15min': ticker_data.get('chg_15min'),
+                        'chg_30min': ticker_data.get('chg_30min'),
+                        # Trades Anomaly Detection (Z-Score based)
+                        'trades_today': ticker_data.get('trades_today'),
+                        'avg_trades_5d': ticker_data.get('avg_trades_5d'),
+                        'trades_z_score': ticker_data.get('trades_z_score'),
+                        'is_trade_anomaly': ticker_data.get('is_trade_anomaly'),
                     }
                     
                     enriched_snapshots.append((snapshot, rvol, atr_data))
@@ -491,6 +508,10 @@ class ScannerEngine:
         # 2.5 Calcular avg_volumes en batch (5D, 10D, 3M)
         avg_volumes_map = await self._get_avg_volumes_batch(list(seen_symbols))
         
+        # 2.6 🌙 Pre-cargar volúmenes regulares si estamos en POST_MARKET
+        if self.current_session == MarketSession.POST_MARKET and self.postmarket_capture:
+            await self._preload_regular_volumes(list(seen_symbols))
+        
         # 3. Procesamiento: construir tickers + filtrar + score (una sola pasada)
         # NOTA: Este bucle aplica filtros que REQUIEREN metadata:
         # - market_cap (requiere market_cap de metadata)  
@@ -694,6 +715,19 @@ class ScannerEngine:
             vol_15min = atr_data.get('vol_15min') if atr_data else None
             vol_30min = atr_data.get('vol_30min') if atr_data else None
             
+            # Extract price change window metrics (from enriched snapshot - PriceWindowTracker)
+            chg_1min = atr_data.get('chg_1min') if atr_data else None
+            chg_5min = atr_data.get('chg_5min') if atr_data else None
+            chg_10min = atr_data.get('chg_10min') if atr_data else None
+            chg_15min = atr_data.get('chg_15min') if atr_data else None
+            chg_30min = atr_data.get('chg_30min') if atr_data else None
+            
+            # Extract trades anomaly data (from enriched snapshot - TradesAnomalyDetector)
+            trades_today = atr_data.get('trades_today') if atr_data else None
+            avg_trades_5d = atr_data.get('avg_trades_5d') if atr_data else None
+            trades_z_score = atr_data.get('trades_z_score') if atr_data else None
+            is_trade_anomaly = atr_data.get('is_trade_anomaly') if atr_data else False
+            
             # Calculate price distance from intraday high/low (includes pre/post market)
             price_from_intraday_high = None
             price_from_intraday_low = None
@@ -754,6 +788,17 @@ class ScannerEngine:
                 vol_10min=vol_10min,
                 vol_15min=vol_15min,
                 vol_30min=vol_30min,
+                # Price change window metrics (per-second precision)
+                chg_1min=chg_1min,
+                chg_5min=chg_5min,
+                chg_10min=chg_10min,
+                chg_15min=chg_15min,
+                chg_30min=chg_30min,
+                # Trades anomaly detection (Z-Score based)
+                trades_today=trades_today,
+                avg_trades_5d=avg_trades_5d,
+                trades_z_score=trades_z_score,
+                is_trade_anomaly=is_trade_anomaly,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
@@ -866,6 +911,19 @@ class ScannerEngine:
             vol_15min = atr_data.get('vol_15min') if atr_data else None
             vol_30min = atr_data.get('vol_30min') if atr_data else None
             
+            # Extract price change window metrics (from enriched snapshot - PriceWindowTracker)
+            chg_1min = atr_data.get('chg_1min') if atr_data else None
+            chg_5min = atr_data.get('chg_5min') if atr_data else None
+            chg_10min = atr_data.get('chg_10min') if atr_data else None
+            chg_15min = atr_data.get('chg_15min') if atr_data else None
+            chg_30min = atr_data.get('chg_30min') if atr_data else None
+            
+            # Extract trades anomaly data (from enriched snapshot - TradesAnomalyDetector)
+            trades_today = atr_data.get('trades_today') if atr_data else None
+            avg_trades_5d = atr_data.get('avg_trades_5d') if atr_data else None
+            trades_z_score = atr_data.get('trades_z_score') if atr_data else None
+            is_trade_anomaly = atr_data.get('is_trade_anomaly') if atr_data else False
+            
             # Calculate price distance from intraday high/low (includes pre/post market)
             price_from_intraday_high = None
             price_from_intraday_low = None
@@ -925,6 +983,45 @@ class ScannerEngine:
             volume_today_pct = round((volume_today / avg_vol_10d) * 100, 1) if volume_today and avg_vol_10d else None
             volume_yesterday_pct = round((prev_day.v / avg_vol_10d) * 100, 1) if prev_day and prev_day.v and avg_vol_10d else None
             
+            # =============================================
+            # POST-MARKET METRICS (solo durante POST_MARKET session)
+            # =============================================
+            # Durante post-market (16:00-20:00 ET):
+            # - day.c = precio de cierre congelado a las 16:00
+            # - regular_volume = volumen de sesión regular (09:30-16:00 ET) obtenido via Aggregates API
+            # - min.av (volume_today) = volumen acumulado (sigue sumando en post-market)
+            # - current_price = precio actual (de lastTrade)
+            #
+            # SOLUCIÓN IMPLEMENTADA:
+            # Como Polygon NO congela day.v a las 16:00, usamos la API de Aggregates para
+            # obtener el volumen exacto de la sesión regular sumando velas de minuto.
+            # Ver: postmarket_capture.py
+            postmarket_change_percent = None
+            postmarket_volume = None
+            
+            if self.current_session == MarketSession.POST_MARKET:
+                # Precio de cierre del día regular (congelado a las 16:00 ET)
+                # NOTA: Verificado contra Polygon API - day.c SÍ se congela a las 16:00
+                regular_close = day_data.c if day_data and day_data.c and day_data.c > 0 else None
+                
+                if regular_close and price:
+                    # Post-market change % = ((precio_actual - cierre_regular) / cierre_regular) * 100
+                    postmarket_change_percent = ((price - regular_close) / regular_close) * 100
+                
+                # 🌙 POST-MARKET VOLUME (usando volumen regular capturado via Aggregates API)
+                # El volumen regular se obtiene de:
+                # 1. _regular_volumes_cache (local, síncrono)
+                # 2. Lazy fetch via postmarket_capture (async, en background)
+                regular_volume = self._regular_volumes_cache.get(snapshot.ticker)
+                
+                if regular_volume is not None and volume_today is not None:
+                    # Post-market volume = volumen actual total - volumen de sesión regular
+                    postmarket_volume = max(0, volume_today - regular_volume)
+                else:
+                    # Si no tenemos volumen regular, dejamos None
+                    # El lazy fetch poblará el cache para la próxima iteración
+                    postmarket_volume = None
+            
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
@@ -952,6 +1049,17 @@ class ScannerEngine:
                 vol_10min=vol_10min,
                 vol_15min=vol_15min,
                 vol_30min=vol_30min,
+                # Price change window metrics (per-second precision)
+                chg_1min=chg_1min,
+                chg_5min=chg_5min,
+                chg_10min=chg_10min,
+                chg_15min=chg_15min,
+                chg_30min=chg_30min,
+                # Trades anomaly detection (Z-Score based)
+                trades_today=trades_today,
+                avg_trades_5d=avg_trades_5d,
+                trades_z_score=trades_z_score,
+                is_trade_anomaly=is_trade_anomaly,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
@@ -981,6 +1089,9 @@ class ScannerEngine:
                 price_from_intraday_low=price_from_intraday_low,
                 vwap=vwap,
                 price_vs_vwap=price_vs_vwap,
+                # Post-market metrics
+                postmarket_change_percent=postmarket_change_percent,
+                postmarket_volume=postmarket_volume,
                 session=self.current_session,
                 score=0.0,
                 filters_matched=[]
@@ -1216,6 +1327,15 @@ class ScannerEngine:
                 if ticker.market_cap is None or ticker.market_cap > params.max_market_cap:
                     return False
             
+            # Float filters (applies to free_float field)
+            if params.min_float is not None:
+                if ticker.free_float is None or ticker.free_float < params.min_float:
+                    return False
+            
+            if params.max_float is not None:
+                if ticker.free_float is None or ticker.free_float > params.max_float:
+                    return False
+            
             # Sector/Industry filters
             if params.sectors:
                 if ticker.sector not in params.sectors:
@@ -1228,6 +1348,24 @@ class ScannerEngine:
             if params.exchanges:
                 if ticker.exchange not in params.exchanges:
                     return False
+            
+            # Post-Market filters (only apply during POST_MARKET session)
+            if self.current_session == MarketSession.POST_MARKET:
+                if params.min_postmarket_change_percent is not None:
+                    if ticker.postmarket_change_percent is None or ticker.postmarket_change_percent < params.min_postmarket_change_percent:
+                        return False
+                
+                if params.max_postmarket_change_percent is not None:
+                    if ticker.postmarket_change_percent is None or ticker.postmarket_change_percent > params.max_postmarket_change_percent:
+                        return False
+                
+                if params.min_postmarket_volume is not None:
+                    if ticker.postmarket_volume is None or ticker.postmarket_volume < params.min_postmarket_volume:
+                        return False
+                
+                if params.max_postmarket_volume is not None:
+                    if ticker.postmarket_volume is None or ticker.postmarket_volume > params.max_postmarket_volume:
+                        return False
             
             return True
         
@@ -1728,6 +1866,114 @@ class ScannerEngine:
         
         except Exception as e:
             logger.error("Error updating market session", error=str(e))
+    
+    async def _preload_regular_volumes(self, symbols: List[str]) -> None:
+        """
+        🌙 Pre-carga volúmenes regulares para símbolos durante POST_MARKET
+        
+        Este método popula _regular_volumes_cache con los volúmenes de sesión regular
+        para cada símbolo. El cache se usa luego en _build_scanner_ticker_inline
+        de manera síncrona.
+        
+        Flujo:
+        1. Para cada símbolo, intentar obtener de postmarket_capture.get_regular_volume()
+        2. postmarket_capture maneja su propio cache multi-nivel (local → Redis → API)
+        3. Si el símbolo ya está en cache, es O(1)
+        4. Si no, hace lazy fetch (solo para nuevos tickers)
+        
+        Args:
+            symbols: Lista de símbolos para pre-cargar
+        """
+        if not self.postmarket_capture:
+            return
+        
+        # Pre-cargar en paralelo usando gather
+        async def get_volume_safe(symbol: str) -> tuple:
+            try:
+                volume = await self.postmarket_capture.get_regular_volume(symbol)
+                return (symbol, volume)
+            except Exception as e:
+                logger.error("error_preloading_volume", symbol=symbol, error=str(e))
+                return (symbol, None)
+        
+        # Ejecutar en paralelo
+        tasks = [get_volume_safe(symbol) for symbol in symbols]
+        results = await asyncio.gather(*tasks)
+        
+        # Actualizar cache local
+        volumes_loaded = 0
+        for symbol, volume in results:
+            if volume is not None:
+                self._regular_volumes_cache[symbol] = volume
+                volumes_loaded += 1
+        
+        if volumes_loaded > 0:
+            logger.info(
+                "🌙 regular_volumes_preloaded",
+                symbols_requested=len(symbols),
+                volumes_loaded=volumes_loaded,
+                cache_size=len(self._regular_volumes_cache)
+            )
+    
+    async def trigger_postmarket_capture(self, trading_date: str) -> None:
+        """
+        🌙 Trigger inicial de captura de volúmenes regulares
+        
+        Se llama UNA VEZ cuando la sesión cambia a POST_MARKET.
+        Captura el volumen de sesión regular para todos los tickers actualmente
+        en el scanner.
+        
+        Args:
+            trading_date: Fecha de trading en formato YYYY-MM-DD
+        """
+        if not self.postmarket_capture:
+            logger.warning("postmarket_capture_not_initialized")
+            return
+        
+        # Obtener tickers actuales del scanner (de memoria o Redis)
+        current_tickers = self.last_filtered_tickers or []
+        symbols = [t.symbol for t in current_tickers]
+        
+        if not symbols:
+            # Fallback: leer de Redis cache
+            try:
+                cache_key = f"scanner:filtered_complete:{MarketSession.MARKET_OPEN.value}"
+                cached_data = await self.redis.get(cache_key, deserialize=True)
+                if cached_data:
+                    symbols = [t.get('symbol') for t in cached_data if t.get('symbol')]
+            except Exception as e:
+                logger.error("error_reading_filtered_cache", error=str(e))
+        
+        if symbols:
+            logger.info(
+                "🌙 triggering_postmarket_capture",
+                symbols_count=len(symbols),
+                trading_date=trading_date
+            )
+            
+            # Capturar volúmenes en paralelo
+            volumes = await self.postmarket_capture.on_session_changed_to_postmarket(
+                symbols,
+                trading_date
+            )
+            
+            # Actualizar cache local
+            self._regular_volumes_cache.update(volumes)
+            
+            logger.info(
+                "✅ postmarket_capture_completed",
+                volumes_captured=len(volumes),
+                cache_size=len(self._regular_volumes_cache)
+            )
+        else:
+            logger.warning("no_symbols_for_postmarket_capture")
+    
+    def clear_postmarket_cache(self) -> None:
+        """Limpia cache de volúmenes regulares (para nuevo día)"""
+        self._regular_volumes_cache.clear()
+        if self.postmarket_capture:
+            self.postmarket_capture.clear_for_new_day()
+        logger.info("postmarket_cache_cleared")
     
     async def get_filtered_tickers(self, limit: int = settings.default_query_limit) -> List[ScannerTicker]:
         """
