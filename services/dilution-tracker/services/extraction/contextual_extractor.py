@@ -274,6 +274,112 @@ Return ONLY valid JSON.
 """
 
 
+FINANCIALS_EXTRACTION_PROMPT = """
+Eres un analista experto en SEC filings analizando reportes financieros trimestrales/anuales.
+
+## CONTEXTO - INSTRUMENTOS YA IDENTIFICADOS:
+{existing_context}
+
+## FILING: {form_type} ({filing_date})
+{filing_content}
+
+## TU TAREA:
+Extraer información de USAGE y UPDATES de los instrumentos dilutivos YA IDENTIFICADOS.
+Los 10-Q/10-K reportan actividad PASADA (retrospectiva) durante el período.
+
+## BUSCA EN ESTAS SECCIONES:
+
+### 1. MD&A (Management's Discussion and Analysis):
+- "We sold X shares under our ATM program"
+- "We received $X from warrant exercises"
+- "Convertible notes were converted into X shares"
+
+### 2. LIQUIDITY AND CAPITAL RESOURCES:
+- Cash raised from equity offerings
+- ATM activity during the period
+- Proceeds from warrant exercises
+
+### 3. SUBSEQUENT EVENTS:
+- Eventos después del cierre del trimestre
+- Nuevas emisiones, conversiones, ejercicios
+
+### 4. NOTES TO FINANCIAL STATEMENTS:
+- Warrants outstanding at period end
+- Convertible debt details
+- Preferred stock conversions
+- Stock-based compensation (shares issued)
+
+### 5. EQUITY TABLES:
+- Changes in shares outstanding
+- Warrant activity tables
+- Conversion activity
+
+## OUTPUT (JSON):
+{{
+  "atm_usage": [
+    {{
+      "atm_identifier": "series_name del ATM existente en contexto",
+      "period_description": "Q3 2025 / Year 2024 / etc",
+      "shares_sold": <número exacto>,
+      "average_price": <precio promedio por share>,
+      "gross_proceeds": <USD recibidos>,
+      "net_proceeds": <USD netos si se menciona>,
+      "remaining_capacity_after": <capacidad restante si se menciona>
+    }}
+  ],
+  "warrant_exercises": [
+    {{
+      "warrant_identifier": "series_name del warrant existente",
+      "shares_issued": <shares emitidos por ejercicio>,
+      "exercise_price_used": <precio de ejercicio>,
+      "cash_received": <USD recibidos>,
+      "warrants_exercised": <número de warrants ejercidos>,
+      "warrants_remaining_after": <warrants outstanding después>
+    }}
+  ],
+  "note_conversions": [
+    {{
+      "note_identifier": "series_name de la nota existente",
+      "principal_converted": <USD de principal convertido>,
+      "shares_issued": <shares emitidos>,
+      "conversion_price_used": <precio de conversión>,
+      "principal_remaining_after": <principal restante>
+    }}
+  ],
+  "preferred_conversions": [
+    {{
+      "preferred_identifier": "series del preferred existente",
+      "shares_converted": <shares de preferred convertidos>,
+      "common_shares_issued": <shares de common emitidos>,
+      "shares_remaining_after": <preferred shares restantes>
+    }}
+  ],
+  "other_equity_issuances": [
+    {{
+      "issuance_type": "RSU Vesting|Stock Compensation|Direct Issuance|ESPP",
+      "shares_issued": <número>,
+      "date": "YYYY-MM-DD",
+      "description": "breve descripción"
+    }}
+  ],
+  "period_end_status": {{
+    "shares_outstanding": <si se menciona>,
+    "warrants_outstanding_total": <si hay tabla resumen>,
+    "cash_and_equivalents": <si se menciona>
+  }}
+}}
+
+## REGLAS CRÍTICAS:
+1. SOLO extrae datos que encuentres EXPLÍCITAMENTE en el filing
+2. NO inventes números ni asumas valores
+3. Si no encuentras datos de una categoría, devuelve array vacío []
+4. Los "identifiers" deben coincidir con los series_name del contexto
+5. Si no puedes identificar a qué instrumento pertenece un evento, omítelo
+
+Return ONLY valid JSON.
+"""
+
+
 # =============================================================================
 # DATACLASSES
 # =============================================================================
@@ -594,7 +700,14 @@ class ContextualDilutionExtractor:
         
         logger.info("contextual_extractor_initialized", model=self.model, timeout_ms=120000)
     
-    async def extract_all(self, ticker: str, cik: str, company_name: str = "", use_gemini_pro_dedup: bool = True) -> Dict:
+    async def extract_all(
+        self, 
+        ticker: str, 
+        cik: str, 
+        company_name: str = "", 
+        use_gemini_pro_dedup: bool = True,
+        pre_fetched_filings: Optional[List[Dict]] = None
+    ) -> Dict:
         """
         Extracción completa con contexto acumulado.
         
@@ -603,18 +716,24 @@ class ContextualDilutionExtractor:
             cik: CIK de la empresa
             company_name: Nombre de la empresa (para Gemini Pro)
             use_gemini_pro_dedup: Si True, usa Gemini 3 Pro para deduplicación inteligente
+            pre_fetched_filings: Filings ya obtenidos externamente (evita re-búsqueda)
         
         Returns:
             Dict con todos los instrumentos extraídos, deduplicados por contexto
         """
         logger.info("contextual_extraction_start", ticker=ticker, cik=cik, 
-                   gemini_pro_dedup=use_gemini_pro_dedup)
+                   gemini_pro_dedup=use_gemini_pro_dedup,
+                   pre_fetched=len(pre_fetched_filings) if pre_fetched_filings else 0)
         
         # Inicializar contexto
         context = ExtractionContext(ticker=ticker)
         
-        # PASO 1: Obtener todos los filings
-        all_filings = await self.sec_client.search_filings(cik, limit=300)
+        # PASO 1: Obtener todos los filings (usar pre-fetch si disponible)
+        if pre_fetched_filings:
+            all_filings = pre_fetched_filings
+            logger.info("using_pre_fetched_filings", ticker=ticker, count=len(all_filings))
+        else:
+            all_filings = await self.sec_client.search_filings(cik, limit=300)
         
         if not all_filings:
             logger.warning("no_filings_found", ticker=ticker)
@@ -635,6 +754,12 @@ class ContextualDilutionExtractor:
         
         # PASO 4: Procesar transacciones (424B/8-K/6-K) por accessionNo CON CONTEXTO
         await self._process_transactions_with_context(transaction_filings, context)
+        
+        # PASO 4.5: Procesar FINANCIALS (10-Q/10-K/20-F/40-F)
+        # Extrae: ATM usage, warrant exercises, note conversions, preferred conversions
+        # Esto nos permite calcular el remaining_capacity REAL de los ATMs
+        if financials:
+            await self._process_financials(financials, context)
         
         # DEBUG: Log estado antes de deduplicación
         logger.info("pre_dedup_state",
@@ -997,6 +1122,38 @@ class ContextualDilutionExtractor:
         
         return filtered
     
+    def _normalize_filing(self, filing: Dict) -> Dict:
+        """
+        Normaliza campos de filings para soportar ambos formatos:
+        - SEC-API.io (camelCase): formType, filedAt, accessionNo, linkToFilingDetails
+        - SECFilingFetcher (snake_case): form_type, filing_date, accession_number, url
+        """
+        normalized = dict(filing)  # Copy
+        
+        # Normalizar form type
+        if 'form_type' in filing and 'formType' not in filing:
+            normalized['formType'] = filing['form_type']
+        
+        # Normalizar fecha
+        if 'filing_date' in filing and 'filedAt' not in filing:
+            normalized['filedAt'] = filing['filing_date']
+        
+        # Normalizar accession number
+        if 'accession_number' in filing and 'accessionNo' not in filing:
+            normalized['accessionNo'] = filing['accession_number']
+        
+        # Normalizar file number
+        if 'file_number' in filing and 'fileNumber' not in filing:
+            normalized['fileNumber'] = filing['file_number']
+        
+        # Normalizar URL del filing (CRÍTICO para descargar contenido)
+        if 'url' in filing and 'linkToFilingDetails' not in filing:
+            normalized['linkToFilingDetails'] = filing['url']
+        if 'url' in filing and 'linkToHtml' not in filing:
+            normalized['linkToHtml'] = filing['url']
+        
+        return normalized
+    
     def _categorize_filings(self, filings: List[Dict]) -> Tuple[Dict, List, List]:
         """
         Categoriza filings siguiendo la tabla de referencia:
@@ -1009,6 +1166,8 @@ class ContextualDilutionExtractor:
         financials: List[Dict] = []
         
         for f in filings:
+            # Normalizar campos para soportar ambos formatos
+            f = self._normalize_filing(f)
             form = (f.get('formType') or '').upper()
             
             # Extraer fileNo de entities (estructura SEC-API.io)
@@ -1409,6 +1568,405 @@ class ContextualDilutionExtractor:
             co['_source'] = source_tag
             # No deduplicamos completed offerings - cada deal es único
             context.completed_offerings.append(co)
+
+    async def _process_financials(
+        self,
+        financials: List[Dict],
+        context: ExtractionContext
+    ):
+        """
+        Procesa 10-Q/10-K/20-F/40-F para extraer:
+        - Usos del ATM (ventas bajo prospectus supplement)
+        - Ejercicios de warrants
+        - Conversiones de deuda/preferred
+        - Otras emisiones de equity
+        
+        IMPORTANTE: Los financials reportan actividad PASADA, así que
+        necesitamos el contexto de instrumentos ya identificados.
+        """
+        if not financials:
+            return
+        
+        # Filtrar por fecha - últimos 3 años
+        cutoff = (datetime.now() - timedelta(days=1095)).isoformat()
+        recent_financials = [
+            f for f in financials 
+            if (f.get('filedAt') or f.get('filing_date', '')) >= cutoff
+        ]
+        
+        # Ordenar cronológicamente (más antiguo primero)
+        recent_financials.sort(key=lambda x: x.get('filedAt') or x.get('filing_date', ''))
+        
+        # Limitar a los últimos 8 quarters (2 años) para no abusar de API
+        max_financials = 8
+        if len(recent_financials) > max_financials:
+            recent_financials = recent_financials[-max_financials:]
+        
+        if not recent_financials:
+            logger.info("no_recent_financials", ticker=context.ticker)
+            return
+        
+        logger.info("processing_financials",
+                   ticker=context.ticker,
+                   total=len(financials),
+                   recent=len(recent_financials))
+        
+        # Keywords para filtrar financials relevantes
+        financial_keywords = [
+            'atm', 'at-the-market', 'sales agreement',
+            'warrant', 'exercise', 'exercised',
+            'convertible', 'conversion', 'converted',
+            'preferred', 'shares issued', 'dilution',
+            'equity line', 'common stock issued', 'proceeds'
+        ]
+        
+        for idx, filing in enumerate(recent_financials):
+            await self._process_single_financial(
+                filing, context, 
+                idx=idx + 1, 
+                total=len(recent_financials),
+                keywords=financial_keywords
+            )
+    
+    async def _process_single_financial(
+        self,
+        filing: Dict,
+        context: ExtractionContext,
+        idx: int,
+        total: int,
+        keywords: List[str]
+    ):
+        """Procesa un único filing financiero (10-Q/10-K/20-F/40-F)."""
+        # Normalizar campos
+        filing = self._normalize_filing(filing)
+        ident = self._get_filing_identity(filing)
+        accession = ident["accession"] or ident["url"]
+        
+        if not accession:
+            return
+        
+        # Skip si ya procesamos este filing
+        financial_key = f"financial:{accession}"
+        if financial_key in context.processed_accessions:
+            return
+        context.processed_accessions.add(financial_key)
+        
+        url = ident["url"]
+        if not url:
+            return
+        
+        # Descargar contenido
+        content = await self.sec_client.fetch_filing_content(url, filing_data=filing)
+        if not content:
+            logger.debug("financial_no_content", url=url[:80])
+            return
+        
+        # Gate: verificar que tiene keywords relevantes
+        content_lower = content.lower()
+        if not any(k in content_lower for k in keywords):
+            logger.debug("financial_no_relevant_keywords", 
+                        form=ident["form"], 
+                        date=ident["date"])
+            return
+        
+        # Truncar contenido a MD&A y secciones relevantes
+        # Los 10-Q/10-K son muy largos, extraemos secciones clave
+        relevant_content = self._extract_relevant_sections(content, ident["form"])
+        
+        if not relevant_content or len(relevant_content) < 1000:
+            logger.debug("financial_no_relevant_sections", 
+                        form=ident["form"])
+            return
+        
+        # Preparar prompt
+        prompt = FINANCIALS_EXTRACTION_PROMPT.format(
+            existing_context=context.to_context_string(),
+            form_type=ident["form"],
+            filing_date=ident["date"],
+            filing_content=relevant_content[:MAX_CONTENT_PER_FILING]
+        )
+        
+        logger.info("gemini_financial_call",
+                   ticker=context.ticker,
+                   idx=idx,
+                   total=total,
+                   form=ident["form"],
+                   date=ident["date"],
+                   content_chars=len(relevant_content))
+        
+        # Llamar a Gemini con retry
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = self.gemini.models.generate_content(
+                    model=self.model,
+                    contents=[prompt],
+                    config=types.GenerateContentConfig(
+                        temperature=0.1,
+                        response_mime_type="application/json"
+                    )
+                )
+                
+                if response and response.text:
+                    self._apply_financial_updates(
+                        response.text, 
+                        context, 
+                        ident,
+                        url
+                    )
+                
+                # Rate limiting - esperar entre llamadas
+                await asyncio.sleep(1.5)
+                break
+                
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    wait_time = 10 * (attempt + 1)
+                    logger.warning("financial_rate_limited", 
+                                  attempt=attempt + 1,
+                                  wait_seconds=wait_time)
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error("financial_extraction_error",
+                               form=ident["form"],
+                               error=error_str[:200])
+                    break
+    
+    def _extract_relevant_sections(self, content: str, form_type: str) -> str:
+        """
+        Extrae secciones relevantes de un 10-Q/10-K.
+        Los filings financieros son muy largos (500K+ chars).
+        Nos enfocamos en las secciones con información de dilución.
+        """
+        content_lower = content.lower()
+        sections = []
+        
+        # Secciones a buscar (en orden de prioridad)
+        section_markers = [
+            # MD&A
+            ("management's discussion", "item 3", 100000),
+            ("management's discussion", "item 7a", 100000),
+            # Liquidity
+            ("liquidity and capital", "contractual obligations", 50000),
+            # Subsequent Events
+            ("subsequent events", "item 9", 30000),
+            # Equity/Warrants tables
+            ("warrants outstanding", "the following table", 20000),
+            ("warrant activity", "the following table", 20000),
+            ("equity transactions", "the following", 30000),
+            # ATM specific
+            ("at-the-market", "sales agreement", 30000),
+            ("atm program", "prospectus supplement", 30000),
+        ]
+        
+        for start_marker, end_marker, max_chars in section_markers:
+            start_idx = content_lower.find(start_marker)
+            if start_idx != -1:
+                # Buscar fin de sección
+                end_idx = content_lower.find(end_marker, start_idx + len(start_marker))
+                if end_idx == -1:
+                    end_idx = start_idx + max_chars
+                else:
+                    end_idx = min(end_idx + 1000, start_idx + max_chars)
+                
+                section = content[start_idx:end_idx]
+                if len(section) > 500:  # Solo secciones con contenido sustancial
+                    sections.append(f"=== SECTION: {start_marker.upper()} ===\n{section}\n")
+        
+        if not sections:
+            # Fallback: tomar los primeros 100K chars
+            return content[:100000]
+        
+        # Combinar secciones (máximo 300K chars)
+        combined = "\n\n".join(sections)
+        return combined[:300000]
+    
+    def _apply_financial_updates(
+        self,
+        response_text: str,
+        context: ExtractionContext,
+        ident: Dict[str, str],
+        filing_url: str
+    ):
+        """Aplica las actualizaciones extraídas del financial al contexto."""
+        try:
+            data = json.loads(response_text)
+        except json.JSONDecodeError:
+            logger.warning("financial_invalid_json", form=ident["form"])
+            return
+        
+        source_tag = f"financial:{ident['form']}:{ident['date']}"
+        
+        # 1. Procesar ATM Usage → crear completed_offerings de tipo "ATM Sale"
+        for atm_use in data.get('atm_usage', []) or []:
+            if not isinstance(atm_use, dict):
+                continue
+            
+            shares_sold = atm_use.get('shares_sold')
+            gross_proceeds = atm_use.get('gross_proceeds')
+            
+            if shares_sold or gross_proceeds:
+                completed = {
+                    'ticker': context.ticker,
+                    'offering_type': 'ATM Sale',
+                    'offering_date': ident['date'],
+                    'shares_issued': shares_sold,
+                    'amount_raised': gross_proceeds,
+                    'price_per_share': atm_use.get('average_price'),
+                    'placement_agent': None,  # Se puede inferir del ATM existente
+                    'source_filing': ident['form'],
+                    'filing_url': filing_url,
+                    '_source': source_tag,
+                    'notes': atm_use.get('period_description', '')
+                }
+                context.completed_offerings.append(completed)
+                
+                logger.info("atm_usage_extracted",
+                           ticker=context.ticker,
+                           shares=shares_sold,
+                           proceeds=gross_proceeds,
+                           period=atm_use.get('period_description'))
+                
+                # Actualizar remaining_capacity del ATM si se proporciona
+                remaining = atm_use.get('remaining_capacity_after')
+                if remaining and atm_use.get('atm_identifier'):
+                    self._update_atm_remaining(
+                        context, 
+                        atm_use['atm_identifier'], 
+                        remaining
+                    )
+        
+        # 2. Procesar Warrant Exercises → crear completed_offerings
+        for exercise in data.get('warrant_exercises', []) or []:
+            if not isinstance(exercise, dict):
+                continue
+            
+            shares = exercise.get('shares_issued')
+            cash = exercise.get('cash_received')
+            
+            if shares or cash:
+                completed = {
+                    'ticker': context.ticker,
+                    'offering_type': 'Warrant Exercise',
+                    'offering_date': ident['date'],
+                    'shares_issued': shares,
+                    'amount_raised': cash,
+                    'price_per_share': exercise.get('exercise_price_used'),
+                    'source_filing': ident['form'],
+                    'filing_url': filing_url,
+                    '_source': source_tag,
+                    'notes': f"Warrant: {exercise.get('warrant_identifier', 'Unknown')}"
+                }
+                context.completed_offerings.append(completed)
+                
+                # Actualizar warrants outstanding
+                remaining = exercise.get('warrants_remaining_after')
+                if remaining is not None and exercise.get('warrant_identifier'):
+                    self._update_warrant_outstanding(
+                        context,
+                        exercise['warrant_identifier'],
+                        remaining
+                    )
+        
+        # 3. Procesar Note Conversions → crear completed_offerings
+        for conversion in data.get('note_conversions', []) or []:
+            if not isinstance(conversion, dict):
+                continue
+            
+            shares = conversion.get('shares_issued')
+            principal = conversion.get('principal_converted')
+            
+            if shares or principal:
+                completed = {
+                    'ticker': context.ticker,
+                    'offering_type': 'Note Conversion',
+                    'offering_date': ident['date'],
+                    'shares_issued': shares,
+                    'amount_raised': 0,  # No cash - es conversión
+                    'price_per_share': conversion.get('conversion_price_used'),
+                    'source_filing': ident['form'],
+                    'filing_url': filing_url,
+                    '_source': source_tag,
+                    'notes': f"Note: {conversion.get('note_identifier', 'Unknown')}, Principal: ${principal}"
+                }
+                context.completed_offerings.append(completed)
+        
+        # 4. Procesar Preferred Conversions
+        for conv in data.get('preferred_conversions', []) or []:
+            if not isinstance(conv, dict):
+                continue
+            
+            shares = conv.get('common_shares_issued')
+            if shares:
+                completed = {
+                    'ticker': context.ticker,
+                    'offering_type': 'Preferred Conversion',
+                    'offering_date': ident['date'],
+                    'shares_issued': shares,
+                    'amount_raised': 0,
+                    'source_filing': ident['form'],
+                    'filing_url': filing_url,
+                    '_source': source_tag,
+                    'notes': f"Preferred: {conv.get('preferred_identifier', 'Unknown')}"
+                }
+                context.completed_offerings.append(completed)
+        
+        # 5. Otras emisiones de equity
+        for issuance in data.get('other_equity_issuances', []) or []:
+            if not isinstance(issuance, dict):
+                continue
+            
+            shares = issuance.get('shares_issued')
+            if shares and shares > 1000:  # Ignorar emisiones pequeñas de stock comp
+                completed = {
+                    'ticker': context.ticker,
+                    'offering_type': issuance.get('issuance_type', 'Other Issuance'),
+                    'offering_date': issuance.get('date') or ident['date'],
+                    'shares_issued': shares,
+                    'amount_raised': 0,
+                    'source_filing': ident['form'],
+                    'filing_url': filing_url,
+                    '_source': source_tag,
+                    'notes': issuance.get('description', '')
+                }
+                context.completed_offerings.append(completed)
+    
+    def _update_atm_remaining(
+        self, 
+        context: ExtractionContext, 
+        atm_identifier: str, 
+        remaining: float
+    ):
+        """Actualiza el remaining_capacity de un ATM existente."""
+        atm_id_lower = atm_identifier.lower()
+        for atm in context.atm_offerings:
+            atm_name = (atm.get('series_name') or '').lower()
+            if atm_id_lower in atm_name or atm_name in atm_id_lower:
+                atm['remaining_capacity'] = remaining
+                atm['_remaining_updated_from'] = 'financial'
+                logger.debug("atm_remaining_updated",
+                           atm=atm.get('series_name'),
+                           remaining=remaining)
+                return
+    
+    def _update_warrant_outstanding(
+        self,
+        context: ExtractionContext,
+        warrant_identifier: str,
+        outstanding: int
+    ):
+        """Actualiza el outstanding de un warrant existente."""
+        warrant_id_lower = warrant_identifier.lower()
+        for warrant in context.warrants:
+            warrant_name = (warrant.get('series_name') or '').lower()
+            if warrant_id_lower in warrant_name or warrant_name in warrant_id_lower:
+                warrant['outstanding'] = outstanding
+                warrant['_outstanding_updated_from'] = 'financial'
+                logger.debug("warrant_outstanding_updated",
+                           warrant=warrant.get('series_name'),
+                           outstanding=outstanding)
+                return
 
     def _instrument_key(self, instrument: Dict, inst_type: str) -> str:
         """

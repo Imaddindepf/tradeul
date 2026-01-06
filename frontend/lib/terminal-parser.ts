@@ -222,6 +222,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.FAN.description',
         shortcut: 'Ctrl+Shift+F'
     },
+    AI: {
+        id: 'ai',
+        label: 'AI',
+        name: 'AI Agent',
+        descriptionKey: 'terminalCommands.globalCommands.AI.description',
+        shortcut: 'Ctrl+Shift+A'
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

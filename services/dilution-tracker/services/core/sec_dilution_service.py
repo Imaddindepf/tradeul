@@ -283,7 +283,8 @@ class SECDilutionService:
         ticker: str,
         cik: str,
         company_name: str = "",
-        use_gemini_pro_dedup: bool = True
+        use_gemini_pro_dedup: bool = True,
+        all_filings: Optional[List[Dict]] = None
     ) -> Optional[Dict]:
         """
         Extracción v4 basada en contexto largo de Gemini.
@@ -299,6 +300,7 @@ class SECDilutionService:
             cik: CIK de la empresa
             company_name: Nombre de la empresa (para Gemini Pro dedup)
             use_gemini_pro_dedup: Si True, usa Gemini 3 Pro para deduplicación inteligente
+            all_filings: Filings pre-obtenidos (evita re-búsqueda en el extractor)
         
         Returns:
             Dict con formato compatible con _build_profile
@@ -310,14 +312,17 @@ class SECDilutionService:
         try:
             logger.info("contextual_extraction_starting", 
                        ticker=ticker, cik=cik, 
-                       gemini_pro_dedup=use_gemini_pro_dedup)
+                       gemini_pro_dedup=use_gemini_pro_dedup,
+                       pre_fetched_filings=len(all_filings) if all_filings else 0)
             
             # Ejecutar extracción v4.4 (con Gemini Pro dedup si habilitado)
+            # Pasar filings pre-obtenidos para evitar re-búsqueda
             result = await self._contextual_extractor.extract_all(
                 ticker=ticker,
                 cik=cik,
                 company_name=company_name,
-                use_gemini_pro_dedup=use_gemini_pro_dedup
+                use_gemini_pro_dedup=use_gemini_pro_dedup,
+                pre_fetched_filings=all_filings
             )
             
             if not result:
@@ -1629,16 +1634,29 @@ class SECDilutionService:
                     logger.error("contextual_extractor_not_configured", ticker=ticker)
                     return self._create_empty_profile(ticker, cik, company_name)
                 
+                # Combinar TODOS los filings disponibles para pasar al extractor
+                all_combined_filings = list(filings)  # Ya incluye 424B
+                # Añadir priority_filings si no están ya incluidos
+                if priority_filings_from_fulltext:
+                    existing_accession_nos = {f.get('accessionNo', f.get('accession_number', '')) for f in all_combined_filings}
+                    for pf in priority_filings_from_fulltext:
+                        acc_no = pf.get('accessionNo', pf.get('accession_number', ''))
+                        if acc_no and acc_no not in existing_accession_nos:
+                            all_combined_filings.append(pf)
+                
                 logger.info("starting_contextual_extraction_v4", ticker=ticker, 
-                           use_gemini_pro_dedup=True)
+                           use_gemini_pro_dedup=True,
+                           total_filings_to_process=len(all_combined_filings))
                 
                 try:
                     # v4.4: Gemini Pro Dedup habilitado por defecto
+                    # OPTIMIZACIÓN: Pasar todos los filings pre-buscados para evitar re-búsqueda
                     extracted_data = await self._extract_with_contextual_v4(
                         ticker=ticker,
                         cik=cik,
                         company_name=company_name,
-                        use_gemini_pro_dedup=True  # Usar Gemini 3 Pro para dedup + split adjustment
+                        use_gemini_pro_dedup=True,  # Usar Gemini 3 Pro para dedup + split adjustment
+                        all_filings=all_combined_filings
                     )
                 except Exception as e:
                     logger.error("contextual_extraction_v4_failed", ticker=ticker, error=str(e))
@@ -1997,6 +2015,100 @@ class SECDilutionService:
             logger.error("get_price_from_polygon_failed", ticker=ticker, error=str(e))
             return None
     
+    def _calculate_atm_remaining_from_sales(
+        self, 
+        atm_offerings: List, 
+        completed_offerings: List,
+        ticker: str
+    ):
+        """
+        Calcula el remaining_capacity REAL del ATM basándose en las ventas 
+        extraídas de los 10-Q/10-K (completed_offerings con type='ATM Sale').
+        
+        El proceso:
+        1. Filtra completed_offerings con offering_type='ATM Sale'
+        2. Suma todos los amount_raised de esas ventas
+        3. Para cada ATM, calcula: remaining = total_capacity - sum(sales)
+        
+        NOTA: Si hay múltiples ATMs, intentamos matchear por fecha/nombre.
+        Si solo hay un ATM activo, asumimos que todas las sales van ahí.
+        """
+        # Filtrar solo ATM Sales
+        atm_sales = [
+            co for co in completed_offerings
+            if hasattr(co, 'offering_type') and co.offering_type == 'ATM Sale'
+        ]
+        
+        if not atm_sales:
+            logger.debug("no_atm_sales_found", ticker=ticker)
+            return
+        
+        # Sumar todos los proceeds de ATM Sales
+        total_atm_proceeds = Decimal('0')
+        for sale in atm_sales:
+            if sale.amount_raised:
+                try:
+                    total_atm_proceeds += Decimal(str(sale.amount_raised))
+                except:
+                    pass
+        
+        if total_atm_proceeds <= 0:
+            logger.debug("no_atm_proceeds_to_subtract", ticker=ticker)
+            return
+        
+        logger.info("atm_sales_total_found",
+                   ticker=ticker,
+                   num_sales=len(atm_sales),
+                   total_proceeds=float(total_atm_proceeds))
+        
+        # Aplicar a los ATM offerings
+        # Si solo hay un ATM activo, todas las sales van a ese ATM
+        active_atms = [
+            atm for atm in atm_offerings 
+            if hasattr(atm, 'status') and atm.status in ('Active', 'active', None)
+        ]
+        
+        if len(active_atms) == 1:
+            atm = active_atms[0]
+            if atm.total_capacity:
+                try:
+                    total = Decimal(str(atm.total_capacity))
+                    new_remaining = max(Decimal('0'), total - total_atm_proceeds)
+                    
+                    # Guardar el remaining calculado
+                    atm.remaining_capacity = new_remaining
+                    
+                    logger.info("atm_remaining_calculated",
+                              ticker=ticker,
+                              atm_name=getattr(atm, 'series_name', 'Unknown'),
+                              total_capacity=float(total),
+                              total_sold=float(total_atm_proceeds),
+                              calculated_remaining=float(new_remaining))
+                except Exception as e:
+                    logger.warning("atm_remaining_calc_error", 
+                                  ticker=ticker, 
+                                  error=str(e))
+        elif len(active_atms) > 1:
+            # Múltiples ATMs activos - distribuir proporcionalmente
+            # (simplificación: asignar todo al más reciente)
+            logger.warning("multiple_active_atms_found", 
+                          ticker=ticker, 
+                          count=len(active_atms))
+            # Por ahora, aplicar al primero (el más reciente por orden de creación)
+            atm = active_atms[0]
+            if atm.total_capacity:
+                try:
+                    total = Decimal(str(atm.total_capacity))
+                    new_remaining = max(Decimal('0'), total - total_atm_proceeds)
+                    atm.remaining_capacity = new_remaining
+                    
+                    logger.info("atm_remaining_calculated_first",
+                              ticker=ticker,
+                              atm_name=getattr(atm, 'series_name', 'Unknown'),
+                              calculated_remaining=float(new_remaining))
+                except:
+                    pass
+    
     def _sanitize_field_lengths(self, item: Dict, field_limits: Dict[str, int]) -> Dict:
         """
         Sanitiza campos string que excedan max_length de Pydantic.
@@ -2114,12 +2226,14 @@ class SECDilutionService:
                         shelf.price_to_exceed_baby_shelf = price_to_exceed
             
             # Enriquecer ATM Offerings
-            current_price = float(profile.current_price or 0)
+            # Usar Decimal para evitar errores de tipos
+            current_price_decimal = Decimal(str(profile.current_price or 0))
             for atm in profile.atm_offerings:
                 atm.last_update_date = datetime.now().date()
                 
                 if is_baby_shelf and atm.remaining_capacity:
                     # El ATM puede estar limitado por Baby Shelf
+                    # IMPORTANTE: Guardar el remaining REAL sin sobrescribirlo
                     atm.remaining_capacity_without_restriction = atm.remaining_capacity
                     
                     # Current raisable bajo IB6
@@ -2132,14 +2246,21 @@ class SECDilutionService:
                     
                     if current_raisable < atm.remaining_capacity:
                         atm.atm_limited_by_baby_shelf = True
-                        # El effective remaining es el menor entre IB6 y el remaining real
-                        atm.remaining_capacity = current_raisable
+                        # FIX: NO sobrescribir remaining_capacity
+                        # El remaining_capacity debe ser el valor REAL del ATM
+                        # Usar effective_remaining_capacity para el valor limitado
+                        atm.effective_remaining_capacity = current_raisable
                     else:
                         atm.atm_limited_by_baby_shelf = False
+                        atm.effective_remaining_capacity = atm.remaining_capacity
+                else:
+                    # Si no es baby shelf, effective = remaining
+                    atm.effective_remaining_capacity = atm.remaining_capacity
                 
-                # SIEMPRE recalcular potential_shares usando remaining_capacity y current_price
-                if current_price and current_price > 0 and atm.remaining_capacity:
-                    atm.potential_shares_at_current_price = int(Decimal(str(atm.remaining_capacity)) / current_price)
+                # SIEMPRE recalcular potential_shares usando el EFFECTIVE remaining (limitado por baby shelf si aplica)
+                effective_remaining = atm.effective_remaining_capacity or atm.remaining_capacity
+                if current_price_decimal and current_price_decimal > 0 and effective_remaining:
+                    atm.potential_shares_at_current_price = int(Decimal(str(effective_remaining)) / current_price_decimal)
             
             return profile
             
@@ -2518,6 +2639,14 @@ class SECDilutionService:
             )
             for el in [self._sanitize_field_lengths(x, el_limits) for x in extracted_data.get('equity_lines', [])]
         ]
+        
+        # =================================================================
+        # CALCULAR ATM REMAINING REAL basándose en ATM Sales extraídos
+        # =================================================================
+        # Los completed_offerings con offering_type='ATM Sale' representan
+        # ventas reales bajo el ATM program, extraídas de los 10-Q/10-K.
+        # Calculamos el remaining_capacity real = total - sum(sales)
+        self._calculate_atm_remaining_from_sales(atm_offerings, completed_offerings, ticker)
         
         # Metadata
         metadata = DilutionProfileMetadata(

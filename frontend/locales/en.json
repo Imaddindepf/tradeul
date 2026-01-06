@@ -205,6 +205,10 @@
       "name": "Financial Analyst",
       "description": "Financial analysis with real-time data"
     },
+    "ai": {
+      "name": "AI Agent",
+      "description": "AI assistant for market analysis with natural language"
+    },
     "help": {
       "name": "Help",
       "description": "Show terminal help"
@@ -567,6 +571,9 @@
       },
       "FAN": {
         "description": "Financial analyst with real-time search"
+      },
+      "AI": {
+        "description": "AI assistant for natural language market analysis"
       }
     }
   }

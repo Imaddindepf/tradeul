@@ -23,6 +23,7 @@ import {
   TrendingUp,
   Users,
   Brain,
+  Bot,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -58,6 +59,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'mp', label: 'MP', description: 'commands.mp.description', icon: TrendingUp, shortcut: 'Ctrl+M' },
   { id: 'insider', label: 'INSIDER', description: 'commands.insider.description', icon: Users, shortcut: 'Ctrl+I' },
   { id: 'fan', label: 'FAN', description: 'commands.fan.description', icon: Brain, shortcut: 'Ctrl+Shift+F' },
+  { id: 'ai', label: 'AI', description: 'commands.ai.description', icon: Bot, shortcut: 'Ctrl+Shift+A' },
 ];
 
 /**

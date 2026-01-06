@@ -27,6 +27,7 @@ import { ScreenerContent } from '@/components/screener';
 import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
 import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
 import { FinancialAnalystContent } from '@/components/financial-analyst';
+import { AIAgentContent } from '@/components/ai-agent';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -437,6 +438,19 @@ export function useCommandExecutor() {
                     x: Math.max(50, screenWidth / 2 - 250),
                     y: Math.max(70, screenHeight / 2 - 325),
                     minWidth: 400,
+                    minHeight: 500,
+                });
+                return null;
+
+            case 'ai':
+                openWindow({
+                    title: 'AI Agent',
+                    content: <AIAgentContent />,
+                    width: 1100,
+                    height: 700,
+                    x: Math.max(50, screenWidth / 2 - 550),
+                    y: Math.max(70, screenHeight / 2 - 350),
+                    minWidth: 800,
                     minHeight: 500,
                 });
                 return null;

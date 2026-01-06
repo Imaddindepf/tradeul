@@ -466,7 +466,8 @@ class ATMOfferingModel(BaseModel):
     registration_type: Optional[str] = Field(None, description="EDGAR / Not Registered")
     # Baby Shelf calculation fields
     atm_limited_by_baby_shelf: Optional[bool] = Field(None, description="True if ATM is limited by baby shelf restriction")
-    remaining_capacity_without_restriction: Optional[Decimal] = Field(None, description="Remaining capacity without baby shelf limitation")
+    remaining_capacity_without_restriction: Optional[Decimal] = Field(None, description="Remaining capacity without baby shelf limitation (same as remaining_capacity)")
+    effective_remaining_capacity: Optional[Decimal] = Field(None, description="Effective remaining capacity (limited by baby shelf if applicable)")
     last_update_date: Optional[date] = Field(None, description="Date of last update")
     
     @validator('ticker')
