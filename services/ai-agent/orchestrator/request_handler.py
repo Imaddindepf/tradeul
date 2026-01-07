@@ -359,8 +359,32 @@ class RequestHandler:
             'hora', 'hour', 'minuto', 'minute', '4am', '5am', '9:30'
         ])
         
+        # Check if query is about TODAY's intraday data
+        needs_today_bars = any(term in query_lower for term in [
+            'hoy', 'today', 'ahora', 'now', 'esta hora', 'this hour',
+            'últim', 'ultim', 'last', 'minuto', 'minute', 'intraday'
+        ]) and not any(term in query_lower for term in ['ayer', 'yesterday', 'semana', 'week'])
+        
         # Check for specific tickers mentioned
         tickers = self._extract_tickers(query)
+        
+        # If asking about today's intraday data for specific tickers, request on-demand
+        if needs_today_bars and tickers:
+            await self._request_today_bars(tickers[:20])
+            # Load today's minute bars
+            today = datetime.now(ET)
+            today_bars = await self._load_minute_aggs(today)
+            if not today_bars.empty:
+                # Filter to mentioned tickers if any
+                ticker_bars = today_bars[today_bars['symbol'].isin(tickers)]
+                if not ticker_bars.empty:
+                    data['today_bars'] = ticker_bars
+                    sources.append('today_bars')
+                    logger.info("today_bars_loaded", tickers=tickers[:10], rows=len(ticker_bars))
+                else:
+                    # Return all today bars as fallback
+                    data['today_bars'] = today_bars
+                    sources.append('today_bars')
         
         if needs_historical and tickers:
             # Fetch bars for mentioned tickers
@@ -581,7 +605,7 @@ Ejemplos:
     
     async def _load_minute_aggs(self, target_date: datetime, hour: Optional[int] = None) -> pd.DataFrame:
         """
-        Load minute aggregates from Polygon flat files.
+        Load minute aggregates from Polygon flat files or today.parquet.
         
         Args:
             target_date: Date to load
@@ -592,18 +616,32 @@ Ejemplos:
             datetime is timezone-aware in ET
         """
         date_str = target_date.strftime('%Y-%m-%d')
-        file_path = f'/data/polygon/minute_aggs/{date_str}.csv.gz'
+        today_str = datetime.now(ET).strftime('%Y-%m-%d')
+        is_today = date_str == today_str
+        
+        # Determine file path
+        if is_today:
+            file_path = '/data/polygon/minute_aggs/today.parquet'
+        else:
+            file_path = f'/data/polygon/minute_aggs/{date_str}.csv.gz'
         
         try:
             if not Path(file_path).exists():
-                logger.warning("minute_aggs_not_found", date=date_str)
+                if is_today:
+                    logger.info("today_parquet_not_found_yet", date=date_str)
+                else:
+                    logger.warning("minute_aggs_not_found", date=date_str)
                 return pd.DataFrame()
             
-            # Read CSV.GZ efficiently
-            df = pd.read_csv(file_path, compression='gzip')
-            
-            # Convert timestamp: Polygon uses nanoseconds since epoch in UTC
-            df['datetime_utc'] = pd.to_datetime(df['window_start'] / 1e9, unit='s', utc=True)
+            # Read file based on type
+            if file_path.endswith('.parquet'):
+                df = pd.read_parquet(file_path)
+                # Convert window_start to datetime
+                df['datetime_utc'] = pd.to_datetime(df['window_start'] / 1e6, unit='ms', utc=True)
+            else:
+                df = pd.read_csv(file_path, compression='gzip')
+                # Convert timestamp: Polygon uses nanoseconds since epoch in UTC
+                df['datetime_utc'] = pd.to_datetime(df['window_start'] / 1e9, unit='s', utc=True)
             
             # Convert to Eastern Time for proper hour filtering
             df['datetime'] = df['datetime_utc'].dt.tz_convert(ET)
@@ -620,15 +658,32 @@ Ejemplos:
                 logger.info("minute_aggs_hour_filter", date=date_str, hour=hour, rows_after=len(df))
             
             # Rename and select columns
-            df = df.rename(columns={'ticker': 'symbol'})
+            if 'ticker' in df.columns:
+                df = df.rename(columns={'ticker': 'symbol'})
             df = df[['symbol', 'datetime', 'open', 'high', 'low', 'close', 'volume']]
             
-            logger.info("minute_aggs_loaded", date=date_str, hour=hour, rows=len(df))
+            logger.info("minute_aggs_loaded", date=date_str, hour=hour, rows=len(df), source='today' if is_today else 'flat')
             return df
             
         except Exception as e:
             logger.error("minute_aggs_load_error", date=date_str, error=str(e))
             return pd.DataFrame()
+    
+    async def _request_today_bars(self, tickers: List[str]) -> bool:
+        """Request on-demand download of tickers from today-bars-worker."""
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    "http://today-bars-worker:8035/download",
+                    json={"tickers": tickers}
+                )
+                if resp.status_code == 200:
+                    result = resp.json()
+                    logger.info("today_bars_requested", tickers=tickers, result=result)
+                    return result.get("success", False)
+        except Exception as e:
+            logger.warning("today_bars_request_failed", error=str(e))
+        return False
     
     def _extract_tickers(self, query: str) -> List[str]:
         """Extract potential ticker symbols from query."""

@@ -103,6 +103,36 @@ else:
     print("Datos historicos no disponibles")
 ```
 
+### today_bars (Minute Aggregates de HOY - INTRADAY)
+Columnas: symbol, datetime (timezone-aware ET), open, high, low, close, volume
+
+IMPORTANTE: Para consultas sobre el día de HOY con granularidad de minutos:
+- Gráfico intraday de un ticker específico
+- Top gainers de las últimas X horas/minutos de HOY
+- Análisis de volumen por hora de HOY
+
+```python
+if 'today_bars' in dir() and not today_bars.empty:
+    df = today_bars.copy()
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    
+    # Filtrar por ticker específico
+    ticker = 'AAPL'
+    df_ticker = df[df['symbol'] == ticker]
+    
+    # Agrupar por hora
+    df_ticker['hour'] = df_ticker['datetime'].dt.hour
+    hourly = df_ticker.groupby('hour').agg({
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'volume': 'sum'
+    }).reset_index()
+    
+    save_output(hourly, 'hourly_ohlc')
+```
+
 ### ULTIMOS X DIAS / RANGO DE FECHAS
 Cuando el usuario pide "últimos X días", "última semana", etc:
 - SIEMPRE usa `historical_bars` que ya tiene las fechas correctas

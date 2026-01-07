@@ -65,6 +65,8 @@ class DailyMaintenanceScheduler:
         self.is_running = False
         
         # Configuración de horarios (ET)
+        self.today_bars_cleanup_hour = 0    # 00:00 AM ET - Borrar today.parquet
+        self.today_bars_cleanup_minute = 0
         self.metadata_refresh_hour = 1      # 1:00 AM ET - Refresh metadata
         self.metadata_refresh_minute = 0
         self.maintenance_hour = 3           # 3:00 AM ET - Mantenimiento principal
@@ -74,6 +76,7 @@ class DailyMaintenanceScheduler:
         self.check_interval = 30            # Segundos entre checks
         
         # Estado
+        self.last_today_bars_cleanup_date: Optional[date] = None  # Último cleanup de today.parquet
         self.last_metadata_refresh_date: Optional[date] = None  # Último refresh de metadata
         self.last_data_load_date: Optional[date] = None  # Último día de trading cargado
         self.last_cache_cleanup_date: Optional[date] = None
@@ -195,6 +198,12 @@ class DailyMaintenanceScheduler:
     async def _load_state(self):
         """Cargar estado desde Redis"""
         try:
+            # Estado de today bars cleanup
+            last_today_cleanup = await self.redis.get("maintenance:last_today_bars_cleanup")
+            if last_today_cleanup:
+                self.last_today_bars_cleanup_date = date.fromisoformat(last_today_cleanup)
+                logger.info("loaded_last_today_bars_cleanup_date", date=str(self.last_today_bars_cleanup_date))
+            
             # Estado de metadata refresh
             last_metadata = await self.redis.get("maintenance:last_metadata_refresh")
             if last_metadata:
@@ -220,6 +229,19 @@ class DailyMaintenanceScheduler:
         current_date = now_et.date()
         current_hour = now_et.hour
         current_minute = now_et.minute
+        
+        # =============================================
+        # -1. CLEANUP DE TODAY.PARQUET (00:00 AM ET)
+        # Borra el archivo de minute bars de hoy para que
+        # Polygon pueda descargar el flat file oficial
+        # =============================================
+        is_today_bars_cleanup_time = (
+            current_hour == self.today_bars_cleanup_hour and
+            self.today_bars_cleanup_minute <= current_minute <= self.today_bars_cleanup_minute + 5
+        )
+        
+        if is_today_bars_cleanup_time and self.last_today_bars_cleanup_date != current_date:
+            await self._execute_today_bars_cleanup(current_date)
         
         # =============================================
         # 0. REFRESH DE METADATA (1:00 AM ET)
@@ -276,6 +298,33 @@ class DailyMaintenanceScheduler:
     # =========================================================================
     # EJECUCIÓN DE TAREAS
     # =========================================================================
+    
+    async def _execute_today_bars_cleanup(self, current_date: date):
+        """
+        Borrar today.parquet al inicio de cada día.
+        
+        El archivo se regenera por el Today Bars Worker durante el mercado.
+        Al día siguiente, Polygon provee el flat file oficial.
+        """
+        logger.info("starting_today_bars_cleanup", date=str(current_date))
+        
+        try:
+            from tasks.cleanup_today_bars import cleanup_today_bars
+            
+            result = await cleanup_today_bars()
+            
+            self.last_today_bars_cleanup_date = current_date
+            await self.redis.set("maintenance:last_today_bars_cleanup", current_date.isoformat())
+            
+            logger.info(
+                "today_bars_cleanup_completed",
+                date=str(current_date),
+                action=result.get("action"),
+                size_mb=result.get("size_mb", 0)
+            )
+            
+        except Exception as e:
+            logger.error("today_bars_cleanup_exception", date=str(current_date), error=str(e))
     
     async def _execute_metadata_refresh(self, current_date: date):
         """

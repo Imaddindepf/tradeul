@@ -665,6 +665,8 @@ services:
         condition: service_healthy
       scanner:
         condition: service_started
+      today_bars_worker:
+        condition: service_started
     restart: unless-stopped
     networks:
       - tradeul_network
@@ -677,6 +679,51 @@ services:
           memory: 1G
         reservations:
           memory: 512M
+
+  # =============================================
+  # TODAY BARS WORKER - Minute bars de HOY
+  # =============================================
+
+  today_bars_worker:
+    build:
+      context: ./services/today-bars-worker
+      dockerfile: Dockerfile
+    container_name: tradeul_today_bars_worker
+    env_file:
+      - .env
+    environment:
+      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - SCANNER_URL=http://scanner:8005
+      - DATA_DIR=/data/polygon/minute_aggs
+      - BATCH_INTERVAL=300
+    volumes:
+      - polygon_data:/data/polygon
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      scanner:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8035:8035"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8035/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
 
   # =============================================
   # PATTERN MATCHING SERVICE (FAISS)
