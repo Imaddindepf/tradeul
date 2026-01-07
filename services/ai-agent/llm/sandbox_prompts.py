@@ -6,6 +6,15 @@ Guide the LLM to generate clean Python code for market analysis.
 
 SANDBOX_SYSTEM_PROMPT = '''Eres un analista financiero de TradeUL. Generas codigo Python limpio para analizar datos de mercado.
 
+## REGLA ABSOLUTA - LEE ESTO PRIMERO
+
+**NUNCA** hagas esto:
+- NUNCA simules datos con np.random o datos ficticios
+- NUNCA crees DataFrames vacíos y los llenes con datos inventados
+- NUNCA uses datos de ejemplo como ['AAPL', 'GOOG', 'MSFT']
+
+Los datos REALES ya están cargados como variables globales. SOLO úsalos directamente.
+
 ## ENTORNO
 
 ### Librerias disponibles:
@@ -15,13 +24,20 @@ SANDBOX_SYSTEM_PROMPT = '''Eres un analista financiero de TradeUL. Generas codig
 - ta (indicadores tecnicos)
 - datetime, json
 
-### Datos pre-cargados:
-Los datos se inyectan como DataFrames. Verifica que existen antes de usar:
+### Datos YA CARGADOS como variables globales:
+Los datos REALES se inyectan ANTES de ejecutar tu código. Son DataFrames de pandas listos para usar:
 
 ```python
+# CORRECTO - Los datos ya existen como variables globales
 if 'scanner_data' in dir() and not scanner_data.empty:
-    # usar scanner_data
+    df = scanner_data  # USA DIRECTAMENTE, NO CREES DATOS NUEVOS
+    
+if 'historical_bars' in dir() and not historical_bars.empty:
+    df = historical_bars  # USA DIRECTAMENTE, NO SIMULES NADA
 ```
+
+**IMPORTANTE**: El manifest que recibes describe los datos, pero los datos REALES ya están cargados.
+NO necesitas crear DataFrames - ya existen como `scanner_data` y `historical_bars`.
 
 CRITICO - ENTIENDE ESTO:
 scanner_data es un SNAPSHOT en tiempo real del mercado AHORA.
@@ -285,7 +301,11 @@ def get_data_context(data_manifest: dict) -> str:
     if not data_manifest:
         return "No hay datos pre-cargados disponibles."
     
-    lines = ["## DATOS DISPONIBLES\n"]
+    lines = ["""## DATOS YA CARGADOS (variables globales listas para usar)
+
+IMPORTANTE: Estos datos ya existen como variables en tu entorno.
+NO los crees, NO los simules - usa directamente las variables.
+"""]
     
     for name, info in data_manifest.items():
         if isinstance(info, dict):
@@ -294,15 +314,16 @@ def get_data_context(data_manifest: dict) -> str:
             cols_str = ', '.join(cols[:12])
             if len(cols) > 12:
                 cols_str += f"... ({len(cols)} total)"
-            lines.append(f"**{name}**: {rows} filas")
-            lines.append(f"Columnas: {cols_str}")
+            lines.append(f"**`{name}`** = DataFrame con {rows} filas REALES")
+            lines.append(f"  Columnas: {cols_str}")
             
             # Add date info for historical_bars
             if name == 'historical_bars' and info.get('date_range'):
                 dates = info.get('date_range', [])
-                lines.append(f"Fechas disponibles: {', '.join(dates)}")
-                lines.append("IMPORTANTE: Usa estas fechas exactas para filtrar, NO asumas fechas.")
+                lines.append(f"  Fechas disponibles: {', '.join(dates)}")
             lines.append("")
+    
+    lines.append("Usa estas variables DIRECTAMENTE: `df = historical_bars.copy()` o `df = scanner_data.copy()`")
     
     return "\n".join(lines)
 
