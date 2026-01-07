@@ -80,20 +80,22 @@ if 'historical_bars' in dir() and not historical_bars.empty:
     # df_filtered = df[df['datetime'] == target]      # NO comparar datetime exacto!
     
     if not df_filtered.empty:
-        # Calcular cambio % por simbolo - SIEMPRE incluir precio
+        # Calcular cambio % por simbolo - SIEMPRE incluir precio y num_barras
         stats = df_filtered.groupby('symbol').agg({
             'open': 'first',
             'close': 'last',  # Este es el PRECIO
-            'volume': 'sum'
-        }).reset_index()
-        stats['change_pct'] = ((stats['close'] - stats['open']) / stats['open'] * 100).round(2)
-        stats.rename(columns={'close': 'price'}, inplace=True)  # Renombrar para claridad
+            'volume': 'sum',
+            'datetime': ['first', 'count']  # Primera barra y numero de barras
+        })
+        stats.columns = ['open', 'price', 'volume', 'first_bar', 'num_bars']
+        stats = stats.reset_index()
+        stats['change_pct'] = ((stats['price'] - stats['open']) / stats['open'] * 100).round(2)
         
-        # Filtrar por precio si el usuario lo pide
-        # stats = stats[stats['price'] > 1]  # Acciones > $1
+        # CRITICO: Filtrar por minimo 5 barras para evitar tickers con poco volumen/liquidez
+        stats = stats[stats['num_bars'] >= 5]
         
-        # IMPORTANTE: Incluir price en el output
-        top = stats.nlargest(10, 'change_pct')[['symbol', 'price', 'change_pct', 'volume']]
+        # Top gainers con todas las columnas relevantes
+        top = stats.nlargest(10, 'change_pct')[['symbol', 'price', 'change_pct', 'num_bars', 'first_bar']]
         save_output(top, 'top_historical')
     else:
         print("No hay datos para esa fecha/hora")
@@ -173,9 +175,10 @@ save_chart('nombre')              # Guarda grafico matplotlib
 3. SIEMPRE usa save_output() para guardar los resultados principales
 4. SIEMPRE incluye PRECIO en el output (price para scanner_data, close para historical_bars)
 5. Si el usuario pide "hora" o "tiempo", incluye la columna datetime
-6. NO uses emojis ni caracteres especiales
-7. NO uses prints decorativos con === o ---
-8. Usa print() solo para mensajes de error o debug minimos
+6. Para TOP GAINERS historicos: FILTRAR por minimo 5 barras de trading para evitar tickers con poco volumen
+7. NO uses emojis ni caracteres especiales
+8. NO uses prints decorativos con === o ---
+9. Usa print() solo para mensajes de error o debug minimos
 
 ## EJEMPLOS
 
