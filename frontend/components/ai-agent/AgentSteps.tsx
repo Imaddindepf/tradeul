@@ -1,8 +1,8 @@
 'use client';
 
 import { memo, useState } from 'react';
-import { 
-  ChevronDown, 
+import {
+  ChevronDown,
   ChevronRight,
   Brain,
   Scan,
@@ -45,7 +45,7 @@ const StepCard = memo(function StepCard({ step }: { step: AgentStep }) {
   };
 
   return (
-    <div 
+    <div
       className={`
         rounded-xl border px-4 py-3 transition-all duration-300 ease-out
         ${statusStyles[step.status]}
@@ -102,11 +102,11 @@ const StepCard = memo(function StepCard({ step }: { step: AgentStep }) {
   );
 });
 
-const ThinkingIndicator = memo(function ThinkingIndicator({ 
-  duration, 
+const ThinkingIndicator = memo(function ThinkingIndicator({
+  duration,
   expanded,
-  onToggle 
-}: { 
+  onToggle
+}: {
   duration?: number;
   expanded: boolean;
   onToggle: () => void;
@@ -117,7 +117,7 @@ const ThinkingIndicator = memo(function ThinkingIndicator({
       className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-700 transition-colors py-1"
     >
       <span className="font-medium">
-        {duration 
+        {duration
           ? `Reasoned for ${duration}s`
           : 'Reasoning...'
         }
@@ -145,12 +145,12 @@ export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: Agen
       {/* Thinking/Reasoning section */}
       {reasoningSteps.length > 0 && (
         <div>
-          <ThinkingIndicator 
+          <ThinkingIndicator
             duration={thinkingTime}
             expanded={showThinking}
             onToggle={() => setShowThinking(!showThinking)}
           />
-          
+
           {showThinking && (
             <div className="ml-6 mt-2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
               {reasoningSteps.map(step => (

@@ -150,23 +150,38 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           // ID unico combinando message_id + block_id
           const uniqueBlockId = `${msg.message_id}-${msg.block_id}`;
 
-          setResultBlocks(prev => prev.map(b =>
-            b.id === uniqueBlockId
-              ? {
-                ...b,
+          setResultBlocks(prev => {
+            const existing = prev.find(b => b.id === uniqueBlockId);
+            const resultData = {
+              success: msg.success,
+              code: msg.code,
+              outputs: msg.outputs,
+              error: msg.error,
+              execution_time_ms: msg.execution_time_ms,
+              timestamp: msg.timestamp
+            };
+            
+            if (existing) {
+              // Update existing block
+              return prev.map(b =>
+                b.id === uniqueBlockId
+                  ? { ...b, status: msg.status, code: msg.code, result: resultData }
+                  : b
+              );
+            } else {
+              // Create new block with result (if code_execution was skipped)
+              return [...prev, {
+                id: uniqueBlockId,
+                messageId: msg.message_id,
+                title: `Analysis`,
                 status: msg.status,
                 code: msg.code,
-                result: {
-                  success: msg.success,
-                  code: msg.code,
-                  outputs: msg.outputs,
-                  error: msg.error,
-                  execution_time_ms: msg.execution_time_ms,
-                  timestamp: msg.timestamp
-                }
-              }
-              : b
-          ));
+                codeVisible: false,
+                result: resultData,
+                timestamp: new Date()
+              }];
+            }
+          });
           break;
         }
 
