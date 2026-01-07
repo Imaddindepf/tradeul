@@ -287,23 +287,42 @@ async def handle_chat_message(
     data: Dict[str, Any]
 ):
     """
-    Process chat message:
+    Process chat message with step-by-step feedback:
     1. Send response_start
-    2. Send assistant_text with explanation
-    3. Send code_execution (running)
-    4. Send result with outputs (tables/charts)
-    5. Send response_end
+    2. Send agent_step events (reasoning, tool, code)
+    3. Send result with outputs
+    4. Send response_end
     """
     content = data.get("content", "").strip()
     conversation_id = data.get("conversation_id", client_id)
     message_id = str(uuid.uuid4())
     block_id = 1
+    step_id = 0
     
     logger.info("chat_received", client_id=client_id, query=content[:100])
     
     if not content:
         await websocket.send_json({"type": "error", "message": "Empty message"})
         return
+    
+    # Helper to send step updates
+    async def send_step(step_type: str, title: str, description: str = None, status: str = "running", details: str = None):
+        nonlocal step_id
+        step_id += 1
+        await websocket.send_json({
+            "type": "agent_step",
+            "message_id": message_id,
+            "step": {
+                "id": f"{message_id}-step-{step_id}",
+                "type": step_type,
+                "title": title,
+                "description": description,
+                "status": status,
+                "expandable": step_type == "code",
+                "details": details
+            }
+        })
+        return f"{message_id}-step-{step_id}"
     
     # 1. Response start
     await websocket.send_json({
@@ -312,7 +331,22 @@ async def handle_chat_message(
     })
     
     try:
-        # 2. Process with orchestrator
+        # Step 1: Reasoning
+        reasoning_step = await send_step(
+            "reasoning", 
+            "Analyzing request",
+            f"Understanding: {content[:60]}..."
+        )
+        
+        # Step 2: Data loading
+        await send_step(
+            "tool",
+            "Market Scanner",
+            "Loading real-time market data",
+            "running"
+        )
+        
+        # Process with orchestrator
         result = await request_handler.process(
             AnalysisRequest(
                 query=content,
@@ -321,26 +355,36 @@ async def handle_chat_message(
             )
         )
         
-        # 3. Send explanation text
-        if result.explanation:
-            await websocket.send_json({
-                "type": "assistant_text",
-                "message_id": message_id,
-                "delta": result.explanation
-            })
+        # Update data step to complete
+        await websocket.send_json({
+            "type": "agent_step_update",
+            "message_id": message_id,
+            "step_id": f"{message_id}-step-2",
+            "status": "complete",
+            "description": f"Loaded {len(result.data_sources)} data sources"
+        })
         
-        # 4. Send code execution
+        # Step 3: Code generation
         if result.code:
-            await websocket.send_json({
-                "type": "code_execution",
-                "message_id": message_id,
-                "block_id": block_id,
-                "status": "running",
-                "code": result.code
-            })
+            code_step = await send_step(
+                "code",
+                "Analysis Code",
+                f"Executing {len(result.code.split(chr(10)))} lines of analysis",
+                "running",
+                result.code
+            )
             
-            # 5. Build outputs
+            # Build outputs
             outputs = build_outputs(result, message_id)
+            
+            # Update code step based on result
+            await websocket.send_json({
+                "type": "agent_step_update",
+                "message_id": message_id,
+                "step_id": code_step,
+                "status": "complete" if result.success else "error",
+                "description": f"Analysis completed in {result.execution_time:.1f}s"
+            })
             
             logger.info("outputs_built", 
                 count=len(outputs),
@@ -348,7 +392,7 @@ async def handle_chat_message(
                 chart_count=len(result.charts)
             )
             
-            # 6. Send result
+            # Send result
             await websocket.send_json({
                 "type": "result",
                 "message_id": message_id,
@@ -360,6 +404,14 @@ async def handle_chat_message(
                 "error": result.error,
                 "execution_time_ms": int(result.execution_time * 1000),
                 "timestamp": datetime.now().isoformat()
+            })
+        
+        # Send explanation text
+        if result.explanation:
+            await websocket.send_json({
+                "type": "assistant_text",
+                "message_id": message_id,
+                "delta": result.explanation
             })
         
         # 7. Response end

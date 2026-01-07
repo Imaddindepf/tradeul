@@ -1,8 +1,9 @@
 'use client';
 
-import { memo } from 'react';
-import { Loader2 } from 'lucide-react';
+import { memo, useEffect, useState } from 'react';
+import { Brain } from 'lucide-react';
 import type { Message } from './types';
+import { AgentSteps } from './AgentSteps';
 
 interface ChatMessageProps {
   message: Message;
@@ -11,51 +12,80 @@ interface ChatMessageProps {
 export const ChatMessage = memo(function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
+  const [thinkingSeconds, setThinkingSeconds] = useState(0);
+
+  // Timer for thinking state
+  useEffect(() => {
+    if (message.status === 'thinking' && message.thinkingStartTime) {
+      const interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - message.thinkingStartTime!) / 1000);
+        setThinkingSeconds(elapsed);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [message.status, message.thinkingStartTime]);
 
   return (
-    <div className={`py-3 px-3 ${isUser ? 'bg-white' : 'bg-gray-50'}`}>
-      {/* Label */}
-      <div className={`text-[11px] font-medium mb-1 ${isUser ? 'text-gray-500' : 'text-blue-600'}`}>
-        {isUser ? 'Tu' : 'TradeUL'}
-      </div>
+    <div className={`py-4 px-4 ${isUser ? 'bg-white' : 'bg-gray-50/50'}`}>
+      <div className="max-w-3xl mx-auto">
+        {/* User message - simple bubble style */}
+        {isUser && (
+          <div className="flex justify-end">
+            <div className="bg-gray-100 rounded-2xl rounded-tr-md px-4 py-2.5 max-w-[85%]">
+              <p className="text-[14px] text-gray-800">{message.content}</p>
+              <div className="text-[10px] text-gray-400 mt-1 text-right">
+                {message.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+            </div>
+          </div>
+        )}
 
-      {/* Content */}
-      <div className={`text-[13px] leading-relaxed ${isUser ? 'text-gray-800' : 'text-gray-700'}`}>
-        <MessageContent content={message.content} />
+        {/* Assistant message - agent style with steps */}
+        {isAssistant && (
+          <div className="space-y-3">
+            {/* Steps display */}
+            {message.steps && message.steps.length > 0 && (
+              <AgentSteps 
+                steps={message.steps} 
+                thinkingTime={message.status === 'complete' ? thinkingSeconds : undefined}
+              />
+            )}
 
-        {/* Status */}
-        {isAssistant && message.status && message.status !== 'complete' && (
-          <div className="mt-2 flex items-center gap-2 text-[11px]">
-            {message.status === 'thinking' && (
-              <>
-                <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                <span className="text-gray-400">Analizando...</span>
-              </>
+            {/* Thinking indicator when no steps yet */}
+            {message.status === 'thinking' && (!message.steps || message.steps.length === 0) && (
+              <ThinkingState seconds={thinkingSeconds} />
             )}
-            {message.status === 'executing' && (
-              <>
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-green-600">Ejecutando...</span>
-              </>
-            )}
-            {message.status === 'error' && (
-              <span className="text-red-500">Error</span>
+
+            {/* Main text content */}
+            {message.content && (
+              <div className="text-[14px] leading-relaxed text-gray-700">
+                <MessageContent content={message.content} />
+              </div>
             )}
           </div>
         )}
       </div>
+    </div>
+  );
+});
 
-      {/* Timestamp */}
-      <div className="text-[10px] text-gray-400 mt-1.5">
-        {message.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-      </div>
+const ThinkingState = memo(function ThinkingState({ seconds }: { seconds: number }) {
+  return (
+    <div className="flex items-center gap-2 text-sm text-gray-500">
+      <Brain className="w-4 h-4 animate-pulse" />
+      <span>
+        {seconds > 0 
+          ? `Reasoning for ${seconds} second${seconds !== 1 ? 's' : ''}...`
+          : 'Reasoning...'
+        }
+      </span>
     </div>
   );
 });
 
 const MessageContent = memo(function MessageContent({ content }: { content: string }) {
   if (!content) {
-    return <span className="text-gray-400 italic">...</span>;
+    return null;
   }
 
   const parts = content.split(/(```[\s\S]*?```)/g);
@@ -68,7 +98,7 @@ const MessageContent = memo(function MessageContent({ content }: { content: stri
           return (
             <pre
               key={index}
-              className="mt-2 mb-2 p-2 rounded text-[11px] overflow-x-auto bg-gray-100 text-gray-800 font-mono border border-gray-200"
+              className="mt-2 mb-2 p-3 rounded-lg text-[12px] overflow-x-auto bg-gray-900 text-gray-100 font-mono"
             >
               {codeContent.trim()}
             </pre>
@@ -78,9 +108,9 @@ const MessageContent = memo(function MessageContent({ content }: { content: stri
         if (!part.trim()) return null;
 
         const formatted = part
-          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
           .replace(/\*(.*?)\*/g, '<em>$1</em>')
-          .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-gray-100 text-blue-600 rounded text-[11px]">$1</code>')
+          .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 bg-gray-100 text-emerald-700 rounded text-[12px] font-mono">$1</code>')
           .replace(/\n/g, '<br />');
 
         return (
@@ -90,3 +120,5 @@ const MessageContent = memo(function MessageContent({ content }: { content: stri
     </div>
   );
 });
+
+export default ChatMessage;

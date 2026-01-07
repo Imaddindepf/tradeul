@@ -14,6 +14,8 @@ import {
   WSResponseEndMessage,
   WSErrorMessage,
   WSMarketUpdateMessage,
+  WSAgentStepMessage,
+  WSAgentStepUpdateMessage,
 } from './types';
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'https://agent.tradeul.com';
@@ -66,8 +68,37 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
             role: 'assistant',
             content: '',
             timestamp: new Date(),
-            status: 'thinking'
+            status: 'thinking',
+            steps: [],
+            thinkingStartTime: Date.now()
           }]);
+          break;
+        }
+
+        case 'agent_step': {
+          const msg = data as unknown as WSAgentStepMessage;
+          setMessages(prev => prev.map(m =>
+            m.id === msg.message_id
+              ? { ...m, steps: [...(m.steps || []), msg.step] }
+              : m
+          ));
+          break;
+        }
+
+        case 'agent_step_update': {
+          const msg = data as unknown as WSAgentStepUpdateMessage;
+          setMessages(prev => prev.map(m =>
+            m.id === msg.message_id
+              ? { 
+                  ...m, 
+                  steps: (m.steps || []).map(s => 
+                    s.id === msg.step_id 
+                      ? { ...s, status: msg.status, description: msg.description || s.description }
+                      : s
+                  )
+                }
+              : m
+          ));
           break;
         }
 
