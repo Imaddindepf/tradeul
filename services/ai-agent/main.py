@@ -515,13 +515,21 @@ def format_title(name: str) -> str:
 def clean_rows(df: pd.DataFrame) -> List[Dict[str, Any]]:
     """Convert DataFrame rows to JSON-safe dicts."""
     import math
+    from datetime import datetime as dt
     
     def clean_value(v):
+        # Handle NaN/Inf
         if isinstance(v, float):
             if math.isnan(v) or math.isinf(v):
                 return None
         if pd.isna(v):
             return None
+        # Handle Timestamps
+        if isinstance(v, (pd.Timestamp, dt)):
+            return v.isoformat()
+        # Handle numpy types
+        if hasattr(v, 'item'):
+            return v.item()
         return v
     
     rows = df.to_dict('records')
