@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { TrendingUp, TrendingDown } from 'lucide-react';
 
 interface DataTableProps {
   columns: string[];
@@ -10,126 +10,64 @@ interface DataTableProps {
   total?: number;
 }
 
-// Formatear valores segun el tipo
 function formatValue(value: unknown, column: string): React.ReactNode {
   if (value === null || value === undefined) {
-    return <span className="text-gray-400">-</span>;
+    return <span className="text-gray-300">-</span>;
   }
 
   const strValue = String(value);
 
-  // Symbol - resaltar
   if (column === 'symbol') {
     return <span className="font-semibold text-blue-600">{strValue}</span>;
   }
 
-  // Porcentajes
   if (column.includes('percent') || column.includes('pct') || column.startsWith('chg_')) {
     const num = Number(value);
     if (isNaN(num)) return strValue;
-
-    const color = num > 0 ? 'text-green-600' : num < 0 ? 'text-red-600' : 'text-gray-500';
-    const icon = num > 0 ? <TrendingUp className="w-3 h-3 inline mr-1" /> :
-                 num < 0 ? <TrendingDown className="w-3 h-3 inline mr-1" /> :
-                 <Minus className="w-3 h-3 inline mr-1" />;
-
-    return (
-      <span className={color}>
-        {icon}
-        {num > 0 ? '+' : ''}{num.toFixed(2)}%
-      </span>
-    );
+    const color = num > 0 ? 'text-green-600' : num < 0 ? 'text-red-500' : 'text-gray-400';
+    const icon = num > 0 ? <TrendingUp className="w-3 h-3 inline mr-0.5" /> :
+                 num < 0 ? <TrendingDown className="w-3 h-3 inline mr-0.5" /> : null;
+    return <span className={color}>{icon}{num > 0 ? '+' : ''}{num.toFixed(2)}%</span>;
   }
 
-  // Precios
-  if (column === 'price' || column === 'bid' || column === 'ask' ||
-      column === 'open' || column === 'high' || column === 'low' ||
-      column === 'prev_close' || column === 'vwap') {
+  if (['price', 'bid', 'ask', 'open', 'high', 'low', 'prev_close', 'vwap'].includes(column)) {
     const num = Number(value);
     if (isNaN(num)) return strValue;
-    return <span className="font-mono text-gray-800">${num.toFixed(2)}</span>;
+    return <span className="font-mono">${num.toFixed(2)}</span>;
   }
 
-  // Volumen (formatear con K, M)
   if (column.includes('volume') || column.startsWith('vol_')) {
     const num = Number(value);
     if (isNaN(num)) return strValue;
-
-    if (num >= 1_000_000_000) {
-      return <span className="font-mono text-gray-700">{(num / 1_000_000_000).toFixed(2)}B</span>;
-    }
-    if (num >= 1_000_000) {
-      return <span className="font-mono text-gray-700">{(num / 1_000_000).toFixed(2)}M</span>;
-    }
-    if (num >= 1_000) {
-      return <span className="font-mono text-gray-700">{(num / 1_000).toFixed(1)}K</span>;
-    }
-    return <span className="font-mono text-gray-700">{num.toLocaleString()}</span>;
+    if (num >= 1e9) return <span className="font-mono">{(num / 1e9).toFixed(1)}B</span>;
+    if (num >= 1e6) return <span className="font-mono">{(num / 1e6).toFixed(1)}M</span>;
+    if (num >= 1e3) return <span className="font-mono">{(num / 1e3).toFixed(0)}K</span>;
+    return <span className="font-mono">{num.toLocaleString()}</span>;
   }
 
-  // RVOL - colorear segun valor
   if (column === 'rvol' || column === 'rvol_slot') {
     const num = Number(value);
     if (isNaN(num)) return strValue;
-
-    const color = num >= 5 ? 'text-purple-600 font-bold' :
-                  num >= 3 ? 'text-orange-600' :
-                  num >= 2 ? 'text-yellow-600' :
-                  'text-gray-500';
-
-    return <span className={`font-mono ${color}`}>{num.toFixed(2)}x</span>;
+    const color = num >= 5 ? 'text-purple-600 font-bold' : num >= 3 ? 'text-orange-500' : num >= 2 ? 'text-yellow-600' : '';
+    return <span className={`font-mono ${color}`}>{num.toFixed(1)}x</span>;
   }
 
-  // Z-Score
-  if (column === 'trades_z_score') {
-    const num = Number(value);
-    if (isNaN(num)) return strValue;
-
-    const color = num >= 3 ? 'text-red-600 font-bold' :
-                  num >= 2 ? 'text-orange-600' :
-                  'text-gray-500';
-
-    return <span className={`font-mono ${color}`}>{num.toFixed(2)}</span>;
-  }
-
-  // Market Cap
   if (column === 'market_cap' || column === 'dollar_volume') {
     const num = Number(value);
     if (isNaN(num)) return strValue;
-
-    if (num >= 1_000_000_000_000) {
-      return <span className="font-mono text-gray-700">${(num / 1_000_000_000_000).toFixed(2)}T</span>;
-    }
-    if (num >= 1_000_000_000) {
-      return <span className="font-mono text-gray-700">${(num / 1_000_000_000).toFixed(2)}B</span>;
-    }
-    if (num >= 1_000_000) {
-      return <span className="font-mono text-gray-700">${(num / 1_000_000).toFixed(2)}M</span>;
-    }
-    return <span className="font-mono text-gray-700">${num.toLocaleString()}</span>;
+    if (num >= 1e12) return <span className="font-mono">${(num / 1e12).toFixed(1)}T</span>;
+    if (num >= 1e9) return <span className="font-mono">${(num / 1e9).toFixed(1)}B</span>;
+    if (num >= 1e6) return <span className="font-mono">${(num / 1e6).toFixed(0)}M</span>;
+    return <span className="font-mono">${num.toLocaleString()}</span>;
   }
 
-  // Numeros genericos
   if (typeof value === 'number') {
-    return <span className="font-mono text-gray-700">{value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>;
+    return <span className="font-mono">{value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>;
   }
 
-  // Boolean
-  if (typeof value === 'boolean') {
-    return value ?
-      <span className="text-green-600">Si</span> :
-      <span className="text-gray-400">-</span>;
-  }
-
-  // Sector/Industry - capitalizar
-  if (column === 'sector' || column === 'industry') {
-    return <span className="text-gray-700">{strValue}</span>;
-  }
-
-  return <span className="text-gray-700">{strValue}</span>;
+  return <span className="text-gray-600 truncate max-w-[150px] block">{strValue}</span>;
 }
 
-// Obtener nombre de columna legible
 function getColumnLabel(column: string): string {
   const labels: Record<string, string> = {
     symbol: 'Symbol',
@@ -137,77 +75,56 @@ function getColumnLabel(column: string): string {
     change_percent: 'Change %',
     volume_today: 'Volume',
     rvol_slot: 'RVOL',
-    rvol: 'RVOL',
     market_cap: 'Market Cap',
     sector: 'Sector',
-    industry: 'Industry',
-    chg_5min: '5min',
-    chg_1min: '1min',
-    trades_z_score: 'Z-Score',
-    is_trade_anomaly: 'Anomaly',
-    vwap: 'VWAP',
-    price_vs_vwap: 'vs VWAP',
-    price_from_intraday_high: 'from HOD',
-    price_from_intraday_low: 'from LOD',
-    avg_volume_10d: 'Avg Vol 10d',
-    dollar_volume: 'Dollar Vol',
-    free_float: 'Float',
-    spread: 'Spread',
-    spread_percent: 'Spread %',
   };
-  return labels[column] || column.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  return labels[column] || column.replace(/_/g, ' ').slice(0, 15);
 }
 
-export const DataTable = memo(function DataTable({
-  columns,
-  rows,
-  title,
-  total
-}: DataTableProps) {
-  // Memoizar el renderizado de filas
+export const DataTable = memo(function DataTable({ columns, rows, title, total }: DataTableProps) {
+  const displayColumns = useMemo(() => {
+    const priority = ['symbol', 'price', 'change_percent', 'volume_today', 'rvol_slot', 'market_cap', 'sector'];
+    const sorted = [...columns].sort((a, b) => {
+      const ai = priority.indexOf(a);
+      const bi = priority.indexOf(b);
+      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+    return sorted.slice(0, 8);
+  }, [columns]);
+
   const renderedRows = useMemo(() => {
-    return rows.map((row, rowIndex) => (
-      <tr
-        key={rowIndex}
-        className="hover:bg-blue-50 transition-colors"
-      >
-        {columns.map((column) => (
-          <td
-            key={column}
-            className="px-3 py-2 text-sm whitespace-nowrap"
-          >
-            {formatValue(row[column], column)}
+    return rows.slice(0, 50).map((row, i) => (
+      <tr key={i} className="hover:bg-blue-50/50">
+        {displayColumns.map((col) => (
+          <td key={col} className="px-2 py-1.5 text-[12px] whitespace-nowrap">
+            {formatValue(row[col], col)}
           </td>
         ))}
       </tr>
     ));
-  }, [columns, rows]);
+  }, [displayColumns, rows]);
 
   return (
-    <div className="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm">
-      {/* Header */}
+    <div className="rounded border border-gray-200 bg-white overflow-hidden">
       {title && (
-        <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-          <h3 className="text-sm font-medium text-gray-800">
+        <div className="px-3 py-2 bg-blue-50 border-b border-gray-200">
+          <h3 className="text-[12px] font-medium text-gray-700">
             {title}
-            {total !== undefined && (
-              <span className="ml-2 text-gray-500">({total} resultados)</span>
-            )}
+            {total !== undefined && <span className="ml-2 text-gray-400">({total} resultados)</span>}
           </h3>
         </div>
       )}
 
-      {/* Table - altura adaptativa al contenedor */}
-      <div className="overflow-x-auto max-h-[50vh] overflow-y-auto">
+      <div className="overflow-x-auto max-h-[45vh] overflow-y-auto">
         <table className="w-full">
           <thead className="bg-gray-50 sticky top-0">
             <tr>
-              {columns.map((column) => (
-                <th
-                  key={column}
-                  className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200"
-                >
-                  {getColumnLabel(column)}
+              {displayColumns.map((col) => (
+                <th key={col} className="px-2 py-2 text-left text-[11px] font-medium text-gray-500 uppercase border-b border-gray-200">
+                  {getColumnLabel(col)}
                 </th>
               ))}
             </tr>
@@ -218,11 +135,8 @@ export const DataTable = memo(function DataTable({
         </table>
       </div>
 
-      {/* Footer */}
       {rows.length === 0 && (
-        <div className="px-4 py-8 text-center text-gray-400">
-          Sin resultados
-        </div>
+        <div className="py-6 text-center text-[12px] text-gray-400">Sin resultados</div>
       )}
     </div>
   );

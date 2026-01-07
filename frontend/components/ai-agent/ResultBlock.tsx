@@ -12,13 +12,9 @@ interface ResultBlockProps {
   onToggleCode: () => void;
 }
 
-export const ResultBlock = memo(function ResultBlock({
-  block,
-  onToggleCode
-}: ResultBlockProps) {
+export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: ResultBlockProps) {
   const { status, code, codeVisible, result } = block;
 
-  // Renderizar output segun su tipo
   const renderOutput = (output: OutputBlock, index: number) => {
     switch (output.type) {
       case 'table':
@@ -34,34 +30,49 @@ export const ResultBlock = memo(function ResultBlock({
 
       case 'chart':
         if (output.plotly_config) {
+          return <Chart key={index} title={output.title} plotlyConfig={output.plotly_config} />;
+        }
+        if ((output as any).image_base64) {
           return (
-            <Chart
-              key={index}
-              title={output.title}
-              plotlyConfig={output.plotly_config}
-            />
+            <div key={index} className="rounded border border-gray-200 bg-white overflow-hidden">
+              {output.title && (
+                <div className="px-3 py-2 bg-gray-50 border-b text-[12px] font-medium text-gray-600">
+                  {output.title}
+                </div>
+              )}
+              <img 
+                src={`data:image/png;base64,${(output as any).image_base64}`}
+                alt={output.title || 'Chart'}
+                className="max-w-full h-auto"
+              />
+            </div>
           );
         }
         return null;
 
       case 'stats':
-        if (output.stats) {
+        if ((output as any).content) {
           return (
-            <div key={index} className="rounded-lg border border-gray-200 bg-white p-4">
-              <h3 className="text-sm font-medium text-gray-800 mb-3">{output.title}</h3>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div key={index} className="rounded border border-gray-200 bg-gray-50 p-3">
+              <pre className="text-[11px] text-gray-700 font-mono whitespace-pre-wrap overflow-x-auto">
+                {(output as any).content}
+              </pre>
+            </div>
+          );
+        }
+        if (output.stats && Object.keys(output.stats).length > 0) {
+          return (
+            <div key={index} className="rounded border border-gray-200 bg-white p-3">
+              <h3 className="text-[12px] font-medium text-gray-700 mb-2">{output.title}</h3>
+              <div className="grid grid-cols-2 gap-3">
                 {Object.entries(output.stats).map(([col, stats]) => (
-                  <div key={col} className="bg-gray-50 rounded p-3">
-                    <div className="text-xs text-gray-500 mb-1 uppercase">{col}</div>
-                    <div className="grid grid-cols-2 gap-1 text-xs">
+                  <div key={col} className="bg-gray-50 rounded p-2">
+                    <div className="text-[10px] text-gray-500 uppercase">{col}</div>
+                    <div className="grid grid-cols-2 gap-1 text-[11px] mt-1">
                       <span className="text-gray-400">Min:</span>
-                      <span className="text-gray-700 font-mono">{stats.min}</span>
+                      <span className="font-mono">{stats.min}</span>
                       <span className="text-gray-400">Max:</span>
-                      <span className="text-gray-700 font-mono">{stats.max}</span>
-                      <span className="text-gray-400">Mean:</span>
-                      <span className="text-gray-700 font-mono">{stats.mean}</span>
-                      <span className="text-gray-400">Median:</span>
-                      <span className="text-gray-700 font-mono">{stats.median}</span>
+                      <span className="font-mono">{stats.max}</span>
                     </div>
                   </div>
                 ))}
@@ -73,12 +84,12 @@ export const ResultBlock = memo(function ResultBlock({
 
       case 'error':
         return (
-          <div key={index} className="rounded-lg border border-red-200 bg-red-50 p-4">
-            <div className="flex items-center gap-2 text-red-600">
+          <div key={index} className="rounded border border-red-200 bg-red-50 p-3">
+            <div className="flex items-center gap-2 text-red-600 text-[12px]">
               <AlertCircle className="w-4 h-4" />
-              <span className="text-sm font-medium">Error</span>
+              <span className="font-medium">Error</span>
             </div>
-            <p className="mt-2 text-sm text-red-500 font-mono">{output.title}</p>
+            <p className="mt-1 text-[11px] text-red-500 font-mono">{output.title}</p>
           </div>
         );
 
@@ -89,28 +100,28 @@ export const ResultBlock = memo(function ResultBlock({
 
   return (
     <div className="space-y-3">
-      {/* Status indicator */}
+      {/* Status */}
       <div className="flex items-center gap-2">
         {status === 'running' && (
           <>
             <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-            <span className="text-sm text-blue-600">Ejecutando...</span>
+            <span className="text-[12px] text-blue-600">Ejecutando...</span>
           </>
         )}
         {status === 'fixing' && (
           <>
             <Wrench className="w-4 h-4 text-amber-500 animate-pulse" />
-            <span className="text-sm text-amber-600">Auto-corrigiendo codigo...</span>
+            <span className="text-[12px] text-amber-600">Corrigiendo...</span>
           </>
         )}
         {status === 'success' && (
           <>
             <CheckCircle className="w-4 h-4 text-green-500" />
-            <span className="text-sm text-green-600">Completado</span>
+            <span className="text-[12px] text-green-600">Completado</span>
             {result && (
-              <span className="text-xs text-gray-400 flex items-center gap-1">
+              <span className="text-[11px] text-gray-400 flex items-center gap-1">
                 <Clock className="w-3 h-3" />
-                {result.execution_time_ms.toFixed(0)}ms
+                {result.execution_time_ms}ms
               </span>
             )}
           </>
@@ -118,18 +129,13 @@ export const ResultBlock = memo(function ResultBlock({
         {status === 'error' && (
           <>
             <AlertCircle className="w-4 h-4 text-red-500" />
-            <span className="text-sm text-red-600">Error</span>
+            <span className="text-[12px] text-red-600">Error</span>
           </>
         )}
       </div>
 
-      {/* Code block */}
-      <CodeBlock
-        code={code}
-        title="Codigo DSL"
-        isVisible={codeVisible}
-        onToggle={onToggleCode}
-      />
+      {/* Code */}
+      <CodeBlock code={code} title="Codigo" isVisible={codeVisible} onToggle={onToggleCode} />
 
       {/* Outputs */}
       {result?.outputs && result.outputs.length > 0 && (
@@ -138,16 +144,14 @@ export const ResultBlock = memo(function ResultBlock({
         </div>
       )}
 
-      {/* Error message */}
+      {/* Error */}
       {result?.error && status === 'error' && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <div className="flex items-center gap-2 text-red-600 mb-2">
+        <div className="rounded border border-red-200 bg-red-50 p-3">
+          <div className="flex items-center gap-2 text-red-600 mb-2 text-[12px]">
             <AlertCircle className="w-4 h-4" />
-            <span className="text-sm font-medium">Error de ejecucion</span>
+            <span className="font-medium">Error de ejecucion</span>
           </div>
-          <pre className="text-xs text-red-500 font-mono whitespace-pre-wrap overflow-x-auto">
-            {result.error}
-          </pre>
+          <pre className="text-[11px] text-red-500 font-mono whitespace-pre-wrap">{result.error}</pre>
         </div>
       )}
     </div>

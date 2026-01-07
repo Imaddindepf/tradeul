@@ -642,6 +642,17 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB:-tradeul}
+      # Sandbox configuration
+      - SANDBOX_IMAGE=tradeul-sandbox:latest
+      - SANDBOX_TIMEOUT=30
+      - SANDBOX_MEMORY=512m
+    volumes:
+      # Docker socket for sandbox container management
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Temporary directory for sandbox data exchange
+      - /tmp/tradeul_sandbox:/tmp/sandbox_data
+      # Polygon historical data (minute_aggs, day_aggs)
+      - polygon_data:/data/polygon:ro
     logging:
       driver: "json-file"
       options:

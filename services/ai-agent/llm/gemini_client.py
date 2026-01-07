@@ -345,6 +345,70 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
         
         return valid_blocks
     
+    async def generate_json(
+        self,
+        prompt: str,
+        max_tokens: int = 1024
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Generate a JSON response from the LLM.
+        Used for structured extraction like temporal expressions.
+        
+        Args:
+            prompt: Prompt requesting JSON output
+            max_tokens: Maximum tokens in response
+        
+        Returns:
+            Parsed JSON dict or None on error
+        """
+        import json
+        
+        try:
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=[types.Content(
+                    role="user",
+                    parts=[types.Part(text=prompt)]
+                )],
+                config=types.GenerateContentConfig(
+                    temperature=0.1,  # Very low for structured output
+                    max_output_tokens=max_tokens,
+                )
+            )
+            
+            response_text = response.text if response.text else ""
+            
+            # Extract the LARGEST JSON object from response (not nested sub-objects)
+            # Use a greedy match that handles nested braces
+            json_matches = []
+            depth = 0
+            start = -1
+            for i, char in enumerate(response_text):
+                if char == '{':
+                    if depth == 0:
+                        start = i
+                    depth += 1
+                elif char == '}':
+                    depth -= 1
+                    if depth == 0 and start >= 0:
+                        json_matches.append(response_text[start:i+1])
+                        start = -1
+            
+            # Return the largest JSON object (most likely the main one)
+            if json_matches:
+                largest = max(json_matches, key=len)
+                return json.loads(largest)
+            
+            # Try parsing the whole response
+            return json.loads(response_text.strip())
+        
+        except json.JSONDecodeError as e:
+            logger.warning("json_parse_error", error=str(e), response=response_text[:200])
+            return None
+        except Exception as e:
+            logger.warning("generate_json_error", error=str(e))
+            return None
+    
     async def fix_code(
         self,
         original_code: str,
