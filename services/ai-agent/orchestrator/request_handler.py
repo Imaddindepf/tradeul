@@ -198,12 +198,43 @@ class RequestHandler:
             
             logger.info("code_generated", code_length=len(code))
             
-            # Step 4: Execute in sandbox
-            execution_result = await self.sandbox.execute(
-                code=code,
-                data=data,
-                timeout=30
-            )
+            # Step 4: Execute in sandbox with self-healing retry loop
+            max_retries = 3
+            execution_result = None
+            last_error = None
+            
+            for attempt in range(max_retries):
+                execution_result = await self.sandbox.execute(
+                    code=code,
+                    data=data,
+                    timeout=30
+                )
+                
+                # If successful, break
+                if execution_result.get('success', False):
+                    if attempt > 0:
+                        logger.info("code_fixed_after_retry", attempt=attempt + 1)
+                    break
+                
+                # If failed and not last attempt, try to fix the code
+                last_error = execution_result.get('error', 'Unknown error')
+                
+                if attempt < max_retries - 1:
+                    logger.info(
+                        "code_execution_failed_retrying",
+                        attempt=attempt + 1,
+                        error=last_error[:200]
+                    )
+                    
+                    # Ask LLM to fix the code
+                    code = await self._fix_code_with_error(
+                        original_query=request.query,
+                        original_code=code,
+                        error_message=last_error,
+                        data_manifest=data_manifest
+                    )
+                    
+                    logger.info("code_regenerated", attempt=attempt + 2, code_length=len(code))
             
             # Step 5: Format result
             result = self._format_result(
@@ -800,6 +831,84 @@ Ejemplos:
         explanation = response_text.split('```')[0].strip() if '```' in response_text else response_text
         
         return explanation, code
+    
+    async def _fix_code_with_error(
+        self,
+        original_query: str,
+        original_code: str,
+        error_message: str,
+        data_manifest: dict
+    ) -> str:
+        """
+        Ask LLM to fix code that failed execution.
+        
+        Args:
+            original_query: The user's original query
+            original_code: The code that failed
+            error_message: The error message from execution
+            data_manifest: Available data description
+        
+        Returns:
+            Fixed code string
+        """
+        prompt = f"""El siguiente codigo Python falló con un error. Corrígelo.
+
+## Query original del usuario:
+{original_query}
+
+## Datos disponibles:
+{json.dumps(data_manifest, indent=2)}
+
+## Codigo que falló:
+```python
+{original_code}
+```
+
+## Error:
+{error_message}
+
+## INSTRUCCIONES:
+1. Analiza el error y corrígelo
+2. Mantén la lógica original pero arregla el problema
+3. Errores comunes:
+   - TypeError con Categorical: usa .astype(str) antes de concatenar
+   - KeyError: verifica que la columna existe antes de usarla
+   - Graficos con demasiados datos: agrupa o limita los datos
+4. SIEMPRE usa save_output() para guardar resultados
+5. Para gráficos con muchos datos, agrupa por hora/categoria y muestra solo los TOP
+
+Responde SOLO con el código Python corregido en un bloque ```python ... ```
+"""
+        
+        try:
+            from google.genai import types
+            
+            response = self.llm_client.client.models.generate_content(
+                model=self.llm_client.model,
+                contents=[types.Content(
+                    role="user",
+                    parts=[types.Part(text=prompt)]
+                )],
+                config=types.GenerateContentConfig(
+                    temperature=0.3,  # Lower temperature for more deterministic fix
+                    max_output_tokens=4096,
+                )
+            )
+            
+            response_text = response.text if response.text else ""
+            
+            # Extract just the code
+            _, fixed_code = self._parse_llm_response(response_text)
+            
+            if fixed_code:
+                logger.info("code_fixed_by_llm", original_error=error_message[:100])
+                return fixed_code
+            
+        except Exception as e:
+            logger.error("code_fix_failed", error=str(e))
+        
+        # Return original code if fix failed
+        return original_code
     
     def _generate_fallback_code(
         self,
