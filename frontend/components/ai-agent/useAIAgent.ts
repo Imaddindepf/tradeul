@@ -89,14 +89,14 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const msg = data as unknown as WSAgentStepUpdateMessage;
           setMessages(prev => prev.map(m =>
             m.id === msg.message_id
-              ? { 
-                  ...m, 
-                  steps: (m.steps || []).map(s => 
-                    s.id === msg.step_id 
-                      ? { ...s, status: msg.status, description: msg.description || s.description }
-                      : s
-                  )
-                }
+              ? {
+                ...m,
+                steps: (m.steps || []).map(s =>
+                  s.id === msg.step_id
+                    ? { ...s, status: msg.status, description: msg.description || s.description }
+                    : s
+                )
+              }
               : m
           ));
           break;
@@ -116,7 +116,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const msg = data as WSCodeExecutionMessage;
           // ID unico combinando message_id + block_id para no sobrescribir bloques anteriores
           const uniqueBlockId = `${msg.message_id}-${msg.block_id}`;
-          
+
           setMessages(prev => prev.map(m =>
             m.id === msg.message_id
               ? { ...m, status: 'executing' }
@@ -149,22 +149,22 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const msg = data as WSResultMessage;
           // ID unico combinando message_id + block_id
           const uniqueBlockId = `${msg.message_id}-${msg.block_id}`;
-          
+
           setResultBlocks(prev => prev.map(b =>
             b.id === uniqueBlockId
               ? {
-                  ...b,
-                  status: msg.status,
+                ...b,
+                status: msg.status,
+                code: msg.code,
+                result: {
+                  success: msg.success,
                   code: msg.code,
-                  result: {
-                    success: msg.success,
-                    code: msg.code,
-                    outputs: msg.outputs,
-                    error: msg.error,
-                    execution_time_ms: msg.execution_time_ms,
-                    timestamp: msg.timestamp
-                  }
+                  outputs: msg.outputs,
+                  error: msg.error,
+                  execution_time_ms: msg.execution_time_ms,
+                  timestamp: msg.timestamp
                 }
+              }
               : b
           ));
           break;

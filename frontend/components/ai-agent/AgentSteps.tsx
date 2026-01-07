@@ -114,19 +114,18 @@ const ThinkingIndicator = memo(function ThinkingIndicator({
   return (
     <button
       onClick={onToggle}
-      className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 transition-colors py-2"
+      className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-700 transition-colors py-1"
     >
-      <Brain className="w-4 h-4" />
-      <span>
+      <span className="font-medium">
         {duration 
-          ? `Reasoned for ${duration} second${duration !== 1 ? 's' : ''}`
+          ? `Reasoned for ${duration}s`
           : 'Reasoning...'
         }
       </span>
       {expanded ? (
-        <ChevronDown className="w-4 h-4" />
+        <ChevronDown className="w-3.5 h-3.5" />
       ) : (
-        <ChevronRight className="w-4 h-4" />
+        <ChevronRight className="w-3.5 h-3.5" />
       )}
     </button>
   );
