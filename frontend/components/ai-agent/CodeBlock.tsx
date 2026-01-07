@@ -48,13 +48,13 @@ export const CodeBlock = memo(function CodeBlock({
           <span className="text-gray-400">({lineCount} lineas)</span>
         </div>
 
-        <button
-          onClick={handleCopy}
+          <button
+            onClick={handleCopy}
           className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600"
-          title="Copiar"
-        >
+            title="Copiar"
+          >
           {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-        </button>
+          </button>
       </div>
 
       {/* Code - fondo claro */}

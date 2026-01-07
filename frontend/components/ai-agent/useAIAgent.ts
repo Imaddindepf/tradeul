@@ -160,7 +160,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
               execution_time_ms: msg.execution_time_ms,
               timestamp: msg.timestamp
             };
-            
+
             if (existing) {
               // Update existing block
               return prev.map(b =>

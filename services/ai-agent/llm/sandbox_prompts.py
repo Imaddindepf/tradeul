@@ -80,18 +80,20 @@ if 'historical_bars' in dir() and not historical_bars.empty:
     # df_filtered = df[df['datetime'] == target]      # NO comparar datetime exacto!
     
     if not df_filtered.empty:
-        # Calcular cambio % por simbolo
+        # Calcular cambio % por simbolo - SIEMPRE incluir precio
         stats = df_filtered.groupby('symbol').agg({
             'open': 'first',
-            'close': 'last',
+            'close': 'last',  # Este es el PRECIO
             'volume': 'sum'
         }).reset_index()
         stats['change_pct'] = ((stats['close'] - stats['open']) / stats['open'] * 100).round(2)
+        stats.rename(columns={'close': 'price'}, inplace=True)  # Renombrar para claridad
         
         # Filtrar por precio si el usuario lo pide
-        # stats = stats[stats['close'] > 1]  # Acciones > $1
+        # stats = stats[stats['price'] > 1]  # Acciones > $1
         
-        top = stats.nlargest(10, 'change_pct')
+        # IMPORTANTE: Incluir price en el output
+        top = stats.nlargest(10, 'change_pct')[['symbol', 'price', 'change_pct', 'volume']]
         save_output(top, 'top_historical')
     else:
         print("No hay datos para esa fecha/hora")
@@ -130,24 +132,30 @@ if 'historical_bars' in dir() and not historical_bars.empty:
 
 ### Comparaciones HOY vs AYER
 Para comparar datos actuales con historicos:
-- HOY: usa `scanner_data` (tiempo real)
-- AYER/HISTORICO: usa `historical_bars` (minute aggregates)
-- NUNCA uses `bars_data` para comparaciones - usa `historical_bars`
+- HOY: usa `scanner_data` (tiempo real) - columna precio es `price`
+- AYER/HISTORICO: usa `historical_bars` - columna precio es `close`
+- SIEMPRE incluye precio en el output (el usuario casi siempre lo necesita)
 
 ```python
-# CORRECTO: Comparar top gainers hoy vs ayer
-# 1. Top gainers HOY (tiempo real)
+# CORRECTO: Comparar top gainers hoy vs ayer CON PRECIOS
+# 1. Top gainers HOY (tiempo real) - INCLUIR price
 if 'scanner_data' in dir() and not scanner_data.empty:
-    top_today = scanner_data.nlargest(10, 'change_percent')[['symbol', 'change_percent']]
+    top_today = scanner_data.nlargest(10, 'change_percent')[['symbol', 'price', 'change_percent']]
     top_today['periodo'] = 'Hoy'
     save_output(top_today, 'top_today')
 
-# 2. Top gainers AYER (historico)
+# 2. Top gainers AYER (historico) - INCLUIR close como precio
 if 'historical_bars' in dir() and not historical_bars.empty:
     df = historical_bars.copy()
-    stats = df.groupby('symbol').agg({'open': 'first', 'close': 'last'}).reset_index()
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    stats = df.groupby('symbol').agg({
+        'open': 'first',
+        'close': 'last',  # Precio final
+        'volume': 'sum'
+    }).reset_index()
     stats['change_pct'] = ((stats['close'] - stats['open']) / stats['open'] * 100).round(2)
-    top_yesterday = stats.nlargest(10, 'change_pct')[['symbol', 'change_pct']]
+    stats.rename(columns={'close': 'price'}, inplace=True)  # Renombrar para consistencia
+    top_yesterday = stats.nlargest(10, 'change_pct')[['symbol', 'price', 'change_pct']]
     top_yesterday['periodo'] = 'Ayer'
     save_output(top_yesterday, 'top_yesterday')
 ```
@@ -163,9 +171,11 @@ save_chart('nombre')              # Guarda grafico matplotlib
 1. SIEMPRE verifica que los datos existen antes de usarlos
 2. SIEMPRE verifica que las columnas existen
 3. SIEMPRE usa save_output() para guardar los resultados principales
-4. NO uses emojis ni caracteres especiales
-5. NO uses prints decorativos con === o ---
-6. Usa print() solo para mensajes de error o debug minimos
+4. SIEMPRE incluye PRECIO en el output (price para scanner_data, close para historical_bars)
+5. Si el usuario pide "hora" o "tiempo", incluye la columna datetime
+6. NO uses emojis ni caracteres especiales
+7. NO uses prints decorativos con === o ---
+8. Usa print() solo para mensajes de error o debug minimos
 
 ## EJEMPLOS
 
