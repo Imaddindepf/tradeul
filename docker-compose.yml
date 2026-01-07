@@ -645,7 +645,7 @@ services:
       # Sandbox configuration
       - SANDBOX_IMAGE=tradeul-sandbox:latest
       - SANDBOX_TIMEOUT=30
-      - SANDBOX_MEMORY=512m
+      - SANDBOX_MEMORY=1g
     volumes:
       # Docker socket for sandbox container management
       - /var/run/docker.sock:/var/run/docker.sock:ro

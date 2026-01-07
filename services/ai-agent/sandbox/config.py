@@ -42,9 +42,9 @@ class SandboxConfig:
     # Time limits
     timeout_seconds: int = 30
     
-    # Memory limits
-    memory_limit: str = "512m"
-    memory_swap: str = "512m"  # Same as memory to disable swap
+    # Memory limits (1GB needed for large historical datasets ~2M rows)
+    memory_limit: str = "1g"
+    memory_swap: str = "1g"  # Same as memory to disable swap
     
     # CPU limits
     cpu_quota: int = 50000      # 50% of one CPU

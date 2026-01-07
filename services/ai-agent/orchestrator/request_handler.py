@@ -211,19 +211,19 @@ class RequestHandler:
                 )
                 
                 # If successful, break
-                if execution_result.get('success', False):
+                if execution_result.success:
                     if attempt > 0:
                         logger.info("code_fixed_after_retry", attempt=attempt + 1)
                     break
                 
-                # If failed and not last attempt, try to fix the code
-                last_error = execution_result.get('error', 'Unknown error')
+                # Build error message from execution result
+                last_error = execution_result.error_message or execution_result.stderr or f"Exit code: {execution_result.exit_code}"
                 
                 if attempt < max_retries - 1:
                     logger.info(
                         "code_execution_failed_retrying",
                         attempt=attempt + 1,
-                        error=last_error[:200]
+                        error=last_error[:200] if last_error else "Unknown"
                     )
                     
                     # Ask LLM to fix the code
