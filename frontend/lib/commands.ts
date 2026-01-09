@@ -24,6 +24,7 @@ import {
   Users,
   Brain,
   Bot,
+  Sun,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -33,6 +34,7 @@ export interface MainCommand {
   description: string;
   icon: LucideIcon;
   shortcut?: string;
+  isNew?: boolean; // Tag azul "NEW" para comandos recientes
 }
 
 /**
@@ -45,6 +47,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'dt', label: 'DT', description: 'commands.dt.description', icon: BarChart3, shortcut: 'Ctrl+D' },
   { id: 'sec', label: 'SEC', description: 'commands.sec.description', icon: FileText },
   { id: 'news', label: 'NEWS', description: 'commands.news.description', icon: Newspaper, shortcut: 'Ctrl+N' },
+  { id: 'ins', label: 'INS', description: 'commands.ins.description', icon: FileText, isNew: true },
   { id: 'alerts', label: 'ALERTS', description: 'commands.alerts.description', icon: Zap },
   { id: 'fa', label: 'FA', description: 'commands.fa.description', icon: DollarSign },
   { id: 'ipo', label: 'IPO', description: 'commands.ipo.description', icon: Rocket },
@@ -58,8 +61,8 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'screener', label: 'SCREEN', description: 'commands.screener.description', icon: ScanSearch, shortcut: 'Ctrl+Shift+S' },
   { id: 'mp', label: 'MP', description: 'commands.mp.description', icon: TrendingUp, shortcut: 'Ctrl+M' },
   { id: 'insider', label: 'INSIDER', description: 'commands.insider.description', icon: Users, shortcut: 'Ctrl+I' },
-  { id: 'fan', label: 'FAN', description: 'commands.fan.description', icon: Brain, shortcut: 'Ctrl+Shift+F' },
-  { id: 'ai', label: 'AI', description: 'commands.ai.description', icon: Bot, shortcut: 'Ctrl+Shift+A' },
+  { id: 'fan', label: 'FAN', description: 'commands.fan.description', icon: Brain, shortcut: 'Ctrl+Shift+F', isNew: true },
+  { id: 'ai', label: 'AI', description: 'commands.ai.description', icon: Bot, shortcut: 'Ctrl+Shift+A', isNew: true },
 ];
 
 /**

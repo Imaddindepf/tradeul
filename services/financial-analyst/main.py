@@ -32,9 +32,9 @@ REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # ============== Redis Cache ==============
-# TTL: 8 hours - covers full trading session
+# TTL: 20 hours - covers full trading day + after hours
 # Cleanup: managed by data_maintenance at 3:00 AM EST
-CACHE_TTL_SECONDS = 8 * 60 * 60  # 8 hours
+CACHE_TTL_SECONDS = 20 * 60 * 60  # 20 hours
 CACHE_PREFIX = "fan:report:"
 
 redis_client: Optional[aioredis.Redis] = None

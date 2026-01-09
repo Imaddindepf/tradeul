@@ -162,6 +162,64 @@ async function subscribeToSessionChangeEvents(redisSubscriber) {
 }
 
 /**
+ * Suscribirse al canal Redis para notificaciones de Morning News Call
+ * @param {Object} redisSubscriber - Cliente Redis para suscripción
+ */
+async function subscribeToMorningNewsEvents(redisSubscriber) {
+  try {
+    await redisSubscriber.subscribe("notifications:morning_news", (message, channel) => {
+      try {
+        if (!message) {
+          logger.debug({ channel }, "Subscribed to morning news channel");
+          return;
+        }
+        
+        const event = JSON.parse(message);
+        
+        logger.info(
+          {
+            date: event.date,
+            title: event.title,
+            manual: event.manual || false,
+          },
+          "📰 Morning News Call received"
+        );
+        
+        // Broadcast a todos los clientes conectados
+        const wsMessage = {
+          type: "morning_news_call",
+          data: {
+            date: event.date,
+            title: event.title,
+            preview: event.preview,
+            generated_at: event.generated_at,
+            manual: event.manual || false,
+          },
+          timestamp: new Date().toISOString(),
+        };
+        
+        const sentCount = broadcastToAll(wsMessage);
+        
+        logger.info(
+          { sentCount, date: event.date },
+          "📡 Broadcasted Morning News Call to clients"
+        );
+        
+      } catch (err) {
+        logger.error({ err, message }, "Error processing morning news event");
+      }
+    });
+    
+    logger.info(
+      { channel: "notifications:morning_news" },
+      "📡 Subscribed to Morning News Call events"
+    );
+  } catch (err) {
+    logger.error({ err }, "Failed to subscribe to morning news events");
+  }
+}
+
+/**
  * Endpoint HTTP para limpiar cache manualmente (fallback)
  * @param {Map} lastSnapshots - Cache de snapshots a limpiar
  * @returns {Function} Express middleware
@@ -202,6 +260,7 @@ function createClearCacheEndpoint(lastSnapshots) {
 module.exports = {
   subscribeToNewDayEvents,
   subscribeToSessionChangeEvents,
+  subscribeToMorningNewsEvents,
   setConnectionsRef,
   createClearCacheEndpoint,
 };

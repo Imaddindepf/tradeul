@@ -4,13 +4,14 @@ import { memo, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
-  Brain,
   Scan,
   Code2,
   CheckCircle2,
   Loader2,
   AlertCircle,
-  BarChart3
+  Database,
+  TrendingUp,
+  Clock
 } from 'lucide-react';
 import type { AgentStep } from './types';
 
@@ -19,81 +20,234 @@ interface AgentStepsProps {
   thinkingTime?: number;
 }
 
-const stepIcons: Record<string, React.ElementType> = {
-  reasoning: Brain,
-  tool: Scan,
-  code: Code2,
-  result: BarChart3,
-};
+// Tool card component - similar to "Market Scanner Enabled"
+const ToolCard = memo(function ToolCard({ step }: { step: AgentStep }) {
+  const isComplete = step.status === 'complete';
+  const isRunning = step.status === 'running';
+  const isError = step.status === 'error';
 
-const StepCard = memo(function StepCard({ step }: { step: AgentStep }) {
-  const [expanded, setExpanded] = useState(step.expanded ?? false);
-  const Icon = stepIcons[step.type] || Brain;
-
-  const statusStyles = {
-    pending: 'bg-gray-100 border-gray-200 text-gray-500',
-    running: 'bg-blue-50 border-blue-200 text-blue-700',
-    complete: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-    error: 'bg-red-50 border-red-200 text-red-700',
-  };
-
-  const iconBgStyles = {
-    pending: 'bg-gray-200 text-gray-500',
-    running: 'bg-blue-100 text-blue-600',
-    complete: 'bg-emerald-100 text-emerald-600',
-    error: 'bg-red-100 text-red-600',
+  const getIcon = () => {
+    if (step.title.toLowerCase().includes('scanner') || step.title.toLowerCase().includes('market')) {
+      return <Scan className="w-5 h-5" />;
+    }
+    if (step.title.toLowerCase().includes('data') || step.title.toLowerCase().includes('historical')) {
+      return <Database className="w-5 h-5" />;
+    }
+    if (step.title.toLowerCase().includes('code') || step.title.toLowerCase().includes('analysis')) {
+      return <Code2 className="w-5 h-5" />;
+    }
+    return <TrendingUp className="w-5 h-5" />;
   };
 
   return (
-    <div
-      className={`
-        rounded-xl border px-4 py-3 transition-all duration-300 ease-out
-        ${statusStyles[step.status]}
-        ${step.expandable ? 'cursor-pointer hover:shadow-md' : ''}
-      `}
-      onClick={() => step.expandable && setExpanded(!expanded)}
-    >
-      <div className="flex items-center gap-3">
-        {/* Icon */}
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${iconBgStyles[step.status]}`}>
-          {step.status === 'running' ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : step.status === 'complete' ? (
-            <CheckCircle2 className="w-4 h-4" />
-          ) : step.status === 'error' ? (
-            <AlertCircle className="w-4 h-4" />
-          ) : (
-            <Icon className="w-4 h-4" />
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm">{step.title}</div>
-          {step.description && (
-            <div className="text-xs opacity-75 truncate">{step.description}</div>
-          )}
-        </div>
-
-        {/* Status indicator */}
-        <div className="flex items-center gap-2">
-          {step.status === 'complete' && (
-            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-          )}
-          {step.expandable && (
-            expanded ? (
-              <ChevronDown className="w-4 h-4 opacity-50" />
-            ) : (
-              <ChevronRight className="w-4 h-4 opacity-50" />
-            )
-          )}
-        </div>
+    <div className={`
+      flex items-center gap-3 p-3 rounded-xl border transition-all duration-300
+      ${isComplete ? 'bg-white border-gray-200' : ''}
+      ${isRunning ? 'bg-blue-50/50 border-blue-200' : ''}
+      ${isError ? 'bg-red-50/50 border-red-200' : ''}
+      ${!isComplete && !isRunning && !isError ? 'bg-gray-50 border-gray-200' : ''}
+    `}>
+      {/* Icon container */}
+      <div className={`
+        w-10 h-10 rounded-lg flex items-center justify-center
+        ${isComplete ? 'bg-gray-100 text-gray-600' : ''}
+        ${isRunning ? 'bg-blue-100 text-blue-600' : ''}
+        ${isError ? 'bg-red-100 text-red-600' : ''}
+        ${!isComplete && !isRunning && !isError ? 'bg-gray-100 text-gray-500' : ''}
+      `}>
+        {isRunning ? (
+          <Loader2 className="w-5 h-5 animate-spin" />
+        ) : (
+          getIcon()
+        )}
       </div>
 
-      {/* Expanded details */}
+      {/* Content */}
+      <div className="flex-1 min-w-0">
+        <div className={`font-medium text-[14px] ${isError ? 'text-red-700' : 'text-gray-900'}`}>
+          {step.title}
+        </div>
+        {step.description && (
+          <div className={`text-[12px] ${isError ? 'text-red-600' : 'text-gray-500'}`}>
+            {step.description}
+          </div>
+        )}
+      </div>
+
+      {/* Status indicator */}
+      <div className="flex-shrink-0">
+        {isComplete && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
+        {isRunning && <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />}
+        {isError && <AlertCircle className="w-5 h-5 text-red-500" />}
+      </div>
+    </div>
+  );
+});
+
+// Reasoning section - ALWAYS VISIBLE with real-time updates
+const ReasoningSection = memo(function ReasoningSection({
+  steps,
+  duration,
+  expanded,
+  onToggle
+}: {
+  steps: AgentStep[];
+  duration?: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const isStillProcessing = !duration || steps.some(s => s.status === 'running');
+
+  return (
+    <div className="space-y-2">
+      {/* Header - "Reasoning for X seconds" - clickable to collapse */}
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-2 text-[13px] text-gray-500 hover:text-gray-700 transition-colors group"
+      >
+        {isStillProcessing ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+        ) : (
+          <Clock className="w-3.5 h-3.5 opacity-60" />
+        )}
+        <span className="font-medium">
+          {duration
+            ? `Reasoned for ${duration} second${duration !== 1 ? 's' : ''}`
+            : `Reasoning for ${Math.floor((Date.now() - (steps[0]?.id ? Date.now() : Date.now())) / 1000) || '...'} seconds`
+          }
+        </span>
+        {expanded ? (
+          <ChevronDown className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100" />
+        ) : (
+          <ChevronRight className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100" />
+        )}
+      </button>
+
+      {/* ALWAYS show reasoning content when expanded - even if empty show loading */}
+      {expanded && (
+        <div className="pl-2 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="pl-3 border-l-2 border-blue-200 space-y-3">
+            {steps.length === 0 ? (
+              // Show loading state when no steps yet
+              <div className="flex items-center gap-2 text-[13px] text-gray-500">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                <span>Analyzing your query...</span>
+              </div>
+            ) : (
+              // Show each step as it arrives
+              steps.map((step, index) => {
+                const isRunning = step.status === 'running';
+                const isComplete = step.status === 'complete';
+                const hasDetails = step.details && step.details.length > 0;
+                const isThinkingStep = step.type === 'reasoning' && step.title === 'Reasoning Complete';
+
+                return (
+                  <div key={step.id} className="animate-in fade-in slide-in-from-left-2 duration-200">
+                    <div className="flex items-start gap-3">
+                      {/* Step indicator */}
+                      <div className="flex-shrink-0 mt-0.5">
+                        {isRunning ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                        ) : isComplete ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                        )}
+                      </div>
+
+                      {/* Step content */}
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-[13px] font-medium ${isRunning ? 'text-blue-700' : 'text-gray-800'}`}>
+                          {step.title}
+                        </div>
+                        {step.description && (
+                          <div className="text-[12px] text-gray-500 mt-0.5">
+                            {step.description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Show thinking details if this is a reasoning step with details */}
+                    {hasDetails && isThinkingStep && step.details && (
+                      <div className="ml-7 mt-2 pl-3 border-l border-gray-200 bg-gray-50/50 rounded-r p-2">
+                        <div className="text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap font-mono">
+                          {step.details.length > 600
+                            ? step.details.substring(0, 600) + '...'
+                            : step.details
+                          }
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// Code execution card - expandable with details
+const CodeCard = memo(function CodeCard({ step }: { step: AgentStep }) {
+  const [expanded, setExpanded] = useState(false);
+  const isComplete = step.status === 'complete';
+  const isRunning = step.status === 'running';
+  const isError = step.status === 'error';
+
+  return (
+    <div className={`
+      rounded-xl border transition-all duration-300 overflow-hidden
+      ${isComplete ? 'bg-emerald-50/50 border-emerald-200' : ''}
+      ${isRunning ? 'bg-blue-50/50 border-blue-200' : ''}
+      ${isError ? 'bg-red-50/50 border-red-200' : ''}
+    `}>
+      {/* Header */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-3 p-3 hover:bg-black/5 transition-colors"
+      >
+        <div className={`
+          w-8 h-8 rounded-lg flex items-center justify-center
+          ${isComplete ? 'bg-emerald-100 text-emerald-600' : ''}
+          ${isRunning ? 'bg-blue-100 text-blue-600' : ''}
+          ${isError ? 'bg-red-100 text-red-600' : ''}
+        `}>
+          {isRunning ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Code2 className="w-4 h-4" />
+          )}
+        </div>
+
+        <div className="flex-1 text-left min-w-0">
+          <div className={`font-medium text-[13px] ${isError ? 'text-red-700' : 'text-gray-900'}`}>
+            {step.title}
+          </div>
+          {step.description && (
+            <div className={`text-[11px] ${isError ? 'text-red-600' : 'text-gray-500'}`}>
+              {step.description}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isComplete && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
+          {isError && <AlertCircle className="w-4 h-4 text-red-500" />}
+          {expanded ? (
+            <ChevronDown className="w-4 h-4 text-gray-400" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+          )}
+        </div>
+      </button>
+
+      {/* Expanded code content */}
       {expanded && step.details && (
-        <div className="mt-3 pt-3 border-t border-current/10">
-          <pre className="text-xs font-mono whitespace-pre-wrap opacity-80 max-h-40 overflow-y-auto">
+        <div className="border-t border-gray-200 bg-gray-50 p-3 animate-in fade-in duration-200">
+          <pre className="text-[11px] font-mono text-gray-800 whitespace-pre-wrap overflow-x-auto max-h-60 overflow-y-auto">
             {step.details}
           </pre>
         </div>
@@ -102,74 +256,41 @@ const StepCard = memo(function StepCard({ step }: { step: AgentStep }) {
   );
 });
 
-const ThinkingIndicator = memo(function ThinkingIndicator({
-  duration,
-  expanded,
-  onToggle
-}: {
-  duration?: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-700 transition-colors py-1"
-    >
-      <span className="font-medium">
-        {duration
-          ? `Reasoned for ${duration}s`
-          : 'Reasoning...'
-        }
-      </span>
-      {expanded ? (
-        <ChevronDown className="w-3.5 h-3.5" />
-      ) : (
-        <ChevronRight className="w-3.5 h-3.5" />
-      )}
-    </button>
-  );
-});
-
 export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: AgentStepsProps) {
-  const [showThinking, setShowThinking] = useState(false);
+  // Auto-expand reasoning while processing, collapse when done
+  const hasRunningSteps = steps.some(s => s.status === 'running');
+  const [showReasoning, setShowReasoning] = useState(true); // Start expanded
 
   if (!steps || steps.length === 0) return null;
 
-  // Group steps by type for display
+  // Categorize steps
   const reasoningSteps = steps.filter(s => s.type === 'reasoning');
-  const actionSteps = steps.filter(s => s.type !== 'reasoning');
+  const toolSteps = steps.filter(s => s.type === 'tool');
+  const codeSteps = steps.filter(s => s.type === 'code');
 
   return (
     <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      {/* Thinking/Reasoning section */}
+      {/* Reasoning section header */}
       {reasoningSteps.length > 0 && (
-        <div>
-          <ThinkingIndicator
-            duration={thinkingTime}
-            expanded={showThinking}
-            onToggle={() => setShowThinking(!showThinking)}
-          />
-
-          {showThinking && (
-            <div className="ml-6 mt-2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-              {reasoningSteps.map(step => (
-                <div key={step.id} className="text-sm text-gray-600 pl-3 border-l-2 border-gray-200">
-                  {step.description || step.title}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <ReasoningSection
+          steps={reasoningSteps}
+          duration={thinkingTime}
+          expanded={showReasoning}
+          onToggle={() => setShowReasoning(!showReasoning)}
+        />
       )}
 
-      {/* Action steps - Tools and Code */}
-      {actionSteps.map(step => (
-        <StepCard key={step.id} step={step} />
+      {/* Tool cards - Market Scanner, Data Sources, etc. */}
+      {toolSteps.map(step => (
+        <ToolCard key={step.id} step={step} />
+      ))}
+
+      {/* Code execution cards */}
+      {codeSteps.map(step => (
+        <CodeCard key={step.id} step={step} />
       ))}
     </div>
   );
 });
 
 export default AgentSteps;
-

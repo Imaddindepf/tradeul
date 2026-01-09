@@ -68,7 +68,8 @@ class GeminiClient:
             raise ValueError("GOOGLE_API_KEY es requerido")
         
         self.client = genai.Client(api_key=self.api_key)
-        self.model = "gemini-2.0-flash"
+        self.model = "gemini-2.5-flash"  # Model with thinking capabilities
+        self.model_thinking = "gemini-2.5-flash"  # For queries requiring reasoning
         self.prompts = SystemPrompts()
         
         # Historial de conversación por usuario
@@ -344,6 +345,133 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
                 valid_blocks.append(block)
         
         return valid_blocks
+    
+    async def generate_with_thinking(
+        self,
+        prompt: str,
+        on_thought: callable = None,
+        max_tokens: int = 4096
+    ) -> tuple[str, List[str]]:
+        """
+        Generate content with thinking mode enabled.
+        Returns the final response and list of thought summaries.
+        
+        Args:
+            prompt: The prompt to send
+            on_thought: Optional callback for streaming thoughts
+            max_tokens: Maximum output tokens
+            
+        Returns:
+            Tuple of (response_text, thoughts_list)
+        """
+        thoughts = []
+        response_text = ""
+        
+        try:
+            # Enable thinking with ThinkingConfig
+            response = self.client.models.generate_content(
+                model=self.model_thinking,
+                contents=[types.Content(
+                    role="user",
+                    parts=[types.Part(text=prompt)]
+                )],
+                config=types.GenerateContentConfig(
+                    temperature=0.7,
+                    max_output_tokens=max_tokens,
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=True
+                    )
+                )
+            )
+            
+            # Extract thoughts and response from parts
+            if response.candidates and response.candidates[0].content:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'thought') and part.thought:
+                        # This is a thought part
+                        thought_text = part.text if hasattr(part, 'text') else str(part)
+                        thoughts.append(thought_text)
+                        if on_thought:
+                            await on_thought(thought_text)
+                    elif hasattr(part, 'text'):
+                        # Regular response part
+                        response_text += part.text
+            
+            return response_text, thoughts
+            
+        except Exception as e:
+            logger.error("generate_with_thinking_error", error=str(e))
+            return f"Error: {str(e)}", []
+    
+    async def stream_with_thinking(
+        self,
+        prompt: str,
+        on_thought: callable = None,
+        on_text: callable = None,
+        max_tokens: int = 4096
+    ) -> tuple[str, List[str]]:
+        """
+        Stream content generation with thinking mode.
+        Thoughts are streamed as they become available.
+        
+        Args:
+            prompt: The prompt to send
+            on_thought: Callback for thought chunks
+            on_text: Callback for response text chunks
+            max_tokens: Maximum output tokens
+            
+        Returns:
+            Tuple of (full_response, all_thoughts)
+        """
+        thoughts = []
+        response_text = ""
+        current_thought = ""
+        
+        try:
+            # Stream with thinking enabled
+            for chunk in self.client.models.generate_content_stream(
+                model=self.model_thinking,
+                contents=[types.Content(
+                    role="user",
+                    parts=[types.Part(text=prompt)]
+                )],
+                config=types.GenerateContentConfig(
+                    temperature=0.7,
+                    max_output_tokens=max_tokens,
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=True
+                    )
+                )
+            ):
+                if chunk.candidates and chunk.candidates[0].content:
+                    for part in chunk.candidates[0].content.parts:
+                        if hasattr(part, 'thought') and part.thought:
+                            thought_chunk = part.text if hasattr(part, 'text') else ""
+                            current_thought += thought_chunk
+                            if on_thought and thought_chunk:
+                                await on_thought(thought_chunk)
+                        elif hasattr(part, 'text'):
+                            text_chunk = part.text
+                            response_text += text_chunk
+                            if on_text and text_chunk:
+                                await on_text(text_chunk)
+                
+                # Check for thought completion
+                if current_thought and (not chunk.candidates or 
+                    not any(hasattr(p, 'thought') and p.thought 
+                            for p in chunk.candidates[0].content.parts if chunk.candidates[0].content)):
+                    thoughts.append(current_thought)
+                    current_thought = ""
+            
+            # Add any remaining thought
+            if current_thought:
+                thoughts.append(current_thought)
+            
+            return response_text, thoughts
+            
+        except Exception as e:
+            logger.error("stream_with_thinking_error", error=str(e))
+            return f"Error: {str(e)}", thoughts
     
     async def generate_json(
         self,

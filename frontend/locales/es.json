@@ -149,6 +149,10 @@
       "name": "News",
       "description": "Noticias del mercado"
     },
+    "ins": {
+      "name": "Insights",
+      "description": "Reportes y analisis de TradeUL"
+    },
     "alerts": {
       "name": "Alertas de Catalizador",
       "description": "Alertas de noticias con movimientos explosivos"
@@ -524,6 +528,9 @@
       "NEWS": {
         "description": "Noticias del mercado"
       },
+      "INS": {
+        "description": "Reportes y analisis de TradeUL"
+      },
       "ALERTS": {
         "description": "Alertas de noticias con movimientos explosivos"
       },
@@ -574,7 +581,22 @@
       },
       "AI": {
         "description": "Asistente IA para análisis de mercado en lenguaje natural"
+      },
+      "INS": {
+        "description": "Reportes y analisis de TradeUL"
       }
     }
+  },
+  "insights": {
+    "title": "Insights",
+    "subtitle": "Reportes y analisis del mercado",
+    "types": {
+      "morning": "Matutino",
+      "midmorning": "Media Manana",
+      "evening": "Nocturno",
+      "weekly": "Semanal"
+    },
+    "noInsights": "No hay insights disponibles",
+    "scheduleNote": "El Morning News se genera a las 07:30 ET"
   }
 }

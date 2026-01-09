@@ -19,7 +19,7 @@ const http = require("http");
 const Redis = require("ioredis");
 const pino = require("pino");
 const { v4: uuidv4 } = require("uuid");
-const { subscribeToNewDayEvents, subscribeToSessionChangeEvents, setConnectionsRef } = require("./cache_cleaner");
+const { subscribeToNewDayEvents, subscribeToSessionChangeEvents, subscribeToMorningNewsEvents, setConnectionsRef } = require("./cache_cleaner");
 const { verifyClerkToken, extractTokenFromUrl, isAuthEnabled } = require("./clerkAuth");
 
 // Logger
@@ -2523,17 +2523,27 @@ redisSubscriber.on("connect", () => {
     .catch((err) => {
       logger.error({ err }, "Failed to subscribe to session change events");
     });
+  
+  // Suscribirse a notificaciones de Morning News Call
+  subscribeToMorningNewsEvents(redisSubscriber)
+    .then(() => {
+      logger.info("✅ Subscribed to Morning News Call events");
+    })
+    .catch((err) => {
+      logger.error({ err }, "Failed to subscribe to morning news events");
+    });
 });
 
 // Iniciar servidor
 server.listen(PORT, () => {
   logger.info({ port: PORT }, "🚀 WebSocket Server started");
-  logger.info("📡 Architecture: HYBRID + SEC Filings + Benzinga News + Quotes");
+  logger.info("📡 Architecture: HYBRID + SEC Filings + Benzinga News + Quotes + Morning News");
   logger.info("  ✅ Rankings: Snapshot + Deltas (every 10s)");
   logger.info("  ✅ Price/Volume: Real-time Aggregates (every 1s)");
   logger.info("  ✅ SEC Filings: Real-time stream from SEC Stream API");
   logger.info("  ✅ Benzinga News: Real-time news from Polygon/Benzinga API");
   logger.info("  ✅ Quotes: Real-time bid/ask for individual tickers");
+  logger.info("  ✅ Morning News Call: Daily briefing at 7:30 AM ET");
   logger.info("  ✅ Optimized broadcasting with inverted index");
   logger.info("  ✅ Symbol→Lists mapping for aggregates");
   logger.info("  ✅ Polygon subscription status (every 10s)");

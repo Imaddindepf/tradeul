@@ -9,6 +9,7 @@ import { SquawkProvider } from '@/contexts/SquawkContext';
 import { FloatingWindowManager } from '@/components/floating-window/FloatingWindowManager';
 import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/catalyst-alerts';
 import { NewsProvider } from '@/components/news/NewsProvider';
+import { InsightsProvider } from '@/components/insights';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
 import { useScannerFiltersSync } from '@/hooks/useScannerFiltersSync';
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
@@ -36,6 +37,8 @@ export function AppShell({ children }: AppShellProps) {
           <GlobalHooksHandler />
         {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
         <NewsProvider>
+          {/* InsightsProvider: escucha notificaciones de Insights (Morning News, etc.) */}
+          <InsightsProvider>
           {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
           <CatalystDetectorProvider>
             <div className="min-h-screen bg-slate-50 relative">
@@ -53,6 +56,7 @@ export function AppShell({ children }: AppShellProps) {
               <CatalystAlertsPopup />
             </div>
           </CatalystDetectorProvider>
+          </InsightsProvider>
         </NewsProvider>
       </FloatingWindowProvider>
       </SquawkProvider>

@@ -105,33 +105,35 @@ class SyncFlatFilesTask:
                 return False
             raise
     
-    async def download_day_aggs_for_screener(self, target_date: date) -> Dict:
+    async def download_flat_files_for_local_services(self, target_date: date) -> Dict:
         """
-        Descargar day_aggs via Polygon-Data para servicios locales (Screener).
+        Descargar flat files via Polygon-Data para servicios locales.
         
-        NOTA: Solo day_aggs porque Screener no usa minute_aggs.
+        Servicios que usan estos datos:
+        - Screener: day_aggs (precios diarios)
+        - AI Agent: minute_aggs (análisis histórico por hora)
         """
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=600.0) as client:  # 10 min timeout for minute_aggs
             try:
                 response = await client.post(
                     f"{self.polygon_data_url}/download",
                     json={
                         "start_date": target_date.isoformat(),
                         "end_date": target_date.isoformat(),
-                        "data_types": ["day_aggs"],  # Solo day_aggs para Screener
+                        "data_types": ["day_aggs", "minute_aggs"],  # Both for local services
                         "force": False
                     }
                 )
                 result = response.json()
                 logger.info(
-                    "day_aggs_download_queued",
+                    "flat_files_download_queued",
                     date=target_date.isoformat(),
                     result=result
                 )
                 return {"success": True, "result": result}
                 
             except Exception as e:
-                logger.error("day_aggs_download_failed", date=target_date.isoformat(), error=str(e))
+                logger.error("flat_files_download_failed", date=target_date.isoformat(), error=str(e))
                 return {"success": False, "error": str(e)}
     
     async def update_pattern_matching(self, target_date: date) -> Dict:
@@ -217,10 +219,11 @@ class SyncFlatFilesTask:
             result["message"] = "minute_aggs not available in Polygon yet"
             return result
         
-        # 2. Descargar day_aggs para servicios locales
+        # 2. Descargar flat files para servicios locales (day_aggs + minute_aggs)
         if day_exists:
-            download_result = await self.download_day_aggs_for_screener(target_date)
-            result["day_aggs_downloaded"] = download_result.get("success", False)
+            download_result = await self.download_flat_files_for_local_services(target_date)
+            result["flat_files_downloaded"] = download_result.get("success", False)
+            result["day_aggs_downloaded"] = download_result.get("success", False)  # Backward compat
         
         # 3. Actualizar Pattern Matching
         pm_result = await self.update_pattern_matching(target_date)

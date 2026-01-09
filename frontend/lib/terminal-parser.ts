@@ -113,6 +113,12 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.NEWS.description',
         shortcut: 'Ctrl+N'
     },
+    INS: {
+        id: 'ins',
+        label: 'INS',
+        name: 'Insights',
+        descriptionKey: 'terminalCommands.globalCommands.INS.description'
+    },
     ALERTS: {
         id: 'alerts',
         label: 'ALERTS',

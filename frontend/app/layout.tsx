@@ -1,7 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import {
-  Outfit,
+  Inter,
   JetBrains_Mono,
   Oxygen_Mono,
   IBM_Plex_Mono,
@@ -11,10 +11,10 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { ClientThemeProvider } from '@/components/settings/ClientThemeProvider';
 import { I18nProvider } from '@/components/providers/I18nProvider';
 
-// UI Font
-const outfit = Outfit({
+// UI Font - Using Inter for better stability
+const inter = Inter({
   subsets: ['latin'],
-  variable: '--font-outfit',
+  variable: '--font-inter',
   display: 'swap',
 });
 
@@ -64,7 +64,7 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider>
-      <html lang="en" className={`${outfit.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable}`}>
+      <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable}`}>
         <body className="font-sans antialiased">
           <I18nProvider>
             <ClientThemeProvider>

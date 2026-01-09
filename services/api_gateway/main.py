@@ -38,6 +38,8 @@ from routes.financials import router as financials_router
 from routes.proxy import router as proxy_router
 from routes.realtime import router as realtime_router, set_redis_client as set_realtime_redis
 from routes.ratio_analysis import router as ratio_analysis_router
+from routes.morning_news import router as morning_news_router, set_redis_client as set_morning_news_redis
+from routes.insights import router as insights_router, set_redis_client as set_insights_redis
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
@@ -89,6 +91,13 @@ async def lifespan(app: FastAPI):
     # Configurar router de realtime con Redis
     set_realtime_redis(redis_client)
     logger.info("realtime_router_configured")
+    
+    # Configurar router de morning news con Redis
+    set_morning_news_redis(redis_client)
+    logger.info("morning_news_router_configured")
+    
+    set_insights_redis(redis_client)
+    logger.info("insights_router_configured")
     
     # Inicializar HTTP Clients con connection pooling
     # Esto evita crear conexiones por request - CRÍTICO para latencia
@@ -186,6 +195,8 @@ app.include_router(watchlist_router)
 app.include_router(proxy_router)  # Incluye endpoints de dilution, SEC filings, etc.
 app.include_router(realtime_router)  # Real-time ticker data for charts
 app.include_router(ratio_analysis_router)  # Ratio analysis entre dos activos
+app.include_router(morning_news_router)  # Morning News Call diario
+app.include_router(insights_router)  # TradeUL Insights (Morning, Mid-Morning, etc.)
 
 
 # ============================================================================

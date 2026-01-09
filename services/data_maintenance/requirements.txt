@@ -10,3 +10,6 @@ pydantic-settings==2.1.0
 pyarrow>=17.0.0
 numpy<2
 boto3>=1.34.0
+# LLM APIs for Morning News / Mid-Morning Update / FAN Batch
+google-genai>=1.40.0
+aiohttp>=3.9.0

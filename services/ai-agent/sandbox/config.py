@@ -108,6 +108,10 @@ class SandboxConfig:
             cpu_quota=int(os.getenv("SANDBOX_CPU_PERCENT", "50")) * 1000,
         )
     
+    # Historical data volume name (Docker volume with Polygon data)
+    historical_data_volume: str = "tradeul_polygon_data"
+    historical_data_mount: str = "/data/polygon"
+    
     def to_docker_config(self) -> Dict[str, Any]:
         """
         Convert to Docker SDK container configuration.
@@ -132,6 +136,13 @@ class SandboxConfig:
             "user": "sandbox",
             "auto_remove": False,  # We handle cleanup manually for logging
             "detach": True,
+            # Mount historical data volume (read-only for security)
+            "volumes": {
+                self.historical_data_volume: {
+                    "bind": self.historical_data_mount,
+                    "mode": "ro"
+                }
+            }
         }
         
         return config

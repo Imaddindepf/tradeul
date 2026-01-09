@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useEffect, useState } from 'react';
-import { Brain } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import type { Message } from './types';
 import { AgentSteps } from './AgentSteps';
 
@@ -26,14 +26,14 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
   }, [message.status, message.thinkingStartTime]);
 
   return (
-    <div className={`py-4 px-4 ${isUser ? 'bg-white' : 'bg-gray-50/50'}`}>
+    <div className={`py-5 px-4 ${isUser ? 'bg-white' : 'bg-gray-50/30'}`}>
       <div className="max-w-3xl mx-auto">
-        {/* User message - simple bubble style */}
+        {/* User message - clean bubble aligned right */}
         {isUser && (
           <div className="flex justify-end">
-            <div className="bg-gray-100 rounded-2xl rounded-tr-md px-4 py-2.5 max-w-[85%]">
-              <p className="text-[14px] text-gray-800">{message.content}</p>
-              <div className="text-[10px] text-gray-400 mt-1 text-right">
+            <div className="bg-gray-100 rounded-2xl rounded-tr-sm px-4 py-3 max-w-[80%] shadow-sm">
+              <p className="text-[14px] text-gray-800 leading-relaxed">{message.content}</p>
+              <div className="text-[10px] text-gray-400 mt-1.5 text-right">
                 {message.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
@@ -42,7 +42,12 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
 
         {/* Assistant message - agent style with steps */}
         {isAssistant && (
-          <div className="space-y-3">
+          <div className="space-y-4">
+            {/* Thinking indicator when no steps yet */}
+            {message.status === 'thinking' && (!message.steps || message.steps.length === 0) && (
+              <ThinkingState seconds={thinkingSeconds} />
+            )}
+
             {/* Steps display */}
             {message.steps && message.steps.length > 0 && (
               <AgentSteps 
@@ -51,14 +56,9 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
               />
             )}
 
-            {/* Thinking indicator when no steps yet */}
-            {message.status === 'thinking' && (!message.steps || message.steps.length === 0) && (
-              <ThinkingState seconds={thinkingSeconds} />
-            )}
-
             {/* Main text content */}
             {message.content && (
-              <div className="text-[14px] leading-relaxed text-gray-700">
+              <div className="text-[14px] leading-relaxed text-gray-700 pt-1">
                 <MessageContent content={message.content} />
               </div>
             )}
@@ -71,9 +71,9 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
 
 const ThinkingState = memo(function ThinkingState({ seconds }: { seconds: number }) {
   return (
-    <div className="flex items-center gap-2 text-sm text-gray-500">
-      <Brain className="w-4 h-4 animate-pulse" />
-      <span>
+    <div className="flex items-center gap-2.5 text-[13px] text-gray-500">
+      <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+      <span className="font-medium">
         {seconds > 0 
           ? `Reasoning for ${seconds} second${seconds !== 1 ? 's' : ''}...`
           : 'Reasoning...'
@@ -98,7 +98,7 @@ const MessageContent = memo(function MessageContent({ content }: { content: stri
           return (
             <pre
               key={index}
-              className="mt-2 mb-2 p-3 rounded-lg text-[12px] overflow-x-auto bg-gray-900 text-gray-100 font-mono"
+              className="mt-2 mb-2 p-3 rounded-lg text-[12px] overflow-x-auto bg-gray-100 text-gray-800 font-mono border border-gray-200"
             >
               {codeContent.trim()}
             </pre>

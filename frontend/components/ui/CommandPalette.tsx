@@ -44,6 +44,7 @@ type CommandItem = {
     group: string;
     shortcut?: string;
     disabled?: boolean;
+    isNew?: boolean;
 };
 
 // Comandos principales - extendidos desde la fuente centralizada
@@ -265,6 +266,11 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                             <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmd.label}
                                             </span>
+                                            {cmd.isNew && (
+                                                <span className="px-1.5 py-0.5 text-[9px] font-bold bg-blue-600 text-white rounded">
+                                                    NEW
+                                                </span>
+                                            )}
                                             <span className="text-xs text-slate-600">{t(cmd.description)}</span>
                                         </Command.Item>
                                     );

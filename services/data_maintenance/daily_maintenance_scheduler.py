@@ -2,7 +2,7 @@
 Daily Maintenance Scheduler
 ===========================
 
-Scheduler que ejecuta mantenimiento en dos fases:
+Scheduler que ejecuta mantenimiento en múltiples fases:
 
 FASE 1 - 1:00 AM ET: Refresh de metadata
 - Actualiza shares_outstanding, market_cap, free_float de TODOS los tickers
@@ -13,11 +13,16 @@ FASE 2 - 3:00 AM ET: Mantenimiento principal
 - SIEMPRE carga datos históricos si hay día de trading pendiente
 - SOLO limpia caches si HOY es día de trading
 
+FASE 3 - 7:30 AM ET: Morning News Call
+- Genera reporte matutino de noticias financieras usando Gemini + Google Search
+- Se distribuye a todos los usuarios via Redis Pub/Sub
+- Solo se ejecuta en días de trading
+
 Casos:
-- Día normal (Lun-Vie): Metadata refresh → Cargar datos ayer → Limpiar caches
+- Día normal (Lun-Vie): Metadata refresh → Cargar datos ayer → Limpiar caches → Morning News
 - Fin de semana: SKIP (no hay datos nuevos)
-- Festivo después de trading: Metadata + Cargar datos + NO limpiar caches
-- Día después de festivo: (datos ya cargados) + Limpiar caches
+- Festivo después de trading: Metadata + Cargar datos + NO limpiar caches + NO morning news
+- Día después de festivo: (datos ya cargados) + Limpiar caches + Morning news
 """
 
 import asyncio
@@ -73,6 +78,10 @@ class DailyMaintenanceScheduler:
         self.maintenance_minute = 0
         self.cache_cleanup_hour = 3         # 3:45 AM ET - Limpieza de caches
         self.cache_cleanup_minute = 45
+        self.morning_news_hour = 7          # 7:30 AM ET - Morning News Call
+        self.morning_news_minute = 30
+        self.midmorning_update_hour = 12    # 12:30 PM ET - Mid-Morning Update
+        self.midmorning_update_minute = 30
         self.check_interval = 30            # Segundos entre checks
         
         # Estado
@@ -80,6 +89,8 @@ class DailyMaintenanceScheduler:
         self.last_metadata_refresh_date: Optional[date] = None  # Último refresh de metadata
         self.last_data_load_date: Optional[date] = None  # Último día de trading cargado
         self.last_cache_cleanup_date: Optional[date] = None
+        self.last_morning_news_date: Optional[date] = None  # Último Morning News Call
+        self.last_midmorning_update_date: Optional[date] = None  # Último Mid-Morning Update
         self._holidays_cache: Dict[str, bool] = {}
     
     # =========================================================================
@@ -174,7 +185,8 @@ class DailyMaintenanceScheduler:
         logger.info(
             "daily_maintenance_scheduler_started", 
             metadata_refresh="1:00 AM ET",
-            data_load="3:00 AM ET"
+            data_load="3:00 AM ET",
+            morning_news="7:30 AM ET"
         )
         
         await self._load_state()
@@ -220,6 +232,12 @@ class DailyMaintenanceScheduler:
             last_cleanup = await self.redis.get("maintenance:last_cache_cleanup")
             if last_cleanup:
                 self.last_cache_cleanup_date = date.fromisoformat(last_cleanup)
+            
+            # Estado de morning news call
+            last_morning = await self.redis.get("maintenance:last_morning_news")
+            if last_morning:
+                self.last_morning_news_date = date.fromisoformat(last_morning)
+                logger.info("loaded_last_morning_news_date", date=str(self.last_morning_news_date))
         except Exception as e:
             logger.warning("failed_to_load_state", error=str(e))
     
@@ -294,6 +312,46 @@ class DailyMaintenanceScheduler:
                     date=str(current_date)
                 )
                 self.last_cache_cleanup_date = current_date
+        
+        # =============================================
+        # 3. MORNING NEWS CALL (7:30 AM ET)
+        # Genera y distribuye el reporte matutino
+        # SOLO si hoy es día de trading
+        # =============================================
+        is_morning_news_time = (
+            current_hour == self.morning_news_hour and
+            self.morning_news_minute <= current_minute <= self.morning_news_minute + 5
+        )
+        
+        if is_morning_news_time and self.last_morning_news_date != current_date:
+            if await self._is_trading_day(current_date):
+                await self._execute_morning_news_call(current_date)
+            else:
+                logger.info(
+                    "skipping_morning_news_not_trading_day",
+                    date=str(current_date)
+                )
+                self.last_morning_news_date = current_date
+        
+        # =============================================
+        # 4. MID-MORNING UPDATE (12:30 PM ET)
+        # Genera el reporte de medio día con datos del scanner
+        # SOLO si hoy es día de trading
+        # =============================================
+        is_midmorning_update_time = (
+            current_hour == self.midmorning_update_hour and
+            self.midmorning_update_minute <= current_minute <= self.midmorning_update_minute + 5
+        )
+        
+        if is_midmorning_update_time and self.last_midmorning_update_date != current_date:
+            if await self._is_trading_day(current_date):
+                await self._execute_midmorning_update(current_date)
+            else:
+                logger.info(
+                    "skipping_midmorning_update_not_trading_day",
+                    date=str(current_date)
+                )
+                self.last_midmorning_update_date = current_date
     
     # =========================================================================
     # EJECUCIÓN DE TAREAS
@@ -455,6 +513,175 @@ class DailyMaintenanceScheduler:
             
         except Exception as e:
             logger.error("cache_cleanup_exception", error=str(e))
+    
+    async def _execute_morning_news_call(self, current_date: date):
+        """
+        Generar y distribuir el Morning News Call.
+        
+        El reporte se guarda en Redis y se notifica via Pub/Sub
+        a todos los clientes conectados.
+        """
+        logger.info("starting_morning_news_call", date=str(current_date))
+        
+        start_time = datetime.now()
+        
+        try:
+            from tasks.morning_news_call import generate_morning_news_call
+            
+            # Generar el reporte
+            result = await generate_morning_news_call(current_date)
+            
+            if result.get("es") and result["es"].get("success"):
+                # Guardar versión en español
+                result_es = result["es"]
+                await self.redis.set(
+                    f"morning_news:{current_date.isoformat()}:es",
+                    json.dumps(result_es, ensure_ascii=False),
+                    ttl=86400
+                )
+                await self.redis.set(
+                    "morning_news:latest:es",
+                    json.dumps(result_es, ensure_ascii=False),
+                    ttl=86400
+                )
+                # Default latest apunta a español
+                await self.redis.set(
+                    "morning_news:latest",
+                    json.dumps(result_es, ensure_ascii=False),
+                    ttl=86400
+                )
+                
+                # Guardar versión en inglés
+                if result.get("en"):
+                    result_en = result["en"]
+                    await self.redis.set(
+                        f"morning_news:{current_date.isoformat()}:en",
+                        json.dumps(result_en, ensure_ascii=False),
+                        ttl=86400
+                    )
+                    await self.redis.set(
+                        "morning_news:latest:en",
+                        json.dumps(result_en, ensure_ascii=False),
+                        ttl=86400
+                    )
+                
+                # Notificar via Pub/Sub a todos los usuarios conectados
+                await self.redis.client.publish(
+                    "notifications:morning_news",
+                    json.dumps({
+                        "event": "morning_news_call",
+                        "date": current_date.isoformat(),
+                        "title": "Tradeul.com MORNING NEWS CALL",
+                        "preview": result_es.get("report", "")[:500] + "...",
+                        "generated_at": result_es.get("generated_at")
+                    }, ensure_ascii=False)
+                )
+                
+                self.last_morning_news_date = current_date
+                await self.redis.set("maintenance:last_morning_news", current_date.isoformat())
+                
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(
+                    "morning_news_call_completed",
+                    date=str(current_date),
+                    report_length_es=len(result_es.get("report", "")),
+                    report_length_en=len(result.get("en", {}).get("report", "")),
+                    duration_seconds=round(elapsed, 2)
+                )
+            else:
+                logger.error(
+                    "morning_news_call_failed",
+                    date=str(current_date),
+                    error=str(result)
+                )
+                
+        except Exception as e:
+            logger.error("morning_news_call_exception", date=str(current_date), error=str(e))
+    
+    async def _execute_midmorning_update(self, current_date: date):
+        """
+        Generar y distribuir el Mid-Morning Update.
+        
+        Este reporte incluye:
+        - Top movers del scanner con noticias de Google y X.com
+        - Sectores sintéticos identificados por IA
+        - Resultados de eventos económicos y earnings del morning call
+        - Análisis del mercado
+        """
+        logger.info("starting_midmorning_update", date=str(current_date))
+        
+        start_time = datetime.now()
+        
+        try:
+            from tasks.midmorning_update import generate_bilingual_midmorning_update
+            
+            # Generar el reporte bilingüe
+            result = await generate_bilingual_midmorning_update(current_date)
+            
+            if result.get("success") and result.get("reports"):
+                # Guardar versión en español
+                result_es = result["reports"].get("es", {})
+                if result_es:
+                    await self.redis.set(
+                        f"midmorning_update:{current_date.isoformat()}:es",
+                        json.dumps(result_es, ensure_ascii=False),
+                        ttl=86400 * 7  # 7 días
+                    )
+                    await self.redis.set(
+                        "midmorning_update:latest:es",
+                        json.dumps(result_es, ensure_ascii=False),
+                        ttl=86400 * 7
+                    )
+                
+                # Guardar versión en inglés
+                result_en = result["reports"].get("en", {})
+                if result_en:
+                    await self.redis.set(
+                        f"midmorning_update:{current_date.isoformat()}:en",
+                        json.dumps(result_en, ensure_ascii=False),
+                        ttl=86400 * 7  # 7 días
+                    )
+                    await self.redis.set(
+                        "midmorning_update:latest:en",
+                        json.dumps(result_en, ensure_ascii=False),
+                        ttl=86400 * 7
+                    )
+                
+                # Notificar via Pub/Sub a todos los usuarios conectados
+                await self.redis.client.publish(
+                    "notifications:insight",
+                    json.dumps({
+                        "event": "insight_notification",
+                        "type": "midmorning",
+                        "id": f"midmorning:{current_date.isoformat()}",
+                        "date": current_date.isoformat(),
+                        "title": "TradeUL Mid-Morning Update",
+                        "preview_es": result_es.get("report", "")[:500] + "..." if result_es else "",
+                        "preview_en": result_en.get("report", "")[:500] + "..." if result_en else "",
+                        "generated_at": result.get("generated_at")
+                    }, ensure_ascii=False)
+                )
+                
+                self.last_midmorning_update_date = current_date
+                await self.redis.set("maintenance:last_midmorning_update", current_date.isoformat())
+                
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(
+                    "midmorning_update_completed",
+                    date=str(current_date),
+                    report_length_es=len(result_es.get("report", "")) if result_es else 0,
+                    report_length_en=len(result_en.get("report", "")) if result_en else 0,
+                    duration_seconds=round(elapsed, 2)
+                )
+            else:
+                logger.error(
+                    "midmorning_update_failed",
+                    date=str(current_date),
+                    error=result.get("error", "Unknown error")
+                )
+                
+        except Exception as e:
+            logger.error("midmorning_update_exception", date=str(current_date), error=str(e))
     
     # =========================================================================
     # RECOVERY

@@ -45,6 +45,7 @@ from daily_maintenance_scheduler import DailyMaintenanceScheduler
 from maintenance_orchestrator import MaintenanceOrchestrator
 from realtime_ticker_monitor import RealtimeTickerMonitor
 from tasks.sync_flat_files import SyncFlatFilesTask, FlatFilesWatcher
+from fan_batch_monitor import FANBatchMonitor
 
 logger = get_logger(__name__)
 
@@ -53,14 +54,15 @@ redis_client: RedisClient = None
 timescale_client: TimescaleClient = None
 daily_scheduler: DailyMaintenanceScheduler = None
 flat_files_watcher: FlatFilesWatcher = None
+fan_batch_monitor: FANBatchMonitor = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida del servicio"""
-    global redis_client, timescale_client, daily_scheduler, flat_files_watcher
+    global redis_client, timescale_client, daily_scheduler, flat_files_watcher, fan_batch_monitor
     
-    logger.info("🚀 Starting Data Maintenance Service v2.1")
+    logger.info("🚀 Starting Data Maintenance Service v2.2")
     
     # Inicializar clientes
     redis_client = RedisClient()
@@ -87,17 +89,26 @@ async def lifespan(app: FastAPI):
     flat_files_watcher = FlatFilesWatcher(redis_client, daily_scheduler)
     watcher_task = asyncio.create_task(flat_files_watcher.run())
     
+    # Iniciar FAN Batch Monitor (genera FAN reports para tickers nuevos)
+    fan_batch_monitor = FANBatchMonitor(redis_client)
+    fan_monitor_task = asyncio.create_task(fan_batch_monitor.start())
+    
     logger.info("=" * 60)
     logger.info("📅 Schedule: Daily maintenance at 3:00 AM ET")
     logger.info("   (1 hour before pre-market opens at 4:00 AM ET)")
     logger.info("📁 FlatFilesWatcher: Monitors Polygon S3 every 30min after close")
     logger.info("📊 Pattern Matching: Dedicated server 37.27.183.194:8025")
+    logger.info("🤖 FAN Batch Monitor: Every 15min, generates FAN for new tickers")
     logger.info("=" * 60)
     
     yield
     
     # Shutdown
     logger.info("🛑 Shutting down Data Maintenance Service")
+    
+    # Detener FAN Batch Monitor
+    await fan_batch_monitor.stop()
+    fan_monitor_task.cancel()
     
     # Detener FlatFilesWatcher
     flat_files_watcher.stop()
@@ -108,6 +119,11 @@ async def lifespan(app: FastAPI):
     
     daily_scheduler.stop()
     scheduler_task.cancel()
+    
+    try:
+        await fan_monitor_task
+    except asyncio.CancelledError:
+        pass
     
     try:
         await watcher_task
@@ -551,6 +567,96 @@ async def check_polygon_availability():
         
     except Exception as e:
         logger.error("check_polygon_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+# =============================================================================
+# FAN BATCH MONITOR ENDPOINTS
+# =============================================================================
+
+@app.get("/fan-batch/status")
+async def get_fan_batch_status():
+    """
+    Ver estado del FAN Batch Monitor.
+    
+    Muestra:
+    - Si está corriendo
+    - Último check
+    - Batches ejecutados hoy
+    - Tickers generados hoy
+    - Configuración
+    """
+    try:
+        if fan_batch_monitor:
+            stats = fan_batch_monitor.get_stats()
+            
+            # Agregar conteo actual de FAN en Redis
+            fan_keys = await redis_client.client.keys("fan:report:*:es")
+            stats["total_fan_in_redis"] = len(fan_keys)
+            
+            return stats
+        
+        return {"status": "error", "message": "FAN Batch Monitor not initialized"}
+    
+    except Exception as e:
+        logger.error("fan_batch_status_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/fan-batch/check")
+async def trigger_fan_batch_check():
+    """
+    Forzar check de FAN Batch Monitor.
+    
+    Ejecuta inmediatamente una verificación de tickers nuevos
+    y genera FAN reports si hay suficientes.
+    """
+    try:
+        if fan_batch_monitor:
+            result = await fan_batch_monitor.force_check()
+            return {
+                "status": "ok",
+                "message": "FAN batch check triggered",
+                "stats": result
+            }
+        
+        return {"status": "error", "message": "FAN Batch Monitor not initialized"}
+    
+    except Exception as e:
+        logger.error("fan_batch_check_failed", error=str(e))
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/fan-batch/missing")
+async def get_missing_fan_tickers():
+    """
+    Ver qué tickers del scanner NO tienen FAN report.
+    
+    Útil para debugging y verificar qué tickers faltan.
+    """
+    try:
+        if not fan_batch_monitor:
+            return {"status": "error", "message": "FAN Batch Monitor not initialized"}
+        
+        # Obtener tickers del scanner
+        scanner_tickers = await fan_batch_monitor._get_scanner_tickers()
+        
+        # Obtener tickers con FAN
+        existing_fan = await fan_batch_monitor._get_existing_fan_tickers()
+        
+        # Calcular faltantes
+        missing = scanner_tickers - existing_fan
+        
+        return {
+            "total_in_scanner": len(scanner_tickers),
+            "total_with_fan": len(existing_fan),
+            "missing_count": len(missing),
+            "missing_tickers": sorted(list(missing))[:100],  # Limitar a 100
+            "note": "Showing max 100 missing tickers" if len(missing) > 100 else None
+        }
+    
+    except Exception as e:
+        logger.error("fan_batch_missing_failed", error=str(e))
         return {"status": "error", "error": str(e)}
 
 

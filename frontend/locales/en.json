@@ -149,6 +149,10 @@
       "name": "News",
       "description": "Market news"
     },
+    "ins": {
+      "name": "Insights",
+      "description": "TradeUL reports and analysis"
+    },
     "alerts": {
       "name": "Catalyst Alerts",
       "description": "News catalyst alerts for explosive moves"
@@ -524,6 +528,9 @@
       "NEWS": {
         "description": "Market news"
       },
+      "INS": {
+        "description": "TradeUL reports and analysis"
+      },
       "ALERTS": {
         "description": "News catalyst alerts for explosive moves"
       },
@@ -574,7 +581,22 @@
       },
       "AI": {
         "description": "AI assistant for natural language market analysis"
+      },
+      "INS": {
+        "description": "TradeUL reports and analysis"
       }
     }
+  },
+  "insights": {
+    "title": "Insights",
+    "subtitle": "Market reports and analysis",
+    "types": {
+      "morning": "Morning",
+      "midmorning": "Mid-Morning",
+      "evening": "Evening",
+      "weekly": "Weekly"
+    },
+    "noInsights": "No insights available",
+    "scheduleNote": "Morning News is generated at 07:30 ET"
   }
 }

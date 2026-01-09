@@ -65,7 +65,7 @@ export interface StatsData {
 }
 
 export interface OutputBlock {
-  type: 'table' | 'chart' | 'stats' | 'error';
+  type: 'table' | 'chart' | 'stats' | 'error' | 'research';
   title: string;
   columns?: string[];
   rows?: Record<string, unknown>[];
@@ -73,6 +73,10 @@ export interface OutputBlock {
   chart_type?: string;
   plotly_config?: PlotlyConfig;
   stats?: StatsData['stats'];
+  // Research output fields
+  content?: string;
+  citations?: string[];
+  sources_count?: number;
 }
 
 export interface ExecutionResult {

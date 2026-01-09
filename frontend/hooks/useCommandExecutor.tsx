@@ -28,6 +28,7 @@ import { HistoricalMultipleSecurityContent } from '@/components/historical-multi
 import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
 import { FinancialAnalystContent } from '@/components/financial-analyst';
 import { AIAgentContent } from '@/components/ai-agent';
+import { InsightsPanel } from '@/components/insights';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -218,6 +219,19 @@ export function useCommandExecutor() {
                     y: screenHeight / 2 - 300,
                     minWidth: 700,
                     minHeight: 450,
+                });
+                return null;
+
+            case 'ins':
+                openWindow({
+                    title: 'Insights',
+                    content: <InsightsPanel />,
+                    width: 700,
+                    height: 600,
+                    x: Math.max(100, screenWidth / 2 - 350),
+                    y: Math.max(50, screenHeight / 2 - 300),
+                    minWidth: 500,
+                    minHeight: 400,
                 });
                 return null;
 

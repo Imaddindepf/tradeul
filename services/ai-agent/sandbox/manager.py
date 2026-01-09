@@ -35,6 +35,9 @@ from .data_injector import DataInjector
 
 logger = structlog.get_logger(__name__)
 
+# Path to DuckDB layer module (relative to this file)
+DUCKDB_LAYER_PATH = Path(__file__).parent / "duckdb_layer.py"
+
 
 class ExecutionStatus(Enum):
     """Status of sandbox execution."""
@@ -232,18 +235,24 @@ class SandboxManager:
         
         The wrapper:
         1. Imports common libraries
-        2. Loads injected data files
-        3. Runs user code
-        4. Saves any DataFrames to output
+        2. Loads DuckDB layer for historical data access
+        3. Loads injected data files
+        4. Runs user code
+        5. Saves any DataFrames to output
         """
         imports = """
 import sys
 import json
 import warnings
 from pathlib import Path
+from datetime import datetime, timedelta
+import pytz
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
+
+# Timezone
+ET = pytz.timezone('America/New_York')
 
 # Data science imports
 import pandas as pd
@@ -262,11 +271,27 @@ try:
 except ImportError:
     sns = None
 
+try:
+    import duckdb
+except ImportError:
+    duckdb = None
+
 # Paths
 DATA_DIR = Path('/data')
 OUTPUT_DIR = Path('/output')
 
 """
+        
+        # Load DuckDB layer if available
+        duckdb_layer = ""
+        if DUCKDB_LAYER_PATH.exists():
+            duckdb_layer = f"""
+# ============ DUCKDB LAYER FOR HISTORICAL DATA ============
+# Provides: get_minute_bars(), get_top_movers(), historical_query(), available_dates()
+{DUCKDB_LAYER_PATH.read_text()}
+# ============ END DUCKDB LAYER ============
+"""
+        imports += duckdb_layer
         
         # Generate data loading code
         data_loading = "# Load injected data\n"
