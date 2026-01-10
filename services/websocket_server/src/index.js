@@ -887,6 +887,11 @@ function broadcastToListSubscribers(listName, message) {
           { connectionId, listName, clientSeq, messageSeq },
           "⚠️ Sequence gap detected, sending snapshot"
         );
+        
+        // ✅ FIX: Actualizar secuencia ANTES de enviar snapshot para evitar loop infinito
+        // Usamos messageSeq porque es la secuencia actual del servidor
+        conn.sequence_numbers.set(listName, messageSeq);
+        
         sendInitialSnapshot(connectionId, listName).catch((err) => {
           logger.error(
             { err, connectionId, listName },

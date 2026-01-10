@@ -348,16 +348,16 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Heartbeat cada 30 segundos
+  // Heartbeat - más frecuente durante loading para mantener conexión viva
   useEffect(() => {
     const interval = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'ping' }));
       }
-    }, 30000);
+    }, isLoading ? 10000 : 30000); // 10s durante loading, 30s idle
 
     return () => clearInterval(interval);
-  }, []);
+  }, [isLoading]);
 
   return {
     messages,

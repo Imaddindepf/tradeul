@@ -65,7 +65,7 @@ export interface StatsData {
 }
 
 export interface OutputBlock {
-  type: 'table' | 'chart' | 'stats' | 'error' | 'research';
+  type: 'table' | 'chart' | 'plotly_chart' | 'stats' | 'error' | 'research';
   title: string;
   columns?: string[];
   rows?: Record<string, unknown>[];

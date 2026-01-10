@@ -432,6 +432,362 @@ def _get_bar_colors(values: List[float]) -> List[str]:
     return colors
 
 
+def create_technical_chart(
+    df: pd.DataFrame,
+    title: str = "Price & Indicators",
+    indicators: Optional[List[str]] = None,
+    show_volume: bool = True,
+    show_earnings: bool = False,
+    earnings_dates: Optional[List[str]] = None
+) -> ChartOutput:
+    """
+    Creates a professional technical analysis chart with price, indicators, and volume.
+    
+    Similar to TradingView/Bloomberg style charts with:
+    - Candlestick/OHLC price data
+    - Moving averages (SMA, EMA)
+    - Bollinger Bands
+    - RSI subplot
+    - Volume bars
+    - Earnings markers (optional)
+    
+    Args:
+        df: DataFrame with OHLC data. Expected columns:
+            - time/timestamp/date: datetime column
+            - open, high, low, close: price columns
+            - volume (optional): volume column
+            - sma20, sma50, ema20, etc. (optional): pre-calculated indicators
+            - bb_upper, bb_middle, bb_lower (optional): Bollinger Bands
+            - rsi (optional): RSI values
+        title: Chart title
+        indicators: List of indicators to show. Options:
+            - 'SMA20', 'SMA50', 'EMA20', 'EMA50' - Moving averages
+            - 'BB' or 'BOLLINGER' - Bollinger Bands
+            - 'RSI' - RSI subplot
+            If None, auto-detects from DataFrame columns
+        show_volume: Whether to show volume subplot
+        show_earnings: Whether to show earnings markers
+        earnings_dates: List of earnings dates (ISO format strings)
+    
+    Returns:
+        ChartOutput with multi-subplot Plotly configuration
+    """
+    if df is None or df.empty:
+        raise ValueError("No data to chart. DataFrame is empty.")
+    
+    if len(df) > MAX_CHART_POINTS:
+        raise ChartLimitError(
+            f"Too many data points ({len(df)}). "
+            f"Please filter to less than {MAX_CHART_POINTS} points."
+        )
+    
+    # Detect time column
+    time_col = None
+    for col in ['time', 'timestamp', 'date', 'datetime']:
+        if col in df.columns:
+            time_col = col
+            break
+    
+    if time_col is None:
+        # Use index if it's a datetime
+        if isinstance(df.index, pd.DatetimeIndex):
+            df = df.reset_index()
+            time_col = df.columns[0]
+        else:
+            time_col = df.index.name or 'index'
+            df = df.reset_index()
+    
+    # Convert timestamps if needed
+    x_data = df[time_col].tolist()
+    if len(x_data) > 0 and isinstance(x_data[0], (int, float)):
+        from datetime import datetime as dt
+        x_data = [dt.fromtimestamp(t).isoformat() for t in x_data]
+    elif hasattr(x_data[0], 'isoformat'):
+        x_data = [t.isoformat() if hasattr(t, 'isoformat') else str(t) for t in x_data]
+    
+    # Auto-detect indicators from columns if not specified
+    if indicators is None:
+        indicators = []
+        for col in df.columns:
+            col_lower = col.lower()
+            if col_lower.startswith('sma'):
+                indicators.append(col.upper())
+            elif col_lower.startswith('ema'):
+                indicators.append(col.upper())
+            elif col_lower in ['bb_upper', 'bb_lower', 'bb_middle']:
+                if 'BB' not in indicators:
+                    indicators.append('BB')
+            elif col_lower == 'rsi':
+                indicators.append('RSI')
+    
+    # Determine subplot layout
+    has_rsi = 'RSI' in [i.upper() for i in indicators] and 'rsi' in df.columns
+    has_volume = show_volume and 'volume' in df.columns
+    
+    # Calculate row heights
+    if has_rsi and has_volume:
+        row_heights = [0.55, 0.25, 0.20]  # Price, Volume, RSI
+        rows = 3
+    elif has_rsi:
+        row_heights = [0.70, 0.30]  # Price, RSI
+        rows = 2
+    elif has_volume:
+        row_heights = [0.75, 0.25]  # Price, Volume
+        rows = 2
+    else:
+        row_heights = [1.0]
+        rows = 1
+    
+    # Build traces
+    traces = []
+    
+    # 1. Candlestick trace (main price)
+    traces.append({
+        "type": "candlestick",
+        "x": x_data,
+        "open": df['open'].tolist() if 'open' in df.columns else [],
+        "high": df['high'].tolist() if 'high' in df.columns else [],
+        "low": df['low'].tolist() if 'low' in df.columns else [],
+        "close": df['close'].tolist() if 'close' in df.columns else [],
+        "increasing": {"line": {"color": "#26a69a", "width": 1}, "fillcolor": "#26a69a"},
+        "decreasing": {"line": {"color": "#ef5350", "width": 1}, "fillcolor": "#ef5350"},
+        "name": "Price",
+        "showlegend": True,
+        "xaxis": "x",
+        "yaxis": "y"
+    })
+    
+    # 2. Moving Averages
+    ma_colors = {
+        'SMA20': '#fbbf24',  # Yellow/Gold
+        'SMA50': '#8b5cf6',  # Purple
+        'SMA200': '#3b82f6', # Blue
+        'EMA20': '#f97316',  # Orange
+        'EMA50': '#ec4899',  # Pink
+        'EMA200': '#06b6d4', # Cyan
+    }
+    
+    for ind in indicators:
+        ind_upper = ind.upper()
+        col_name = ind.lower()
+        
+        if ind_upper in ma_colors and col_name in df.columns:
+            traces.append({
+                "type": "scatter",
+                "mode": "lines",
+                "x": x_data,
+                "y": df[col_name].tolist(),
+                "name": ind_upper.replace('SMA', 'SMA ').replace('EMA', 'EMA '),
+                "line": {"color": ma_colors[ind_upper], "width": 1.5},
+                "xaxis": "x",
+                "yaxis": "y"
+            })
+    
+    # 3. Bollinger Bands
+    if 'BB' in [i.upper() for i in indicators] or 'BOLLINGER' in [i.upper() for i in indicators]:
+        if 'bb_upper' in df.columns and 'bb_lower' in df.columns:
+            # Upper band
+            traces.append({
+                "type": "scatter",
+                "mode": "lines",
+                "x": x_data,
+                "y": df['bb_upper'].tolist(),
+                "name": "BB Upper",
+                "line": {"color": "rgba(156, 163, 175, 0.5)", "width": 1, "dash": "dot"},
+                "xaxis": "x",
+                "yaxis": "y"
+            })
+            # Lower band
+            traces.append({
+                "type": "scatter",
+                "mode": "lines",
+                "x": x_data,
+                "y": df['bb_lower'].tolist(),
+                "name": "BB Lower",
+                "line": {"color": "rgba(156, 163, 175, 0.5)", "width": 1, "dash": "dot"},
+                "fill": "tonexty",
+                "fillcolor": "rgba(156, 163, 175, 0.1)",
+                "xaxis": "x",
+                "yaxis": "y"
+            })
+            # Middle band (SMA)
+            if 'bb_middle' in df.columns:
+                traces.append({
+                    "type": "scatter",
+                    "mode": "lines",
+                    "x": x_data,
+                    "y": df['bb_middle'].tolist(),
+                    "name": "BB Middle",
+                    "line": {"color": "rgba(156, 163, 175, 0.7)", "width": 1},
+                    "xaxis": "x",
+                    "yaxis": "y"
+                })
+    
+    # 4. Earnings markers
+    if show_earnings and earnings_dates:
+        earnings_y = []
+        earnings_x = []
+        for ed in earnings_dates:
+            # Find closest price point
+            for i, t in enumerate(x_data):
+                if ed in str(t):
+                    earnings_x.append(t)
+                    if 'high' in df.columns:
+                        earnings_y.append(df['high'].iloc[i] * 1.02)
+                    else:
+                        earnings_y.append(df['close'].iloc[i] * 1.02)
+                    break
+        
+        if earnings_x:
+            traces.append({
+                "type": "scatter",
+                "mode": "markers",
+                "x": earnings_x,
+                "y": earnings_y,
+                "name": "Earnings",
+                "marker": {
+                    "symbol": "circle",
+                    "size": 12,
+                    "color": "#f59e0b",
+                    "line": {"color": "#ffffff", "width": 2}
+                },
+                "xaxis": "x",
+                "yaxis": "y"
+            })
+    
+    # 5. Volume bars (subplot 2)
+    if has_volume:
+        volume_colors = []
+        for i in range(len(df)):
+            if i == 0:
+                volume_colors.append("#6b7280")
+            elif df['close'].iloc[i] >= df['close'].iloc[i-1]:
+                volume_colors.append("rgba(38, 166, 154, 0.5)")  # Green
+            else:
+                volume_colors.append("rgba(239, 83, 80, 0.5)")   # Red
+        
+        traces.append({
+            "type": "bar",
+            "x": x_data,
+            "y": df['volume'].tolist(),
+            "name": "Volume",
+            "marker": {"color": volume_colors},
+            "xaxis": "x",
+            "yaxis": "y2" if rows > 1 else "y"
+        })
+    
+    # 6. RSI (subplot 3 or 2)
+    if has_rsi:
+        rsi_yaxis = "y3" if has_volume else "y2"
+        traces.append({
+            "type": "scatter",
+            "mode": "lines",
+            "x": x_data,
+            "y": df['rsi'].tolist(),
+            "name": "RSI 14",
+            "line": {"color": "#a78bfa", "width": 1.5},
+            "xaxis": "x",
+            "yaxis": rsi_yaxis
+        })
+        # RSI overbought/oversold lines
+        traces.append({
+            "type": "scatter",
+            "mode": "lines",
+            "x": [x_data[0], x_data[-1]],
+            "y": [70, 70],
+            "name": "Overbought",
+            "line": {"color": "rgba(239, 68, 68, 0.5)", "width": 1, "dash": "dash"},
+            "showlegend": False,
+            "xaxis": "x",
+            "yaxis": rsi_yaxis
+        })
+        traces.append({
+            "type": "scatter",
+            "mode": "lines",
+            "x": [x_data[0], x_data[-1]],
+            "y": [30, 30],
+            "name": "Oversold",
+            "line": {"color": "rgba(34, 197, 94, 0.5)", "width": 1, "dash": "dash"},
+            "showlegend": False,
+            "xaxis": "x",
+            "yaxis": rsi_yaxis
+        })
+    
+    # Build layout
+    layout = {
+        "title": {"text": title, "font": {"size": 16, "color": "#e5e5e5"}},
+        "template": "plotly_dark",
+        "paper_bgcolor": "rgba(0,0,0,0)",
+        "plot_bgcolor": "rgba(17,24,39,1)",
+        "font": {"color": "#e5e5e5", "size": 11},
+        "margin": {"t": 50, "b": 30, "l": 60, "r": 20},
+        "legend": {
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+            "font": {"size": 10}
+        },
+        "xaxis": {
+            "type": "date",
+            "rangeslider": {"visible": False},
+            "gridcolor": "rgba(75, 85, 99, 0.3)",
+            "showgrid": True,
+            "zeroline": False
+        },
+        "yaxis": {
+            "title": "Price ($)",
+            "side": "right",
+            "gridcolor": "rgba(75, 85, 99, 0.3)",
+            "showgrid": True,
+            "zeroline": False,
+            "domain": [row_heights[1] + row_heights[2] if rows == 3 else (row_heights[1] if rows == 2 else 0), 1] if rows > 1 else [0, 1]
+        },
+        "hovermode": "x unified"
+    }
+    
+    # Add volume y-axis
+    if has_volume:
+        vol_domain_start = row_heights[2] if rows == 3 else 0
+        vol_domain_end = row_heights[1] + row_heights[2] if rows == 3 else row_heights[1]
+        layout["yaxis2"] = {
+            "title": "Volume",
+            "side": "right",
+            "gridcolor": "rgba(75, 85, 99, 0.2)",
+            "showgrid": True,
+            "zeroline": False,
+            "domain": [vol_domain_start, vol_domain_end - 0.02]
+        }
+    
+    # Add RSI y-axis
+    if has_rsi:
+        rsi_key = "yaxis3" if has_volume else "yaxis2"
+        layout[rsi_key] = {
+            "title": "RSI",
+            "side": "right",
+            "gridcolor": "rgba(75, 85, 99, 0.2)",
+            "showgrid": True,
+            "zeroline": False,
+            "range": [0, 100],
+            "domain": [0, row_heights[-1] - 0.02]
+        }
+    
+    plotly_config = {
+        "data": traces,
+        "layout": layout
+    }
+    
+    output = ChartOutput(
+        title=title,
+        chart_type=ChartType.CANDLESTICK,
+        plotly_config=plotly_config
+    )
+    
+    _outputs.append(output)
+    return output
+
+
 def print_stats(
     df: pd.DataFrame,
     columns: Optional[List[str]] = None,

@@ -5,6 +5,7 @@ import { Loader2, AlertCircle, CheckCircle, Wrench, Clock } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
 import { DataTable } from './DataTable';
 import { Chart } from './Chart';
+import { TradingChart } from '@/components/chart/TradingChart';
 import type { ResultBlockData, OutputBlock } from './types';
 
 interface ResultBlockProps {
@@ -47,6 +48,13 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
               />
             </div>
           );
+        }
+        return null;
+
+      case 'plotly_chart':
+        // Technical chart with Plotly (from research flow)
+        if (output.plotly_config) {
+          return <Chart key={index} title={output.title} plotlyConfig={output.plotly_config} />;
         }
         return null;
 
@@ -99,18 +107,18 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
             .trim();
         };
         
-        // Render clickable citation badges inline
-        const renderCitation = (num: number, key: string) => {
-          const url = citations[num - 1];
-          if (!url) return null;
+        // Render clickable citation badge
+        const renderCitation = (num: number, url: string | null, key: string) => {
+          const finalUrl = url || citations[num - 1];
+          if (!finalUrl) return <span key={key} className="text-gray-400">[{num}]</span>;
           return (
             <a
               key={key}
-              href={url}
+              href={finalUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center w-[18px] h-[18px] mx-0.5 text-[9px] font-bold bg-blue-500 text-white rounded-full hover:bg-blue-600 transition-colors cursor-pointer shadow-sm"
-              title={url}
+              title={finalUrl.length > 50 ? finalUrl.substring(0, 50) + '...' : finalUrl}
             >
               {num}
             </a>
@@ -118,21 +126,35 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
         };
         
         // Parse text and render with inline citations
+        // Supports: [[1]](url), [1], [1,2]
         const renderWithCitations = (text: string) => {
           const cleaned = cleanMarkdown(text);
-          // Match [number] or [number,number]
-          const parts = cleaned.split(/(\[\d+(?:,\d+)*\])/g);
+          
+          // First, handle Grok's inline format: [[num]](url)
+          // Then handle simple [num] or [num,num]
+          const pattern = /(\[\[\d+\]\]\([^)]+\)|\[\d+(?:,\d+)*\])/g;
+          const parts = cleaned.split(pattern);
           
           return parts.map((part, i) => {
-            const match = part.match(/\[(\d+(?:,\d+)*)\]/);
-            if (match) {
-              const nums = match[1].split(',').map(n => parseInt(n.trim()));
+            // Match [[num]](url) - Grok inline citation format
+            const inlineMatch = part.match(/\[\[(\d+)\]\]\(([^)]+)\)/);
+            if (inlineMatch) {
+              const num = parseInt(inlineMatch[1]);
+              const url = inlineMatch[2];
+              return renderCitation(num, url, `${i}`);
+            }
+            
+            // Match [num] or [num,num] - simple format
+            const simpleMatch = part.match(/\[(\d+(?:,\d+)*)\]/);
+            if (simpleMatch) {
+              const nums = simpleMatch[1].split(',').map(n => parseInt(n.trim()));
               return (
                 <span key={i} className="inline-flex gap-0.5">
-                  {nums.map((num, j) => renderCitation(num, `${i}-${j}`))}
+                  {nums.map((num, j) => renderCitation(num, null, `${i}-${j}`))}
                 </span>
               );
             }
+            
             return part ? <span key={i}>{part}</span> : null;
           });
         };
@@ -268,6 +290,23 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
                 </div>
               </details>
             )}
+            
+            {/* Interactive TradingChart - extract ticker from title "Research: TICKER" */}
+            {(() => {
+              const tickerMatch = researchOutput.title?.match(/Research:\s*([A-Z]{1,5})/i);
+              const ticker = tickerMatch ? tickerMatch[1].toUpperCase() : null;
+              if (!ticker) return null;
+              return (
+                <div className="border-t border-gray-100">
+                  <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+                    <h4 className="text-[13px] font-semibold text-gray-700">Interactive Chart</h4>
+                  </div>
+                  <div className="h-[450px]">
+                    <TradingChart ticker={ticker} minimal />
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
 

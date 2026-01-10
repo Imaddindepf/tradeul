@@ -331,6 +331,86 @@ def save_chart(name='chart'):
         plt.savefig(OUTPUT_DIR / f'{name}.png', dpi=150, bbox_inches='tight')
         plt.close()
 
+# ============ TECHNICAL INDICATORS ============
+def calculate_rsi(prices, period=14):
+    \"\"\"Calculate RSI (Relative Strength Index).\"\"\"
+    if len(prices) < period + 1:
+        return [None] * len(prices)
+    deltas = np.diff(prices)
+    gains = np.where(deltas > 0, deltas, 0)
+    losses = np.where(deltas < 0, -deltas, 0)
+    avg_gain = np.convolve(gains, np.ones(period)/period, mode='valid')
+    avg_loss = np.convolve(losses, np.ones(period)/period, mode='valid')
+    avg_loss = np.where(avg_loss == 0, 0.0001, avg_loss)
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return [None] * period + list(rsi)
+
+def calculate_sma(prices, period=20):
+    \"\"\"Calculate Simple Moving Average.\"\"\"
+    if len(prices) < period:
+        return [None] * len(prices)
+    sma = np.convolve(prices, np.ones(period)/period, mode='valid')
+    return [None] * (period - 1) + list(sma)
+
+def calculate_ema(prices, period=20):
+    \"\"\"Calculate Exponential Moving Average.\"\"\"
+    if len(prices) < period:
+        return [None] * len(prices)
+    ema = [None] * (period - 1)
+    sma = sum(prices[:period]) / period
+    ema.append(sma)
+    multiplier = 2 / (period + 1)
+    for price in prices[period:]:
+        ema.append((price - ema[-1]) * multiplier + ema[-1])
+    return ema
+
+def calculate_bollinger(prices, period=20, std_dev=2.0):
+    \"\"\"Calculate Bollinger Bands.\"\"\"
+    sma = calculate_sma(prices, period)
+    upper, lower, middle = [], [], []
+    for i, s in enumerate(sma):
+        if s is None:
+            upper.append(None)
+            lower.append(None)
+            middle.append(None)
+        else:
+            window = prices[max(0, i-period+1):i+1]
+            std = np.std(window) if len(window) >= period else 0
+            upper.append(s + std_dev * std)
+            lower.append(s - std_dev * std)
+            middle.append(s)
+    return {'upper': upper, 'middle': middle, 'lower': lower}
+
+def add_technicals(df, indicators=None):
+    \"\"\"Add technical indicators to OHLC DataFrame.\"\"\"
+    if 'close' not in df.columns:
+        return df
+    if indicators is None:
+        indicators = ['RSI', 'SMA20']
+    prices = df['close'].tolist()
+    for ind in indicators:
+        ind_upper = ind.upper()
+        if ind_upper == 'RSI' or ind_upper == 'RSI14':
+            df['rsi'] = calculate_rsi(prices, 14)
+        elif ind_upper.startswith('SMA'):
+            period = int(ind_upper[3:]) if len(ind_upper) > 3 else 20
+            df[f'sma{period}'] = calculate_sma(prices, period)
+        elif ind_upper.startswith('EMA'):
+            period = int(ind_upper[3:]) if len(ind_upper) > 3 else 20
+            df[f'ema{period}'] = calculate_ema(prices, period)
+        elif ind_upper == 'BOLLINGER' or ind_upper == 'BB':
+            bb = calculate_bollinger(prices)
+            df['bb_upper'] = bb['upper']
+            df['bb_middle'] = bb['middle']
+            df['bb_lower'] = bb['lower']
+    return df
+
+def save_plotly_chart(plotly_config, name='chart'):
+    \"\"\"Save Plotly chart config as JSON for frontend rendering.\"\"\"
+    with open(OUTPUT_DIR / f'{name}_plotly.json', 'w') as f:
+        json.dump(plotly_config, f, default=str)
+
 """
         
         # User code section

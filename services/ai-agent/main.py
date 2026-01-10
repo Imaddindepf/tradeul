@@ -411,7 +411,8 @@ async def handle_chat_message(
         logger.info("result_processed", 
             flow_type=result.flow_type,
             data_sources=result.data_sources,
-            steps_count=len(result.steps)
+            steps_count=len(result.steps),
+            data_keys=list(result.data.keys()) if result.data else []
         )
         
         # Build and send outputs based on flow type
@@ -430,18 +431,37 @@ async def handle_chat_message(
                 "sources_count": len(citations)
             }]
             
-            await websocket.send_json({
-                "type": "result",
-                "message_id": message_id,
-                "block_id": block_id,
-                "status": "success",
-                "success": True,
-                "code": "",
-                "outputs": outputs,
-                "error": None,
-                "execution_time_ms": int(result.execution_time * 1000),
-                "timestamp": datetime.now().isoformat()
-            })
+            # Add technical chart if available
+            plotly_chart = result.data.get('plotly_technical_chart')
+            logger.info("research_chart_check", has_chart=plotly_chart is not None)
+            
+            if plotly_chart:
+                ticker = research_data.get('ticker', 'Unknown')
+                outputs.append({
+                    "type": "plotly_chart",
+                    "title": f"{ticker} Price & Indicators",
+                    "chart_type": "plotly",
+                    "plotly_config": plotly_chart
+                })
+            
+            logger.info("research_outputs_ready", output_count=len(outputs), output_types=[o.get('type') for o in outputs])
+            
+            try:
+                await websocket.send_json({
+                    "type": "result",
+                    "message_id": message_id,
+                    "block_id": block_id,
+                    "status": "success",
+                    "success": True,
+                    "code": "",
+                    "outputs": outputs,
+                    "error": None,
+                    "execution_time_ms": int(result.execution_time * 1000),
+                    "timestamp": datetime.now().isoformat()
+                })
+                logger.info("research_result_sent")
+            except Exception as send_err:
+                logger.error("research_result_send_error", error=str(send_err))
             
         elif result.code:
             # Code execution result
@@ -501,16 +521,27 @@ def build_outputs(result, message_id: str) -> List[Dict[str, Any]]:
     Handles:
     - DataFrames → table outputs
     - Chart bytes → chart outputs with base64
+    - Plotly configs → interactive chart outputs
     - Stdout → stats output
     """
     outputs = []
     
-    # Process DataFrames
+    # Process DataFrames and Plotly charts
     has_data = False
     if result.data:
         for name, value in result.data.items():
+            # Handle Plotly chart configs (prefixed with plotly_)
+            if name.startswith('plotly_') and isinstance(value, dict):
+                chart_title = name.replace('plotly_', '')
+                has_data = True
+                outputs.append({
+                    "type": "plotly_chart",
+                    "title": format_title(chart_title),
+                    "chart_type": "plotly",
+                    "plotly_config": value
+                })
             # Handle actual DataFrame objects
-            if isinstance(value, pd.DataFrame):
+            elif isinstance(value, pd.DataFrame):
                 if not value.empty:
                     has_data = True
                     outputs.append({
@@ -533,7 +564,7 @@ def build_outputs(result, message_id: str) -> List[Dict[str, Any]]:
                         "total": value.get("row_count", len(rows))
                     })
     
-    # Process charts
+    # Process image charts (PNG/JPG)
     for chart_name, chart_bytes in result.charts.items():
         cache_key = f"{message_id}_{chart_name}"
         chart_cache[cache_key] = chart_bytes

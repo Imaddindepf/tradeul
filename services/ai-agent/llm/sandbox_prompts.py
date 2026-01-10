@@ -155,6 +155,43 @@ Schema:
 
 Categories: winners, losers, gappers_up, gappers_down, momentum_up, high_volume, anomalies, new_highs, new_lows
 
+## 5. synthetic_sectors_data (Thematic ETFs / Synthetic Sectors)
+Tickers classified into THEMATIC sectors (not traditional SEC sectors).
+These are dynamic "synthetic ETFs" like: Nuclear, AI Infrastructure, Memory/RAM, Electric Vehicles, etc.
+
+Schema:
+| Column | Type | Description |
+|--------|------|-------------|
+| symbol | str | Ticker symbol |
+| synthetic_sector | str | Thematic sector name (e.g., "Nuclear", "AI Infrastructure") |
+| price | float | Current price |
+| change_percent | float | Daily change % |
+| premarket_change_percent | float | Pre-market change % |
+| volume_today | int | Total volume |
+| market_cap | float | Market cap |
+
+Example sectors: Nuclear, AI Infrastructure, Memory/RAM, Electric Vehicles, Quantum Computing, 
+Cybersecurity, Cannabis, Space, Weight Loss/GLP-1, Crypto/Bitcoin, Gaming, etc.
+
+## 6. synthetic_sector_performance (Sector-Level Aggregations)
+Pre-calculated performance metrics for each synthetic sector.
+
+Schema:
+| Column | Type | Description |
+|--------|------|-------------|
+| sector | str | Sector name |
+| ticker_count | int | Number of tickers in sector |
+| avg_change | float | Average change % across all tickers |
+| median_change | float | Median change % |
+| std_change | float | Standard deviation |
+| min_change | float | Worst performer |
+| max_change | float | Best performer |
+| total_volume | int | Combined volume |
+| total_market_cap | float | Combined market cap |
+
+**Use synthetic_sector_performance for sector-level charts (bar chart of top sectors).**
+**Use synthetic_sectors_data for drill-down into individual tickers within a sector.**
+
 # Analysis Patterns
 
 ## Pattern 0: Top Stocks Right Now (Most Common)
@@ -221,6 +258,56 @@ else:
     print("No data available")
 ```
 
+## Pattern 0c: Synthetic Sectors / Thematic ETFs (IMPORTANT)
+When user asks about "sectores sintéticos", "synthetic sectors", or "ETFs temáticos":
+Use synthetic_sector_performance for the chart, NOT scanner_data.sector!
+
+```python
+# Top synthetic sectors by average change (bar chart)
+if 'synthetic_sector_performance' in dir() and not synthetic_sector_performance.empty:
+    df = synthetic_sector_performance.copy()
+    
+    # Filter out "Other" and sort by performance
+    df = df[df['sector'] != 'Other']
+    top_sectors = df.nlargest(12, 'avg_change')
+    
+    # Create bar chart
+    plt.figure(figsize=(14, 8))
+    colors = ['green' if x > 0 else 'red' for x in top_sectors['avg_change']]
+    bars = plt.barh(top_sectors['sector'], top_sectors['avg_change'], color=colors)
+    
+    # Add ticker count labels
+    for bar, count in zip(bars, top_sectors['ticker_count']):
+        plt.text(bar.get_width(), bar.get_y() + bar.get_height()/2, 
+                 f' ({count} stocks)', va='center', fontsize=9)
+    
+    plt.xlabel('Average Change %')
+    plt.title('Top Synthetic Sectors by Performance')
+    plt.tight_layout()
+    save_chart('synthetic_sectors')
+    
+    # Also save the data
+    save_output(top_sectors, 'top_synthetic_sectors')
+else:
+    print("Synthetic sectors data not available. Ask about 'sectores sintéticos' to generate it.")
+```
+
+**IMPORTANT**: 
+- `synthetic_sector_performance` = sector-level stats (use for charts)
+- `synthetic_sectors_data` = individual tickers with their sector assignment
+- These are THEMATIC sectors (Nuclear, AI, Memory, etc.), NOT traditional SEC sectors
+
+```python
+# Drill down: Top stocks within a specific synthetic sector
+if 'synthetic_sectors_data' in dir() and not synthetic_sectors_data.empty:
+    sector = "Nuclear"  # or "AI Infrastructure", "Electric Vehicles", etc.
+    sector_stocks = synthetic_sectors_data[synthetic_sectors_data['synthetic_sector'] == sector]
+    top_in_sector = sector_stocks.nlargest(10, 'change_percent')[
+        ['symbol', 'price', 'change_percent', 'volume_today']
+    ]
+    save_output(top_in_sector, f'top_{sector.lower().replace(" ", "_")}')
+```
+
 ## Pattern A: Per-Hour Change Calculation
 To calculate the change WITHIN a specific hour (e.g., 3pm-4pm), you must:
 1. Filter to that hour
@@ -268,6 +355,41 @@ These functions are pre-defined. Do NOT redefine them.
 save_output(dataframe, 'name')  # Save DataFrame result
 save_chart('name')              # Save matplotlib figure
 ```
+
+## Professional Technical Charts
+For technical analysis with indicators, use `create_technical_chart()`:
+
+```python
+# First, add technical indicators to your OHLC data
+from dsl.functions import add_technicals
+
+df = get_minute_bars('today', symbol='NVDA')
+df = add_technicals(df, ['SMA20', 'SMA50', 'RSI', 'BOLLINGER'])
+
+# Then create the chart
+from dsl.display import create_technical_chart
+
+create_technical_chart(
+    df,
+    title="NVDA Price & Indicators",
+    indicators=['SMA20', 'SMA50', 'BB', 'RSI'],  # Auto-detected if None
+    show_volume=True,
+    show_earnings=False
+)
+```
+
+This creates a professional multi-panel chart with:
+- Candlestick price data
+- Moving averages (SMA/EMA) with distinct colors
+- Bollinger Bands with fill
+- Volume bars (colored by direction)
+- RSI subplot with overbought/oversold lines
+
+**Available indicators:**
+- `SMA20`, `SMA50`, `SMA200` - Simple Moving Averages
+- `EMA20`, `EMA50`, `EMA200` - Exponential Moving Averages  
+- `BB` or `BOLLINGER` - Bollinger Bands
+- `RSI` - Relative Strength Index (14-period)
 
 # Chart Best Practices
 When creating charts with matplotlib:

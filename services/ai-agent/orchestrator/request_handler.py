@@ -25,6 +25,7 @@ from pathlib import Path
 import pandas as pd
 import pytz
 import structlog
+import httpx
 
 from sandbox import SandboxManager, SandboxConfig
 from sandbox.manager import ExecutionResult, ExecutionStatus
@@ -223,6 +224,8 @@ CRITICAL RULES:
 - If query contains "news" + ticker → ALWAYS research  
 - If query asks about "moving", "up", "down" + ticker → ALWAYS research
 - If query contains "what happened" + ticker → ALWAYS research
+- If query mentions "sintético", "synthetic", "temático", "thematic", "ETF sintético" → ALWAYS analysis (we create these!)
+- NEVER clarification for synthetic/thematic sectors - this is OUR functionality
 
 EXAMPLES:
 - "Research RDDT news" → research
@@ -236,6 +239,9 @@ EXAMPLES:
 - "Show me historical data for SPY" → analysis
 - "TSLA" (just ticker, no context) → clarification
 - "What's the price of NVDA?" → info
+- "Top sectores sintéticos" → analysis (WE CREATE THESE - classify tickers into thematic sectors)
+- "ETFs sintéticos que suben" → analysis (WE CREATE THESE)
+- "Sector nuclear / AI / EV" → analysis (thematic sector classification)
 
 JSON:"""
 
@@ -243,8 +249,12 @@ JSON:"""
             from google.genai import types
             import json
             
-            # Use thinking mode for better classification with visible reasoning
-            response = self.llm_client.client.models.generate_content(
+            # Use STREAMING with thinking mode for real-time reasoning visibility
+            thoughts = []
+            response_text = ""
+            current_thought = ""
+            
+            for chunk in self.llm_client.client.models.generate_content_stream(
                 model=self.llm_client.model_thinking,
                 contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
                 config=types.GenerateContentConfig(
@@ -252,23 +262,26 @@ JSON:"""
                     max_output_tokens=1024,
                     thinking_config=types.ThinkingConfig(include_thoughts=True)
                 )
-            )
+            ):
+                if chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                    for part in chunk.candidates[0].content.parts:
+                        if hasattr(part, 'thought') and part.thought:
+                            thought_chunk = part.text if hasattr(part, 'text') else ""
+                            if thought_chunk:
+                                current_thought += thought_chunk
+                                # Stream thinking in real-time
+                                if on_thinking:
+                                    try:
+                                        await on_thinking(thought_chunk)
+                                    except Exception as cb_err:
+                                        logger.warning("thinking_callback_error", error=str(cb_err))
+                        elif hasattr(part, 'text') and part.text:
+                            response_text += part.text
             
-            # Extract thoughts and response
-            thoughts = []
-            response_text = ""
-            
-            if response.candidates and response.candidates[0].content:
-                for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'thought') and part.thought:
-                        thought_text = part.text if hasattr(part, 'text') else ""
-                        if thought_text:
-                            thoughts.append(thought_text)
-                            # Emit thinking step if callback provided
-                            if on_thinking:
-                                await on_thinking(thought_text)
-                    elif hasattr(part, 'text'):
-                        response_text += part.text
+            # Save final thought
+            if current_thought:
+                thoughts.append(current_thought)
+                logger.info("thinking_extracted", total_length=len(current_thought))
             
             # Parse JSON from response
             json_match = None
@@ -316,8 +329,27 @@ JSON:"""
             
         except Exception as e:
             logger.warning("query_classification_error", error=str(e))
-            # Fallback to analysis
-            return FlowType.ANALYSIS, self._extract_tickers(query), ""
+            # Fallback: detect research patterns with regex
+            tickers = self._extract_tickers(query)
+            query_lower = query.lower()
+            
+            # If query has "why" + ticker, it's RESEARCH
+            research_patterns = [
+                r'\bwhy\b.*\b[A-Z]{2,5}\b',  # "why is AAPL"
+                r'\bwhat\s+(happened|is happening)\b',  # "what happened to"
+                r'\bnews\b',  # "news about"
+                r'\bmoving\b',  # "why is X moving"
+                r'\breason\b',  # "reason for"
+                r'\bcatalyst\b',  # "catalyst"
+            ]
+            
+            import re
+            for pattern in research_patterns:
+                if re.search(pattern, query, re.IGNORECASE) and tickers:
+                    logger.info("fallback_research_detected", query=query[:50], pattern=pattern)
+                    return FlowType.RESEARCH, tickers, ""
+            
+            return FlowType.ANALYSIS, tickers, ""
     
     async def process(self, request: AnalysisRequest, on_step: callable = None) -> AnalysisResult:
         """
@@ -344,29 +376,36 @@ JSON:"""
         steps_taken: List[AgentStep] = []
         
         async def emit_step(step: AgentStep):
-            """Emit a step and store it."""
+            """Emit a step and store it. Yields to event loop for immediate delivery."""
             steps_taken.append(step)
             if on_step:
                 try:
                     await on_step(step)
+                    # Yield to event loop to ensure WebSocket message is sent immediately
+                    await asyncio.sleep(0)
                 except Exception as e:
                     logger.warning("step_callback_error", error=str(e))
         
         try:
-            # Callback to stream thinking in real-time
-            thinking_chunks = []
+            # Callback to stream thinking in real-time - accumulate chunks
+            accumulated_thinking = ""
+            thinking_step_sent = False
+            
             async def on_thinking_chunk(chunk: str):
-                thinking_chunks.append(chunk)
-                # Emit thinking as it comes
+                nonlocal accumulated_thinking, thinking_step_sent
+                accumulated_thinking += chunk
+                
+                # Emit/update thinking step with accumulated content
                 await emit_step(AgentStep(
                     id="thinking",
                     type="reasoning",
-                    title="Reasoning",
-                    description=chunk[:200] + "..." if len(chunk) > 200 else chunk,
+                    title="Reasoning" if not thinking_step_sent else "Reasoning",
+                    description=accumulated_thinking[:300] + "..." if len(accumulated_thinking) > 300 else accumulated_thinking,
                     status="running",
                     expandable=True,
-                    details=chunk
+                    details=accumulated_thinking
                 ))
+                thinking_step_sent = True
             
             # Step 0: Classify query using LLM with thinking mode
             flow_type, mentioned_tickers, thinking_summary = await self._classify_query(
@@ -387,12 +426,13 @@ JSON:"""
                     details=thinking_summary
                 ))
             
-            # Emit classification result
+            # Emit classification result (generic - don't reveal internal logic)
+            tickers_str = ', '.join(mentioned_tickers) if mentioned_tickers else ''
             await emit_step(AgentStep(
                 id="classify",
                 type="reasoning",
-                title="Query Classification",
-                description=f"{flow_type.value.upper()} | {', '.join(mentioned_tickers) if mentioned_tickers else 'no tickers'}",
+                title="Analyzed query intent and context",
+                description=f"Identified: {tickers_str}" if tickers_str else "Processing your request",
                 status="complete"
             ))
             
@@ -431,65 +471,85 @@ JSON:"""
             
             # Handle RESEARCH flow type with Grok
             if flow_type == FlowType.RESEARCH and mentioned_tickers:
+                ticker = mentioned_tickers[0]  # Primary ticker
+                
                 await emit_step(AgentStep(
                     id="research_start",
                     type="tool",
-                    title="Deep Research Mode",
-                    description=f"Researching {mentioned_tickers[0]}",
+                    title="Searching for latest news",
+                    description=f"Finding recent developments on {ticker}",
                     status="running"
                 ))
                 
                 try:
-                    from research.grok_research import research_ticker, format_research_for_display
+                    from research.grok_research import research_ticker_combined, format_research_for_display
                     
-                    ticker = mentioned_tickers[0]  # Primary ticker
-                    logger.info("grok_research_triggered", ticker=ticker, query=request.query[:50])
+                    logger.info("combined_research_triggered", ticker=ticker, query=request.query[:50])
                     
                     await emit_step(AgentStep(
                         id="x_search",
                         type="tool",
-                        title="X.com Search",
-                        description="Searching financial Twitter for news & sentiment",
+                        title="Searching X.com",
+                        description="Checking breaking news from financial accounts",
                         status="running"
                     ))
                     
                     await emit_step(AgentStep(
-                        id="web_search",
+                        id="benzinga_search",
                         type="tool",
-                        title="Web Search",
-                        description="Searching news and financial data sources",
+                        title="Fetching Benzinga news",
+                        description="Getting latest news articles",
                         status="running"
                     ))
                     
-                    research_result = await research_ticker(
+                    await emit_step(AgentStep(
+                        id="sentiment_search",
+                        type="tool",
+                        title="Analyzing sentiment",
+                        description="Processing social and news sentiment",
+                        status="running"
+                    ))
+                    
+                    # Use combined research (Grok + Benzinga in parallel)
+                    research_result = await research_ticker_combined(
                         ticker=ticker,
                         query=request.query,
                         include_technicals=True,
-                        include_fundamentals=True,
-                        max_retries=3  # Auto-retry on connection errors
+                        include_fundamentals=True
                     )
                     
                     if research_result.get("success"):
-                        # Update ALL steps to complete only on success
+                        # Count sources found
+                        x_citations = len([c for c in research_result.get("citations", []) if "x.com" in c or "twitter.com" in c])
+                        benzinga_count = len(research_result.get("benzinga_news", []))
+                        
+                        # Update ALL steps to complete
                         await emit_step(AgentStep(
                             id="research_start",
                             type="tool",
-                            title="Deep Research Mode",
-                            description=f"Research for {ticker} complete",
+                            title="News search complete",
+                            description=f"Found news on {ticker}",
                             status="complete"
                         ))
                         await emit_step(AgentStep(
                             id="x_search",
                             type="tool",
-                            title="X.com Search",
-                            description="Found social sentiment data",
+                            title="X.com search complete",
+                            description=f"Found {x_citations} posts from financial accounts",
                             status="complete"
                         ))
                         await emit_step(AgentStep(
-                            id="web_search",
+                            id="benzinga_search",
                             type="tool",
-                            title="Web Search",
-                            description="Found news and financial data",
+                            title="Benzinga complete",
+                            description=f"Found {benzinga_count} news articles",
+                            status="complete"
+                        ))
+                        await emit_step(AgentStep(
+                            id="sentiment_search",
+                            type="tool",
+                            title="Sentiment analyzed",
+                            description="Social and news sentiment processed",
                             status="complete"
                         ))
                         
@@ -513,7 +573,7 @@ JSON:"""
                             charts={},
                             error=None,
                             execution_time=(datetime.now() - start_time).total_seconds(),
-                            data_sources=["grok_research", "x_search", "web_search"],
+                            data_sources=["x.com", "benzinga", "web", "sentiment"],
                             flow_type="research",
                             steps=steps_taken
                         )
@@ -523,29 +583,29 @@ JSON:"""
                         await emit_step(AgentStep(
                             id="research_start",
                             type="tool",
-                            title="Deep Research Mode",
-                            description=f"Failed: {error_msg}",
+                            title="Searching for latest news",
+                            description="Could not retrieve news",
                             status="error"
                         ))
                         await emit_step(AgentStep(
-                            id="x_search",
+                            id="sentiment_search",
                             type="tool",
-                            title="X.com Search",
-                            description="Research failed",
+                            title="Analyzing market sentiment",
+                            description="Sentiment unavailable",
                             status="error"
                         ))
                         await emit_step(AgentStep(
-                            id="web_search",
+                            id="financial_data",
                             type="tool",
-                            title="Web Search",
-                            description="Research failed",
+                            title="Collecting financial data",
+                            description="Data retrieval failed",
                             status="error"
                         ))
                         await emit_step(AgentStep(
                             id="fallback",
                             type="reasoning",
-                            title="Fallback to Analysis",
-                            description="Using scanner data instead",
+                            title="Switching to market data analysis",
+                            description="Using available scanner data",
                             status="running"
                         ))
                         logger.warning("grok_research_failed_fallback", error=error_msg)
@@ -597,8 +657,8 @@ JSON:"""
             await emit_step(AgentStep(
                 id="data_loading",
                 type="tool",
-                title="Loading Data Sources",
-                description="Connecting to scanner, historical data, and APIs",
+                title="Market data access enabled",
+                description="Connection live",
                 status="running"
             ))
             
@@ -618,8 +678,8 @@ JSON:"""
             await emit_step(AgentStep(
                 id="data_loading",
                 type="tool",
-                title="Data Ready",
-                description=source_desc,
+                title="Market data access enabled",
+                description=f"Loaded {source_desc}",
                 status="complete"
             ))
             
@@ -633,8 +693,8 @@ JSON:"""
             await emit_step(AgentStep(
                 id="code_gen",
                 type="reasoning",
-                title="Writing Analysis",
-                description="LLM generating Python code for your query",
+                title="Preparing analysis",
+                description="Building your custom analysis",
                 status="running"
             ))
             
@@ -651,8 +711,8 @@ JSON:"""
             await emit_step(AgentStep(
                 id="code_gen",
                 type="reasoning",
-                title="Code Generated",
-                description=f"{code_lines} lines of analysis code",
+                title="Analysis prepared",
+                description="Ready to execute",
                 status="complete"
             ))
             
@@ -662,8 +722,8 @@ JSON:"""
             await emit_step(AgentStep(
                 id="execution",
                 type="code",
-                title="Running Analysis",
-                description="Executing in sandbox",
+                title="Analyzing market data...",
+                description="Processing your request",
                 status="running",
                 details=code,
                 expandable=True
@@ -759,7 +819,7 @@ JSON:"""
             await emit_step(AgentStep(
                 id="execution",
                 type="code",
-                title="Analysis Code",
+                title="Analysis complete" if exec_status == "complete" else "Analysis failed",
                 description=exec_desc,
                 status=exec_status,
                 details=code,
@@ -871,6 +931,7 @@ JSON:"""
 | Historical after-hours (yesterday, date) | historical_bars (hours 16-20) | Minute bars need aggregation |
 | Current market snapshot | scanner_data | Already aggregated per symbol |
 | Historical time range | historical_bars | Needs aggregation by symbol |
+| **Synthetic sectors / ETFs temáticos** | synthetic_sectors_data, synthetic_sector_performance | **WE CREATE THESE** |
 
 **AGGREGATION RULE**: When user asks for "top stocks", results MUST be ONE ROW PER SYMBOL (not multiple bars of same symbol).
 
@@ -878,7 +939,23 @@ JSON:"""
 - scanner_data: Real-time snapshot with pre-calculated metrics (postmarket_change_percent, postmarket_volume, change_percent, volume_today)
 - historical_bars: Raw minute OHLCV bars (requires groupby('symbol').agg(...) for rankings)
 - today_bars: Today's minute bars
-- categories_data: Scanner categories
+- categories_data: Scanner categories (winners, losers, gappers, momentum, etc.)
+- **synthetic_sectors_data**: Tickers classified into THEMATIC sectors (Nuclear, AI, Memory, EV, etc.)
+- **synthetic_sector_performance**: Sector-level aggregated performance
+
+## SYNTHETIC SECTORS / ETFs TEMÁTICOS (IMPORTANT!)
+When user asks about "sectores sintéticos", "ETFs sintéticos", "synthetic sectors", "ETFs temáticos", or thematic sectors:
+- **WE CAN CREATE THESE** - This is OUR functionality, NOT external data
+- The system classifies tickers from scanner_data into thematic sectors like:
+  - Nuclear (OKLO, CEG, SMR, LEU, CCJ...)
+  - AI Infrastructure (NVDA, AMD, PLTR, SMCI...)
+  - Memory/RAM (MU, WDC, STX...)
+  - Electric Vehicles (TSLA, RIVN, NIO...)
+  - Space (RKLB, SPCE, ASTS...)
+  - Crypto/Bitcoin (MSTR, COIN, RIOT, MARA...)
+  - And many more...
+- **NEVER ask for clarification** when user mentions synthetic/thematic sectors
+- Just reformulate to: "Classify scanner tickers into synthetic thematic sectors and show top performing sectors"
 """
             
             # Build conversation context
@@ -1025,6 +1102,113 @@ Respond ONLY with the JSON object."""
                     logger.info("categories_data_fetched", rows=len(categories_df))
             except Exception as e:
                 logger.error("categories_fetch_error", error=str(e))
+        
+        # Check if user is asking about SYNTHETIC SECTORS (thematic ETFs)
+        # This creates dynamic sectors like "Nuclear", "AI", "Memory/RAM", etc.
+        # Include common typos: sinstético, sintetico, etc.
+        needs_synthetic_sectors = any(term in query_lower for term in [
+            # Spanish variations (with/without accents, common typos)
+            'sintético', 'sintetico', 'sintéticos', 'sinteticos',
+            'sinstético', 'sinstetico', 'sinstéticos', 'sinsteticos',  # common typo
+            'sintetico', 'sinteticos',
+            'etf sintético', 'etf sintetico', 'etfs sintéticos', 'etfs sinteticos',
+            'etf sinstético', 'etf sinstetico',  # typo variants
+            'sectores sintéticos', 'sectores sinteticos', 'sector sintético',
+            'sectores sinstéticos', 'sectores sinsteticos',  # typo variants
+            'etf temático', 'etf tematico', 'etfs temáticos', 'etfs tematicos',
+            'temático', 'tematico', 'temáticos', 'tematicos',
+            # English variations
+            'synthetic', 'synthetic sector', 'synthetic sectors',
+            'synthetic etf', 'synthetic etfs', 'thematic', 'thematic sector',
+            # Specific thematic sectors (triggers synthetic classification)
+            'sector nuclear', 'sector ia', 'sector ai', 'sector tech',
+            'sector memoria', 'sector ev', 'sector crypto', 'sector espacial'
+        ])
+        
+        if needs_synthetic_sectors:
+            try:
+                from research.synthetic_sectors import (
+                    classify_tickers_into_synthetic_sectors,
+                    calculate_synthetic_sector_performance
+                )
+                
+                # Determine if asking about YESTERDAY or historical date
+                is_historical = any(term in query_lower for term in ['ayer', 'yesterday'])
+                
+                df_for_classification = None
+                
+                if is_historical:
+                    # Load historical data from DuckDB for yesterday
+                    logger.info("synthetic_sectors_loading_historical")
+                    now = datetime.now(ET)
+                    yesterday = now - timedelta(days=1)
+                    
+                    # Load full day bars for yesterday
+                    historical_df = await self._load_minute_aggs(yesterday, hour=None)
+                    
+                    if not historical_df.empty:
+                        # Aggregate to get daily change per ticker
+                        agg_df = historical_df.groupby('symbol').agg({
+                            'open': 'first',
+                            'close': 'last',
+                            'high': 'max',
+                            'low': 'min',
+                            'volume': 'sum'
+                        }).reset_index()
+                        
+                        agg_df['change_percent'] = ((agg_df['close'] - agg_df['open']) / agg_df['open'] * 100).round(2)
+                        agg_df['price'] = agg_df['close']
+                        agg_df['volume_today'] = agg_df['volume']
+                        
+                        # Try to get market_cap from scanner_data if available
+                        if 'scanner_data' in data and 'market_cap' in data['scanner_data'].columns:
+                            market_caps = data['scanner_data'][['symbol', 'market_cap']].drop_duplicates()
+                            agg_df = agg_df.merge(market_caps, on='symbol', how='left')
+                        else:
+                            agg_df['market_cap'] = 0
+                        
+                        # Only classify TOP MOVERS (not all 11k+ tickers)
+                        # Filter by volume first (at least 50k)
+                        agg_df = agg_df[agg_df['volume'] >= 50000]
+                        top_gainers = agg_df.nlargest(40, 'change_percent')
+                        top_losers = agg_df.nsmallest(10, 'change_percent')
+                        df_for_classification = pd.concat([top_gainers, top_losers]).drop_duplicates(subset='symbol')
+                        
+                        logger.info("synthetic_sectors_historical_aggregated", 
+                                   total_tickers=len(agg_df),
+                                   filtered_for_classification=len(df_for_classification),
+                                   date=yesterday.strftime('%Y-%m-%d'))
+                
+                # Fallback to scanner_data for TODAY
+                if df_for_classification is None and 'scanner_data' in data:
+                    df_for_classification = data['scanner_data']
+                
+                if df_for_classification is not None and not df_for_classification.empty:
+                    logger.info("synthetic_sectors_classification_starting",
+                               source='historical' if is_historical else 'scanner')
+                    
+                    # Classify tickers into thematic sectors
+                    classified_df = await classify_tickers_into_synthetic_sectors(
+                        df_for_classification,
+                        self.llm_client,
+                        max_sectors=15,
+                        min_tickers_per_sector=3
+                    )
+                    
+                    if not classified_df.empty:
+                        data['synthetic_sectors_data'] = classified_df
+                        
+                        # Also calculate sector-level performance
+                        sector_performance = calculate_synthetic_sector_performance(classified_df)
+                        data['synthetic_sector_performance'] = sector_performance
+                        
+                        sources.append('synthetic_sectors')
+                        logger.info("synthetic_sectors_classified",
+                                   sectors=classified_df['synthetic_sector'].nunique(),
+                                   tickers=len(classified_df))
+                    
+            except Exception as e:
+                logger.error("synthetic_sectors_error", error=str(e))
         
         # Check for specific date/time in query using LLM normalization
         # BUT if orchestrator provided forced_date, skip normalization for date
@@ -1811,6 +1995,15 @@ print("✅ Análisis completado")
         for filename, content in execution.output_files.items():
             if filename.endswith('.png') or filename.endswith('.jpg'):
                 charts[filename] = content
+            elif filename.endswith('_plotly.json'):
+                # Plotly chart config - store as special chart type
+                try:
+                    plotly_config = json.loads(content)
+                    chart_name = filename.replace('_plotly.json', '')
+                    # Store as JSON bytes with special prefix for frontend detection
+                    data[f"plotly_{chart_name}"] = plotly_config
+                except Exception as e:
+                    logger.warning("plotly_json_parse_error", file=filename, error=str(e))
             elif filename.endswith('.parquet'):
                 try:
                     df = pd.read_parquet(io.BytesIO(content))

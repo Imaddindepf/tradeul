@@ -12,7 +12,7 @@ interface ResultsPanelProps {
 
 export const ResultsPanel = memo(function ResultsPanel({ blocks, onToggleCode }: ResultsPanelProps) {
   const tableCount = blocks.filter(b => b.result?.outputs?.some(o => o.type === 'table')).length;
-  const chartCount = blocks.filter(b => b.result?.outputs?.some(o => o.type === 'chart')).length;
+  const chartCount = blocks.filter(b => b.result?.outputs?.some(o => o.type === 'chart' || o.type === 'plotly_chart')).length;
 
   return (
     <div className="flex flex-col h-full bg-gray-50">

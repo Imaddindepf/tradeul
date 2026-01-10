@@ -16,58 +16,72 @@ interface ChartProps {
 export const Chart = memo(function Chart({
   title,
   plotlyConfig,
-  height = 300
+  height
 }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Altura responsive - usa el valor dado o calcula basado en viewport
-  const chartHeight = typeof height === 'number' ? Math.min(height, 400) : height;
+  // Use backend height if provided in layout, otherwise fallback
+  const backendHeight = plotlyConfig.layout?.height;
+  const chartHeight: number = typeof backendHeight === 'number' 
+    ? backendHeight 
+    : (typeof height === 'number' ? height : 500);
 
-  // Configuracion de layout con tema azul/blanco
+  // Merge layout - preserve backend config, only add minimal defaults
   const baseLayout = plotlyConfig.layout || {};
   const layout = {
     ...baseLayout,
     autosize: true,
     height: chartHeight,
-    margin: { t: 40, b: 40, l: 50, r: 20 },
-    paper_bgcolor: 'rgba(255,255,255,1)',
-    plot_bgcolor: 'rgba(249,250,251,1)', // gray-50
+    // Preserve backend margins if provided, otherwise use defaults
+    margin: baseLayout.margin || { t: 50, b: 40, l: 50, r: 50 },
+    paper_bgcolor: baseLayout.paper_bgcolor || 'rgba(255,255,255,1)',
+    plot_bgcolor: baseLayout.plot_bgcolor || 'rgba(249,250,251,1)',
     font: {
       family: 'system-ui, -apple-system, sans-serif',
-      size: 12,
-      color: '#374151' // gray-700
+      size: 11,
+      color: '#374151',
+      ...(baseLayout.font || {})
     },
-    title: {
+    // Only set title if not provided by backend
+    title: baseLayout.title || {
       text: title,
-      font: {
-        size: 14,
-        color: '#1f2937' // gray-800
-      }
+      font: { size: 14, color: '#1f2937' }
     },
+    // CRITICAL: Preserve backend legend config (position, orientation)
+    legend: {
+      font: { color: '#6b7280', size: 10 },
+      bgcolor: 'rgba(255,255,255,0)',
+      ...(baseLayout.legend || {})
+    },
+    // Preserve all axis configs from backend
     xaxis: {
-      ...(typeof baseLayout.xaxis === 'object' ? baseLayout.xaxis : {}),
-      gridcolor: 'rgba(229,231,235,0.8)', // gray-200
-      zerolinecolor: 'rgba(209,213,219,1)', // gray-300
-      tickfont: { color: '#6b7280' } // gray-500
+      gridcolor: 'rgba(229,231,235,0.5)',
+      zerolinecolor: 'rgba(209,213,219,0.5)',
+      tickfont: { color: '#6b7280', size: 10 },
+      ...(typeof baseLayout.xaxis === 'object' ? baseLayout.xaxis : {})
     },
     yaxis: {
-      ...(typeof baseLayout.yaxis === 'object' ? baseLayout.yaxis : {}),
-      gridcolor: 'rgba(229,231,235,0.8)',
-      zerolinecolor: 'rgba(209,213,219,1)',
-      tickfont: { color: '#6b7280' }
+      gridcolor: 'rgba(229,231,235,0.5)',
+      zerolinecolor: 'rgba(209,213,219,0.5)',
+      tickfont: { color: '#6b7280', size: 10 },
+      ...(typeof baseLayout.yaxis === 'object' ? baseLayout.yaxis : {})
     },
-    legend: {
-      font: { color: '#6b7280' },
-      bgcolor: 'rgba(255,255,255,0)'
-    },
-    hoverlabel: {
+    // Preserve additional axes for multi-subplot charts
+    xaxis2: baseLayout.xaxis2,
+    xaxis3: baseLayout.xaxis3,
+    yaxis2: baseLayout.yaxis2,
+    yaxis3: baseLayout.yaxis3,
+    // Preserve shapes (subplot separators)
+    shapes: baseLayout.shapes,
+    hoverlabel: baseLayout.hoverlabel || {
       bgcolor: '#ffffff',
-      bordercolor: '#e5e7eb', // gray-200
-      font: { color: '#1f2937' } // gray-800
-    }
+      bordercolor: '#e5e7eb',
+      font: { color: '#1f2937' }
+    },
+    hovermode: baseLayout.hovermode || 'x unified'
   };
 
-  // Configuracion de Plotly
+  // Plotly config
   const config = {
     displayModeBar: true,
     displaylogo: false,
@@ -86,12 +100,13 @@ export const Chart = memo(function Chart({
   return (
     <div
       ref={containerRef}
-      className="rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm"
+      className="w-full rounded-lg border border-gray-200 bg-white overflow-hidden shadow-sm"
     >
       <Plot
         data={plotlyConfig.data as any}
         layout={layout as any}
         config={config as any}
+        className="w-full"
         style={{ width: '100%', height: chartHeight }}
         useResizeHandler
       />

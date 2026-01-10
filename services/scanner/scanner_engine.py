@@ -1718,7 +1718,10 @@ class ScannerEngine:
                     # Obtener ranking anterior
                     old_ranking = self.last_rankings.get(category_name, [])
                     
-                    if not old_ranking:
+                    # ✅ FIX: Usar "category_name not in" para distinguir entre:
+                    # - Primera vez (key no existe) → emit snapshot
+                    # - Categoría vacía pero ya inicializada (key existe, valor=[]) → emit delta
+                    if category_name not in self.last_rankings:
                         # Primera vez: emitir snapshot completo
                         logger.info(f"📸 First time for {category_name}, emitting snapshot")
                         await self.emit_full_snapshot(category_name, new_ranking)

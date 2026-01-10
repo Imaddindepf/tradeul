@@ -139,7 +139,8 @@ const ReasoningSection = memo(function ReasoningSection({
                 const isRunning = step.status === 'running';
                 const isComplete = step.status === 'complete';
                 const hasDetails = step.details && step.details.length > 0;
-                const isThinkingStep = step.type === 'reasoning' && step.title === 'Reasoning Complete';
+                // Show thinking details for any reasoning step with details
+                const showThinkingDetails = step.type === 'reasoning' && hasDetails;
 
                 return (
                   <div key={step.id} className="animate-in fade-in slide-in-from-left-2 duration-200">
@@ -160,7 +161,7 @@ const ReasoningSection = memo(function ReasoningSection({
                         <div className={`text-[13px] font-medium ${isRunning ? 'text-blue-700' : 'text-gray-800'}`}>
                           {step.title}
                         </div>
-                        {step.description && (
+                        {step.description && !showThinkingDetails && (
                           <div className="text-[12px] text-gray-500 mt-0.5">
                             {step.description}
                           </div>
@@ -168,12 +169,12 @@ const ReasoningSection = memo(function ReasoningSection({
                       </div>
                     </div>
 
-                    {/* Show thinking details if this is a reasoning step with details */}
-                    {hasDetails && isThinkingStep && step.details && (
-                      <div className="ml-7 mt-2 pl-3 border-l border-gray-200 bg-gray-50/50 rounded-r p-2">
-                        <div className="text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap font-mono">
-                          {step.details.length > 600
-                            ? step.details.substring(0, 600) + '...'
+                    {/* Show thinking details for reasoning steps */}
+                    {showThinkingDetails && step.details && (
+                      <div className="ml-7 mt-2 pl-3 border-l-2 border-blue-200 bg-blue-50/30 rounded-r py-2 px-3">
+                        <div className="text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap">
+                          {step.details.length > 800
+                            ? step.details.substring(0, 800) + '...'
                             : step.details
                           }
                         </div>
