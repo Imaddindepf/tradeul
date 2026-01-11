@@ -101,10 +101,24 @@ def create_rest_routes(agent, market_context: dict, chart_cache: dict) -> APIRou
                 market_context=market_context
             )
             
+            # Generate code representation
+            code_lines = []
+            for tool_call in getattr(result, 'tool_calls', []) or []:
+                tool_name = tool_call.get('name', '')
+                tool_args = tool_call.get('args', {})
+                
+                if tool_name == 'execute_analysis' and 'code' in tool_args:
+                    code_lines.append(f"# {tool_args.get('description', 'Custom analysis')}")
+                    code_lines.append(tool_args['code'])
+                else:
+                    args_str = ', '.join(f'{k}={repr(v)}' for k, v in tool_args.items())
+                    code_lines.append(f"{tool_name}({args_str})")
+            
             return {
                 "success": result.success,
                 "response": result.response,
                 "tools_used": result.tools_used,
+                "code": "\n".join(code_lines) if code_lines else None,
                 "execution_time_ms": int(result.execution_time * 1000),
                 "error": result.error
             }
@@ -189,13 +203,16 @@ def create_rest_routes(agent, market_context: dict, chart_cache: dict) -> APIRou
     @router.post("/api/workflows/{workflow_id}/execute")
     async def execute_workflow(workflow_id: str):
         """Execute a saved workflow (HTTP, non-streaming)."""
-        from handlers.workflow import WorkflowExecutor
+        from nodes.executor import WorkflowExecutor
         
         if workflow_id not in workflows_store:
             raise HTTPException(status_code=404, detail="Workflow not found")
         
         workflow = workflows_store[workflow_id]
-        executor = WorkflowExecutor(agent, market_context)
+        
+        # Build context for nodes
+        context = _build_node_context(agent, market_context)
+        executor = WorkflowExecutor(context)
         
         try:
             result = await executor.execute(workflow)
@@ -207,7 +224,7 @@ def create_rest_routes(agent, market_context: dict, chart_cache: dict) -> APIRou
     @router.post("/api/workflow-execute")
     async def execute_adhoc_workflow(workflow: Workflow):
         """Execute a workflow directly without saving (ad-hoc)."""
-        from handlers.workflow import WorkflowExecutor
+        from nodes.executor import WorkflowExecutor
         
         workflow_data = {
             "id": workflow.id or f"adhoc-{uuid.uuid4()}",
@@ -216,7 +233,9 @@ def create_rest_routes(agent, market_context: dict, chart_cache: dict) -> APIRou
             "edges": [e.model_dump() for e in workflow.edges]
         }
         
-        executor = WorkflowExecutor(agent, market_context)
+        # Build context for nodes
+        context = _build_node_context(agent, market_context)
+        executor = WorkflowExecutor(context)
         
         try:
             result = await executor.execute(workflow_data)
@@ -224,6 +243,24 @@ def create_rest_routes(agent, market_context: dict, chart_cache: dict) -> APIRou
         except Exception as e:
             logger.error("adhoc_workflow_error", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
+    
+    @router.get("/api/nodes")
+    async def list_available_nodes():
+        """List all available workflow nodes by category."""
+        from nodes import NODE_CATEGORIES, NODE_METADATA
+        return {
+            "categories": NODE_CATEGORIES,
+            "nodes": NODE_METADATA
+        }
+    
+    def _build_node_context(agent, market_ctx):
+        """Build shared context for workflow nodes."""
+        return {
+            "llm_client": agent,
+            "scanner": agent.scanner if hasattr(agent, 'scanner') else None,
+            "market_context": market_ctx,
+            "sandbox": agent._context.get("sandbox") if hasattr(agent, '_context') else None,
+        }
     
     @router.get("/api/workflow-templates")
     async def get_workflow_templates():

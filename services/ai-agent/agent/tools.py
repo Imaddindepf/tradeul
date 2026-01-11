@@ -166,29 +166,98 @@ MARKET_TOOLS = [
     },
     {
         "name": "execute_analysis",
-        "description": """Execute Python code in sandbox. ONLY use for complex analysis other tools can't do.
+        "description": """Execute Python code in sandbox for complex analysis.
 
-SANDBOX FUNCTIONS (all return pandas DataFrame, check with df.empty):
-- get_minute_bars(date_str, symbol=None, start_hour=None, end_hour=None)
-  Example: get_minute_bars('yesterday', symbol='AAPL')
-  Returns: DataFrame[symbol,datetime,open,high,low,close,volume]
+GLOBAL FUNCTIONS (call directly, no object prefix):
+1. historical_query(sql) - FASTEST! Direct SQL on DuckDB. Use for complex queries.
+2. get_top_movers(date_str, limit=20, min_volume=100000, direction='up'/'down')
+3. get_minute_bars(date_str, symbol=None) - Only for single symbol analysis  
+4. save_output(dataframe, 'name') - Required to return results
 
-- get_top_movers(date_str, start_hour=None, end_hour=None, min_volume=100000, limit=20, ascending=False)
-  Example: get_top_movers('yesterday', limit=5)
-  Returns: DataFrame[symbol,open_price,close_price,change_pct,volume]
+WRONG: default_api.historical_query(sql)
+CORRECT: historical_query(sql)
 
-- available_dates() -> list of date strings ['2026-01-07', 'today']
-- historical_query(sql) -> DataFrame from raw SQL
-- save_output(data, 'name') -> save DataFrame for display (positional args!)
+DATA FILES (use in SQL):
+- read_csv_auto('/data/polygon/minute_aggs/YYYY-MM-DD.csv.gz')
+- Columns: ticker, window_start, open, high, low, close, volume
+- window_start is nanoseconds, divide by 1000000000 for timestamp
 
-EXAMPLE CODE:
-  movers = get_top_movers('yesterday', limit=5)
-  if not movers.empty:
-      for sym in movers['symbol']:
-          bars = get_minute_bars('yesterday', symbol=sym)
-          if not bars.empty: ...
+EXAMPLE 1 - Relative Strength vs SPY (FAST - single SQL query):
+sql = '''
+WITH spy AS (
+    SELECT (LAST(close ORDER BY window_start) / FIRST(open ORDER BY window_start) - 1) * 100 as spy_change
+    FROM read_csv_auto('/data/polygon/minute_aggs/2026-01-09.csv.gz')
+    WHERE ticker = 'SPY'
+),
+stocks AS (
+    SELECT ticker as symbol,
+           ROUND((LAST(close ORDER BY window_start) / FIRST(open ORDER BY window_start) - 1) * 100, 2) as change_pct,
+           SUM(volume) as volume
+    FROM read_csv_auto('/data/polygon/minute_aggs/2026-01-09.csv.gz')
+    GROUP BY ticker
+    HAVING SUM(volume) > 1000000
+)
+SELECT s.*, spy.spy_change, s.change_pct - spy.spy_change as relative_strength
+FROM stocks s, spy
+WHERE s.change_pct > spy.spy_change
+ORDER BY relative_strength DESC LIMIT 20
+'''
+result = historical_query(sql)
+save_output(result, 'relative_strength')
 
-DO NOT use: default_api, api, requests. Only functions above work.""",
+EXAMPLE 2 - Stocks with volume > 1M, price > $10 that went UP when SPY went DOWN:
+sql = '''
+WITH spy_down AS (
+    SELECT window_start FROM read_csv_auto('/data/polygon/minute_aggs/2026-01-09.csv.gz')
+    WHERE ticker = 'SPY' AND close < open
+),
+stock_strength AS (
+    SELECT ticker, COUNT(*) as up_minutes, ROUND(AVG((close-open)/open*100),3) as avg_gain
+    FROM read_csv_auto('/data/polygon/minute_aggs/2026-01-09.csv.gz')
+    WHERE window_start IN (SELECT window_start FROM spy_down) AND close > open
+    GROUP BY ticker HAVING COUNT(*) > 20
+),
+stock_stats AS (
+    SELECT ticker, SUM(volume) as volume, FIRST(open ORDER BY window_start) as open_price
+    FROM read_csv_auto('/data/polygon/minute_aggs/2026-01-09.csv.gz')
+    GROUP BY ticker
+)
+SELECT ss.ticker as symbol, ss.up_minutes, ss.avg_gain, st.volume, st.open_price
+FROM stock_strength ss
+JOIN stock_stats st ON ss.ticker = st.ticker
+WHERE st.volume > 1000000 AND st.open_price > 10
+ORDER BY ss.up_minutes DESC LIMIT 15
+'''
+result = historical_query(sql)
+save_output(result, 'pullback_strength')
+
+EXAMPLE 3 - Extract time ranges/hours (IMPORTANT: window_start is nanoseconds!):
+sql = '''
+SELECT ticker,
+    EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York') as hour_et,
+    COUNT(*) as candles,
+    ROUND(AVG((close-open)/open*100), 3) as avg_gain_pct
+FROM read_csv_auto('/data/polygon/minute_aggs/2026-01-09.csv.gz')
+WHERE close > open
+GROUP BY ticker, hour_et
+ORDER BY avg_gain_pct DESC LIMIT 20
+'''
+result = historical_query(sql)
+save_output(result, 'hourly_strength')
+
+IMPORTANT FOR TIME EXTRACTION:
+- WRONG: strftime('%H', window_start/1000000000, 'unixepoch') -- SQLite syntax, NOT DuckDB!
+- RIGHT: EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York')
+
+WRONG (SLOW - don't do this):
+for symbol in symbols:  # Multiple queries = TIMEOUT
+    df = get_minute_bars(date, symbol=symbol)
+
+CORRECT (FAST - single query):
+sql = "SELECT ... FROM read_csv_auto(...) WHERE ticker IN ('A','B','C')"
+result = historical_query(sql)
+
+TIMEOUT: 30 seconds. Use SQL for anything involving multiple symbols.""",
         "parameters": {
             "type": "object",
             "properties": {
@@ -339,8 +408,21 @@ async def _get_historical_data(args: Dict, ctx: Dict) -> Dict:
         target_date = datetime.strptime(date_str, "%Y-%m-%d")
         file_path = f"/data/polygon/minute_aggs/{date_str}.csv.gz"
     
+    # Auto-retry with previous days if no data (handles weekends/holidays)
+    original_date = date_str
+    for retry in range(5):  # Try up to 5 previous days
+        if Path(file_path).exists():
+            break
+        # Try previous day
+        if isinstance(target_date, datetime):
+            target_date = target_date - timedelta(days=1)
+        else:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)
+        date_str = target_date.strftime("%Y-%m-%d")
+        file_path = f"/data/polygon/minute_aggs/{date_str}.csv.gz"
+    
     if not Path(file_path).exists():
-        return {"success": False, "error": f"No data for {date_str}"}
+        return {"success": False, "error": f"No data for {original_date} (tried back to {date_str})"}
     
     try:
         if file_path.endswith(".parquet"):
@@ -620,7 +702,7 @@ async def _auto_correct_code(code: str, error: str, ctx: Dict) -> Optional[str]:
     try:
         client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         
-        correction_prompt = f"""You are a Python code fixer. Fix the following code based on the error.
+        correction_prompt = f"""You are a Python/DuckDB code fixer. Fix the following code based on the error.
 
 ORIGINAL CODE:
 ```python
@@ -633,16 +715,25 @@ ERROR:
 AVAILABLE FUNCTIONS in sandbox:
 - get_minute_bars(date_str, symbol=None, start_hour=None, end_hour=None) -> DataFrame
 - get_top_movers(date_str, start_hour=None, end_hour=None, min_volume=100000, limit=20, ascending=False, direction=None)
-  - direction='up' for gainers, direction='down' for losers
-  - ascending=True is same as direction='down'
 - available_dates() -> list of date strings
-- historical_query(sql) -> DataFrame
+- historical_query(sql) -> DataFrame (uses DuckDB)
 - save_output(data, 'name') -> saves for display
+
+DUCKDB-SPECIFIC FIXES:
+- window_start is BIGINT (nanoseconds since epoch), NOT a timestamp
+- To extract hour: EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000))
+- To format time: strftime(to_timestamp(window_start / 1000000000), '%H:%M')
+- Don't use strftime directly on BIGINT - convert to timestamp first!
+- For timezone: Use AT TIME ZONE 'America/New_York' after to_timestamp()
+
+EXAMPLE FIX for hour extraction:
+  WRONG: strftime('%H', window_start/1000000000, 'unixepoch')
+  RIGHT: EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York')
 
 RULES:
 1. Fix ONLY the error, don't change the logic
 2. Return ONLY the corrected Python code, no explanations
-3. If you can't fix it, return the original code unchanged
+3. Keep all the original query structure
 
 CORRECTED CODE:"""
 

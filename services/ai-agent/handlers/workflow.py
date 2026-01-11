@@ -71,27 +71,30 @@ def _serialize_result(result: Any) -> Any:
 
 
 # Map workflow node types to tool calls
-# Note: Node type is extracted from node ID prefix (e.g., "scanner-1" -> "scanner")
+# NEW CONCEPTUAL NODES (v2)
 NODE_TYPE_TO_TOOL: Dict[str, str] = {
+    # Data Sources
+    'market_pulse': 'get_market_snapshot',  # New name for scanner
+    
+    # Detection & Analysis
+    'volume_surge': 'get_market_snapshot',  # Uses scanner with volume filter
+    'momentum_wave': 'get_top_movers',  # Uses top movers logic
+    'sector_flow': 'classify_synthetic_sectors',  # New name for sectors
+    
+    # Enrichment
+    'news_validator': 'research_ticker',  # Uses Grok for news analysis
+    
+    # Output
+    'results': None,  # Display node - passthrough
+    
+    # Legacy aliases (for backward compatibility)
     'scanner': 'get_market_snapshot',
-    'historical': 'get_historical_data',
     'top_movers': 'get_top_movers',
-    'top': 'get_top_movers',  # Alias
-    'synthetic': 'classify_synthetic_sectors',  # From synthetic-1
+    'sectors': 'classify_synthetic_sectors',
+    'synthetic': 'classify_synthetic_sectors',
     'synthetic_sectors': 'classify_synthetic_sectors',
-    'ai_research': 'research_ticker',
-    'research': 'research_ticker',  # Alias
-    'ai_analysis': 'execute_analysis',
-    'analysis': 'execute_analysis',  # Alias
-    'sec_filings': 'get_sec_filings',
-    'sec': 'get_sec_filings',  # Alias
-    'news': 'get_news',
-    'insiders': 'get_insider_transactions',
-    'insider': 'get_insider_transactions',  # Alias
-    'financials': 'get_financials',
-    'screener': 'screen_tickers',
-    'pattern_match': 'find_patterns',
-    'pattern': 'find_patterns',  # Alias
+    'research': 'research_ticker',
+    'display': None,  # Passthrough
 }
 
 
@@ -247,15 +250,24 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         """Get input data from connected source nodes."""
         inputs = {}
+        source_count = 0
         
         for edge in edges:
             if edge['target'] == node_id:
                 source_id = edge['source']
                 if source_id in results and results[source_id].get('status') == 'success':
                     source_data = results[source_id].get('data', {})
-                    # Use source handle as key - default to 'data' if None or missing
-                    handle = edge.get('sourceHandle') or 'data'  # Fix: None → 'data'
+                    # Use unique key for each source to avoid overwriting
+                    handle = edge.get('sourceHandle')
+                    if not handle:
+                        # Generate unique key: input_0, input_1, etc.
+                        handle = f'input_{source_count}'
+                        source_count += 1
                     inputs[handle] = source_data
+        
+        # If only one input, also add it as 'data' for backward compatibility
+        if len(inputs) == 1:
+            inputs['data'] = list(inputs.values())[0]
         
         return inputs
     
@@ -280,13 +292,39 @@ class WorkflowExecutor:
             return result
         
         # Handle output nodes (display, alert, export)
-        if node_type == 'display':
-            return {
-                'type': 'display',
-                'title': config.get('title', 'Results'),
-                'displayType': config.get('type', 'table'),
-                'data': input_data
-            }
+        if node_type == 'display' or node_type == 'results':
+            # If multiple inputs, combine them
+            if len(input_data) > 1:
+                combined_sources = []
+                for key, source_data in input_data.items():
+                    if key.startswith('input_') or key == 'data':
+                        # Extract the actual dataframe/data
+                        actual_data = source_data
+                        if isinstance(source_data, dict):
+                            if 'data' in source_data:
+                                actual_data = source_data['data']
+                        combined_sources.append({
+                            'source': key,
+                            'data': actual_data
+                        })
+                return {
+                    'type': 'display',
+                    'title': config.get('title', 'Results'),
+                    'displayType': 'combined',
+                    'sources': combined_sources,
+                    'data': combined_sources[0]['data'] if combined_sources else {}  # Primary data for backwards compat
+                }
+            else:
+                # Single input - extract the data directly
+                single_data = input_data.get('data') or (list(input_data.values())[0] if input_data else {})
+                if isinstance(single_data, dict) and 'data' in single_data:
+                    single_data = single_data['data']
+                return {
+                    'type': 'display',
+                    'title': config.get('title', 'Results'),
+                    'displayType': config.get('type', 'table'),
+                    'data': single_data
+                }
         
         if node_type == 'alert':
             return {

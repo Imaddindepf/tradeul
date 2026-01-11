@@ -198,12 +198,19 @@ class WebSocketHandler:
             
             # Generate code representation from tools used
             code_lines = []
-            for tool in result.tools_used:
-                code_lines.append(f"# Using {tool}")
-            if result.response:
-                # Add response summary as comment
-                response_preview = result.response[:200].replace('\n', ' ')
-                code_lines.append(f"# Result: {response_preview}...")
+            for tool_call in getattr(result, 'tool_calls', []) or []:
+                tool_name = tool_call.get('name', '')
+                tool_args = tool_call.get('args', {})
+                
+                if tool_name == 'execute_analysis' and 'code' in tool_args:
+                    # Show actual Python code for execute_analysis
+                    code_lines.append(f"# execute_analysis - {tool_args.get('description', 'Custom analysis')}")
+                    code_lines.append(tool_args['code'])
+                else:
+                    # Show tool call with args
+                    args_str = ', '.join(f'{k}={repr(v)}' for k, v in tool_args.items())
+                    code_lines.append(f"{tool_name}({args_str})")
+            
             code_repr = "\n".join(code_lines) if code_lines else "# Direct response"
             
             # Send result

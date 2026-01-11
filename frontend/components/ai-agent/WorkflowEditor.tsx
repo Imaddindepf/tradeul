@@ -38,15 +38,40 @@ import {
 // Use same URL as useAIAgent for consistency
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'https://agent.tradeul.com';
 
-// Map frontend node types to backend node types
+// Map frontend node types to backend node types (NEW MODULAR ARCHITECTURE)
 const ICON_TO_BACKEND_TYPE: Record<string, string> = {
-    scanner: 'scanner',
-    historical: 'historical',
+    // SOURCE nodes
+    market_scanner: 'market_scanner',
+    anomaly_scanner: 'anomaly_scanner',
+    volume_surge: 'volume_surge',
     top_movers: 'top_movers',
-    sectors: 'synthetic_sectors',
-    research: 'research',
-    analysis: 'analysis',
-    display: 'display',
+
+    // TRANSFORM nodes
+    smart_filter: 'smart_filter',
+    sort: 'sort',
+    limit: 'limit',
+    merge: 'merge',
+    ranking: 'ranking',
+    sector_classifier: 'sector_classifier',
+
+    // ENRICH nodes
+    news_enricher: 'news_enricher',
+    narrative_classifier: 'narrative_classifier',
+    risk_scorer: 'risk_scorer',
+    sentiment_scorer: 'sentiment_scorer',
+
+    // ACTION nodes
+    results: 'results',
+    save_signal: 'save_signal',
+    export: 'export',
+    alert: 'alert',
+
+    // Legacy aliases
+    scanner: 'market_scanner',
+    sectors: 'sector_classifier',
+    market_pulse: 'market_scanner',
+    sector_flow: 'sector_classifier',
+    display: 'results',
 };
 
 // =============================================================================
@@ -73,9 +98,10 @@ interface WorkflowReport {
 // Node configuration types
 interface ScannerConfig {
     limit: number;
-    filter_type: 'all' | 'gainers' | 'losers' | 'volume' | 'premarket' | 'postmarket';
+    filter_type?: 'all' | 'gainers' | 'losers' | 'volume' | 'premarket' | 'postmarket';
     min_volume?: number;
     min_price?: number;
+    include_premarket?: boolean;
 }
 
 interface HistoricalConfig {
@@ -118,15 +144,108 @@ interface WorkflowNodeData {
     executionTime?: number;
 }
 
-// Default configs for each node type
+// Default configs for each node type (NEW MODULAR ARCHITECTURE)
 const DEFAULT_CONFIGS: Record<string, NodeConfig> = {
-    scanner: { limit: 200, filter_type: 'all' } as ScannerConfig,
-    historical: { date: 'yesterday' } as HistoricalConfig,
-    top_movers: { date: 'yesterday', direction: 'up', limit: 50, min_volume: 100000 } as TopMoversConfig,
-    sectors: { date: 'today', max_sectors: 20 } as SectorsConfig,
-    research: { ticker: '', query: '' } as ResearchConfig,
-    analysis: {},
-    display: {},
+    // === SOURCE NODES ===
+    market_scanner: {
+        limit: 100,
+        min_price: 1,
+        min_volume: 100000,
+    } as ScannerConfig,
+
+    anomaly_scanner: {
+        limit: 50,
+        min_rvol: 2.0,
+        min_change_pct: 5.0,
+    },
+
+    volume_surge: {
+        limit: 50,
+        min_rvol: 3.0,
+        min_volume: 500000,
+    },
+
+    top_movers: {
+        direction: 'up',
+        limit: 50,
+        min_volume: 100000,
+        date: 'today',
+    },
+
+    // === TRANSFORM NODES ===
+    smart_filter: {
+        conditions: [
+            { column: 'change_percent', operator: '>=', value: 3 },
+        ],
+        logic: 'AND',
+    },
+
+    sort: {
+        columns: ['change_percent'],
+        ascending: false,
+    },
+
+    limit: {
+        limit: 20,
+    },
+
+    merge: {
+        mode: 'concat',
+        dedupe_column: 'symbol',
+    },
+
+    ranking: {
+        factors: [
+            { column: 'change_percent', weight: 0.5 },
+            { column: 'rvol', weight: 0.5 },
+        ],
+        limit: 20,
+    },
+
+    sector_classifier: {
+        max_sectors: 15,
+    },
+
+    // === ENRICH NODES ===
+    news_enricher: {
+        max_tickers: 20,
+        news_limit: 3,
+    },
+
+    narrative_classifier: {
+        max_tickers: 15,
+    },
+
+    risk_scorer: {
+        max_tickers: 20,
+        risk_window_days: 7,
+    },
+
+    sentiment_scorer: {
+        max_tickers: 20,
+    },
+
+    // === ACTION NODES ===
+    results: {
+        max_rows: 100,
+    },
+
+    save_signal: {
+        signal_name: 'Custom Signal',
+        ttl_hours: 24,
+        max_signals: 20,
+    },
+
+    export: {
+        format: 'csv',
+        filename: 'workflow_export',
+    },
+
+    alert: {
+        alert_title: 'Workflow Alert',
+        min_results: 1,
+    },
+
 };
 
 // =============================================================================
@@ -233,80 +352,135 @@ const DashboardNode = memo(({ data, selected }: NodeProps<WorkflowNodeData>) => 
     const getDescription = () => {
         const c = config;
         switch (data.icon) {
+            // NEW CONCEPTUAL NODES (v2)
+            case 'market_pulse':
+                return `Step ${data.step}: Market Pulse
+
+Real-time snapshot of market activity.
+
+Scans ${formatNum((c as ScannerConfig).limit || 200)}+ active tickers with current prices, volume, and bid/ask data.
+
+Filters applied:
+• Min price: $${(c as ScannerConfig).min_price || 1}
+• Min volume: ${formatNum((c as ScannerConfig).min_volume || 50000)}
+• Includes premarket: ${(c as ScannerConfig).include_premarket ? 'Yes' : 'No'}
+
+Output: Universe of active tickers with real-time metrics.`;
+
+            case 'volume_surge':
+                return `Step ${data.step}: Volume Surge Detector
+
+Identifies stocks with unusual volume activity.
+
+Compares current volume to ${(c as Record<string, number>).lookback_days || 20}-day average. Stocks with RVOL (Relative Volume) above ${(c as Record<string, number>).min_rvol || 2.0}x are flagged.
+
+Why this matters:
+• Unusual volume often precedes price moves
+• Institutional activity leaves volume footprints
+• Early signal before news breaks
+
+Output: Tickers with abnormal volume + RVOL score.`;
+
+            case 'momentum_wave':
+                return `Step ${data.step}: Momentum Wave
+
+Detects sustained directional price movement.
+
+Finds ${(c as Record<string, string>).direction === 'down' ? 'declining' : 'advancing'} stocks with >${(c as Record<string, number>).min_change || 5}% change and volume confirmation.
+
+Criteria:
+• Direction: ${(c as Record<string, string>).direction || 'up'}
+• Min change: ${(c as Record<string, number>).min_change || 5}%
+• Min volume: ${formatNum((c as Record<string, number>).min_volume || 100000)}
+
+Output: Top movers with momentum score.`;
+
+            case 'sector_flow':
+                return `Step ${data.step}: Sector Flow Analysis
+
+AI-powered thematic sector classification.
+
+Groups tickers into dynamic sectors based on current market narratives. Unlike static classifications, we detect:
+
+• Nuclear / Uranium plays
+• AI Infrastructure
+• Solar / Clean Energy
+• Biotech themes
+• Emerging narratives
+
+Max sectors: ${(c as Record<string, number>).max_sectors || 15}
+
+Output: Sector performance with rotation signals.`;
+
+            case 'news_validator':
+                return `Step ${data.step}: News Validator
+
+Validates signals against news and events.
+
+Cross-references tickers with recent news to understand the "why" behind movements.
+
+Checks:
+• Breaking news (last ${(c as Record<string, number>).max_news_age_hours || 24}h)
+• Earnings dates / FDA decisions
+• Analyst ratings changes
+• Social sentiment
+
+Output: Narrative type + sentiment score + risk flags.`;
+
+            case 'results':
+                return `Step ${data.step}: Results
+
+Displays the final output from the pipeline.
+
+Shows data from the previous node in a clean table format. This is where you review the signals before taking action.`;
+
+            // LEGACY NODES (backward compatibility)
             case 'scanner':
                 return `Step ${data.step}: ${data.title}
 
-To start this step, we connect to the real-time market scanner.
+Legacy scanner node. Use Market Pulse instead.
 
-We scan ${formatNum((c as ScannerConfig).limit || 200)}+ active tickers from the market, filtering by ${(c as ScannerConfig).filter_type || 'all activity'}. This gives us a universe of stocks showing unusual activity.
-
-What we filter for:
-• Active trading volume above threshold
-• Price movement patterns (gappers, momentum)
-• Real-time bid/ask spreads
+Scans ${formatNum((c as ScannerConfig).limit || 200)}+ active tickers from the market.
 
 Output: A ranked list of active tickers with price, volume, and change data.`;
 
             case 'top_movers':
                 return `Step ${data.step}: ${data.title}
 
-This step identifies the top ${(c as TopMoversConfig).direction === 'down' ? 'losers' : 'gainers'} from ${(c as TopMoversConfig).date || 'yesterday'}'s trading session.
+Legacy top movers. Use Momentum Wave instead.
 
-We analyze minute-level data to find stocks with the largest price movements. Minimum volume filter of ${formatNum((c as TopMoversConfig).min_volume || 100000)} ensures we're looking at liquid names.
+Top ${(c as TopMoversConfig).direction === 'down' ? 'losers' : 'gainers'} from ${(c as TopMoversConfig).date || 'yesterday'}.
 
-What we track:
-• Intraday price change percentage
-• Volume vs average comparison
-• Movement consistency through the day
-
-Output: Top ${formatNum((c as TopMoversConfig).limit || 50)} ${(c as TopMoversConfig).direction === 'down' ? 'declining' : 'advancing'} stocks ranked by % change.`;
+Output: Top ${formatNum((c as TopMoversConfig).limit || 50)} stocks ranked by % change.`;
 
             case 'sectors':
                 return `Step ${data.step}: ${data.title}
 
-This step classifies tickers into thematic sectors using AI.
+Legacy sectors. Use Sector Flow instead.
 
-We take the input tickers and ask the LLM to identify common themes. Unlike standard sector classifications (Technology, Healthcare), we create synthetic sectors based on current market narratives.
+Output: Up to ${(c as SectorsConfig).max_sectors || 20} synthetic sectors.`;
 
-Example themes detected:
-• Nuclear Energy / Uranium
-• AI Infrastructure (data centers, chips)
-• Solar / Clean Energy
-• Electric Vehicles
-• Biotech / Weight Loss Drugs
-
-Output: Up to ${(c as SectorsConfig).max_sectors || 20} synthetic sectors with performance metrics.`;
-
-            case 'historical':
-                return `Step ${data.step}: ${data.title}
-
-Loads minute-level historical data from ${(c as HistoricalConfig).date || 'yesterday'}.
-
-We pull OHLCV (Open, High, Low, Close, Volume) data at 1-minute granularity. This provides the raw data needed for technical analysis.
-
-Data includes:
-• Timestamp (minute precision)
-• Price bars (O/H/L/C)
-• Volume per minute
-• VWAP calculations
-
-Output: DataFrame with minute bars for analysis.`;
-
+            case 'news_validator':
             case 'research':
                 return `Step ${data.step}: ${data.title}
 
-Deep AI research using Grok's real-time capabilities.
+Validates signals with news and events using AI research.
 
-For ${(c as ResearchConfig).ticker || 'each ticker from input'}, we query Grok to understand why it's moving. The AI searches recent news, social sentiment, and market context.
+For ${(c as ResearchConfig).ticker || 'each ticker from input'}, we analyze:
+• Breaking news and catalysts
+• Social sentiment signals
+• Upcoming binary events (earnings, FDA)
+• Analyst rating changes
 
-Analysis includes:
-• Recent news and catalysts
-• Technical setup analysis
-• Fundamental changes
-• Sector correlation patterns
+Risk flags:
+• Earnings within 7 days
+• Pending FDA decisions
+• Lockup expirations
+• Macro sensitivity
 
-Output: Detailed research report with citations.`;
+Output: Validation score + narrative type + risk flags.`;
 
+            case 'results':
             case 'display':
                 return `Step ${data.step}: ${data.title}
 
@@ -356,18 +530,25 @@ This is a pass-through visualization node that renders the data from the previou
         s.avg_change = mean(s.tickers)
     return sectors.sort_by("avg_change")`;
 
+            case 'news_validator':
             case 'research':
-                return `def ai_research(ticker):
-    """Deep research with Grok."""
-    research = research_ticker(
-        symbol="${(c as ResearchConfig).ticker || 'from_input'}",
-        query="${(c as ResearchConfig).query || 'why is it moving?'}"
-    )
-    return {
-        "content": research.content,
-        "citations": research.sources
-    }`;
+                return `async def news_validator(tickers):
+    """Validate signals with news & events."""
+    results = []
+    for ticker in tickers[:10]:
+        research = await research_ticker(
+            symbol=ticker,
+            query="why is it moving? any upcoming events?"
+        )
+        results.append({
+            "ticker": ticker,
+            "narrative": classify_narrative(research),
+            "risk_flags": detect_binary_events(ticker),
+            "sentiment": research.sentiment_score
+        })
+    return sort_by_conviction(results)`;
 
+            case 'results':
             case 'display':
                 return `def display_results(data):
     """Render final output."""
@@ -447,15 +628,17 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                         ['09:32', '$142.60', '$143.00', '$142.50', '$142.90'],
                     ]
                 };
+            case 'news_validator':
             case 'research':
                 return {
-                    columns: ['Ticker', 'Catalyst', 'Sentiment'],
+                    columns: ['Ticker', 'Narrative', 'Risk', 'Score'],
                     rows: [
-                        ['NVDA', 'AI demand surge', '+0.92'],
-                        ['AMD', 'New GPU launch', '+0.78'],
-                        ['SMCI', 'Data center wins', '+0.85'],
+                        ['NVDA', 'CATALYST_DRIVEN', 'None', '+0.92'],
+                        ['AMD', 'EARNINGS_PLAY', 'ER 7d', '+0.65'],
+                        ['SMCI', 'SILENT_ACCUMULATION', 'None', '+0.78'],
                     ]
                 };
+            case 'results':
             case 'display':
                 return {
                     columns: ['Output', 'Value', 'Type'],
@@ -503,12 +686,17 @@ ${hasData ? `✓ Returned ${data.data?.rows.length || 0} rows` : '✓ Success'}
                     {c.start_hour && <div className="flex justify-between"><span className="text-slate-400">Hours</span><span>{c.start_hour}-{c.end_hour || 20}</span></div>}
                 </>);
             }
+            case 'news_validator':
             case 'research': {
                 const c = config as ResearchConfig;
                 return (<>
-                    <div className="flex justify-between"><span className="text-slate-400">Ticker</span><span>{c.ticker || 'input'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Ticker</span><span>{c.ticker || 'from input'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-400">Risk check</span><span>Yes</span></div>
                 </>);
             }
+            case 'results':
+            case 'display':
+                return <span className="text-slate-400">Shows output from previous node</span>;
             default:
                 return <span className="text-slate-400">No config</span>;
         }
@@ -696,13 +884,30 @@ const initialEdges: Edge[] = [];
 
 // Only include nodes that have backend tools implemented
 const NODE_TEMPLATES = [
-    { type: 'scanner', label: 'Market Scanner', category: 'source' as NodeCategory },
-    { type: 'historical', label: 'Historical Data', category: 'source' as NodeCategory },
+    // === SOURCE NODES ===
+    { type: 'market_scanner', label: 'Market Scanner', category: 'source' as NodeCategory },
+    { type: 'anomaly_scanner', label: 'Anomaly Scanner', category: 'source' as NodeCategory },
+    { type: 'volume_surge', label: 'Volume Surge', category: 'source' as NodeCategory },
     { type: 'top_movers', label: 'Top Movers', category: 'source' as NodeCategory },
-    { type: 'sectors', label: 'Synthetic Sectors', category: 'ai' as NodeCategory },
-    { type: 'research', label: 'AI Research', category: 'ai' as NodeCategory },
-    { type: 'analysis', label: 'Code Analysis', category: 'ai' as NodeCategory },
-    { type: 'display', label: 'Display', category: 'output' as NodeCategory },
+
+    // === TRANSFORM NODES ===
+    { type: 'smart_filter', label: 'Smart Filter', category: 'analysis' as NodeCategory },
+    { type: 'sort', label: 'Sort', category: 'analysis' as NodeCategory },
+    { type: 'limit', label: 'Limit', category: 'analysis' as NodeCategory },
+    { type: 'ranking', label: 'Ranking', category: 'analysis' as NodeCategory },
+    { type: 'sector_classifier', label: 'Sector Classifier', category: 'ai' as NodeCategory },
+
+    // === ENRICH NODES ===
+    { type: 'news_enricher', label: 'News Enricher', category: 'enrichment' as NodeCategory },
+    { type: 'narrative_classifier', label: 'Narrative Classifier', category: 'ai' as NodeCategory },
+    { type: 'risk_scorer', label: 'Risk Scorer', category: 'enrichment' as NodeCategory },
+    { type: 'sentiment_scorer', label: 'Sentiment Scorer', category: 'enrichment' as NodeCategory },
+
+    // === ACTION NODES ===
+    { type: 'results', label: 'Results', category: 'output' as NodeCategory },
+    { type: 'save_signal', label: 'Save Signal', category: 'output' as NodeCategory },
+    { type: 'export', label: 'Export', category: 'output' as NodeCategory },
+    { type: 'alert', label: 'Alert', category: 'output' as NodeCategory },
 ];
 
 interface NodePaletteProps {
@@ -766,222 +971,360 @@ const NodeConfigPanel = memo(({ node, onClose, onUpdate }: NodeConfigPanelProps)
     };
 
     const renderFields = () => {
+        const inputClass = "w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none";
+        const labelClass = "text-[9px] text-slate-500 uppercase";
+        const hintClass = "text-[8px] text-slate-400";
+
         switch (nodeType) {
+            // === SOURCE NODES ===
+            case 'market_scanner':
+            case 'market_pulse':
             case 'scanner':
-                const scannerConfig = config as ScannerConfig;
                 return (
                     <>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Limit</label>
-                            <input
-                                type="number"
-                                min={1}
-                                max={1000}
-                                value={scannerConfig.limit || 200}
-                                onChange={(e) => handleChange('limit', parseInt(e.target.value) || 200)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
-                            <p className="text-[8px] text-slate-400">Max 1000 tickers</p>
+                            <label className={labelClass}>Limit</label>
+                            <input type="number" min={1} max={1000} value={(config as any).limit || 100}
+                                onChange={(e) => handleChange('limit', parseInt(e.target.value) || 100)}
+                                className={inputClass} />
+                            <p className={hintClass}>1-1000 tickers</p>
                         </div>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Filter</label>
-                            <select
-                                value={scannerConfig.filter_type || 'all'}
-                                onChange={(e) => handleChange('filter_type', e.target.value)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            >
-                                <option value="all">All Active</option>
-                                <option value="gainers">Top Gainers</option>
-                                <option value="losers">Top Losers</option>
-                                <option value="volume">High Volume</option>
-                                <option value="premarket">Premarket Movers</option>
-                                <option value="postmarket">Afterhours Movers</option>
-                            </select>
+                            <label className={labelClass}>Min Volume</label>
+                            <input type="number" min={0} value={(config as any).min_volume || ''}
+                                placeholder="Any" onChange={(e) => handleChange('min_volume', e.target.value ? parseInt(e.target.value) : undefined)}
+                                className={inputClass} />
                         </div>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Min Volume</label>
-                            <input
-                                type="number"
-                                min={0}
-                                value={scannerConfig.min_volume || ''}
-                                placeholder="Any"
-                                onChange={(e) => handleChange('min_volume', e.target.value ? parseInt(e.target.value) : undefined)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
+                            <label className={labelClass}>Min Price ($)</label>
+                            <input type="number" min={0} step={0.5} value={(config as any).min_price || ''}
+                                placeholder="Any" onChange={(e) => handleChange('min_price', e.target.value ? parseFloat(e.target.value) : undefined)}
+                                className={inputClass} />
+                        </div>
+                    </>
+                );
+
+            case 'anomaly_scanner':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Limit</label>
+                            <input type="number" min={1} max={500} value={(config as any).limit || 50}
+                                onChange={(e) => handleChange('limit', parseInt(e.target.value) || 50)}
+                                className={inputClass} />
                         </div>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Min Price</label>
-                            <input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                value={scannerConfig.min_price || ''}
-                                placeholder="Any"
-                                onChange={(e) => handleChange('min_price', e.target.value ? parseFloat(e.target.value) : undefined)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
+                            <label className={labelClass}>Min Relative Volume</label>
+                            <input type="number" min={1} step={0.5} value={(config as any).min_rvol || 2.0}
+                                onChange={(e) => handleChange('min_rvol', parseFloat(e.target.value) || 2.0)}
+                                className={inputClass} />
+                            <p className={hintClass}>e.g., 2.0 = 2x average volume</p>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Min Change %</label>
+                            <input type="number" min={0} step={1} value={(config as any).min_change_pct || 5}
+                                onChange={(e) => handleChange('min_change_pct', parseFloat(e.target.value) || 5)}
+                                className={inputClass} />
+                        </div>
+                    </>
+                );
+
+            case 'volume_surge':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Limit</label>
+                            <input type="number" min={1} max={500} value={(config as any).limit || 50}
+                                onChange={(e) => handleChange('limit', parseInt(e.target.value) || 50)}
+                                className={inputClass} />
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Min Relative Volume</label>
+                            <input type="number" min={1} step={0.5} value={(config as any).min_rvol || 3.0}
+                                onChange={(e) => handleChange('min_rvol', parseFloat(e.target.value) || 3.0)}
+                                className={inputClass} />
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Min Volume</label>
+                            <input type="number" min={0} value={(config as any).min_volume || 500000}
+                                onChange={(e) => handleChange('min_volume', parseInt(e.target.value) || 500000)}
+                                className={inputClass} />
                         </div>
                     </>
                 );
 
             case 'top_movers':
-                const topConfig = config as TopMoversConfig;
                 return (
                     <>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Date</label>
-                            <select
-                                value={topConfig.date || 'yesterday'}
-                                onChange={(e) => handleChange('date', e.target.value)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            >
-                                <option value="today">Today</option>
-                                <option value="yesterday">Yesterday</option>
-                            </select>
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Direction</label>
-                            <select
-                                value={topConfig.direction || 'up'}
+                            <label className={labelClass}>Direction</label>
+                            <select value={(config as any).direction || 'up'}
                                 onChange={(e) => handleChange('direction', e.target.value)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            >
+                                className={inputClass}>
                                 <option value="up">Gainers</option>
                                 <option value="down">Losers</option>
                             </select>
                         </div>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Limit</label>
-                            <input
-                                type="number"
-                                min={1}
-                                max={500}
-                                value={topConfig.limit || 50}
+                            <label className={labelClass}>Limit</label>
+                            <input type="number" min={1} max={500} value={(config as any).limit || 50}
                                 onChange={(e) => handleChange('limit', parseInt(e.target.value) || 50)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
+                                className={inputClass} />
                         </div>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Min Volume</label>
-                            <input
-                                type="number"
-                                min={0}
-                                value={topConfig.min_volume || 100000}
+                            <label className={labelClass}>Min Volume</label>
+                            <input type="number" min={0} value={(config as any).min_volume || 100000}
                                 onChange={(e) => handleChange('min_volume', parseInt(e.target.value) || 100000)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
+                                className={inputClass} />
                         </div>
                     </>
                 );
 
+            // === TRANSFORM NODES ===
+            case 'smart_filter':
+                return (
+                    <>
+                        <p className={hintClass + " mb-2"}>Filter conditions (JSON format)</p>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Column</label>
+                            <select value={(config as any).conditions?.[0]?.column || 'change_percent'}
+                                onChange={(e) => handleChange('conditions', [{ ...(config as any).conditions?.[0], column: e.target.value }])}
+                                className={inputClass}>
+                                <option value="change_percent">Change %</option>
+                                <option value="rvol">Relative Volume</option>
+                                <option value="volume_today">Volume</option>
+                                <option value="price">Price</option>
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Operator</label>
+                            <select value={(config as any).conditions?.[0]?.operator || '>='}
+                                onChange={(e) => handleChange('conditions', [{ ...(config as any).conditions?.[0], operator: e.target.value }])}
+                                className={inputClass}>
+                                <option value=">=">≥ (greater or equal)</option>
+                                <option value=">">{">"} (greater)</option>
+                                <option value="<=">≤ (less or equal)</option>
+                                <option value="<">{"<"} (less)</option>
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Value</label>
+                            <input type="number" step="any" value={(config as any).conditions?.[0]?.value || 3}
+                                onChange={(e) => handleChange('conditions', [{ ...(config as any).conditions?.[0], value: parseFloat(e.target.value) }])}
+                                className={inputClass} />
+                        </div>
+                    </>
+                );
+
+            case 'sort':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Sort By</label>
+                            <select value={(config as any).columns?.[0] || 'change_percent'}
+                                onChange={(e) => handleChange('columns', [e.target.value])}
+                                className={inputClass}>
+                                <option value="change_percent">Change %</option>
+                                <option value="rvol">Relative Volume</option>
+                                <option value="volume_today">Volume</option>
+                                <option value="price">Price</option>
+                                <option value="rank_score">Rank Score</option>
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Order</label>
+                            <select value={(config as any).ascending ? 'asc' : 'desc'}
+                                onChange={(e) => handleChange('ascending', e.target.value === 'asc')}
+                                className={inputClass}>
+                                <option value="desc">Descending (highest first)</option>
+                                <option value="asc">Ascending (lowest first)</option>
+                            </select>
+                        </div>
+                    </>
+                );
+
+            case 'limit':
+                return (
+                    <div className="space-y-1">
+                        <label className={labelClass}>Max Results</label>
+                        <input type="number" min={1} max={500} value={(config as any).limit || 20}
+                            onChange={(e) => handleChange('limit', parseInt(e.target.value) || 20)}
+                            className={inputClass} />
+                        <p className={hintClass}>Take top N results</p>
+                    </div>
+                );
+
+            case 'ranking':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Rank By</label>
+                            <select value={(config as any).factors?.[0]?.column || 'change_percent'}
+                                onChange={(e) => handleChange('factors', [{ column: e.target.value, weight: 1.0 }])}
+                                className={inputClass}>
+                                <option value="change_percent">Change %</option>
+                                <option value="rvol">Relative Volume</option>
+                                <option value="volume_today">Volume</option>
+                                <option value="anomaly_score">Anomaly Score</option>
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Top N</label>
+                            <input type="number" min={1} max={100} value={(config as any).limit || 20}
+                                onChange={(e) => handleChange('limit', parseInt(e.target.value) || 20)}
+                                className={inputClass} />
+                        </div>
+                    </>
+                );
+
+            case 'sector_classifier':
+            case 'sector_flow':
             case 'sectors':
-                const sectorsConfig = config as SectorsConfig;
+                return (
+                    <div className="space-y-1">
+                        <label className={labelClass}>Max Sectors</label>
+                        <input type="number" min={5} max={30} value={(config as any).max_sectors || 15}
+                            onChange={(e) => handleChange('max_sectors', parseInt(e.target.value) || 15)}
+                            className={inputClass} />
+                        <p className={hintClass}>AI classifies into thematic sectors</p>
+                    </div>
+                );
+
+            // === ENRICH NODES ===
+            case 'news_enricher':
                 return (
                     <>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Date</label>
-                            <select
-                                value={sectorsConfig.date || 'today'}
-                                onChange={(e) => handleChange('date', e.target.value)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            >
-                                <option value="today">Today</option>
-                                <option value="yesterday">Yesterday</option>
-                            </select>
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Max Sectors</label>
-                            <input
-                                type="number"
-                                min={5}
-                                max={50}
-                                value={sectorsConfig.max_sectors || 20}
-                                onChange={(e) => handleChange('max_sectors', parseInt(e.target.value) || 20)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
-                            <p className="text-[8px] text-slate-400">5-50 sectors</p>
+                            <label className={labelClass}>Max Tickers</label>
+                            <input type="number" min={1} max={50} value={(config as any).max_tickers || 20}
+                                onChange={(e) => handleChange('max_tickers', parseInt(e.target.value) || 20)}
+                                className={inputClass} />
+                            <p className={hintClass}>News lookup per ticker (slow)</p>
                         </div>
                     </>
                 );
 
-            case 'historical':
-                const histConfig = config as HistoricalConfig;
+            case 'narrative_classifier':
                 return (
                     <>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Date</label>
-                            <select
-                                value={histConfig.date || 'yesterday'}
-                                onChange={(e) => handleChange('date', e.target.value)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            >
-                                <option value="today">Today</option>
-                                <option value="yesterday">Yesterday</option>
-                            </select>
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Start Hour (ET)</label>
-                            <input
-                                type="number"
-                                min={4}
-                                max={20}
-                                value={histConfig.start_hour || ''}
-                                placeholder="Market open"
-                                onChange={(e) => handleChange('start_hour', e.target.value ? parseInt(e.target.value) : undefined)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
-                        </div>
-                        <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">End Hour (ET)</label>
-                            <input
-                                type="number"
-                                min={4}
-                                max={20}
-                                value={histConfig.end_hour || ''}
-                                placeholder="Market close"
-                                onChange={(e) => handleChange('end_hour', e.target.value ? parseInt(e.target.value) : undefined)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
+                            <label className={labelClass}>Max Tickers</label>
+                            <input type="number" min={1} max={30} value={(config as any).max_tickers || 15}
+                                onChange={(e) => handleChange('max_tickers', parseInt(e.target.value) || 15)}
+                                className={inputClass} />
+                            <p className={hintClass}>AI classifies: CATALYST, MACRO, SILENT, EARNINGS</p>
                         </div>
                     </>
                 );
 
-            case 'research':
-                const researchConfig = config as ResearchConfig;
+            case 'risk_scorer':
                 return (
                     <>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Ticker (or from input)</label>
-                            <input
-                                type="text"
-                                value={researchConfig.ticker || ''}
-                                placeholder="e.g., NVDA (leave empty for input)"
-                                onChange={(e) => handleChange('ticker', e.target.value.toUpperCase())}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
+                            <label className={labelClass}>Max Tickers</label>
+                            <input type="number" min={1} max={30} value={(config as any).max_tickers || 20}
+                                onChange={(e) => handleChange('max_tickers', parseInt(e.target.value) || 20)}
+                                className={inputClass} />
                         </div>
                         <div className="space-y-1">
-                            <label className="text-[9px] text-slate-500 uppercase">Query</label>
-                            <input
-                                type="text"
-                                value={researchConfig.query || ''}
-                                placeholder="e.g., why is it moving?"
-                                onChange={(e) => handleChange('query', e.target.value)}
-                                className="w-full px-2 py-1 text-[10px] border border-slate-200 rounded focus:border-blue-400 focus:outline-none"
-                            />
+                            <label className={labelClass}>Risk Window (days)</label>
+                            <input type="number" min={1} max={30} value={(config as any).risk_window_days || 7}
+                                onChange={(e) => handleChange('risk_window_days', parseInt(e.target.value) || 7)}
+                                className={inputClass} />
+                            <p className={hintClass}>Look for events in next N days</p>
                         </div>
                     </>
                 );
 
+            case 'sentiment_scorer':
+                return (
+                    <div className="space-y-1">
+                        <label className={labelClass}>Max Tickers</label>
+                        <input type="number" min={1} max={30} value={(config as any).max_tickers || 20}
+                            onChange={(e) => handleChange('max_tickers', parseInt(e.target.value) || 20)}
+                            className={inputClass} />
+                        <p className={hintClass}>Scores: BULLISH, BEARISH, NEUTRAL</p>
+                    </div>
+                );
+
+            // === ACTION NODES ===
+            case 'results':
             case 'display':
                 return (
-                    <p className="text-[10px] text-slate-500">
-                        Display node shows the output from the connected input node.
-                    </p>
+                    <div className="space-y-1">
+                        <label className={labelClass}>Max Rows</label>
+                        <input type="number" min={10} max={500} value={(config as any).max_rows || 100}
+                            onChange={(e) => handleChange('max_rows', parseInt(e.target.value) || 100)}
+                            className={inputClass} />
+                    </div>
+                );
+
+            case 'save_signal':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Signal Name</label>
+                            <input type="text" value={(config as any).signal_name || 'Custom Signal'}
+                                onChange={(e) => handleChange('signal_name', e.target.value)}
+                                className={inputClass} />
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>TTL (hours)</label>
+                            <input type="number" min={1} max={168} value={(config as any).ttl_hours || 24}
+                                onChange={(e) => handleChange('ttl_hours', parseInt(e.target.value) || 24)}
+                                className={inputClass} />
+                            <p className={hintClass}>Signal expires after N hours</p>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Max Signals</label>
+                            <input type="number" min={1} max={100} value={(config as any).max_signals || 20}
+                                onChange={(e) => handleChange('max_signals', parseInt(e.target.value) || 20)}
+                                className={inputClass} />
+                        </div>
+                    </>
+                );
+
+            case 'export':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Format</label>
+                            <select value={(config as any).format || 'csv'}
+                                onChange={(e) => handleChange('format', e.target.value)}
+                                className={inputClass}>
+                                <option value="csv">CSV</option>
+                                <option value="json">JSON</option>
+                            </select>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Filename</label>
+                            <input type="text" value={(config as any).filename || 'workflow_export'}
+                                onChange={(e) => handleChange('filename', e.target.value)}
+                                className={inputClass} />
+                        </div>
+                    </>
+                );
+
+            case 'alert':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Alert Title</label>
+                            <input type="text" value={(config as any).alert_title || 'Workflow Alert'}
+                                onChange={(e) => handleChange('alert_title', e.target.value)}
+                                className={inputClass} />
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Min Results to Trigger</label>
+                            <input type="number" min={1} max={100} value={(config as any).min_results || 1}
+                                onChange={(e) => handleChange('min_results', parseInt(e.target.value) || 1)}
+                                className={inputClass} />
+                        </div>
+                    </>
                 );
 
             default:
-                return <p className="text-[10px] text-slate-400">No configuration available</p>;
+                return <p className="text-[10px] text-slate-400">Select a node to configure</p>;
         }
     };
 
@@ -1078,7 +1421,23 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
         const df = findDataFrame(data);
 
         if (df && df.columns.length > 0 && df.data.length > 0) {
-            const cols = df.columns.slice(0, 6);
+            // Smart column selection - prioritize enrichment columns
+            const priorityCols = [
+                'symbol', 'price', 'change_percent', 'volume_today', 'rvol',
+                'narrative', 'narrative_confidence', 'narrative_reason',
+                'sentiment_score', 'sentiment_label',
+                'risk_score', 'has_binary_event', 'risk_factors',
+                'synthetic_sector', 'sector',
+                'rank', 'rank_score', 'anomaly_score',
+                'signal_id', 'signal_name'
+            ];
+
+            // Get available priority columns that exist in data
+            const availablePriority = priorityCols.filter(c => df.columns.includes(c));
+            // Add any other columns up to 8 total
+            const otherCols = df.columns.filter(c => !availablePriority.includes(c));
+            const cols = [...availablePriority, ...otherCols].slice(0, 8);
+
             const rows = df.data.slice(0, 10);
 
             return (
@@ -1120,7 +1479,10 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
 
         // Handle array of objects directly
         if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object') {
-            const cols = Object.keys(data[0] as Record<string, unknown>).slice(0, 6);
+            const allCols = Object.keys(data[0] as Record<string, unknown>);
+            const priorityCols = ['symbol', 'price', 'change_percent', 'narrative', 'sentiment_score', 'risk_score', 'rank'];
+            const availablePriority = priorityCols.filter(c => allCols.includes(c));
+            const cols = [...availablePriority, ...allCols.filter(c => !availablePriority.includes(c))].slice(0, 8);
             return (
                 <div className="overflow-x-auto">
                     <table className="w-full text-[10px]">
@@ -1149,22 +1511,34 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
             );
         }
 
-        // For Display node showing passthrough info
+        // For Display/Results node - try to extract useful data from nested structure
         if (data && typeof data === 'object') {
             const o = data as Record<string, unknown>;
 
-            // Check if it's a display passthrough with no renderable data
-            if (o.type === 'display') {
-                return <p className="text-slate-400 text-[10px]">Display: Shows data from connected node</p>;
+            // If it's a display wrapper, try to find DataFrame inside
+            if (o.type === 'display' && o.data) {
+                const innerData = o.data as Record<string, unknown>;
+                // Try recursively finding DataFrame
+                const nestedDf = findDataFrame(innerData);
+                if (nestedDf && nestedDf.columns.length > 0 && nestedDf.data.length > 0) {
+                    return renderDataTable(nestedDf, title);
+                }
+                // Check if innerData itself has data key
+                if (innerData.data && typeof innerData.data === 'object') {
+                    const deeperDf = findDataFrame(innerData.data);
+                    if (deeperDf && deeperDf.columns.length > 0 && deeperDf.data.length > 0) {
+                        return renderDataTable(deeperDf, title);
+                    }
+                }
             }
 
-            // Show summary of what we received
-            const keys = Object.keys(o).filter(k => !['type', 'success'].includes(k));
+            // Show summary of what we received (fallback)
+            const keys = Object.keys(o).filter(k => !['type', 'success', 'displayType'].includes(k));
             if (keys.length === 0) {
                 return <p className="text-slate-400 text-[10px]">No renderable data</p>;
             }
 
-            // Show key-value summary
+            // Show key-value summary with better formatting
             return (
                 <div className="space-y-1">
                     {keys.slice(0, 4).map(key => {
@@ -1177,7 +1551,15 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                             } else if (Array.isArray(val)) {
                                 display = `Array (${val.length} items)`;
                             } else {
-                                display = `Object`;
+                                // Try to show count or meaningful summary
+                                const vObj = val as Record<string, unknown>;
+                                if ('count' in vObj) {
+                                    display = `${vObj.count} items`;
+                                } else if ('data' in vObj && Array.isArray(vObj.data)) {
+                                    display = `${(vObj.data as unknown[]).length} items`;
+                                } else {
+                                    display = JSON.stringify(val).slice(0, 50) + '...';
+                                }
                             }
                         } else {
                             display = String(val);
@@ -1459,17 +1841,33 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                             let toolResult = nodeResult.data;
                             let innerData = toolResult?.data;
 
-                            // Special handling for Display node - unwrap the 'display' wrapper
-                            // Structure: { type: 'display', data: { data: { success: true, sectors: {...} } } }
-                            if (toolResult?.type === 'display' && toolResult?.data) {
-                                // First unwrap: toolResult.data = { data: { success: true, sectors: {...} } }
-                                let unwrapped = toolResult.data;
-                                // Second unwrap if needed: check if there's another 'data' level
-                                if (unwrapped?.data && typeof unwrapped.data === 'object') {
-                                    unwrapped = unwrapped.data;  // Now = { success: true, sectors: {...} }
+                            // Special handling for Display/Results node
+                            if (toolResult?.type === 'display') {
+                                // Handle combined sources (multiple inputs)
+                                if (toolResult?.displayType === 'combined' && Array.isArray(toolResult?.sources)) {
+                                    const sources = toolResult.sources as Array<{ source: string; data: unknown }>;
+                                    console.log(`Display node has ${sources.length} combined sources`);
+                                    // Use first source's data
+                                    if (sources.length > 0 && sources[0].data) {
+                                        const firstData = sources[0].data as Record<string, unknown>;
+                                        if (firstData?.type === 'dataframe') {
+                                            innerData = firstData;
+                                        }
+                                    }
                                 }
-                                toolResult = unwrapped;
-                                innerData = toolResult?.data;
+                                // Single source
+                                else if (toolResult?.data) {
+                                    let unwrapped = toolResult.data;
+                                    if (unwrapped?.type === 'dataframe') {
+                                        innerData = unwrapped;
+                                    } else if (unwrapped?.data && typeof unwrapped.data === 'object') {
+                                        unwrapped = unwrapped.data;
+                                        if (unwrapped?.type === 'dataframe') {
+                                            innerData = unwrapped;
+                                        }
+                                    }
+                                    toolResult = unwrapped;
+                                }
                             }
 
                             console.log(`Parsing node ${node.id} (icon=${node.data.icon}):`, {
@@ -1586,14 +1984,28 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                 let toolResult = nodeResult.data as Record<string, unknown>;
                 let innerData = toolResult?.data as Record<string, unknown>;
 
-                // Special handling for Display node
-                if (toolResult?.type === 'display' && toolResult?.data) {
-                    let unwrapped = toolResult.data as Record<string, unknown>;
-                    if (unwrapped?.data && typeof unwrapped.data === 'object') {
-                        unwrapped = unwrapped.data as Record<string, unknown>;
+                // Special handling for Display node with combined sources
+                if (toolResult?.type === 'display') {
+                    // Handle combined sources (multiple inputs)
+                    if (toolResult?.displayType === 'combined' && Array.isArray(toolResult?.sources)) {
+                        const sources = toolResult.sources as Array<{ source: string; data: unknown }>;
+                        // Return first source's data as primary
+                        if (sources.length > 0 && sources[0].data) {
+                            const firstData = sources[0].data as Record<string, unknown>;
+                            if (firstData?.type === 'dataframe') return firstData;
+                        }
                     }
-                    toolResult = unwrapped;
-                    innerData = toolResult?.data as Record<string, unknown>;
+                    // Single source
+                    if (toolResult?.data) {
+                        let unwrapped = toolResult.data as Record<string, unknown>;
+                        if (unwrapped?.type === 'dataframe') return unwrapped;
+                        if (unwrapped?.data && typeof unwrapped.data === 'object') {
+                            unwrapped = unwrapped.data as Record<string, unknown>;
+                            if (unwrapped?.type === 'dataframe') return unwrapped;
+                        }
+                        toolResult = unwrapped;
+                        innerData = toolResult?.data as Record<string, unknown>;
+                    }
                 }
 
                 // DataFrame format

@@ -186,9 +186,14 @@ async def research_ticker(
                 f"\nUser question: {query}" if query else "",
                 
                 "\n\n## SEARCH PRIORITY (follow this order):",
-                "\n1. **X.COM FIRST** - Search X/Twitter for the LATEST breaking news, analyst opinions, and sentiment",
-                "\n2. **Financial News** - Bloomberg, WSJ, Reuters, FT, CNBC for verified news",
-                "\n3. **Reddit** - Check r/wallstreetbets and r/stocks for retail sentiment",
+                "\n1. **X.COM FIRST** - Search X/Twitter for breaking news. Prioritize these trusted accounts:",
+                "\n   - Breaking news: @DeItaOne, @FirstSquawk, @LiveSquawk, @Newsquawk",
+                "\n   - Options flow: @unusual_whales, @CheddarFlow, @theoptionsflow",
+                "\n   - Major outlets: @Bloomberg, @WSJmarkets, @Reuters, @CNBC, @Benzinga",
+                "\n   - Small caps: @StockTitan, @InvestorsLive, @smallcapvoice",
+                "\n   - Macro/Fed: @zerohedge, @NickTimiraos, @ForexLive",
+                "\n2. **Financial News Sites** - Bloomberg, WSJ, Reuters, FT, CNBC for verified news",
+                "\n3. **Reddit** - r/wallstreetbets and r/stocks for retail sentiment",
                 "\n4. **Yahoo Finance** - For quick metrics and earnings data",
                 
                 "\n\n## REQUIRED RESEARCH:",
@@ -216,17 +221,18 @@ async def research_ticker(
             
             prompt = "".join(prompt_parts)
             
-            # Configure Grok with search tools and inline citations
+            # Configure Grok with search tools - NO handle filter (search all of X freely)
+            # Grok is smart enough to find relevant sources without restrictions
             chat = client.chat.create(
                 model="grok-4-1-fast",
                 tools=[
                     x_search(
-                        allowed_x_handles=FINANCIAL_X_HANDLES,
                         from_date=datetime.now().replace(day=1)
+                        # NO allowed_x_handles - let Grok search freely
                     ),
                     web_search()
                 ],
-                include=["inline_citations", "verbose_streaming"]  # Get [1], [2] inline + streaming tool calls
+                include=["inline_citations", "verbose_streaming"]
             )
             
             chat.append(user(prompt))
@@ -355,13 +361,10 @@ Be specific and cite sources."""
         chat = client.chat.create(
             model="grok-4-1-fast",
             tools=[
-                x_search(
-                    allowed_x_handles=FINANCIAL_X_HANDLES,
-                    from_date=from_date
-                ),
+                x_search(from_date=from_date),  # No handle filter - search freely
                 web_search()
             ],
-            include=["inline_citations"]  # Get inline citations
+            include=["inline_citations"]
         )
         
         chat.append(user(prompt))
