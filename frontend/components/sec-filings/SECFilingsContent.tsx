@@ -106,11 +106,10 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
     // Track if auto-load from restored state has been done
     const autoLoadedRef = useRef(false);
     
-    // Persist ticker changes
+    // Persist ticker changes (including when cleared)
     useEffect(() => {
-        if (filters.ticker) {
-            updateWindowState({ ticker: filters.ticker });
-        }
+        // Always persist to ensure clearing ticker also clears persisted state
+        updateWindowState({ ticker: filters.ticker || '' });
     }, [filters.ticker, updateWindowState]);
     
     // Auto-load when windowState becomes available (after Zustand hydration)

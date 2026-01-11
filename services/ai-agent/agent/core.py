@@ -271,7 +271,17 @@ Market session: {market_session}
                         # Update step
                         if tool_result.get("success"):
                             tool_step.status = "complete"
-                            tool_step.description = f"Got {tool_result.get('count', 'N/A')} results"
+                            
+                            # Build description based on tool type
+                            if tool_name == "research_ticker":
+                                research_data = tool_result.get("data", {})
+                                citations_count = len(research_data.get("citations", []))
+                                tool_step.description = f"Research complete ({citations_count} sources)"
+                            elif tool_name == "classify_synthetic_sectors":
+                                sector_count = tool_result.get("sector_count", 0)
+                                tool_step.description = f"Created {sector_count} synthetic ETFs"
+                            else:
+                                tool_step.description = f"Got {tool_result.get('count', 'N/A')} results"
                             
                             # Collect data
                             if "data" in tool_result:
@@ -290,32 +300,46 @@ Market session: {market_session}
             
             # Generate final response with tool results
             if tools_used and collected_data:
-                # Build context with results
-                results_summary = self._summarize_results(collected_data)
-                
-                # Get final response from LLM
-                final_prompt = f"""Based on the tool results, provide a helpful response to the user.
+                # Special case: research_ticker - use Grok's response directly (already formatted with citations)
+                if "research_ticker" in tools_used and "research_ticker" in collected_data:
+                    research_data = collected_data["research_ticker"]
+                    if research_data.get("content"):
+                        response_text = research_data["content"]
+                        # Add citations at the end if available
+                        citations = research_data.get("citations", [])
+                        if citations:
+                            response_text += "\n\n---\n**Sources:**\n"
+                            for i, cite in enumerate(citations[:15], 1):
+                                response_text += f"\n[{i}] {cite}"
+                    else:
+                        response_text = "Research completed but no content available."
+                else:
+                    # For other tools, summarize with LLM
+                    results_summary = self._summarize_results(collected_data)
+                    
+                    # Get final response from LLM
+                    final_prompt = f"""Based on the tool results, provide a helpful response to the user.
 
 USER QUERY: {query}
 
 TOOL RESULTS:
 {results_summary}
 
-Provide a concise, informative response. Include key numbers and insights."""
+Provide a detailed, informative response. Include key numbers, insights, and cite sources when available."""
 
-                final_response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=[types.Content(
-                        role="user",
-                        parts=[types.Part(text=final_prompt)]
-                    )],
-                    config=types.GenerateContentConfig(
-                        temperature=0.7,
-                        max_output_tokens=2048
+                    final_response = self.client.models.generate_content(
+                        model=self.model,
+                        contents=[types.Content(
+                            role="user",
+                            parts=[types.Part(text=final_prompt)]
+                        )],
+                        config=types.GenerateContentConfig(
+                            temperature=0.7,
+                            max_output_tokens=4096
+                        )
                     )
-                )
-                
-                response_text = final_response.text if final_response.text else "Analysis complete."
+                    
+                    response_text = final_response.text if final_response.text else "Analysis complete."
             else:
                 # Direct response (no tools needed)
                 response_text = response.text if response.text else "I couldn't process that request."
@@ -360,7 +384,18 @@ Provide a concise, informative response. Include key numbers and insights."""
                     sample = value.head(10).to_string()
                     summaries.append(f"=== {key} ({len(value)} rows) ===\n{sample}")
             elif isinstance(value, dict):
-                summaries.append(f"=== {key} ===\n{json.dumps(value, indent=2, default=str)[:500]}")
+                # Special handling for research_ticker - include full content
+                if key == "research_ticker" and "content" in value:
+                    content = value.get("content", "")
+                    citations = value.get("citations", [])
+                    summaries.append(f"=== RESEARCH RESULTS ===\n{content}")
+                    if citations:
+                        # Include first 10 citations
+                        citations_text = "\n".join([f"[{i+1}] {url}" for i, url in enumerate(citations[:10])])
+                        summaries.append(f"=== SOURCES ===\n{citations_text}")
+                else:
+                    # For other dicts, allow more content (2000 chars)
+                    summaries.append(f"=== {key} ===\n{json.dumps(value, indent=2, default=str)[:2000]}")
             elif isinstance(value, list):
                 summaries.append(f"=== {key} ({len(value)} items) ===")
         

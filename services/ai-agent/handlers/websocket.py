@@ -81,10 +81,44 @@ class WebSocketHandler:
         
         if msg_type == "chat_message":
             await self._handle_chat(websocket, client_id, data, market_context)
+        elif msg_type == "execute_workflow":
+            await self._handle_workflow(websocket, client_id, data, market_context)
         elif msg_type == "ping":
             await websocket.send_json({"type": "pong"})
         elif msg_type == "clear_history":
             await self._clear_history(websocket, client_id, data)
+    
+    async def _handle_workflow(
+        self,
+        websocket: WebSocket,
+        client_id: str,
+        data: Dict[str, Any],
+        market_context: Dict
+    ):
+        """Execute a visual workflow."""
+        from handlers.workflow import handle_workflow_execution
+        
+        workflow = data.get("workflow")
+        if not workflow:
+            await websocket.send_json({"type": "error", "message": "No workflow provided"})
+            return
+        
+        logger.info("workflow_execution_requested", 
+                    client_id=client_id, 
+                    workflow_id=workflow.get('id'),
+                    node_count=len(workflow.get('nodes', [])))
+        
+        async def send_update(update: Dict):
+            await websocket.send_json(update)
+        
+        try:
+            await handle_workflow_execution(workflow, self.agent, send_update)
+        except Exception as e:
+            logger.error("workflow_execution_error", error=str(e))
+            await websocket.send_json({
+                "type": "workflow_error",
+                "error": str(e)
+            })
     
     async def _handle_chat(
         self,
@@ -101,6 +135,15 @@ class WebSocketHandler:
         
         if not content:
             await websocket.send_json({"type": "error", "message": "Empty message"})
+            return
+        
+        # Ignore UI commands that shouldn't be processed
+        ui_commands = [
+            "show workflow results", "mostrar resultados", "expand", "collapse",
+            "hide results", "ver resultados", "show results"
+        ]
+        if content.lower() in ui_commands:
+            logger.debug("ignored_ui_command", command=content)
             return
         
         logger.info("chat_received", client_id=client_id, query=content[:100])
@@ -153,6 +196,16 @@ class WebSocketHandler:
             # Build outputs
             outputs = self._build_outputs(result, message_id)
             
+            # Generate code representation from tools used
+            code_lines = []
+            for tool in result.tools_used:
+                code_lines.append(f"# Using {tool}")
+            if result.response:
+                # Add response summary as comment
+                response_preview = result.response[:200].replace('\n', ' ')
+                code_lines.append(f"# Result: {response_preview}...")
+            code_repr = "\n".join(code_lines) if code_lines else "# Direct response"
+            
             # Send result
             await websocket.send_json({
                 "type": "result",
@@ -160,7 +213,7 @@ class WebSocketHandler:
                 "block_id": 1,
                 "status": "success" if result.success else "error",
                 "success": result.success,
-                "code": "",  # No code in new architecture
+                "code": code_repr,
                 "outputs": outputs,
                 "error": result.error,
                 "execution_time_ms": int(result.execution_time * 1000),
@@ -193,7 +246,7 @@ class WebSocketHandler:
         """Convert agent result to frontend outputs."""
         outputs = []
         
-        # Process DataFrames
+        # Process DataFrames and special outputs
         if result.data:
             for name, value in result.data.items():
                 if isinstance(value, pd.DataFrame) and not value.empty:
@@ -205,8 +258,17 @@ class WebSocketHandler:
                         "total": len(value)
                     })
                 elif isinstance(value, dict):
+                    # Special case: research_ticker results
+                    if name == "research_ticker" and value.get("content"):
+                        outputs.append({
+                            "type": "research",
+                            "title": f"Research: {value.get('ticker', 'Ticker')}",
+                            "content": value.get("content", ""),
+                            "citations": value.get("citations", []),
+                            "inline_citations": value.get("inline_citations", [])
+                        })
                     # Could be Plotly config or other data
-                    if "data" in value and "layout" in value:
+                    elif "data" in value and "layout" in value:
                         outputs.append({
                             "type": "plotly_chart",
                             "title": self._format_title(name),

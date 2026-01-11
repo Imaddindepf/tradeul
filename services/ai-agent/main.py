@@ -47,6 +47,7 @@ redis_client: Optional[RedisClient] = None
 agent: Optional[MarketAgent] = None
 ws_handler: Optional[WebSocketHandler] = None
 event_bus: Optional[EventBus] = None
+rest_router = None
 
 market_context: Dict[str, Any] = {
     "session": "UNKNOWN",
@@ -120,7 +121,7 @@ async def handle_session_changed(event: Event):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management."""
-    global redis_client, agent, ws_handler, event_bus
+    global redis_client, agent, ws_handler, event_bus, rest_router
     
     logger.info("ai_agent_v3_starting")
     
@@ -139,6 +140,11 @@ async def lifespan(app: FastAPI):
     
     # WebSocket handler
     ws_handler = WebSocketHandler(agent, redis_client)
+    
+    # Register REST routes
+    rest_router = create_rest_routes(agent, market_context, ws_handler.chart_cache)
+    app.include_router(rest_router)
+    logger.info("rest_routes_registered")
     
     # Event bus
     event_bus = EventBus(redis_client, "ai_agent")
@@ -190,16 +196,7 @@ app.add_middleware(
 # ROUTES
 # =============================================================================
 
-# REST routes (lazy initialization after lifespan)
-@app.on_event("startup")
-async def setup_routes():
-    """Setup REST routes after agent is initialized."""
-    if agent and ws_handler:
-        rest_router = create_rest_routes(agent, market_context, ws_handler.chart_cache)
-        app.include_router(rest_router)
-
-
-# WebSocket endpoint
+# WebSocket endpoint (defined statically, doesn't need dynamic initialization)
 @app.websocket("/ws/chat/{client_id}")
 async def websocket_chat(websocket: WebSocket, client_id: str):
     """WebSocket chat endpoint."""

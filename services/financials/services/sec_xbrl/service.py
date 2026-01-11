@@ -621,14 +621,21 @@ class SECXBRLService:
         
         Prioridades:
         1. Usa periodOfReport (no filedAt) para determinar el año fiscal
-        2. Prefiere 10-K/20-F originales sobre enmiendas (10-K/A) ya que
-           las enmiendas a veces solo tienen CoverPage sin datos XBRL
-        3. Si hay múltiples filings del mismo período, toma el original primero
+        2. Excluir NT 10-K/NT 20-F (Notification of Late Filing) - no tienen datos XBRL
+        3. Prefiere 10-K/20-F originales sobre enmiendas (10-K/A)
+        4. Si hay empate en tipo, preferir el MÁS RECIENTE (tiene datos reexpresados)
         """
         if period == "annual":
             # Agrupar por año fiscal usando periodOfReport
             by_fiscal_year: Dict[str, List[Dict]] = {}
             for f in all_filings:
+                form_type = f.get("formType", "")
+                
+                # EXCLUIR NT 10-K y NT 20-F - son notificaciones de retraso, NO tienen datos XBRL
+                if form_type.startswith("NT "):
+                    logger.debug(f"Skipping {form_type} (notification only, no XBRL data)")
+                    continue
+                
                 period_report = f.get("periodOfReport", "")[:4]  # Año del período reportado
                 if not period_report:
                     continue
@@ -641,24 +648,40 @@ class SECXBRLService:
                 candidates = by_fiscal_year[fiscal_year]
                 
                 # Ordenar: 10-K primero, luego 20-F, luego enmiendas
+                # IMPORTANTE: Para mismo tipo, preferir el MÁS RECIENTE (filedAt DESC)
+                # porque puede tener datos reexpresados
                 def sort_priority(f: Dict) -> tuple:
                     form = f.get("formType", "")
+                    filed_at = f.get("filedAt", "")
                     is_amendment = "/A" in form
+                    
+                    # Prioridad de tipo (menor = mejor)
                     if "10-K" in form and not is_amendment:
-                        return (0, f.get("filedAt", ""))
+                        type_priority = 0
                     elif "20-F" in form and not is_amendment:
-                        return (1, f.get("filedAt", ""))
+                        type_priority = 1
                     elif "10-K" in form:  # 10-K/A
-                        return (2, f.get("filedAt", ""))
+                        type_priority = 2
                     elif "20-F" in form:  # 20-F/A
-                        return (3, f.get("filedAt", ""))
+                        type_priority = 3
                     else:
-                        return (4, f.get("filedAt", ""))
+                        type_priority = 4
+                    
+                    # Para mismo tipo, preferir el MÁS RECIENTE (invertir fecha para orden DESC)
+                    # Esto es crítico para obtener datos reexpresados
+                    inverted_date = "" if not filed_at else "9999-99-99"[:len(filed_at)]
+                    for i, c in enumerate(filed_at):
+                        if c.isdigit():
+                            inverted_date = inverted_date[:i] + str(9 - int(c)) + inverted_date[i+1:]
+                        else:
+                            inverted_date = inverted_date[:i] + c + inverted_date[i+1:]
+                    
+                    return (type_priority, inverted_date)
                 
                 candidates.sort(key=sort_priority)
-                # Tomar el mejor candidato (original preferido sobre enmienda)
+                # Tomar el mejor candidato
                 chosen = candidates[0]
-                logger.debug(f"FY{fiscal_year}: Chosen {chosen.get('formType')} (acc: {chosen.get('accessionNo')}) over {len(candidates)-1} other(s)")
+                logger.debug(f"FY{fiscal_year}: Chosen {chosen.get('formType')} filed {chosen.get('filedAt')[:10]} (acc: {chosen.get('accessionNo')}) over {len(candidates)-1} other(s)")
                 filings.append(chosen)
                 
             return filings
@@ -792,9 +815,12 @@ class SECXBRLService:
         """
         Procesar resultados annual.
         
-        IMPORTANTE: Combina datos de múltiples 10-Ks a nivel de CAMPO, no de año.
-        Esto permite que si un 10-K no tiene un campo específico para un año,
-        se use el dato del 10-K que sí lo tiene.
+        ESTRATEGIA PROFESIONAL (como TIKR/Bloomberg):
+        - Priorizar datos del 10-K MÁS RECIENTE para cada año fiscal
+        - Los datos comparativos del 10-K más reciente reflejan reexpresiones
+          (discontinued operations, restatements, cambios contables)
+        - Procesar filings de MÁS ANTIGUO a MÁS RECIENTE para que los
+          datos reexpresados sobrescriban los originales
         
         Returns:
             Tuple de (fiscal_years, period_end_dates, income_data, balance_data, cashflow_data, raw_xbrl)
@@ -806,18 +832,31 @@ class SECXBRLService:
         # Guardar el XBRL más reciente para extraer segmentos
         raw_xbrl_latest = None
         
+        # Crear lista de (index, result, filed_at) para ordenar
+        indexed_results = []
         for i, result in enumerate(xbrl_results):
             if result is None or isinstance(result, Exception):
+                logger.debug(f"[{ticker}] XBRL result {i} is None or Exception: {result}")
                 continue
-            
+            fiscal_year, filed_at, period_end, xbrl = result
+            indexed_results.append((i, result, filed_at))
+            logger.debug(f"[{ticker}] XBRL result {i}: fiscal_year={fiscal_year}, filed_at={filed_at}, period_end={period_end}")
+        
+        # Ordenar por fecha de filing ASCENDENTE (más antiguo primero)
+        # Esto permite que los datos más recientes (reexpresados) sobrescriban
+        indexed_results.sort(key=lambda x: x[2] or "")
+        logger.info(f"[{ticker}] Processing {len(indexed_results)} XBRL results in chronological order")
+        
+        for i, result, filed_at in indexed_results:
             fiscal_year, filed_at, period_end, xbrl = result
             form_type = filings[i].get("formType", "10-K") if i < len(filings) else "10-K"
             
-            # Guardar el primer XBRL válido (más reciente) para segmentos
-            if raw_xbrl_latest is None:
-                raw_xbrl_latest = xbrl
+            # Guardar el XBRL del filing MÁS RECIENTE para segmentos
+            # (actualizamos porque ahora procesamos de antiguo a reciente)
+            raw_xbrl_latest = xbrl
             
             all_periods = self._extract_all_annual_periods(xbrl, form_type)
+            logger.debug(f"[{ticker}] Filing {filed_at}: extracted {len(all_periods)} annual periods: {[p[0] for p in all_periods]}")
             
             for year_data in all_periods:
                 year, end_date, income, balance, cashflow, ft = year_data
@@ -831,14 +870,16 @@ class SECXBRLService:
                         'balance': balance,
                         'cashflow': cashflow,
                         'form_type': ft,
-                        'priority': priority
+                        'priority': priority,
+                        'source_filing': filed_at  # Track source for debugging
                     }
                 else:
-                    # Año ya existe - combinar a nivel de campo
+                    # Año ya existe - datos de filing más reciente SOBRESCRIBEN
+                    # Esto es crítico para reexpresiones (restatements)
                     existing = all_years_data[year]
                     existing_priority = existing['priority']
                     
-                    # Si el nuevo filing tiene mayor prioridad, reemplazar todo
+                    # Si el form_type tiene mayor prioridad, reemplazar todo
                     if priority < existing_priority:
                         all_years_data[year] = {
                             'end_date': end_date,
@@ -846,15 +887,18 @@ class SECXBRLService:
                             'balance': balance,
                             'cashflow': cashflow,
                             'form_type': ft,
-                            'priority': priority
+                            'priority': priority,
+                            'source_filing': filed_at
                         }
-                    else:
-                        # Misma prioridad: combinar campos faltantes (None)
-                        # Esto permite que datos de 10-Ks anteriores llenen campos
-                        # que el 10-K más reciente no tiene para ese año
-                        self._merge_fields(existing['income'], income)
-                        self._merge_fields(existing['balance'], balance)
-                        self._merge_fields(existing['cashflow'], cashflow)
+                    elif priority == existing_priority:
+                        # Mismo tipo de form: REEMPLAZAR con datos del filing más reciente
+                        # Esto captura reexpresiones (discontinued ops, restatements)
+                        # Solo reemplazar campos que tienen valor en el nuevo filing
+                        self._update_fields_from_newer(existing['income'], income)
+                        self._update_fields_from_newer(existing['balance'], balance)
+                        self._update_fields_from_newer(existing['cashflow'], cashflow)
+                        existing['source_filing'] = filed_at  # Update source
+                    # Si priority > existing_priority: mantener datos existentes (mejor form_type)
         
         fiscal_years, period_end_dates = [], []
         income_data, balance_data, cashflow_data = [], [], []
@@ -879,6 +923,7 @@ class SECXBRLService:
         """
         Combinar campos de dos diccionarios.
         Solo agrega campos que están en 'new' pero no en 'existing' (o son None).
+        DEPRECATED: Use _update_fields_from_newer for restatement-aware merging.
         """
         if not new:
             return
@@ -887,6 +932,30 @@ class SECXBRLService:
                 existing[key] = value
             elif existing[key] is None and value is not None:
                 # El campo existe pero es None, usar el nuevo valor
+                existing[key] = value
+    
+    def _update_fields_from_newer(self, existing: Dict, new: Dict) -> None:
+        """
+        Actualizar campos con datos de un filing más reciente.
+        
+        A diferencia de _merge_fields, esta función REEMPLAZA valores existentes
+        con los del filing más reciente. Esto es necesario para capturar
+        reexpresiones (restatements) correctamente.
+        
+        Ejemplo: NBY FY2023
+        - 10-K original (2024): Revenue = 14.73M
+        - 10-K FY2024 (2025): Revenue FY2023 = 10.46M (reexpresado por discontinued ops)
+        - Resultado esperado: 10.46M (del filing más reciente)
+        """
+        if not new:
+            return
+        for key, value in new.items():
+            if value is not None:
+                # SIEMPRE reemplazar con valor del filing más reciente
+                # si el nuevo valor no es None
+                existing[key] = value
+            elif key not in existing:
+                # Campo nuevo que no existía
                 existing[key] = value
     
     def _extract_all_annual_periods(self, xbrl: Dict, form_type: str) -> List:

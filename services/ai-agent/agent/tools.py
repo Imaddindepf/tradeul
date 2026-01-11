@@ -428,48 +428,82 @@ async def _classify_synthetic_sectors(args: Dict, ctx: Dict) -> Dict:
     
     date_str = args.get("date", "today")
     max_sectors = args.get("max_sectors", 15)
+    input_data = args.get("input_data")  # DataFrame, dict, or serialized dataframe from previous node
     
     llm_client = ctx.get("llm_client")
     if not llm_client:
         return {"success": False, "error": "LLM client required"}
     
-    # Get data based on date
-    if date_str == "today":
-        snapshot = await _get_market_snapshot({"limit": 1000}, ctx)
-        if not snapshot["success"]:
-            return snapshot
-        df = snapshot["data"]
-    else:
-        # For historical: get top 500 movers (250 gainers + 250 losers)
-        # This gives better coverage than just 100
-        gainers = await _get_top_movers({
-            "date": date_str,
-            "limit": 250,
-            "min_volume": 50000,
-            "direction": "up"
-        }, ctx)
-        losers = await _get_top_movers({
-            "date": date_str,
-            "limit": 250,
-            "min_volume": 50000,
-            "direction": "down"
-        }, ctx)
+    df = None
+    
+    # Priority 1: Use input data from connected node (e.g., Scanner)
+    if input_data is not None:
+        logger.info("synthetic_sectors_received_input", 
+                   input_type=type(input_data).__name__,
+                   input_keys=list(input_data.keys()) if isinstance(input_data, dict) else None)
         
-        # Combine gainers and losers
-        dfs = []
-        if gainers["success"] and not gainers["data"].empty:
-            dfs.append(gainers["data"])
-        if losers["success"] and not losers["data"].empty:
-            dfs.append(losers["data"])
+        # Case A: Direct DataFrame (unlikely after serialization)
+        if isinstance(input_data, pd.DataFrame) and not input_data.empty:
+            df = input_data
+            logger.info("synthetic_sectors_using_direct_dataframe", rows=len(df))
         
-        if not dfs:
-            return {"success": False, "error": "No historical data found"}
+        # Case B: Serialized format from workflow: { type: 'dataframe', columns: [...], data: [...] }
+        elif isinstance(input_data, dict) and input_data.get('type') == 'dataframe':
+            records = input_data.get('data', [])
+            if records:
+                df = pd.DataFrame(records)
+                logger.info("synthetic_sectors_using_serialized_dataframe", rows=len(df))
         
-        df = pd.concat(dfs, ignore_index=True).drop_duplicates(subset="symbol")
-        df["change_percent"] = df["change_pct"]
-        df["price"] = df["close"]
-        df["volume_today"] = df["volume"]
-        df["market_cap"] = 0
+        # Case C: Nested in result dict: { success: True, data: { type: 'dataframe', ... } }
+        elif isinstance(input_data, dict):
+            inner = input_data.get('data')
+            if isinstance(inner, pd.DataFrame) and not inner.empty:
+                df = inner
+                logger.info("synthetic_sectors_using_nested_dataframe", rows=len(df))
+            elif isinstance(inner, dict) and inner.get('type') == 'dataframe':
+                records = inner.get('data', [])
+                if records:
+                    df = pd.DataFrame(records)
+                    logger.info("synthetic_sectors_using_nested_serialized_dataframe", rows=len(df))
+    
+    # Priority 2: Fetch data ourselves if no input
+    if df is None or df.empty:
+        logger.info("synthetic_sectors_fetching_own_data", date=date_str)
+        if date_str == "today":
+            snapshot = await _get_market_snapshot({"limit": 1000}, ctx)
+            if not snapshot["success"]:
+                return snapshot
+            df = snapshot["data"]
+        else:
+            # For historical: get top 500 movers (250 gainers + 250 losers)
+            gainers = await _get_top_movers({
+                "date": date_str,
+                "limit": 250,
+                "min_volume": 50000,
+                "direction": "up"
+            }, ctx)
+            losers = await _get_top_movers({
+                "date": date_str,
+                "limit": 250,
+                "min_volume": 50000,
+                "direction": "down"
+            }, ctx)
+            
+            # Combine gainers and losers
+            dfs = []
+            if gainers["success"] and not gainers["data"].empty:
+                dfs.append(gainers["data"])
+            if losers["success"] and not losers["data"].empty:
+                dfs.append(losers["data"])
+            
+            if not dfs:
+                return {"success": False, "error": "No historical data found"}
+            
+            df = pd.concat(dfs, ignore_index=True).drop_duplicates(subset="symbol")
+            df["change_percent"] = df["change_pct"]
+            df["price"] = df["close"]
+            df["volume_today"] = df["volume"]
+            df["market_cap"] = 0
     
     # Classify
     classified = await classify_tickers_into_synthetic_sectors(
@@ -514,11 +548,12 @@ async def _research_ticker(args: Dict, ctx: Dict) -> Dict:
 
 
 async def _execute_analysis(args: Dict, ctx: Dict) -> Dict:
-    """Execute custom analysis in sandbox."""
+    """Execute custom analysis in sandbox with auto-correction on errors."""
     from sandbox.manager import SandboxManager
     
     code = args.get("code", "")
     description = args.get("description", "Custom analysis")
+    max_retries = 2  # Max correction attempts
     
     if not code:
         return {"success": False, "error": "Code required"}
@@ -532,14 +567,111 @@ async def _execute_analysis(args: Dict, ctx: Dict) -> Dict:
     if "historical_bars" in ctx:
         data["historical_bars"] = ctx["historical_bars"]
     
-    result = await sandbox.execute(code, data=data)
+    # Execute with auto-correction loop
+    current_code = code
+    for attempt in range(max_retries + 1):
+        result = await sandbox.execute(current_code, data=data)
+        
+        if result.success:
+            return {
+                "success": True,
+                "stdout": result.stdout,
+                "outputs": result.output_files,
+                "corrected": attempt > 0,  # Flag if code was auto-corrected
+                "attempts": attempt + 1
+            }
+        
+        # If failed and we have retries left, try to auto-correct
+        if attempt < max_retries and result.error_message:
+            logger.info("sandbox_error_attempting_correction", 
+                       attempt=attempt + 1, 
+                       error=result.error_message[:200])
+            
+            corrected_code = await _auto_correct_code(
+                current_code, 
+                result.error_message, 
+                ctx
+            )
+            
+            if corrected_code and corrected_code != current_code:
+                logger.info("code_auto_corrected", attempt=attempt + 1)
+                current_code = corrected_code
+                continue
+            else:
+                # Couldn't correct, break out
+                break
     
+    # All attempts failed
     return {
-        "success": result.success,
+        "success": False,
         "stdout": result.stdout,
         "outputs": result.output_files,
-        "error": result.error_message if not result.success else None
+        "error": result.error_message,
+        "attempts": max_retries + 1
     }
+
+
+async def _auto_correct_code(code: str, error: str, ctx: Dict) -> Optional[str]:
+    """Use LLM to auto-correct code based on error message."""
+    from google import genai
+    from google.genai import types
+    import os
+    
+    try:
+        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+        
+        correction_prompt = f"""You are a Python code fixer. Fix the following code based on the error.
+
+ORIGINAL CODE:
+```python
+{code}
+```
+
+ERROR:
+{error}
+
+AVAILABLE FUNCTIONS in sandbox:
+- get_minute_bars(date_str, symbol=None, start_hour=None, end_hour=None) -> DataFrame
+- get_top_movers(date_str, start_hour=None, end_hour=None, min_volume=100000, limit=20, ascending=False, direction=None)
+  - direction='up' for gainers, direction='down' for losers
+  - ascending=True is same as direction='down'
+- available_dates() -> list of date strings
+- historical_query(sql) -> DataFrame
+- save_output(data, 'name') -> saves for display
+
+RULES:
+1. Fix ONLY the error, don't change the logic
+2. Return ONLY the corrected Python code, no explanations
+3. If you can't fix it, return the original code unchanged
+
+CORRECTED CODE:"""
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=[types.Content(
+                role="user",
+                parts=[types.Part(text=correction_prompt)]
+            )],
+            config=types.GenerateContentConfig(
+                temperature=0.1,  # Low temperature for precise corrections
+                max_output_tokens=4096
+            )
+        )
+        
+        if response.text:
+            # Extract code from response (might be wrapped in ```python```)
+            corrected = response.text.strip()
+            if "```python" in corrected:
+                corrected = corrected.split("```python")[1].split("```")[0].strip()
+            elif "```" in corrected:
+                corrected = corrected.split("```")[1].split("```")[0].strip()
+            
+            return corrected
+    
+    except Exception as e:
+        logger.warning("auto_correct_failed", error=str(e))
+    
+    return None
 
 
 async def _get_ticker_info(args: Dict, ctx: Dict) -> Dict:

@@ -196,11 +196,10 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
     // Track if auto-load has been done
     const autoLoadedRef = useRef(false);
     
-    // Persist state changes (only after we have data)
+    // Persist state changes (including when ticker is cleared)
     useEffect(() => {
-        if (selectedTicker) {
-            updateWindowState({ ticker: selectedTicker, tab: activeTab, periodFilter });
-        }
+        // Always persist to ensure clearing ticker also clears persisted state
+        updateWindowState({ ticker: selectedTicker || '', tab: activeTab, periodFilter });
     }, [selectedTicker, activeTab, periodFilter, updateWindowState]);
 
     // Fetch data

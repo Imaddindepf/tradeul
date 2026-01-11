@@ -89,11 +89,11 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const [tickerFilter, setTickerFilter] = useState<string>(savedTicker);
   const [tickerInputValue, setTickerInputValue] = useState<string>(savedTicker);
   
-  // Persist ticker changes
+  // Persist ticker changes (including when cleared)
   useEffect(() => {
-    if (tickerFilter) {
-      updateWindowState({ ticker: tickerFilter });
-    }
+    // Always persist the ticker value, even when empty
+    // This ensures clearing the search also clears the persisted state
+    updateWindowState({ ticker: tickerFilter });
   }, [tickerFilter, updateWindowState]);
   const [currentPage, setCurrentPage] = useState(1);
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);

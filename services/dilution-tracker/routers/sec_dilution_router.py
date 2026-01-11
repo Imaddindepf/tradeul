@@ -2010,3 +2010,199 @@ async def get_warrant_history(
         logger.error("get_warrant_history_failed", ticker=ticker, warrant_id=warrant_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============================================================================
+# LLM VERIFICATION ENDPOINTS
+# ============================================================================
+
+@router.post("/{ticker}/verify")
+async def verify_dilution_data(
+    ticker: str,
+    force_refresh: bool = Query(default=False, description="Force new verification ignoring cache")
+):
+    """
+    🔬 VERIFICAR DATOS CON LLMs (Gemini 3 Pro + Grok 4)
+    
+    Usa Gemini 3 Pro y Grok 4 con búsqueda en internet para:
+    - Verificar warrants, convertibles, ATMs extraídos
+    - Detectar datos FALTANTES (no extraídos de SEC filings)
+    - Validar ajustes por reverse splits
+    - Confirmar financiamientos recientes
+    
+    **Flujo:**
+    1. Obtener perfil de dilución del caché
+    2. Consultar Gemini 3 Pro (Google Search grounding)
+    3. Consultar Grok 4 (X.com + Web search)
+    4. Fusionar resultados y detectar discrepancias
+    5. Retornar verificación con confianza y recomendaciones
+    
+    **Ejemplo de respuesta:**
+    ```json
+    {
+        "ticker": "GP",
+        "verified_at": "2026-01-10T12:00:00",
+        "overall_confidence": 0.92,
+        "summary": "✅ 5/6 warrants confirmados | 🔴 1 warrant faltante detectado",
+        "warrants_verified": [...],
+        "warrants_missing": [
+            {
+                "series_name": "January 2026 Loan Warrants",
+                "outstanding": 3205128,
+                "exercise_price": 0.78,
+                "sources": ["SEC 6-K 2026-01-08"]
+            }
+        ],
+        "recommendations": [
+            "Añadir: January 2026 Loan Warrants - 3,205,128 @ $0.78"
+        ]
+    }
+    ```
+    
+    **Notas:**
+    - Tiempo de respuesta: 10-30 segundos (consulta 2 LLMs en paralelo)
+    - Cache de verificaciones: 6 horas
+    - Requiere API keys de Google y xAI configuradas
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            # 1. Obtener perfil actual
+            service = SECDilutionService(db, redis)
+            profile = await service.get_from_cache_only(ticker)
+            
+            if not profile:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"No cached profile for {ticker}. Run /profile first to extract data."
+                )
+            
+            # 2. Importar verificador
+            from services.verification import get_llm_verifier
+            verifier = get_llm_verifier()
+            
+            # 3. Preparar datos para verificación
+            warrants = [
+                {
+                    "series_name": w.series_name,
+                    "outstanding": w.outstanding,
+                    "exercise_price": float(w.exercise_price) if w.exercise_price else None,
+                    "expiration_date": str(w.expiration_date) if w.expiration_date else None,
+                    "issue_date": str(w.issue_date) if w.issue_date else None,
+                    "status": w.status
+                }
+                for w in (profile.warrants or [])
+            ]
+            
+            convertibles = [
+                {
+                    "series_name": c.series_name,
+                    "remaining_principal": float(c.remaining_principal_amount) if c.remaining_principal_amount else None,
+                    "conversion_price": float(c.conversion_price) if c.conversion_price else None
+                }
+                for c in (profile.convertible_notes or [])
+            ]
+            
+            # 4. Ejecutar verificación
+            logger.info("starting_llm_verification", ticker=ticker)
+            
+            result = await verifier.verify_dilution_profile(
+                ticker=ticker,
+                company_name=profile.company_name or ticker,
+                warrants=warrants,
+                convertibles=convertibles,
+                shares_outstanding=profile.shares_outstanding or 0,
+                current_price=float(profile.current_price or 0),
+                force_refresh=force_refresh
+            )
+            
+            logger.info(
+                "llm_verification_completed",
+                ticker=ticker,
+                confidence=result.overall_confidence,
+                missing_count=len(result.warrants_missing)
+            )
+            
+            return result.to_dict()
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("verify_dilution_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{ticker}/verify/quick")
+async def quick_verify_dilution(ticker: str):
+    """
+    ⚡ VERIFICACIÓN RÁPIDA (solo Grok 4)
+    
+    Verificación rápida para detectar datos faltantes críticos.
+    Usa solo Grok 4 para mayor velocidad (~5-10 segundos).
+    
+    **Útil para:**
+    - Verificación previa antes de mostrar datos
+    - Detectar si hubo cambios recientes (últimos 90 días)
+    - Alert de warrants/financiamientos faltantes
+    
+    **Ejemplo:**
+    ```json
+    {
+        "ticker": "GP",
+        "new_warrants_found": true,
+        "details": "6-K del 8 enero 2026 emite 3.2M warrants @ $0.78",
+        "source": "https://sec.gov/..."
+    }
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            # Obtener datos básicos
+            service = SECDilutionService(db, redis)
+            profile = await service.get_from_cache_only(ticker)
+            
+            warrants_count = len(profile.warrants) if profile and profile.warrants else 0
+            shares_outstanding = profile.shares_outstanding if profile else 0
+            company_name = profile.company_name if profile else ticker
+            
+            # Verificación rápida
+            from services.verification import get_llm_verifier
+            verifier = get_llm_verifier()
+            
+            result = await verifier.quick_verify(
+                ticker=ticker,
+                company_name=company_name,
+                warrants_count=warrants_count,
+                shares_outstanding=shares_outstanding
+            )
+            
+            return {
+                "ticker": ticker,
+                "current_warrants_count": warrants_count,
+                **result
+            }
+            
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except Exception as e:
+        logger.error("quick_verify_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+

@@ -65,7 +65,7 @@ export const ChatPanel = memo(function ChatPanel({
       {/* Header */}
       <div className="flex-shrink-0 px-3 py-2 border-b border-gray-200">
         <div className="flex items-center justify-between">
-          <span className="text-[13px] font-medium text-gray-700">Agente</span>
+          <span className="text-[13px] font-medium text-gray-700">Chat</span>
           {messages.length > 0 && (
             <button
               onClick={onClearHistory}

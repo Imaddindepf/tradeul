@@ -59,11 +59,10 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
   // Track if auto-load has been done
   const autoLoadedRef = useRef(false);
 
-  // Persist state changes
+  // Persist state changes (including when ticker is cleared)
   useEffect(() => {
-    if (selectedTicker) {
-      updateWindowState({ ticker: selectedTicker, tab: activeTab });
-    }
+    // Always persist to ensure clearing ticker also clears persisted state
+    updateWindowState({ ticker: selectedTicker || '', tab: activeTab });
   }, [selectedTicker, activeTab, updateWindowState]);
 
   const [loading, setLoading] = useState(false);

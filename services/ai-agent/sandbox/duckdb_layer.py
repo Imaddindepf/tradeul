@@ -294,7 +294,8 @@ def get_minute_bars(date_str: str, symbol: str = None, start_hour: int = None,
 
 
 def get_top_movers(date_str: str, start_hour: int = None, end_hour: int = None,
-                   min_volume: int = 100000, limit: int = 20, ascending: bool = False) -> pd.DataFrame:
+                   min_volume: int = 100000, limit: int = 20, ascending: bool = False,
+                   direction: str = None) -> pd.DataFrame:
     """
     Get top movers (gainers or losers) for a time period.
     
@@ -305,14 +306,20 @@ def get_top_movers(date_str: str, start_hour: int = None, end_hour: int = None,
         min_volume: Minimum volume (default 100k)
         limit: Number of results (default 20)
         ascending: If True, return losers instead of gainers
+        direction: 'up' for gainers (default), 'down' for losers
     
     Examples:
         # Top after-hours gainers yesterday
         df = get_top_movers('yesterday', start_hour=16)
         
         # Top losers in regular session
-        df = get_top_movers('2026-01-07', start_hour=9, end_hour=16, ascending=True)
+        df = get_top_movers('2026-01-07', start_hour=9, end_hour=16, direction='down')
     """
+    # Handle direction parameter as alias for ascending
+    if direction == 'down':
+        ascending = True
+    elif direction == 'up':
+        ascending = False
     return _db.get_top_movers(date_str, start_hour, end_hour, min_volume, 5, limit, ascending)
 
 
