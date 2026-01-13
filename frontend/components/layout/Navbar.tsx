@@ -27,12 +27,12 @@ export function Navbar({ children }: NavbarProps) {
 
   return (
     <nav
-      className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-slate-200 shadow-sm"
+      className="fixed top-0 left-0 right-0 h-11 bg-white border-b border-slate-200 shadow-sm"
       style={{
         zIndex: Z_INDEX.NAVBAR,
       }}
     >
-      <div className="h-full w-full px-6">
+      <div className="h-full w-full px-4">
         {/* Contenido dinámico inyectado por cada página */}
         {children}
       </div>
@@ -105,13 +105,13 @@ export function UserMenu() {
       {/* Avatar Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm hover:from-blue-600 hover:to-blue-700 transition-all shadow-md hover:shadow-lg"
+        className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-medium text-[11px] hover:from-blue-600 hover:to-blue-700 transition-all"
       >
         {user?.imageUrl ? (
           <img
             src={user.imageUrl}
             alt="Avatar"
-            className="w-9 h-9 rounded-full object-cover"
+            className="w-7 h-7 rounded-full object-cover"
           />
         ) : (
           initials
@@ -176,18 +176,17 @@ export function NavbarContent({ title, subtitle, actions, statusBadge }: NavbarC
   return (
     <div className="flex items-center justify-between h-full">
       {/* Left: Título y subtítulo */}
-      <div className="flex flex-col justify-center">
-        <h1 className="text-xl font-bold text-slate-900">{title}</h1>
+      <div className="flex items-center gap-2">
+        <h1 className="text-sm font-semibold text-slate-900">{title}</h1>
         {subtitle && (
-          <p className="text-sm text-slate-600 mt-0.5">{subtitle}</p>
+          <span className="text-xs text-slate-500">{subtitle}</span>
         )}
       </div>
 
       {/* Right: Acciones y badges */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {statusBadge}
         {actions}
-        {/* Custom User Menu */}
         <UserMenu />
       </div>
     </div>

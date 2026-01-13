@@ -47,7 +47,7 @@ export function AppShell({ children }: AppShellProps) {
               <Navbar />
               <main className="w-full">
                 {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
-                <div className="min-h-screen bg-white w-full pt-16">
+                <div className="min-h-screen bg-white w-full pt-11">
                   {children}
                 </div>
               </main>

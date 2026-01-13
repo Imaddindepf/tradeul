@@ -246,8 +246,18 @@ export function InsightContent({ insightType = 'morning', insightDate, initialDa
                 return;
             }
 
-            // USA EDITION / EDICIÓN USA
-            if (trimmedLine === 'USA EDITION' || trimmedLine === 'EDICIÓN USA') {
+            // USA EDITION / EDICIÓN USA (multiple variants)
+            const isEditionLine = (
+                trimmedLine === 'USA EDITION' || 
+                trimmedLine === 'EDICIÓN USA' || 
+                trimmedLine === 'EDICIÓN DE EE. UU.' ||
+                trimmedLine === 'EDICIÓN ESTADOS UNIDOS' ||
+                trimmedLine.toUpperCase().includes('USA EDITION') ||
+                trimmedLine.toUpperCase().includes('EDICIÓN USA') ||
+                trimmedLine.toUpperCase().includes('EDICIÓN ESTADOS') ||
+                trimmedLine.toUpperCase().includes('EDICIÓN EE')
+            );
+            if (isEditionLine) {
                 elements.push(
                     <div key={index} className="text-slate-500 text-center text-[10px] mt-3">
                         {trimmedLine}

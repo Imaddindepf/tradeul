@@ -209,7 +209,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         <>
             {/* Command Palette - Integrado debajo del navbar */}
             <div
-                className="fixed left-4 top-16 animate-slideDown"
+                className="fixed left-4 top-12 animate-slideDown"
                 style={{
                     zIndex: Z_INDEX.MODAL_BASE + 1,
                     maxHeight: 'calc(100vh - 80px)',
