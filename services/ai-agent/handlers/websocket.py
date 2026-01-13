@@ -265,8 +265,18 @@ class WebSocketHandler:
                         "total": len(value)
                     })
                 elif isinstance(value, dict):
-                    # Special case: research_ticker results
-                    if name == "research_ticker" and value.get("content"):
+                    # Special case: quick_news results (fast Benzinga lookup)
+                    if name == "quick_news" and "news" in value:
+                        outputs.append({
+                            "type": "news",
+                            "title": f"News: {value.get('symbol', 'Ticker')}",
+                            "symbol": value.get("symbol", ""),
+                            "news": value.get("news", []),
+                            "count": value.get("count", 0),
+                            "deep_research_available": value.get("deep_research_available", True)
+                        })
+                    # Special case: research_ticker results (deep research)
+                    elif name == "research_ticker" and value.get("content"):
                         outputs.append({
                             "type": "research",
                             "title": f"Research: {value.get('ticker', 'Ticker')}",

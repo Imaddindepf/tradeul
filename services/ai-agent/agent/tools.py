@@ -9,6 +9,8 @@ The LLM decides which tools to use based on the user's query.
 
 import pandas as pd
 import httpx
+import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -17,6 +19,117 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 ET = pytz.timezone('America/New_York')
+POLYGON_API_KEY = os.environ.get('POLYGON_API_KEY', '')
+
+
+# =============================================================================
+# POLYGON API CLIENT WITH RETRY (for fallback when local files unavailable)
+# =============================================================================
+
+async def _polygon_request_with_retry(
+    url: str, 
+    params: dict = None, 
+    max_retries: int = 3,
+    timeout: float = 15.0
+) -> dict:
+    """Make Polygon API request with exponential backoff retry."""
+    params = params or {}
+    params['apiKey'] = POLYGON_API_KEY
+    
+    last_error = None
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(max_retries):
+            try:
+                resp = await client.get(url, params=params)
+                if resp.status_code == 200:
+                    return resp.json()
+                elif resp.status_code == 429:  # Rate limited
+                    wait_time = 2 ** attempt
+                    logger.warning("polygon_rate_limited", wait=wait_time)
+                    await asyncio.sleep(wait_time)
+                else:
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            except asyncio.TimeoutError:
+                last_error = "Timeout"
+                await asyncio.sleep(1)
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+    
+    raise Exception(f"Polygon API failed after {max_retries} retries: {last_error}")
+
+
+async def _fetch_polygon_grouped_daily(date: str) -> pd.DataFrame:
+    """
+    Fetch all stocks' daily OHLCV from Polygon API.
+    
+    Args:
+        date: YYYY-MM-DD format
+        
+    Returns:
+        DataFrame with: symbol, open, high, low, close, volume
+    """
+    if not POLYGON_API_KEY:
+        raise Exception("POLYGON_API_KEY not configured")
+    
+    url = f"https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/{date}"
+    
+    logger.info("polygon_fetch_grouped_daily", date=date)
+    data = await _polygon_request_with_retry(url, {"adjusted": "true"})
+    
+    if data.get("status") != "OK" or not data.get("results"):
+        logger.warning("polygon_no_results", date=date, status=data.get("status"))
+        return pd.DataFrame()
+    
+    df = pd.DataFrame(data["results"])
+    df = df.rename(columns={
+        "T": "symbol", "o": "open", "h": "high", "l": "low",
+        "c": "close", "v": "volume", "vw": "vwap", "t": "timestamp"
+    })
+    
+    # Convert timestamp to datetime
+    df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True).dt.tz_convert(ET)
+    
+    logger.info("polygon_fetched", date=date, count=len(df))
+    return df[["symbol", "datetime", "open", "high", "low", "close", "volume"]]
+
+
+async def _fetch_polygon_top_movers(
+    date: str,
+    direction: str = "up",
+    limit: int = 20,
+    min_volume: int = 100000
+) -> pd.DataFrame:
+    """
+    Get top movers from Polygon API as fallback.
+    
+    Args:
+        date: YYYY-MM-DD format
+        direction: 'up' for gainers, 'down' for losers
+        limit: Number of results
+        min_volume: Minimum volume filter
+        
+    Returns:
+        DataFrame with: symbol, open, close, change_pct, volume
+    """
+    df = await _fetch_polygon_grouped_daily(date)
+    
+    if df.empty:
+        return df
+    
+    # Calculate change percentage
+    df["change_pct"] = ((df["close"] - df["open"]) / df["open"] * 100).round(2)
+    
+    # Filter
+    df = df[df["volume"] >= min_volume]
+    df = df[df["open"] > 0]  # Avoid division by zero cases
+    
+    # Sort
+    ascending = direction == "down"
+    df = df.sort_values("change_pct", ascending=ascending).head(limit)
+    
+    return df[["symbol", "open", "close", "change_pct", "volume"]]
 
 # =============================================================================
 # TOOL DEFINITIONS (Gemini Function Declarations)
@@ -28,7 +141,9 @@ MARKET_TOOLS = [
         "description": """Get real-time market data snapshot. Returns ~1000 most active tickers with current prices, 
         changes, volume, and technical indicators. Use for: current gainers/losers, real-time rankings, 
         sector analysis, volume leaders. Data includes: symbol, price, change_percent, volume_today, 
-        market_cap, sector, rvol, vwap, pre/post market data.""",
+        market_cap, sector, rvol, vwap, pre/post market data.
+        
+        IMPORTANT: Set generate_chart=true when user asks for 'grafico', 'chart', 'visualizar', 'plot'.""",
         "parameters": {
             "type": "object",
             "properties": {
@@ -49,9 +164,17 @@ MARKET_TOOLS = [
                     "type": "number",
                     "description": "Minimum price filter"
                 },
+                "min_market_cap": {
+                    "type": "number",
+                    "description": "Minimum market cap filter in dollars (e.g., 1000000000 for 1B, 100000000 for 100M)"
+                },
                 "sector": {
                     "type": "string",
                     "description": "Filter by sector name"
+                },
+                "generate_chart": {
+                    "type": "boolean",
+                    "description": "Generate a bar chart. Use when user asks for 'grafico', 'chart', 'visualizar'"
                 }
             },
             "required": []
@@ -88,8 +211,16 @@ MARKET_TOOLS = [
     },
     {
         "name": "get_top_movers",
-        "description": """Get pre-aggregated top gainers or losers for a date/time range. Much faster than 
-        manual aggregation. Use for: top gainers yesterday, after-hours movers, pre-market leaders.
+        "description": """Get top gainers or losers for a specific DATE and HOUR RANGE.
+        
+        USE CASES:
+        - "top gainers today" → date='today'
+        - "top movers 9:30-10:30" → date='today', start_hour=9, end_hour=10
+        - "after-hours movers" → start_hour=16, end_hour=20
+        - "pre-market leaders" → start_hour=4, end_hour=9
+        
+        IMPORTANT: For "top per EACH hour" or "per range of hour", use get_top_movers_hourly instead.
+        
         Returns: symbol, open_price, close_price, change_pct, volume.""",
         "parameters": {
             "type": "object",
@@ -100,16 +231,16 @@ MARKET_TOOLS = [
                 },
                 "start_hour": {
                     "type": "integer",
-                    "description": "Start hour in ET (e.g., 16 for after-hours)"
+                    "description": "Start hour 0-23 in ET (e.g., 9 for 9:30 market open, 16 for after-hours)"
                 },
                 "end_hour": {
                     "type": "integer",
-                    "description": "End hour in ET"
+                    "description": "End hour 0-23 in ET (e.g., 10 for 10:30, 16 for market close)"
                 },
                 "direction": {
                     "type": "string",
                     "enum": ["up", "down"],
-                    "description": "Gainers (up) or losers (down)"
+                    "description": "Gainers (up) or losers (down). Default: up"
                 },
                 "limit": {
                     "type": "integer",
@@ -124,11 +255,59 @@ MARKET_TOOLS = [
         }
     },
     {
+        "name": "get_top_movers_hourly",
+        "description": """Get top stock for EACH HOUR range during a trading day.
+        
+        PERFECT FOR:
+        - "top stock per hour range today"
+        - "best performer each hour 9:30-16:00"
+        - "top gainer cada hora"
+        - "hourly leaders"
+        
+        Returns a table with: hour_range, symbol, change_pct, volume
+        
+        Runs concurrent API requests for efficiency.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "Date: 'today', 'yesterday', or 'YYYY-MM-DD'"
+                },
+                "start_hour": {
+                    "type": "integer",
+                    "description": "First hour to analyze (default 9 for market open)"
+                },
+                "end_hour": {
+                    "type": "integer",
+                    "description": "Last hour to analyze (default 16 for market close)"
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": ["up", "down"],
+                    "description": "Gainers (up) or losers (down). Default: up"
+                },
+                "min_volume": {
+                    "type": "integer",
+                    "description": "Minimum volume (default 100000)"
+                },
+                "min_market_cap": {
+                    "type": "number",
+                    "description": "Minimum market cap in dollars (e.g., 1000000000 for 1B)"
+                }
+            },
+            "required": ["date"]
+        }
+    },
+    {
         "name": "classify_synthetic_sectors",
         "description": """Classify tickers into THEMATIC sectors (synthetic ETFs). Creates dynamic groupings 
         like: Nuclear, AI & Semiconductors, Electric Vehicles, Biotech, Crypto, Cannabis, Space, etc.
         Use when user asks about: 'sectores sintéticos', 'synthetic ETFs', 'thematic sectors', 
-        'sector nuclear', 'sector AI'. Returns sector performance rankings.""",
+        'sector nuclear', 'sector AI'. Returns sector performance rankings.
+        
+        IMPORTANT: Use filter parameters when user specifies constraints like 'market cap > 100M', 
+        'volume > 500K', 'price > $5', etc.""",
         "parameters": {
             "type": "object",
             "properties": {
@@ -139,16 +318,60 @@ MARKET_TOOLS = [
                 "max_sectors": {
                     "type": "integer",
                     "description": "Maximum sectors to return (default 15)"
+                },
+                "min_market_cap": {
+                    "type": "number",
+                    "description": "Minimum market cap filter in dollars (e.g., 100000000 for 100M)"
+                },
+                "min_volume": {
+                    "type": "number",
+                    "description": "Minimum volume filter"
+                },
+                "min_price": {
+                    "type": "number",
+                    "description": "Minimum price filter"
+                },
+                "max_price": {
+                    "type": "number",
+                    "description": "Maximum price filter"
+                },
+                "generate_chart": {
+                    "type": "boolean",
+                    "description": "Generate a bar chart of sector performance. Use when user asks for 'gráfico', 'chart', 'visualización'"
+                },
+                "min_tickers_per_sector": {
+                    "type": "integer",
+                    "description": "Minimum number of tickers required per sector. Use when user says 'al menos 5 acciones', 'at least 10 stocks', etc."
                 }
             },
             "required": ["date"]
         }
     },
     {
+        "name": "quick_news",
+        "description": """FAST news lookup for a ticker from Benzinga (<1 second).
+        Use FIRST when user asks: WHY is X moving?, news about X, what happened to X.
+        Returns news articles instantly. Response includes deep_research_available flag for user to request more.""",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "Ticker symbol (e.g., 'NVDA', 'AAPL')"
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max news articles (default 5)"
+                }
+            },
+            "required": ["symbol"]
+        }
+    },
+    {
         "name": "research_ticker",
-        "description": """Deep research on a specific ticker using news, social media (X.com), and web search.
-        Use when user asks: WHY is X moving?, news about X, what happened to X, sentiment on X.
-        Returns: summary, citations, key events, sentiment analysis.""",
+        "description": """DEEP research on a ticker using X.com, web search, and news (takes 60-90 seconds).
+        Use ONLY when user explicitly asks for "deep research", "full analysis", or wants more detail after quick_news.
+        Returns: comprehensive analysis with citations from X.com, Bloomberg, Reuters, etc.""",
         "parameters": {
             "type": "object",
             "properties": {
@@ -318,8 +541,12 @@ async def execute_tool(
             return await _get_historical_data(args, context)
         elif tool_name == "get_top_movers":
             return await _get_top_movers(args, context)
+        elif tool_name == "get_top_movers_hourly":
+            return await _get_top_movers_hourly(args, context)
         elif tool_name == "classify_synthetic_sectors":
             return await _classify_synthetic_sectors(args, context)
+        elif tool_name == "quick_news":
+            return await _quick_news(args, context)
         elif tool_name == "research_ticker":
             return await _research_ticker(args, context)
         elif tool_name == "execute_analysis":
@@ -356,12 +583,15 @@ async def _get_market_snapshot(args: Dict, ctx: Dict) -> Dict:
             limit = args.get("limit", 50)
             min_volume = args.get("min_volume")
             min_price = args.get("min_price")
+            min_market_cap = args.get("min_market_cap")
             sector = args.get("sector")
             
             if min_volume and "volume_today" in df.columns:
                 df = df[df["volume_today"] >= min_volume]
             if min_price and "price" in df.columns:
                 df = df[df["price"] >= min_price]
+            if min_market_cap and "market_cap" in df.columns:
+                df = df[df["market_cap"] >= min_market_cap]
             if sector and "sector" in df.columns:
                 df = df[df["sector"].str.contains(sector, case=False, na=False)]
             
@@ -372,19 +602,84 @@ async def _get_market_snapshot(args: Dict, ctx: Dict) -> Dict:
                 df = df.nsmallest(limit, "change_percent")
             elif filter_type == "volume" and "volume_today" in df.columns:
                 df = df.nlargest(limit, "volume_today")
-            elif filter_type in ["premarket", "postmarket"]:
-                col = f"{filter_type}_change_percent"
+            elif filter_type == "premarket":
+                # Use premarket_change_percent (congelado a las 9:30 o actual durante premarket)
+                col = "premarket_change_percent"
                 if col in df.columns:
                     df = df.dropna(subset=[col]).nlargest(limit, col)
+                elif "change_percent" in df.columns:
+                    # Fallback: usar change_percent si premarket_change_percent no existe
+                    df = df.nlargest(limit, "change_percent")
+                else:
+                    df = df.head(limit)
+            elif filter_type == "postmarket":
+                col = "postmarket_change_percent"
+                if col in df.columns:
+                    df = df.dropna(subset=[col]).nlargest(limit, col)
+                else:
+                    df = df.head(limit)
             else:
                 df = df.head(limit)
             
-            return {
+            result = {
                 "success": True,
                 "data": df,
                 "count": len(df),
                 "source": "scanner"
             }
+            
+            # Generate chart if requested
+            generate_chart = args.get("generate_chart", False)
+            if generate_chart and not df.empty:
+                try:
+                    import matplotlib
+                    matplotlib.use('Agg')
+                    import matplotlib.pyplot as plt
+                    import io
+                    
+                    # Determine which column to use for chart
+                    if filter_type == "premarket" and "premarket_change_percent" in df.columns:
+                        chart_col = "premarket_change_percent"
+                    elif filter_type == "postmarket" and "postmarket_change_percent" in df.columns:
+                        chart_col = "postmarket_change_percent"
+                    else:
+                        chart_col = "change_percent"
+                    
+                    if chart_col not in df.columns:
+                        chart_col = "change_percent"
+                    
+                    # Prepare data for chart
+                    chart_df = df.head(20).copy()
+                    chart_df = chart_df.dropna(subset=[chart_col])
+                    chart_df = chart_df.sort_values(chart_col, ascending=True)
+                    
+                    fig, ax = plt.subplots(figsize=(12, max(6, len(chart_df) * 0.4)))
+                    colors = ['#ef4444' if x < 0 else '#22c55e' for x in chart_df[chart_col]]
+                    bars = ax.barh(chart_df['symbol'], chart_df[chart_col], color=colors)
+                    
+                    title = f"Top {filter_type.title()}" if filter_type in ['gainers', 'losers', 'premarket', 'postmarket'] else "Market Snapshot"
+                    ax.set_xlabel('Change %', fontsize=12)
+                    ax.set_title(title, fontsize=14, fontweight='bold')
+                    ax.axvline(x=0, color='gray', linestyle='-', linewidth=0.5)
+                    
+                    for bar, val in zip(bars, chart_df[chart_col]):
+                        width = bar.get_width()
+                        ax.text(width + 0.3 if width >= 0 else width - 0.3, 
+                               bar.get_y() + bar.get_height()/2,
+                               f'{val:+.2f}%', va='center', ha='left' if width >= 0 else 'right',
+                               fontsize=9)
+                    
+                    plt.tight_layout()
+                    buf = io.BytesIO()
+                    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+                    buf.seek(0)
+                    result["chart"] = buf.getvalue()
+                    plt.close(fig)
+                    logger.info("market_snapshot_chart_generated", filter=filter_type, count=len(chart_df))
+                except Exception as e:
+                    logger.warning("chart_generation_failed", error=str(e))
+            
+            return result
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -422,7 +717,35 @@ async def _get_historical_data(args: Dict, ctx: Dict) -> Dict:
         file_path = f"/data/polygon/minute_aggs/{date_str}.csv.gz"
     
     if not Path(file_path).exists():
-        return {"success": False, "error": f"No data for {original_date} (tried back to {date_str})"}
+        # FALLBACK: Try Polygon API
+        logger.info("local_file_missing_trying_polygon", date=original_date, file=file_path)
+        try:
+            df = await _fetch_polygon_grouped_daily(date_str)
+            if df.empty:
+                return {"success": False, "error": f"No data for {original_date} (local files missing, Polygon API returned empty)"}
+            
+            df["hour"] = df["datetime"].dt.hour
+            
+            # Filter by hour
+            if start_hour is not None:
+                df = df[df["hour"] >= start_hour]
+            if end_hour is not None:
+                df = df[df["hour"] < end_hour]
+            
+            # Filter by symbols
+            if symbols:
+                df = df[df["symbol"].isin([s.upper() for s in symbols])]
+            
+            return {
+                "success": True,
+                "data": df[["symbol", "datetime", "open", "high", "low", "close", "volume"]],
+                "count": len(df),
+                "date": date_str,
+                "source": "polygon_api"
+            }
+        except Exception as e:
+            logger.error("polygon_fallback_failed", error=str(e))
+            return {"success": False, "error": f"No local data for {original_date} and Polygon API failed: {e}"}
     
     try:
         if file_path.endswith(".parquet"):
@@ -457,7 +780,7 @@ async def _get_historical_data(args: Dict, ctx: Dict) -> Dict:
 
 
 async def _get_top_movers(args: Dict, ctx: Dict) -> Dict:
-    """Get pre-aggregated top movers using DuckDB layer."""
+    """Get pre-aggregated top movers using DuckDB layer with Polygon API fallback."""
     date_str = args.get("date", "yesterday")
     start_hour = args.get("start_hour")
     end_hour = args.get("end_hour")
@@ -473,7 +796,31 @@ async def _get_top_movers(args: Dict, ctx: Dict) -> Dict:
     }, ctx)
     
     if not hist_result["success"]:
-        return hist_result
+        # Try direct Polygon API fallback for top movers
+        logger.info("top_movers_trying_polygon_fallback", date=date_str)
+        try:
+            now = datetime.now(ET)
+            if date_str == "today":
+                api_date = now.strftime('%Y-%m-%d')
+            elif date_str == "yesterday":
+                api_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            else:
+                api_date = date_str
+            
+            df = await _fetch_polygon_top_movers(api_date, direction, limit, min_volume)
+            if not df.empty:
+                logger.info("top_movers_polygon_success", count=len(df))
+                return {
+                    "success": True,
+                    "data": df,
+                    "count": len(df),
+                    "direction": direction,
+                    "source": "polygon_api"
+                }
+        except Exception as e:
+            logger.error("top_movers_polygon_failed", error=str(e))
+        
+        return hist_result  # Return original error
     
     df = hist_result["data"]
     
@@ -501,16 +848,142 @@ async def _get_top_movers(args: Dict, ctx: Dict) -> Dict:
     }
 
 
+async def _get_top_movers_hourly(args: Dict, ctx: Dict) -> Dict:
+    """
+    Get top mover for EACH hour range during a trading day.
+    
+    Uses concurrent requests for efficiency with retry on failure.
+    Falls back to Polygon API if local data unavailable.
+    Supports market cap filtering via scanner data.
+    """
+    date_str = args.get("date", "today")
+    start_hour = args.get("start_hour", 9)  # Market open
+    end_hour = args.get("end_hour", 16)      # Market close
+    direction = args.get("direction", "up")
+    min_volume = args.get("min_volume", 100000)
+    min_market_cap = args.get("min_market_cap")
+    
+    # Resolve date for API
+    now = datetime.now(ET)
+    if date_str == "today":
+        api_date = now.strftime('%Y-%m-%d')
+    elif date_str == "yesterday":
+        api_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+    else:
+        api_date = date_str
+    
+    logger.info("top_movers_hourly_start", date=api_date, start=start_hour, end=end_hour, 
+                min_market_cap=min_market_cap)
+    
+    # Get eligible symbols by market cap if filter specified
+    # Query tickers_unified via API Gateway (has all symbols, not just scanner's ~250)
+    eligible_symbols = None
+    if min_market_cap:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(
+                    "http://api_gateway:8000/api/symbols/by-market-cap",
+                    params={"min_market_cap": min_market_cap}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    eligible_symbols = set(data.get("symbols", []))
+                    logger.info("market_cap_filter_applied", 
+                               min_cap=min_market_cap, 
+                               eligible_count=len(eligible_symbols))
+        except Exception as e:
+            logger.warning("market_cap_filter_failed", error=str(e))
+    
+    async def fetch_hour_range(hour: int) -> Dict:
+        """Fetch top mover for a single hour range."""
+        try:
+            # If market cap filter, get ALL movers (no limit) then filter
+            # Otherwise just get top 1
+            limit = 5000 if eligible_symbols else 1  # 5000 = effectively no limit
+            
+            result = await _get_top_movers({
+                "date": date_str,
+                "start_hour": hour,
+                "end_hour": hour + 1,
+                "direction": direction,
+                "limit": limit,
+                "min_volume": min_volume
+            }, ctx)
+            
+            if result["success"] and result["count"] > 0:
+                df = result["data"]
+                
+                # Filter by market cap if applicable
+                if eligible_symbols:
+                    original_count = len(df)
+                    df = df[df["symbol"].isin(eligible_symbols)]
+                    if df.empty:
+                        logger.warning("no_eligible_symbols_in_hour", 
+                                      hour=hour, 
+                                      checked=original_count,
+                                      eligible_total=len(eligible_symbols))
+                        return None
+                
+                row = df.iloc[0]
+                return {
+                    "hour_range": f"{hour:02d}:00-{hour+1:02d}:00",
+                    "symbol": row["symbol"],
+                    "change_pct": row["change_pct"],
+                    "volume": row.get("volume", 0),
+                    "source": result.get("source", "local")
+                }
+            return None
+        except Exception as e:
+            logger.warning("hourly_fetch_failed", hour=hour, error=str(e))
+            return None
+    
+    # Run concurrent requests for all hour ranges
+    tasks = [fetch_hour_range(h) for h in range(start_hour, end_hour)]
+    results = await asyncio.gather(*tasks)
+    
+    # Filter out None results and build DataFrame
+    valid_results = [r for r in results if r is not None]
+    
+    if not valid_results:
+        error_msg = f"No data available for {api_date}"
+        if min_market_cap:
+            error_msg += f" with market cap >= ${min_market_cap:,.0f}"
+        return {"success": False, "error": error_msg}
+    
+    df = pd.DataFrame(valid_results)
+    
+    logger.info("top_movers_hourly_complete", count=len(df), date=api_date)
+    
+    return {
+        "success": True,
+        "data": df,
+        "count": len(df),
+        "direction": direction,
+        "date": api_date,
+        "hour_range": f"{start_hour:02d}:00-{end_hour:02d}:00",
+        "filters": {"min_volume": min_volume, "min_market_cap": min_market_cap}
+    }
+
+
 async def _classify_synthetic_sectors(args: Dict, ctx: Dict) -> Dict:
     """Classify tickers into thematic sectors."""
     from research.synthetic_sectors import (
         classify_tickers_into_synthetic_sectors,
-        calculate_synthetic_sector_performance
+        calculate_synthetic_sector_performance,
+        clean_tickers_dataframe
     )
     
     date_str = args.get("date", "today")
     max_sectors = args.get("max_sectors", 15)
     input_data = args.get("input_data")  # DataFrame, dict, or serialized dataframe from previous node
+    
+    # Filter parameters
+    min_market_cap = args.get("min_market_cap")
+    min_volume = args.get("min_volume")
+    min_price = args.get("min_price")
+    max_price = args.get("max_price")
+    generate_chart = args.get("generate_chart", False)
+    min_tickers_per_sector = args.get("min_tickers_per_sector")
     
     llm_client = ctx.get("llm_client")
     if not llm_client:
@@ -587,6 +1060,38 @@ async def _classify_synthetic_sectors(args: Dict, ctx: Dict) -> Dict:
             df["volume_today"] = df["volume"]
             df["market_cap"] = 0
     
+    # Apply filters BEFORE classification
+    original_count = len(df)
+    
+    if min_market_cap and "market_cap" in df.columns:
+        df = df[df["market_cap"] >= min_market_cap]
+        logger.info("filter_applied_market_cap", min=min_market_cap, before=original_count, after=len(df))
+    
+    if min_volume and "volume_today" in df.columns:
+        df = df[df["volume_today"] >= min_volume]
+        logger.info("filter_applied_volume", min=min_volume, after=len(df))
+    
+    if min_price and "price" in df.columns:
+        df = df[df["price"] >= min_price]
+        logger.info("filter_applied_min_price", min=min_price, after=len(df))
+    
+    if max_price and "price" in df.columns:
+        df = df[df["price"] <= max_price]
+        logger.info("filter_applied_max_price", max=max_price, after=len(df))
+    
+    if df.empty:
+        return {"success": False, "error": f"No tickers match the filters (started with {original_count})"}
+    
+    logger.info("synthetic_sectors_after_filters", 
+               original=original_count, 
+               filtered=len(df),
+               filters_applied={
+                   "min_market_cap": min_market_cap,
+                   "min_volume": min_volume,
+                   "min_price": min_price,
+                   "max_price": max_price
+               })
+    
     # Classify
     classified = await classify_tickers_into_synthetic_sectors(
         df, llm_client, max_sectors=max_sectors
@@ -595,19 +1100,122 @@ async def _classify_synthetic_sectors(args: Dict, ctx: Dict) -> Dict:
     if classified.empty:
         return {"success": False, "error": "Classification failed"}
     
+    # Clean up the tickers dataframe (remove premarket if all zeros, etc.)
+    classified = clean_tickers_dataframe(classified)
+    
     performance = calculate_synthetic_sector_performance(classified)
     
-    return {
+    # Filter by minimum tickers per sector if specified
+    if min_tickers_per_sector and not performance.empty:
+        original_sectors = len(performance)
+        # Performance has 'ticker_count' column
+        performance = performance[performance['ticker_count'] >= min_tickers_per_sector]
+        
+        if performance.empty:
+            return {"success": False, "error": f"No sectors have >= {min_tickers_per_sector} tickers (had {original_sectors} sectors)"}
+        
+        # Also filter the classified tickers to only include tickers from qualifying sectors
+        valid_sectors = performance['sector'].tolist()
+        classified = classified[classified['synthetic_sector'].isin(valid_sectors)]
+        
+        logger.info("filter_min_tickers_per_sector", 
+                   min_required=min_tickers_per_sector,
+                   original_sectors=original_sectors,
+                   filtered_sectors=len(performance))
+    
+    # Generate chart if requested
+    chart_data = None
+    if generate_chart and not performance.empty:
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import io
+            
+            # Sort by avg_change for the chart
+            perf_sorted = performance.sort_values('avg_change', ascending=True)
+            
+            # Create horizontal bar chart
+            fig, ax = plt.subplots(figsize=(12, max(6, len(perf_sorted) * 0.4)))
+            
+            colors = ['#ef4444' if x < 0 else '#22c55e' for x in perf_sorted['avg_change']]
+            bars = ax.barh(perf_sorted['sector'], perf_sorted['avg_change'], color=colors)
+            
+            ax.set_xlabel('Average Change %', fontsize=12)
+            ax.set_title('Synthetic ETF Sectors - Performance', fontsize=14, fontweight='bold')
+            ax.axvline(x=0, color='gray', linestyle='-', linewidth=0.5)
+            
+            # Add value labels
+            for bar, val in zip(bars, perf_sorted['avg_change']):
+                width = bar.get_width()
+                ax.text(width + 0.3 if width >= 0 else width - 0.3, 
+                       bar.get_y() + bar.get_height()/2,
+                       f'{val:+.2f}%', va='center', ha='left' if width >= 0 else 'right',
+                       fontsize=9)
+            
+            plt.tight_layout()
+            
+            # Save to bytes
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            chart_data = buf.getvalue()
+            plt.close(fig)
+            
+            logger.info("synthetic_sectors_chart_generated", size=len(chart_data))
+        except Exception as e:
+            logger.warning("chart_generation_failed", error=str(e))
+    
+    result = {
         "success": True,
         "sectors": performance,
         "tickers": classified,
         "sector_count": classified["synthetic_sector"].nunique()
     }
+    
+    if chart_data:
+        result["chart"] = chart_data
+    
+    return result
+
+
+async def _quick_news(args: Dict, ctx: Dict) -> Dict:
+    """Fast news lookup from Benzinga (<1 second)."""
+    from research.grok_research import fetch_benzinga_news
+    
+    symbol = args.get("symbol", "").upper()
+    limit = args.get("limit", 5)
+    
+    if not symbol:
+        return {"success": False, "error": "Symbol required"}
+    
+    news = await fetch_benzinga_news(symbol, limit=limit)
+    
+    # Format news for display
+    formatted_news = []
+    for n in (news or []):
+        formatted_news.append({
+            "title": n.get("title", ""),
+            "summary": n.get("summary", "")[:200] + "..." if len(n.get("summary", "")) > 200 else n.get("summary", ""),
+            "published": n.get("published", ""),
+            "source": n.get("source", "Benzinga")
+        })
+    
+    # Return under "data" key for proper collection by core
+    return {
+        "success": True,
+        "data": {
+            "symbol": symbol,
+            "news": formatted_news,
+            "count": len(formatted_news),
+            "deep_research_available": True
+        }
+    }
 
 
 async def _research_ticker(args: Dict, ctx: Dict) -> Dict:
-    """Research a ticker using Grok."""
-    from research.grok_research import research_ticker
+    """Deep research using Grok + Benzinga News combined."""
+    from research.grok_research import research_ticker_combined
     
     symbol = args.get("symbol", "").upper()
     include_technicals = args.get("include_technicals", True)
@@ -615,7 +1223,8 @@ async def _research_ticker(args: Dict, ctx: Dict) -> Dict:
     if not symbol:
         return {"success": False, "error": "Symbol required"}
     
-    result = await research_ticker(
+    # Usa research_ticker_combined que consulta Grok + Benzinga en paralelo
+    result = await research_ticker_combined(
         ticker=symbol,
         include_technicals=include_technicals
     )

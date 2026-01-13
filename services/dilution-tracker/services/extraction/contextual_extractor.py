@@ -883,14 +883,40 @@ class ContextualDilutionExtractor:
                 context._split_history = split_history
             
             # Marcar que Gemini Pro ya ajustó precios por split
-            # Esto evita que Python vuelva a ajustar (doble ajuste)
+            # SOLO si realmente se hicieron ajustes (split_adjustments > 0)
+            # BUG FIX: Antes usábamos "split_adjustments > 0 or split_history" que 
+            # marcaba como ajustado aunque Gemini no aplicara ajustes reales
             split_adjustments = summary.get("split_adjustments_made", 0)
-            if split_adjustments > 0 or split_history:
+            
+            # Verificar también si los warrants individuales tienen split_adjusted=True
+            warrants_actually_adjusted = sum(
+                1 for w in context.warrants 
+                if w.get('split_adjusted') == True
+            )
+            notes_actually_adjusted = sum(
+                1 for n in context.convertible_notes 
+                if n.get('split_adjusted') == True
+            )
+            
+            total_actually_adjusted = warrants_actually_adjusted + notes_actually_adjusted
+            
+            # Solo marcar como ajustado si HAY evidencia de ajustes reales
+            if split_adjustments > 0 and total_actually_adjusted > 0:
                 context._gemini_pro_adjusted = True
                 logger.info("gemini_pro_marked_adjusted", 
                            ticker=ticker, 
                            split_adjustments=split_adjustments,
+                           warrants_adjusted=warrants_actually_adjusted,
+                           notes_adjusted=notes_actually_adjusted,
                            splits=len(split_history))
+            elif split_history:
+                # Hay splits pero Gemini no los aplicó - Python lo hará
+                logger.warning("gemini_pro_found_splits_but_not_adjusted",
+                              ticker=ticker,
+                              splits_found=len(split_history),
+                              split_adjustments_claimed=split_adjustments,
+                              warrants_actually_adjusted=warrants_actually_adjusted,
+                              notes_actually_adjusted=notes_actually_adjusted)
             
             return context
             

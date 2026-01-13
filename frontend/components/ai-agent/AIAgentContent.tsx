@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useCallback } from 'react';
+import { memo, useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useAIAgent } from './useAIAgent';
 import { ChatPanel } from './ChatPanel';
@@ -49,6 +49,19 @@ export const AIAgentContent = memo(function AIAgentContent({
   } = useAIAgent({ onMarketUpdate });
 
   const [viewMode, setViewMode] = useState<ViewMode>(startInChat ? 'chat' : 'editor');
+
+  // Listen for agent:send events (from Deep Research button, etc.)
+  useEffect(() => {
+    const handleAgentSend = (e: CustomEvent<{ message: string }>) => {
+      if (e.detail?.message) {
+        sendMessage(e.detail.message);
+        setViewMode('chat'); // Switch to chat to show the result
+      }
+    };
+    
+    window.addEventListener('agent:send', handleAgentSend as EventListener);
+    return () => window.removeEventListener('agent:send', handleAgentSend as EventListener);
+  }, [sendMessage]);
 
   const handleWorkflowExecute = useCallback(async () => {
     // Results are shown directly in the workflow nodes

@@ -133,6 +133,11 @@ class CacheService:
         """
         Invalidar caché Redis para un ticker.
         
+        Borra:
+        - Profile cache (sec_dilution:profile:TICKER)
+        - Splits cache (sec_dilution:splits:TICKER)  
+        - Extraction cache (sec_dilution:extraction:TICKER)
+        
         Args:
             ticker: Ticker symbol
             
@@ -140,9 +145,23 @@ class CacheService:
             True si se invalidó correctamente
         """
         try:
-            redis_key = f"{self.REDIS_KEY_PREFIX}:{ticker.upper()}"
+            ticker_upper = ticker.upper()
+            
+            # Borrar profile cache
+            redis_key = f"{self.REDIS_KEY_PREFIX}:{ticker_upper}"
             await self.redis.delete(redis_key)
-            logger.info("cache_invalidated", ticker=ticker)
+            
+            # Borrar splits cache (para forzar re-fetch de Polygon)
+            splits_key = f"sec_dilution:splits:{ticker_upper}"
+            await self.redis.delete(splits_key)
+            
+            # Borrar extraction cache (para forzar re-extracción)
+            extraction_key = f"sec_dilution:extraction:{ticker_upper}"
+            await self.redis.delete(extraction_key)
+            
+            logger.info("cache_invalidated", 
+                       ticker=ticker,
+                       keys_deleted=[redis_key, splits_key, extraction_key])
             return True
         except Exception as e:
             logger.error("cache_invalidation_failed", ticker=ticker, error=str(e))

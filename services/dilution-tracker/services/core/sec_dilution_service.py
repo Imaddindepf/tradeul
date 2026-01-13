@@ -1687,33 +1687,81 @@ class SECDilutionService:
                     }
                 
                 # 6. Ajustar warrants por stock splits
-                # SKIP si Gemini Pro ya ajustó (evitar doble ajuste)
+                # ESTRATEGIA: Verificar cada instrumento individualmente
+                # Si Gemini marcó split_adjusted=True, no re-ajustar ese instrumento
+                # Si no está marcado, Python lo ajusta (incluso si _gemini_pro_adjusted=True)
                 gemini_already_adjusted = extracted_data.get('_gemini_pro_adjusted', False)
                 
-                if not gemini_already_adjusted:
-                    if extracted_data.get('warrants'):
-                        extracted_data['warrants'] = await self._adjust_warrants_for_splits(
-                            ticker, 
-                            extracted_data['warrants']
-                        )
+                if extracted_data.get('warrants'):
+                    # Filtrar: solo ajustar warrants que NO tienen split_adjusted=True
+                    unadjusted_warrants = [
+                        w for w in extracted_data['warrants'] 
+                        if not w.get('split_adjusted') == True
+                    ]
+                    already_adjusted_warrants = [
+                        w for w in extracted_data['warrants'] 
+                        if w.get('split_adjusted') == True
+                    ]
                     
-                    # 6b. Ajustar convertible notes por stock splits
-                    if extracted_data.get('convertible_notes'):
-                        extracted_data['convertible_notes'] = await self._adjust_convertible_notes_for_splits(
+                    if unadjusted_warrants:
+                        logger.info("adjusting_unadjusted_warrants",
+                                   ticker=ticker,
+                                   unadjusted_count=len(unadjusted_warrants),
+                                   already_adjusted_count=len(already_adjusted_warrants),
+                                   gemini_flag=gemini_already_adjusted)
+                        
+                        adjusted = await self._adjust_warrants_for_splits(
                             ticker, 
-                            extracted_data['convertible_notes']
+                            unadjusted_warrants
                         )
+                        # Combinar warrants ya ajustados + recién ajustados
+                        extracted_data['warrants'] = already_adjusted_warrants + adjusted
+                    elif gemini_already_adjusted:
+                        logger.info("skip_warrant_split_adjustment", 
+                                   ticker=ticker, 
+                                   reason="all_warrants_already_adjusted",
+                                   count=len(already_adjusted_warrants))
+                
+                # 6b. Ajustar convertible notes por stock splits
+                if extracted_data.get('convertible_notes'):
+                    unadjusted_notes = [
+                        n for n in extracted_data['convertible_notes'] 
+                        if not n.get('split_adjusted') == True
+                    ]
+                    already_adjusted_notes = [
+                        n for n in extracted_data['convertible_notes'] 
+                        if n.get('split_adjusted') == True
+                    ]
                     
-                    # 6c. Ajustar convertible preferred por stock splits
-                    if extracted_data.get('convertible_preferred'):
-                        extracted_data['convertible_preferred'] = await self._adjust_convertible_preferred_for_splits(
+                    if unadjusted_notes:
+                        logger.info("adjusting_unadjusted_notes",
+                                   ticker=ticker,
+                                   unadjusted_count=len(unadjusted_notes),
+                                   already_adjusted_count=len(already_adjusted_notes))
+                        
+                        adjusted = await self._adjust_convertible_notes_for_splits(
                             ticker, 
-                            extracted_data['convertible_preferred']
+                            unadjusted_notes
                         )
-                else:
-                    logger.info("skip_python_split_adjustment", 
-                               ticker=ticker, 
-                               reason="gemini_pro_already_adjusted")
+                        extracted_data['convertible_notes'] = already_adjusted_notes + adjusted
+                
+                # 6c. Ajustar convertible preferred por stock splits
+                if extracted_data.get('convertible_preferred'):
+                    unadjusted_preferred = [
+                        p for p in extracted_data['convertible_preferred'] 
+                        if not p.get('split_adjusted') == True
+                    ]
+                    already_adjusted_preferred = [
+                        p for p in extracted_data['convertible_preferred'] 
+                        if p.get('split_adjusted') == True
+                    ]
+                    
+                    if unadjusted_preferred:
+                        adjusted = await self._adjust_convertible_preferred_for_splits(
+                            ticker, 
+                            unadjusted_preferred
+                        )
+                        extracted_data['convertible_preferred'] = already_adjusted_preferred + adjusted
                 
                 # 7. Obtener precio actual y shares outstanding
                 current_price, shares_outstanding, free_float = await self._get_current_market_data(ticker)

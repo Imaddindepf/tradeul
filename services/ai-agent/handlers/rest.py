@@ -114,11 +114,22 @@ def create_rest_routes(agent, market_context: dict, chart_cache: dict) -> APIRou
                     args_str = ', '.join(f'{k}={repr(v)}' for k, v in tool_args.items())
                     code_lines.append(f"{tool_name}({args_str})")
             
+            # Convert charts to base64 for JSON response
+            import base64
+            charts_b64 = {}
+            if result.charts:
+                for chart_name, chart_bytes in result.charts.items():
+                    charts_b64[chart_name] = base64.b64encode(chart_bytes).decode('utf-8')
+                    # Also cache for direct retrieval via /api/charts/{name}
+                    chart_cache[chart_name] = chart_bytes
+            
             return {
                 "success": result.success,
                 "response": result.response,
                 "tools_used": result.tools_used,
+                "tool_calls": result.tool_calls,
                 "code": "\n".join(code_lines) if code_lines else None,
+                "charts": charts_b64 if charts_b64 else None,
                 "execution_time_ms": int(result.execution_time * 1000),
                 "error": result.error
             }

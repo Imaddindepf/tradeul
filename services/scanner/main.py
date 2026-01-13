@@ -150,6 +150,7 @@ async def handle_session_changed(event: Event) -> None:
     🌙 Handler para el evento SESSION_CHANGED.
     
     Detecta transiciones de sesión y ejecuta acciones específicas:
+    - PRE_MARKET → MARKET_OPEN: Captura gaps de premarket (congelar change_percent a las 09:30)
     - MARKET_OPEN → POST_MARKET: Inicia captura de volumen regular
     
     El volumen regular se obtiene sumando velas de minuto de la API de Polygon
@@ -169,7 +170,7 @@ async def handle_session_changed(event: Event) -> None:
         trading_date=trading_date
     )
     
-    # Detectar transición MARKET_OPEN → POST_MARKET
+    # 🌙 Detectar transición MARKET_OPEN → POST_MARKET
     if previous_session == "MARKET_OPEN" and new_session == "POST_MARKET":
         logger.info(
             "🌙 detected_transition_to_postmarket",

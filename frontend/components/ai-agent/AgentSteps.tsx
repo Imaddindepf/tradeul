@@ -1,17 +1,19 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useState, useEffect, useRef } from 'react';
 import {
   ChevronDown,
   ChevronRight,
-  Scan,
-  Code2,
-  CheckCircle2,
   Loader2,
+  Check,
   AlertCircle,
+  Cpu,
   Database,
+  Search,
+  Code2,
+  Sparkles,
   TrendingUp,
-  Clock
+  Zap
 } from 'lucide-react';
 import type { AgentStep } from './types';
 
@@ -20,237 +22,122 @@ interface AgentStepsProps {
   thinkingTime?: number;
 }
 
-// Tool card component - similar to "Market Scanner Enabled"
-const ToolCard = memo(function ToolCard({ step }: { step: AgentStep }) {
-  const isComplete = step.status === 'complete';
-  const isRunning = step.status === 'running';
-  const isError = step.status === 'error';
-
-  const getIcon = () => {
-    if (step.title.toLowerCase().includes('scanner') || step.title.toLowerCase().includes('market')) {
-      return <Scan className="w-5 h-5" />;
-    }
-    if (step.title.toLowerCase().includes('data') || step.title.toLowerCase().includes('historical')) {
-      return <Database className="w-5 h-5" />;
-    }
-    if (step.title.toLowerCase().includes('code') || step.title.toLowerCase().includes('analysis')) {
-      return <Code2 className="w-5 h-5" />;
-    }
-    return <TrendingUp className="w-5 h-5" />;
-  };
-
-  return (
-    <div className={`
-      flex items-center gap-3 p-3 rounded-xl border transition-all duration-300
-      ${isComplete ? 'bg-white border-gray-200' : ''}
-      ${isRunning ? 'bg-blue-50/50 border-blue-200' : ''}
-      ${isError ? 'bg-red-50/50 border-red-200' : ''}
-      ${!isComplete && !isRunning && !isError ? 'bg-gray-50 border-gray-200' : ''}
-    `}>
-      {/* Icon container */}
-      <div className={`
-        w-10 h-10 rounded-lg flex items-center justify-center
-        ${isComplete ? 'bg-gray-100 text-gray-600' : ''}
-        ${isRunning ? 'bg-blue-100 text-blue-600' : ''}
-        ${isError ? 'bg-red-100 text-red-600' : ''}
-        ${!isComplete && !isRunning && !isError ? 'bg-gray-100 text-gray-500' : ''}
-      `}>
-        {isRunning ? (
-          <Loader2 className="w-5 h-5 animate-spin" />
-        ) : (
-          getIcon()
-        )}
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0">
-        <div className={`font-medium text-[14px] ${isError ? 'text-red-700' : 'text-gray-900'}`}>
-          {step.title}
-        </div>
-        {step.description && (
-          <div className={`text-[12px] ${isError ? 'text-red-600' : 'text-gray-500'}`}>
-            {step.description}
-          </div>
-        )}
-      </div>
-
-      {/* Status indicator */}
-      <div className="flex-shrink-0">
-        {isComplete && <CheckCircle2 className="w-5 h-5 text-emerald-500" />}
-        {isRunning && <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />}
-        {isError && <AlertCircle className="w-5 h-5 text-red-500" />}
-      </div>
-    </div>
-  );
-});
-
-// Reasoning section - ALWAYS VISIBLE with real-time updates
-const ReasoningSection = memo(function ReasoningSection({
-  steps,
-  duration,
-  expanded,
-  onToggle
-}: {
-  steps: AgentStep[];
-  duration?: number;
-  expanded: boolean;
-  onToggle: () => void;
+// Real-time elapsed timer component
+const ElapsedTimer = memo(function ElapsedTimer({ 
+  startTime, 
+  finalTime 
+}: { 
+  startTime: number; 
+  finalTime?: number;
 }) {
-  const isStillProcessing = !duration || steps.some(s => s.status === 'running');
-
+  const [elapsed, setElapsed] = useState(0);
+  
+  useEffect(() => {
+    if (finalTime) {
+      setElapsed(finalTime);
+      return;
+    }
+    
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 100);
+    
+    return () => clearInterval(interval);
+  }, [startTime, finalTime]);
+  
   return (
-    <div className="space-y-2">
-      {/* Header - "Reasoning for X seconds" - clickable to collapse */}
-      <button
-        onClick={onToggle}
-        className="flex items-center gap-2 text-[13px] text-gray-500 hover:text-gray-700 transition-colors group"
-      >
-        {isStillProcessing ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
-        ) : (
-          <Clock className="w-3.5 h-3.5 opacity-60" />
-        )}
-        <span className="font-medium">
-          {duration
-            ? `Reasoned for ${duration} second${duration !== 1 ? 's' : ''}`
-            : `Reasoning for ${Math.floor((Date.now() - (steps[0]?.id ? Date.now() : Date.now())) / 1000) || '...'} seconds`
-          }
-        </span>
-        {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100" />
-        ) : (
-          <ChevronRight className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100" />
-        )}
-      </button>
-
-      {/* ALWAYS show reasoning content when expanded - even if empty show loading */}
-      {expanded && (
-        <div className="pl-2 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="pl-3 border-l-2 border-blue-200 space-y-3">
-            {steps.length === 0 ? (
-              // Show loading state when no steps yet
-              <div className="flex items-center gap-2 text-[13px] text-gray-500">
-                <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                <span>Analyzing your query...</span>
-              </div>
-            ) : (
-              // Show each step as it arrives
-              steps.map((step, index) => {
-                const isRunning = step.status === 'running';
-                const isComplete = step.status === 'complete';
-                const hasDetails = step.details && step.details.length > 0;
-                // Show thinking details for any reasoning step with details
-                const showThinkingDetails = step.type === 'reasoning' && hasDetails;
-
-                return (
-                  <div key={step.id} className="animate-in fade-in slide-in-from-left-2 duration-200">
-                    <div className="flex items-start gap-3">
-                      {/* Step indicator */}
-                      <div className="flex-shrink-0 mt-0.5">
-                        {isRunning ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                        ) : isComplete ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        ) : (
-                          <div className="w-4 h-4 rounded-full border-2 border-gray-300" />
-                        )}
-                      </div>
-
-                      {/* Step content */}
-                      <div className="flex-1 min-w-0">
-                        <div className={`text-[13px] font-medium ${isRunning ? 'text-blue-700' : 'text-gray-800'}`}>
-                          {step.title}
-                        </div>
-                        {step.description && !showThinkingDetails && (
-                          <div className="text-[12px] text-gray-500 mt-0.5">
-                            {step.description}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Show thinking details for reasoning steps */}
-                    {showThinkingDetails && step.details && (
-                      <div className="ml-7 mt-2 pl-3 border-l-2 border-blue-200 bg-blue-50/30 rounded-r py-2 px-3">
-                        <div className="text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap">
-                          {step.details.length > 800
-                            ? step.details.substring(0, 800) + '...'
-                            : step.details
-                          }
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    <span className="tabular-nums text-slate-400">
+      {elapsed}s
+    </span>
   );
 });
 
-// Code execution card - expandable with details
-const CodeCard = memo(function CodeCard({ step }: { step: AgentStep }) {
-  const [expanded, setExpanded] = useState(false);
-  const isComplete = step.status === 'complete';
-  const isRunning = step.status === 'running';
-  const isError = step.status === 'error';
+// Get icon for step type/title
+function getStepIcon(step: AgentStep) {
+  const title = step.title.toLowerCase();
+  const type = step.type;
+  
+  if (title.includes('analyz') || title.includes('routing') || title.includes('query')) {
+    return <Cpu className="w-3 h-3" />;
+  }
+  if (title.includes('scanner') || title.includes('market') || title.includes('snapshot')) {
+    return <TrendingUp className="w-3 h-3" />;
+  }
+  if (title.includes('data') || title.includes('historical') || title.includes('classify') || title.includes('synthetic')) {
+    return <Database className="w-3 h-3" />;
+  }
+  if (title.includes('search') || title.includes('research')) {
+    return <Search className="w-3 h-3" />;
+  }
+  if (type === 'code' || title.includes('code') || title.includes('execut')) {
+    return <Code2 className="w-3 h-3" />;
+  }
+  if (title.includes('select') || title.includes('tool') || title.includes('using')) {
+    return <Zap className="w-3 h-3" />;
+  }
+  return <Sparkles className="w-3 h-3" />;
+}
 
+// Individual step item - Claude Code style
+const StepItem = memo(function StepItem({ 
+  step,
+  showDetails
+}: { 
+  step: AgentStep;
+  showDetails?: boolean;
+}) {
+  const isRunning = step.status === 'running';
+  const isComplete = step.status === 'complete';
+  const isError = step.status === 'error';
+  
   return (
-    <div className={`
-      rounded-xl border transition-all duration-300 overflow-hidden
-      ${isComplete ? 'bg-emerald-50/50 border-emerald-200' : ''}
-      ${isRunning ? 'bg-blue-50/50 border-blue-200' : ''}
-      ${isError ? 'bg-red-50/50 border-red-200' : ''}
-    `}>
-      {/* Header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 p-3 hover:bg-black/5 transition-colors"
-      >
+    <div className="animate-in fade-in slide-in-from-left-2 duration-200">
+      <div className="flex items-start gap-2 py-0.5">
+        {/* Status indicator */}
         <div className={`
-          w-8 h-8 rounded-lg flex items-center justify-center
-          ${isComplete ? 'bg-emerald-100 text-emerald-600' : ''}
-          ${isRunning ? 'bg-blue-100 text-blue-600' : ''}
-          ${isError ? 'bg-red-100 text-red-600' : ''}
+          w-4 h-4 rounded flex items-center justify-center flex-shrink-0 mt-0.5
+          ${isRunning ? 'text-blue-500 bg-blue-50' : ''}
+          ${isComplete ? 'text-emerald-600 bg-emerald-50' : ''}
+          ${isError ? 'text-red-500 bg-red-50' : ''}
+          ${!isRunning && !isComplete && !isError ? 'text-slate-400 bg-slate-50' : ''}
         `}>
           {isRunning ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+          ) : isComplete ? (
+            <Check className="w-2.5 h-2.5" />
+          ) : isError ? (
+            <AlertCircle className="w-2.5 h-2.5" />
           ) : (
-            <Code2 className="w-4 h-4" />
+            getStepIcon(step)
           )}
         </div>
-
-        <div className="flex-1 text-left min-w-0">
-          <div className={`font-medium text-[13px] ${isError ? 'text-red-700' : 'text-gray-900'}`}>
+        
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <span className={`
+            text-[11px] font-[family-name:var(--font-mono-selected)]
+            ${isRunning ? 'text-blue-700' : ''}
+            ${isComplete ? 'text-slate-700' : ''}
+            ${isError ? 'text-red-600' : ''}
+            ${!isRunning && !isComplete && !isError ? 'text-slate-500' : ''}
+          `}>
             {step.title}
-          </div>
-          {step.description && (
-            <div className={`text-[11px] ${isError ? 'text-red-600' : 'text-gray-500'}`}>
+          </span>
+          {step.description && step.description !== step.title && (
+            <span className={`
+              text-[10px] ml-1.5
+              ${isRunning ? 'text-blue-500' : 'text-slate-400'}
+            `}>
               {step.description}
-            </div>
+            </span>
           )}
         </div>
-
-        <div className="flex items-center gap-2">
-          {isComplete && <CheckCircle2 className="w-4 h-4 text-emerald-500" />}
-          {isError && <AlertCircle className="w-4 h-4 text-red-500" />}
-          {expanded ? (
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          ) : (
-            <ChevronRight className="w-4 h-4 text-gray-400" />
-          )}
-        </div>
-      </button>
-
-      {/* Expanded code content */}
-      {expanded && step.details && (
-        <div className="border-t border-gray-200 bg-gray-50 p-3 animate-in fade-in duration-200">
-          <pre className="text-[11px] font-mono text-gray-800 whitespace-pre-wrap overflow-x-auto max-h-60 overflow-y-auto">
-            {step.details}
-          </pre>
+      </div>
+      
+      {/* Show details inline if available and running */}
+      {showDetails && step.details && step.details.length > 10 && (
+        <div className="ml-6 mt-1 mb-2 p-2 bg-slate-50 rounded text-[10px] font-mono text-slate-600 max-h-32 overflow-y-auto whitespace-pre-wrap border-l-2 border-blue-200">
+          {step.details.length > 500 ? step.details.substring(0, 500) + '...' : step.details}
         </div>
       )}
     </div>
@@ -258,38 +145,100 @@ const CodeCard = memo(function CodeCard({ step }: { step: AgentStep }) {
 });
 
 export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: AgentStepsProps) {
-  // Auto-expand reasoning while processing, collapse when done
-  const hasRunningSteps = steps.some(s => s.status === 'running');
-  const [showReasoning, setShowReasoning] = useState(true); // Start expanded
-
+  const [collapsed, setCollapsed] = useState(false);
+  const startTimeRef = useRef<number>(Date.now());
+  const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Reset start time when steps change from 0 to >0
+  useEffect(() => {
+    if (steps.length === 1 && steps[0].status === 'running') {
+      startTimeRef.current = Date.now();
+    }
+  }, [steps.length]);
+  
+  // Auto-scroll to show new steps
+  useEffect(() => {
+    if (containerRef.current && !collapsed) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [steps.length, collapsed]);
+  
   if (!steps || steps.length === 0) return null;
-
-  // Categorize steps
-  const reasoningSteps = steps.filter(s => s.type === 'reasoning');
+  
+  const isProcessing = steps.some(s => s.status === 'running');
+  const hasErrors = steps.some(s => s.status === 'error');
   const toolSteps = steps.filter(s => s.type === 'tool');
-  const codeSteps = steps.filter(s => s.type === 'code');
-
+  const runningStep = steps.find(s => s.status === 'running');
+  
   return (
-    <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      {/* Reasoning section header */}
-      {reasoningSteps.length > 0 && (
-        <ReasoningSection
-          steps={reasoningSteps}
-          duration={thinkingTime}
-          expanded={showReasoning}
-          onToggle={() => setShowReasoning(!showReasoning)}
+    <div className="text-[11px] border border-slate-200 rounded-lg overflow-hidden bg-white">
+      {/* Header */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className={`
+          w-full flex items-center gap-2 px-3 py-2 text-left
+          ${isProcessing ? 'bg-blue-50/50' : hasErrors ? 'bg-red-50/50' : 'bg-slate-50'}
+          hover:bg-slate-100 transition-colors
+        `}
+      >
+        {/* Status icon */}
+        {isProcessing ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 flex-shrink-0" />
+        ) : hasErrors ? (
+          <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+        ) : (
+          <Check className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+        )}
+        
+        {/* Status text - show current action if processing */}
+        <span className={`
+          font-medium font-[family-name:var(--font-mono-selected)] flex-1 truncate
+          ${isProcessing ? 'text-blue-700' : hasErrors ? 'text-red-700' : 'text-slate-600'}
+        `}>
+          {isProcessing && runningStep 
+            ? runningStep.title 
+            : hasErrors 
+              ? 'Error' 
+              : 'Completed'
+          }
+        </span>
+        
+        {/* Timer */}
+        <ElapsedTimer 
+          startTime={startTimeRef.current} 
+          finalTime={thinkingTime} 
         />
+        
+        {/* Tool count */}
+        {toolSteps.length > 0 && (
+          <span className="text-[9px] px-1.5 py-0.5 bg-slate-200/60 text-slate-500 rounded">
+            {toolSteps.length} tool{toolSteps.length > 1 ? 's' : ''}
+          </span>
+        )}
+        
+        {/* Collapse icon */}
+        {collapsed ? (
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+        )}
+      </button>
+      
+      {/* Steps list */}
+      {!collapsed && (
+        <div 
+          ref={containerRef}
+          className="px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto border-t border-slate-100"
+        >
+          {steps.map((step, index) => (
+            <StepItem 
+              key={step.id} 
+              step={step} 
+              showDetails={step.status === 'running' || (step.status === 'complete' && index === steps.length - 1)}
+            />
+          ))}
+        </div>
       )}
-
-      {/* Tool cards - Market Scanner, Data Sources, etc. */}
-      {toolSteps.map(step => (
-        <ToolCard key={step.id} step={step} />
-      ))}
-
-      {/* Code execution cards */}
-      {codeSteps.map(step => (
-        <CodeCard key={step.id} step={step} />
-      ))}
     </div>
   );
 });

@@ -999,6 +999,22 @@ class ScannerEngine:
             postmarket_change_percent = None
             postmarket_volume = None
             
+            # =============================================
+            # PRE-MARKET CHANGE (gap desde prev_close)
+            # =============================================
+            # PRE_MARKET: precio actual vs prev_close (en vivo)
+            # MARKET_OPEN+: day.o vs prev_close (congelado, precio oficial de apertura)
+            premarket_change_percent = None
+            prev_close = prev_day.c if prev_day and prev_day.c and prev_day.c > 0 else None
+            
+            if prev_close:
+                if self.current_session == MarketSession.PRE_MARKET:
+                    # Durante premarket: cambio en vivo
+                    premarket_change_percent = change_percent
+                elif day_data and day_data.o and day_data.o > 0:
+                    # Durante market hours: usar day.o (precio oficial de apertura a las 9:30)
+                    premarket_change_percent = ((day_data.o - prev_close) / prev_close) * 100
+            
             if self.current_session == MarketSession.POST_MARKET:
                 # Precio de cierre del día regular (congelado a las 16:00 ET)
                 # NOTA: Verificado contra Polygon API - day.c SÍ se congela a las 16:00
@@ -1089,6 +1105,8 @@ class ScannerEngine:
                 price_from_intraday_low=price_from_intraday_low,
                 vwap=vwap,
                 price_vs_vwap=price_vs_vwap,
+                # Pre-market metrics (congelado a las 09:30 ET)
+                premarket_change_percent=premarket_change_percent,
                 # Post-market metrics
                 postmarket_change_percent=postmarket_change_percent,
                 postmarket_volume=postmarket_volume,

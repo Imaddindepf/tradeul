@@ -14,6 +14,7 @@ xai-sdk==1.5.0  # Grok for research
 pandas==2.2.0
 numpy==1.26.4
 plotly==5.18.0
+matplotlib==3.8.2
 
 # Async
 httpx>=0.28.1  # Required by google-genai 1.57+

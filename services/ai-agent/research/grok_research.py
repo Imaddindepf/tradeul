@@ -393,7 +393,52 @@ async def fetch_benzinga_news(ticker: str, limit: int = 10) -> List[Dict]:
     """
     Fetch recent news from our Benzinga service.
     Returns list of news articles with title, summary, url, published_at.
+    Uses LLM to extract ticker-specific content from multi-ticker articles.
     """
+    import re
+    import os
+    
+    def clean_html(html: str) -> str:
+        """Remove HTML tags and clean up text."""
+        if not html:
+            return ""
+        text = re.sub(r'<[^>]+>', ' ', html)
+        text = re.sub(r'\s+', ' ', text).strip()
+        return text
+    
+    async def extract_ticker_info(full_text: str, target_ticker: str) -> str:
+        """Use Gemini Flash to extract only info about the target ticker."""
+        try:
+            from google import genai
+            from google.genai import types
+            
+            api_key = os.getenv('GEMINI_API_KEY') or os.getenv('GEMINI_TRADEUL_AGENT')
+            if not api_key:
+                logger.warning("no_gemini_api_key_for_extraction")
+                return full_text[:500]
+            
+            client = genai.Client(api_key=api_key)
+            
+            prompt = f"""Extract ONLY the information about ${target_ticker} from this news article.
+If the article mentions multiple tickers, return ONLY the part about ${target_ticker}.
+Be concise but include all relevant details (price movement, %, reason if mentioned).
+
+Article:
+{full_text[:2000]}
+
+Response format: Just the extracted info about ${target_ticker}, nothing else. If no specific info found, say "No specific details for ${target_ticker}"."""
+
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
+                config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=300)
+            )
+            
+            return response.text.strip() if response.text else full_text[:300]
+        except Exception as e:
+            logger.warning("llm_extraction_failed", error=str(e))
+            return full_text[:300]
+    
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(
@@ -405,14 +450,30 @@ async def fetch_benzinga_news(ticker: str, limit: int = 10) -> List[Dict]:
                 data = response.json()
                 articles = data.get("results", [])
                 
-                # Format for easy consumption
                 formatted = []
                 for art in articles:
+                    # Get full body content
+                    body = art.get("body", "")
+                    full_text = clean_html(body)
+                    
+                    # Check if this is a multi-ticker article
+                    tickers_in_article = art.get("tickers", [])
+                    is_multi_ticker = len(tickers_in_article) > 3
+                    
+                    # Extract ticker-specific info if multi-ticker article
+                    if is_multi_ticker and full_text:
+                        summary = await extract_ticker_info(full_text, ticker)
+                    else:
+                        # Single ticker article - use teaser or full text
+                        summary = art.get("teaser", "").strip()
+                        if not summary or summary == " ":
+                            summary = full_text[:500]
+                    
                     formatted.append({
                         "title": art.get("title", ""),
-                        "summary": art.get("summary", art.get("description", ""))[:300],
+                        "summary": summary,
                         "url": art.get("article_url") or art.get("url", ""),
-                        "published": art.get("published_utc") or art.get("published_at", ""),
+                        "published": art.get("published_utc") or art.get("published", ""),
                         "source": "Benzinga"
                     })
                 
@@ -448,9 +509,36 @@ async def research_ticker_combined(
     
     grok_result, benzinga_news = await asyncio.gather(grok_task, benzinga_task)
     
-    # Add Benzinga news to the result
+    # Integrate Benzinga news into the content
     if benzinga_news:
         grok_result["benzinga_news"] = benzinga_news
+        
+        # Add Benzinga section to content
+        benzinga_section = "\n\n---\n**📰 Benzinga News (Real-time):**\n"
+        for news in benzinga_news[:5]:
+            title = news.get("title", "")
+            summary = news.get("summary", "")[:150]
+            published = news.get("published", "")
+            if title:
+                benzinga_section += f"\n• **{title}**"
+                if summary:
+                    benzinga_section += f"\n  {summary}..."
+                if published:
+                    benzinga_section += f" ({published[:10]})"
+        
+        # Insert Benzinga news after TLDR/Breaking News section
+        content = grok_result.get("content", "")
+        if "Breaking News:" in content:
+            # Insert after Breaking News section
+            parts = content.split("X.com Sentiment:", 1)
+            if len(parts) == 2:
+                content = parts[0] + benzinga_section + "\n\nX.com Sentiment:" + parts[1]
+            else:
+                content = content + benzinga_section
+        else:
+            content = content + benzinga_section
+        
+        grok_result["content"] = content
         
         # Add Benzinga URLs to citations
         existing_citations = grok_result.get("citations", [])

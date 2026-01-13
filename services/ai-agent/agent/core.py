@@ -27,6 +27,7 @@ from google import genai
 from google.genai import types
 
 from .tools import MARKET_TOOLS, execute_tool
+from .router import IntentRouter, RoutingDecision, Specialist, get_tools_for_specialist
 
 logger = structlog.get_logger(__name__)
 ET = pytz.timezone('America/New_York')
@@ -83,32 +84,34 @@ CAPABILITIES (via tools):
 - execute_analysis: Custom Python/SQL code in sandbox for complex analysis
 - get_ticker_info: Basic ticker lookup (price, market cap, sector)
 
-TOOL SELECTION (choose the simplest that works):
+TOOL SELECTION - CHECK IN THIS ORDER:
 
-1. REAL-TIME / TODAY:
-   - "top gainers/losers today" → get_market_snapshot(filter_type='gainers'/'losers')
-   - "current price of X" → get_ticker_info(symbol='X')
-   - "sectores sintéticos/thematic ETFs" → classify_synthetic_sectors(date='today')
+1. CHARTS/VISUALS FIRST - If query contains "grafico", "chart", "visualizar", "plot":
+   - For synthetic ETFs charts → classify_synthetic_sectors(date='today', generate_chart=True)
+   - For stocks/gainers/losers charts → get_market_snapshot(filter_type='gainers', generate_chart=True)
 
-2. HISTORICAL (yesterday, specific dates):
-   - "top movers yesterday/friday" → get_top_movers(date='...')
-   - "after-hours movers" → get_top_movers(date='...', start_hour=16)
-   - "pre-market leaders" → get_top_movers(date='...', start_hour=4, end_hour=9)
-
-3. WHY/NEWS QUESTIONS:
-   - "why is NVDA up?" → research_ticker(symbol='NVDA')
-   - "por qué subió X?" → research_ticker(symbol='X')
-   - "noticias de X" → research_ticker(symbol='X')
-   - "what happened to X?" → research_ticker(symbol='X')
-
-4. COMPLEX ANALYSIS (use execute_analysis with SQL):
-   - Relative strength vs SPY/QQQ
-   - Stocks that held during pullbacks
-   - Correlation analysis
-   - Custom multi-condition filters
-   - Minute-by-minute comparisons
+2. SYNTHETIC SECTORS WITH FILTERS:
+   When user asks for synthetic ETFs/sectors with constraints:
+   - "market cap > 100M" → min_market_cap=100000000
+   - "al menos 5 acciones" / "at least 5 stocks" → min_tickers_per_sector=5
+   - "grafico" / "chart" → generate_chart=True
    
-   IMPORTANT: Use historical_query(sql) inside execute_analysis - 10x faster than Python loops.
+   Example: "ETFs sintéticos con al menos 5 acciones en gráfico"
+   → classify_synthetic_sectors(date='today', min_tickers_per_sector=5, generate_chart=True)
+
+3. DATA QUERIES (no visualization):
+   - "top gainers/losers" → get_market_snapshot(filter_type='gainers'/'losers')
+   - "current price of X" → get_ticker_info(symbol='X')
+   - "sectores sintéticos" → classify_synthetic_sectors(date='today')
+   - "top movers yesterday" → get_top_movers(date='yesterday')
+
+4. WHY/NEWS:
+   - "why is X up?" → research_ticker(symbol='X')
+
+5. COMPLEX/MULTI-STEP ANALYSIS - USE execute_analysis:
+   - Multi-step queries requiring loops or aggregation
+   - Time-range analysis (per hour, per day segments)
+   - Custom calculations with historical_query(sql)
 
 RESPONSE FORMAT:
 - Data first, explanation after
@@ -120,6 +123,7 @@ NEVER:
 - Make up numbers without tools
 - Say "I can't explain" - USE research_ticker!
 - Say "I can't analyze" - USE execute_analysis!
+- Say "I can't create charts" - USE execute_analysis with matplotlib! (or generate_chart=True for synthetic ETFs)
 
 Current time: {current_time} ET
 Market session: {market_session}
@@ -142,12 +146,29 @@ Last trading day: {last_trading_day}
         self.model = model
         self._sandbox = None
         self._context: Dict[str, Any] = {}
+        self._router = IntentRouter()
     
-    def _build_tools(self) -> List[types.Tool]:
-        """Convert tool definitions to Gemini format."""
+    def _build_tools(self, specialist: Specialist = None) -> List[types.Tool]:
+        """
+        Convert tool definitions to Gemini format.
+        
+        Args:
+            specialist: If provided, only include tools for this specialist.
+                       If None, include all tools.
+        """
         function_declarations = []
         
+        # Get allowed tools for specialist
+        allowed_tools = None
+        if specialist:
+            allowed_tools = set(get_tools_for_specialist(specialist))
+            logger.info("specialist_tools", specialist=specialist.value, tools=list(allowed_tools))
+        
         for tool in MARKET_TOOLS:
+            # Filter by specialist if specified
+            if allowed_tools and tool["name"] not in allowed_tools:
+                continue
+            
             fd = types.FunctionDeclaration(
                 name=tool["name"],
                 description=tool["description"],
@@ -231,12 +252,22 @@ Last trading day: {last_trading_day}
                 await on_step(step)
         
         try:
+            # Step 0: Route query to appropriate specialist
+            routing = self._router.route(query)
+            logger.info("query_routed",
+                       category=routing.category.value,
+                       specialist=routing.specialist.value,
+                       time_context=routing.time_context,
+                       needs_chart=routing.needs_chart,
+                       filters=routing.filters,
+                       confidence=routing.confidence)
+            
             # Step 1: Reasoning
             reasoning_step = AgentStep(
                 id="reasoning",
                 type="reasoning",
                 title="Analyzing query",
-                description="Understanding what you need...",
+                description=f"Routing to {routing.specialist.value} specialist...",
                 status="running"
             )
             await emit_step(reasoning_step)
@@ -287,12 +318,56 @@ Last trading day: {last_trading_day}
                     parts=[types.Part(text=current_query)]
                 )]
                 
+                # Build specialist-specific system prompt enhancement
+                specialist_hint = ""
+                
+                # For RESEARCHER queries, use quick_news FIRST for speed
+                if routing.specialist == Specialist.RESEARCHER:
+                    specialist_hint += """
+
+IMPORTANT: For news/why questions, ALWAYS use quick_news FIRST (<1 second response).
+Only use research_ticker if:
+1. User explicitly asks for "deep research" or "full analysis"
+2. quick_news returned no results
+3. User requests more detail after seeing quick_news results"""
+                
+                # For computation queries, guide to use execute_analysis
+                if routing.complexity == "computation":
+                    specialist_hint += "\n\nIMPORTANT: This query requires execute_analysis with Python code. Use get_top_movers() in a loop for hourly analysis."
+                
+                if routing.specialist == Specialist.QUANT and routing.needs_chart:
+                    specialist_hint += "\n\nIMPORTANT: User wants a CHART. Use generate_chart=True parameter."
+                if routing.filters:
+                    filter_hints = []
+                    if routing.filters.get("min_market_cap"):
+                        filter_hints.append(f"min_market_cap={routing.filters['min_market_cap']}")
+                    if routing.filters.get("min_tickers_per_sector"):
+                        filter_hints.append(f"min_tickers_per_sector={routing.filters['min_tickers_per_sector']}")
+                    if routing.filters.get("min_volume"):
+                        filter_hints.append(f"min_volume={routing.filters['min_volume']}")
+                    if filter_hints:
+                        specialist_hint += f"\n\nUSE THESE FILTERS: {', '.join(filter_hints)}"
+                
+                # Detect hourly range queries and hint to use get_top_movers_hourly
+                import re
+                hourly_pattern = re.compile(
+                    r"(per\s*(range\s*of\s*)?hour|each\s*hour|every\s*hour|cada\s*hora|por\s*hora|"
+                    r"\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}.*\d{1,2}:\d{2})",
+                    re.IGNORECASE
+                )
+                if hourly_pattern.search(query):
+                    specialist_hint += """
+
+IMPORTANT: User wants top stock for EACH hour range. 
+Use the `get_top_movers_hourly` tool which handles this automatically with concurrent API requests.
+Example: get_top_movers_hourly(date='today', start_hour=9, end_hour=16)"""
+                
                 response = self.client.models.generate_content(
                     model=self.model,
                     contents=retry_contents,
                     config=types.GenerateContentConfig(
-                        system_instruction=self._get_system_prompt(market_context),
-                        tools=self._build_tools(),
+                        system_instruction=self._get_system_prompt(market_context) + specialist_hint,
+                        tools=self._build_tools(routing.specialist),
                         temperature=config["temp"],
                         max_output_tokens=4096
                     )
@@ -331,6 +406,13 @@ Last trading day: {last_trading_day}
             if reasoning_text_parts or function_calls_found:
                 reasoning_details = []
                 
+                # Add router decision info
+                reasoning_details.append(f"🎯 Routed to: {routing.specialist.value} ({routing.category.value})")
+                if routing.needs_chart:
+                    reasoning_details.append("📊 Chart requested")
+                if routing.filters:
+                    reasoning_details.append(f"🔍 Filters: {routing.filters}")
+                
                 # Add Gemini's reasoning text if any
                 if reasoning_text_parts:
                     reasoning_details.append("💭 " + " ".join(reasoning_text_parts)[:500])
@@ -347,6 +429,8 @@ Last trading day: {last_trading_day}
                             reasoning_details.append(f"📈 Selecting get_market_snapshot for real-time data")
                         elif tool_name == "get_top_movers":
                             reasoning_details.append(f"🔝 Selecting get_top_movers for historical rankings")
+                        elif tool_name == "quick_news":
+                            reasoning_details.append(f"📰 Selecting quick_news for fast news lookup")
                         elif tool_name == "research_ticker":
                             reasoning_details.append(f"🔍 Selecting research_ticker for deep analysis")
                         else:
@@ -459,7 +543,11 @@ CORRECTED CODE:"""
                             tool_step.status = "complete"
                             
                             # Build description based on tool type
-                            if tool_name == "research_ticker":
+                            if tool_name == "quick_news":
+                                news_data = tool_result.get("data", {})
+                                news_count = len(news_data.get("news", []))
+                                tool_step.description = f"Found {news_count} articles"
+                            elif tool_name == "research_ticker":
                                 research_data = tool_result.get("data", {})
                                 citations_count = len(research_data.get("citations", []))
                                 tool_step.description = f"Research complete ({citations_count} sources)"
@@ -496,6 +584,11 @@ CORRECTED CODE:"""
                                 collected_data["sector_performance"] = tool_result["sectors"]
                             if "tickers" in tool_result:
                                 collected_data["sector_tickers"] = tool_result["tickers"]
+                            # Collect charts from tool results
+                            if "chart" in tool_result and tool_result["chart"]:
+                                chart_name = f"{tool_name}_chart"
+                                collected_charts[chart_name] = tool_result["chart"]
+                                logger.info("chart_collected", tool=tool_name, size=len(tool_result["chart"]))
                             # Capture execute_analysis results (stdout and output files)
                             if "stdout" in tool_result and tool_result["stdout"]:
                                 collected_data[f"{tool_name}_output"] = tool_result["stdout"]
@@ -525,8 +618,19 @@ CORRECTED CODE:"""
             
             # Generate final response with tool results
             if tools_used and collected_data:
+                # Special case: quick_news - fast response without LLM processing
+                if "quick_news" in tools_used and "quick_news" in collected_data:
+                    news_data = collected_data["quick_news"]
+                    symbol = news_data.get("symbol", "")
+                    news_list = news_data.get("news", [])
+                    
+                    if news_list:
+                        response_text = f"Found {len(news_list)} recent news for ${symbol}."
+                    else:
+                        response_text = f"No recent news found for ${symbol}. You can request 'deep research {symbol}' for comprehensive analysis including X.com and web sources."
+                
                 # Special case: research_ticker - use Grok's response directly (already formatted with citations)
-                if "research_ticker" in tools_used and "research_ticker" in collected_data:
+                elif "research_ticker" in tools_used and "research_ticker" in collected_data:
                     research_data = collected_data["research_ticker"]
                     if research_data.get("content"):
                         response_text = research_data["content"]

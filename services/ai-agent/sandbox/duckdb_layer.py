@@ -5,6 +5,9 @@ DuckDB Data Layer for TradeUL Sandbox
 Provides clean, tested access to historical market data.
 This module is injected into the sandbox environment.
 
+NOTE: Sandbox has NO network access. If local files are missing,
+the error will propagate and the agent should handle fallback externally.
+
 Usage in sandbox:
     # Get after-hours data from yesterday
     df = get_minute_bars('2026-01-07', start_hour=16)
@@ -348,4 +351,3 @@ def historical_query(sql: str) -> pd.DataFrame:
 def available_dates() -> List[str]:
     """List available dates for historical data."""
     return _db.available_dates()
-

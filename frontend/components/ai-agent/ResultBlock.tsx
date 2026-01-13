@@ -1,9 +1,10 @@
 'use client';
 
 import React, { memo } from 'react';
-import { Loader2, AlertCircle, CheckCircle, Wrench, Clock } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle, Wrench, Clock, Search } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
 import { DataTable } from './DataTable';
+import { SectorPerformanceTable } from './SectorPerformanceTable';
 import { Chart } from './Chart';
 import { TradingChart } from '@/components/chart/TradingChart';
 import type { ResultBlockData, OutputBlock } from './types';
@@ -18,16 +19,38 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
 
   const renderOutput = (output: OutputBlock, index: number) => {
     switch (output.type) {
-      case 'table':
+      case 'table': {
+        const columns = output.columns || [];
+        const rows = output.rows || [];
+        
+        // Detect if this is a Sector Performance table
+        const isSectorPerformance = 
+          columns.includes('sector') && 
+          columns.includes('ticker_count') && 
+          columns.includes('tickers') &&
+          columns.includes('avg_change');
+        
+        if (isSectorPerformance) {
+          return (
+            <SectorPerformanceTable
+              key={index}
+              rows={rows as any}
+              title={output.title}
+              total={output.total}
+            />
+          );
+        }
+        
         return (
           <DataTable
             key={index}
-            columns={output.columns || []}
-            rows={output.rows || []}
+            columns={columns}
+            rows={rows}
             title={output.title}
             total={output.total}
           />
         );
+      }
 
       case 'chart':
         if (output.plotly_config) {
@@ -307,6 +330,81 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
                 </div>
               );
             })()}
+          </div>
+        );
+
+      case 'news':
+        // Quick news with Deep Research button
+        const newsOutput = output as any;
+        const newsItems = newsOutput.news || [];
+        const symbol = newsOutput.symbol || '';
+        
+        return (
+          <div key={index} className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+            {/* Header */}
+            <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-[14px] font-semibold text-gray-900">
+                  {symbol ? `News: ${symbol}` : 'Latest News'}
+                </h3>
+                <p className="text-[11px] text-gray-500">{newsItems.length} articles</p>
+              </div>
+              {newsOutput.deep_research_available && (
+                <button
+                  onClick={() => {
+                    // Dispatch custom event to send message
+                    window.dispatchEvent(new CustomEvent('agent:send', { 
+                      detail: { message: `deep research ${symbol}` }
+                    }));
+                  }}
+                  className="px-3 py-1.5 text-[11px] font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors flex items-center gap-1.5"
+                >
+                  <Search className="w-3 h-3" />
+                  Deep Research
+                </button>
+              )}
+            </div>
+            
+            {/* News list */}
+            {newsItems.length > 0 ? (
+              <div className="divide-y divide-gray-100">
+                {newsItems.map((news: any, i: number) => (
+                  <div key={i} className="px-4 py-3 hover:bg-gray-50 transition-colors">
+                    <h4 className="text-[13px] font-medium text-gray-900 leading-snug">{news.title}</h4>
+                    {news.summary && (
+                      <p className="text-[12px] text-gray-600 mt-1 leading-relaxed">{news.summary}</p>
+                    )}
+                    <div className="flex items-center gap-2 mt-2 text-[10px] text-gray-400">
+                      <span>{news.source}</span>
+                      {news.published && (
+                        <>
+                          <span>•</span>
+                          <span>{new Date(news.published).toLocaleString('es-ES', { 
+                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+                          })}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-6 text-center">
+                <p className="text-[13px] text-gray-500">No recent news found for {symbol}</p>
+                {newsOutput.deep_research_available && (
+                  <button
+                    onClick={() => {
+                      window.dispatchEvent(new CustomEvent('agent:send', { 
+                        detail: { message: `deep research ${symbol}` }
+                      }));
+                    }}
+                    className="mt-3 px-4 py-2 text-[12px] font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
+                  >
+                    Try Deep Research
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         );
 

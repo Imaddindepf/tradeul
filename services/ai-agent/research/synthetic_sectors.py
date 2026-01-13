@@ -57,15 +57,26 @@ async def classify_tickers_into_synthetic_sectors(
     BATCH_SIZE = 40
     all_classifications = {}
     
+    # Build context dict: symbol -> (sector, industry) from scanner data
+    symbol_context = {}
+    for _, row in df_to_classify.iterrows():
+        sym = row['symbol']
+        sector = row.get('sector', '') or ''
+        industry = row.get('industry', '') or ''
+        symbol_context[sym] = (sector, industry)
+    
     for i in range(0, len(symbols), BATCH_SIZE):
         batch = symbols[i:i + BATCH_SIZE]
+        # Build batch with context
+        batch_with_context = [(sym, symbol_context.get(sym, ('', ''))) for sym in batch]
+        
         logger.info("classifying_batch", 
                    batch_num=i // BATCH_SIZE + 1,
                    batch_size=len(batch),
                    total_batches=(len(symbols) + BATCH_SIZE - 1) // BATCH_SIZE)
         
-        batch_classifications = await _llm_classify_simple(
-            symbols=batch,
+        batch_classifications = await _llm_classify_with_context(
+            symbols_with_context=batch_with_context,
             llm_client=llm_client
         )
         
@@ -116,50 +127,61 @@ async def classify_tickers_into_synthetic_sectors(
     return result_df
 
 
-async def _llm_classify_simple(
-    symbols: List[str],
+async def _llm_classify_with_context(
+    symbols_with_context: List[tuple],  # [(symbol, (sector, industry)), ...] - we ignore the context now
     llm_client
 ) -> Dict[str, str]:
     """
-    Simple, direct LLM classification - single call for speed.
-    The LLM knows all these companies!
+    LLM classification using LLM's OWN KNOWLEDGE of companies.
+    No official sector/industry passed to avoid biasing the thematic classification.
     """
     
+    # Just pass the symbols - let LLM use its knowledge
+    symbols = [sym for sym, _ in symbols_with_context]
     batch_str = ", ".join(symbols)
     
-    prompt = f"""Classify these stock tickers into THEMATIC SECTORS.
+    prompt = f"""You are creating THEMATIC SYNTHETIC ETFs by grouping stocks.
 
-TICKERS: {batch_str}
+STEP 1: For each ticker, recall what company it is and what they do.
+STEP 2: Classify into the most specific THEMATIC sector.
 
-THEMATIC SECTORS (pick the most specific):
-- Nuclear Energy
-- AI & Semiconductors
-- Electric Vehicles
-- Solar & Clean Energy
-- Biotech & Pharmaceuticals
-- Fintech & Digital Payments
-- Crypto & Bitcoin
-- Cybersecurity
-- Gaming & Entertainment
-- E-Commerce
-- Cloud Computing
-- Cannabis
-- Space Exploration
-- Defense & Aerospace
-- Industrial Machinery
-- Online Gambling
-- Medical Diagnostics
-- Oil & Gas
-- Real Estate (REITs)
-- Mining & Materials
-- Quantum Computing
-- Weight Loss / GLP-1 Drugs
-- China Tech
+TICKERS TO CLASSIFY:
+{batch_str}
 
-IMPORTANT: Classify ALL tickers. Use your knowledge of each company.
+THEMATIC SECTORS (these are INVESTMENT THEMES, not traditional sectors):
+- Nuclear Energy (uranium miners, nuclear power plants, reactor builders)
+- AI & Semiconductors (GPU makers, AI chip designers, AI infrastructure like CoreWeave)
+- Electric Vehicles (EV manufacturers, battery makers, charging networks)
+- Solar & Clean Energy (solar panel makers, wind energy, clean tech)
+- Biotech & Pharmaceuticals (drug developers, clinical stage biotechs)
+- Fintech & Digital Payments (payment processors, neobanks, trading platforms)
+- Crypto & Bitcoin (crypto exchanges, Bitcoin miners, blockchain companies)
+- Cybersecurity (security software, threat detection, identity protection)
+- Gaming & Entertainment (video game publishers, esports, streaming)
+- E-Commerce (online retailers, marketplaces, D2C brands)
+- Cloud Computing (cloud infrastructure, SaaS platforms, data centers)
+- Cannabis (marijuana growers, CBD products, dispensaries - ONLY actual cannabis businesses)
+- Space Exploration (rocket companies, satellite operators, space tech)
+- Defense & Aerospace (military contractors, aerospace manufacturers)
+- Industrial Machinery (factory equipment, automation)
+- Online Gambling (sports betting, online casinos, iGaming)
+- Medical Diagnostics (diagnostic equipment, lab testing, medical devices)
+- Oil & Gas (drillers, refiners, pipelines)
+- Real Estate (REITs) (property owners, real estate services)
+- Mining & Materials (gold/silver miners, lithium, rare earths)
+- Quantum Computing (quantum hardware, quantum software)
+- Weight Loss / GLP-1 Drugs (Ozempic-like drugs, obesity treatments)
+- China Tech (Chinese internet, Chinese tech giants)
 
-Respond ONLY with JSON:
-{{"TICKER1": "Sector", "TICKER2": "Sector", ...}}"""
+CLASSIFICATION RULES:
+1. USE YOUR KNOWLEDGE of what each company actually does
+2. CoreWeave (CRWV) = GPU cloud infrastructure → AI & Semiconductors or Cloud Computing
+3. SPACs/Blank checks with no clear target → SKIP (don't classify)
+4. If you don't know the company → SKIP (don't guess)
+5. Be SPECIFIC - prefer "Weight Loss / GLP-1 Drugs" over generic "Biotech"
+
+Respond ONLY with valid JSON (no markdown):
+{{"TICKER": "Sector", ...}}"""
 
     try:
         from google.genai import types
@@ -231,16 +253,16 @@ def calculate_synthetic_sector_performance(df: pd.DataFrame) -> pd.DataFrame:
     else:
         change_col = 'change_percent'
     
-    # Aggregate by sector
+    # Aggregate by sector - show ALL tickers, not just top 5
     sector_stats = df.groupby('synthetic_sector').agg({
-        'symbol': ['count', lambda x: ', '.join(sorted(x)[:5])],
+        'symbol': ['count', lambda x: ', '.join(sorted(x))],  # ALL tickers
         change_col: ['mean', 'median', 'min', 'max'],
         'volume_today': 'sum',
         'market_cap': 'sum'
     }).reset_index()
     
     sector_stats.columns = [
-        'sector', 'ticker_count', 'top_tickers',
+        'sector', 'ticker_count', 'tickers',  # Renamed from 'top_tickers' to 'tickers'
         'avg_change', 'median_change', 'min_change', 'max_change',
         'total_volume', 'total_market_cap'
     ]
@@ -256,3 +278,17 @@ def calculate_synthetic_sector_performance(df: pd.DataFrame) -> pd.DataFrame:
                top_sector=sector_stats.iloc[0]['sector'] if len(sector_stats) > 0 else None)
     
     return sector_stats
+
+
+def clean_tickers_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove unnecessary columns from tickers dataframe for cleaner display."""
+    if df.empty:
+        return df
+    
+    # Remove premarket_change_percent if all values are 0 or null
+    if 'premarket_change_percent' in df.columns:
+        premarket_non_zero = (df['premarket_change_percent'].fillna(0) != 0).sum()
+        if premarket_non_zero == 0:
+            df = df.drop(columns=['premarket_change_percent'])
+    
+    return df

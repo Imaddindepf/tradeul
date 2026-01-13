@@ -76,6 +76,8 @@ class DailyMaintenanceScheduler:
         self.metadata_refresh_minute = 0
         self.maintenance_hour = 3           # 3:00 AM ET - Mantenimiento principal
         self.maintenance_minute = 0
+        self.baselines_refresh_hour = 3     # 3:15 AM ET - Refresh baselines (SIEMPRE en días de trading)
+        self.baselines_refresh_minute = 15
         self.cache_cleanup_hour = 3         # 3:45 AM ET - Limpieza de caches
         self.cache_cleanup_minute = 45
         self.morning_news_hour = 7          # 7:30 AM ET - Morning News Call
@@ -88,10 +90,12 @@ class DailyMaintenanceScheduler:
         self.last_today_bars_cleanup_date: Optional[date] = None  # Último cleanup de today.parquet
         self.last_metadata_refresh_date: Optional[date] = None  # Último refresh de metadata
         self.last_data_load_date: Optional[date] = None  # Último día de trading cargado
+        self.last_baselines_refresh_date: Optional[date] = None  # Último refresh de baselines
         self.last_cache_cleanup_date: Optional[date] = None
         self.last_morning_news_date: Optional[date] = None  # Último Morning News Call
         self.last_midmorning_update_date: Optional[date] = None  # Último Mid-Morning Update
         self._holidays_cache: Dict[str, bool] = {}
+        self._holidays_cache_date: Optional[date] = None  # Fecha del cache para invalidación diaria
     
     # =========================================================================
     # HELPERS DE CALENDARIO
@@ -99,6 +103,13 @@ class DailyMaintenanceScheduler:
     
     async def _is_market_holiday(self, check_date: date, exchange: str = "NYSE") -> bool:
         """Verificar si es festivo (mercado cerrado)"""
+        # Invalidar cache si cambió el día (evita cache stale)
+        today = datetime.now(NY_TZ).date()
+        if self._holidays_cache_date != today:
+            self._holidays_cache.clear()
+            self._holidays_cache_date = today
+            logger.debug("holidays_cache_cleared", new_date=today.isoformat())
+        
         date_str = check_date.isoformat()
         cache_key = f"{date_str}:{exchange}"
         
@@ -238,6 +249,12 @@ class DailyMaintenanceScheduler:
             if last_morning:
                 self.last_morning_news_date = date.fromisoformat(last_morning)
                 logger.info("loaded_last_morning_news_date", date=str(self.last_morning_news_date))
+            
+            # Estado de baselines refresh
+            last_baselines = await self.redis.get("maintenance:last_baselines_refresh")
+            if last_baselines:
+                self.last_baselines_refresh_date = date.fromisoformat(last_baselines)
+                logger.info("loaded_last_baselines_refresh_date", date=str(self.last_baselines_refresh_date))
         except Exception as e:
             logger.warning("failed_to_load_state", error=str(e))
     
@@ -293,6 +310,27 @@ class DailyMaintenanceScheduler:
                 if await self._has_pending_data_load(last_trading_day):
                     is_today_trading = await self._is_trading_day(current_date)
                     await self._execute_data_load(last_trading_day, clear_caches=is_today_trading)
+        
+        # =============================================
+        # 1.5. REFRESH DE BASELINES (3:15 AM ET)
+        # SIEMPRE se ejecuta en días de trading para mantener
+        # los baselines frescos (trades, RVOL, ATR)
+        # Esto es independiente del data_load
+        # =============================================
+        is_baselines_refresh_time = (
+            current_hour == self.baselines_refresh_hour and
+            self.baselines_refresh_minute <= current_minute <= self.baselines_refresh_minute + 5
+        )
+        
+        if is_baselines_refresh_time and self.last_baselines_refresh_date != current_date:
+            if await self._is_trading_day(current_date):
+                await self._execute_baselines_refresh(current_date)
+            else:
+                logger.info(
+                    "skipping_baselines_refresh_not_trading_day",
+                    date=str(current_date)
+                )
+                self.last_baselines_refresh_date = current_date
         
         # =============================================
         # 2. LIMPIEZA DE CACHES (3:45 AM ET)
@@ -513,6 +551,79 @@ class DailyMaintenanceScheduler:
             
         except Exception as e:
             logger.error("cache_cleanup_exception", error=str(e))
+    
+    async def _execute_baselines_refresh(self, current_date: date):
+        """
+        Recalcular baselines de trades, RVOL y ATR.
+        
+        Se ejecuta SIEMPRE en días de trading, independientemente de si
+        hay datos nuevos que cargar. Esto asegura que los baselines
+        nunca expiren durante fines de semana o festivos.
+        """
+        logger.info("📊 starting_baselines_refresh", date=str(current_date))
+        
+        start_time = datetime.now()
+        trades_result = None
+        rvol_result = None
+        atr_result = None
+        
+        try:
+            # 1. Recalcular trades baselines
+            try:
+                from tasks.calculate_trades_baselines import CalculateTradesBaselinesTask
+                trades_task = CalculateTradesBaselinesTask(self.redis, self.db)
+                trades_result = await trades_task.execute(current_date)
+                logger.info(
+                    "trades_baselines_refreshed",
+                    success=trades_result.get("success"),
+                    symbols=trades_result.get("redis_inserted", 0)
+                )
+            except Exception as e:
+                logger.error("trades_baselines_refresh_error", error=str(e))
+            
+            # 2. Recalcular RVOL baselines
+            try:
+                from tasks.calculate_rvol_averages import CalculateRVOLHistoricalAveragesTask
+                rvol_task = CalculateRVOLHistoricalAveragesTask(self.redis, self.db)
+                rvol_result = await rvol_task.execute(current_date)
+                logger.info(
+                    "rvol_baselines_refreshed",
+                    success=rvol_result.get("success"),
+                    symbols=rvol_result.get("redis_inserted", 0)
+                )
+            except Exception as e:
+                logger.error("rvol_baselines_refresh_error", error=str(e))
+            
+            # 3. Recalcular ATR (Average True Range)
+            try:
+                from tasks.atr_calculator import ATRCalculatorTask
+                atr_task = ATRCalculatorTask(self.redis, self.db)
+                atr_result = await atr_task.calculate_all(current_date)
+                logger.info(
+                    "atr_refreshed",
+                    success=atr_result.get("success"),
+                    calculated=atr_result.get("calculated", 0),
+                    total_valid=atr_result.get("total_valid", 0)
+                )
+            except Exception as e:
+                logger.error("atr_refresh_error", error=str(e))
+            
+            # Marcar como completado
+            self.last_baselines_refresh_date = current_date
+            await self.redis.set("maintenance:last_baselines_refresh", current_date.isoformat())
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.info(
+                "✅ baselines_refresh_completed",
+                date=str(current_date),
+                trades_symbols=trades_result.get("redis_inserted", 0) if trades_result else 0,
+                rvol_symbols=rvol_result.get("redis_inserted", 0) if rvol_result else 0,
+                atr_calculated=atr_result.get("calculated", 0) if atr_result else 0,
+                duration_seconds=round(elapsed, 2)
+            )
+            
+        except Exception as e:
+            logger.error("baselines_refresh_exception", date=str(current_date), error=str(e))
     
     async def _execute_morning_news_call(self, current_date: date):
         """

@@ -40,6 +40,7 @@ from routes.realtime import router as realtime_router, set_redis_client as set_r
 from routes.ratio_analysis import router as ratio_analysis_router
 from routes.morning_news import router as morning_news_router, set_redis_client as set_morning_news_redis
 from routes.insights import router as insights_router, set_redis_client as set_insights_redis
+from routes.symbols import router as symbols_router, set_timescale_client as set_symbols_timescale_client
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
@@ -82,6 +83,7 @@ async def lifespan(app: FastAPI):
     set_timescale_client(timescale_client)  # Para user_prefs
     set_user_filters_timescale_client(timescale_client)  # Para user_filters
     set_screener_templates_timescale_client(timescale_client)  # Para screener_templates
+    set_symbols_timescale_client(timescale_client)  # Para symbols (indexed query ~150ms)
     logger.info("timescale_connected")
     
     # Router de financials ahora es un microservicio separado
@@ -197,6 +199,7 @@ app.include_router(realtime_router)  # Real-time ticker data for charts
 app.include_router(ratio_analysis_router)  # Ratio analysis entre dos activos
 app.include_router(morning_news_router)  # Morning News Call diario
 app.include_router(insights_router)  # TradeUL Insights (Morning, Mid-Morning, etc.)
+app.include_router(symbols_router)  # Symbol lookups (market cap filtering for AI agent)
 
 
 # ============================================================================

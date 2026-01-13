@@ -1369,7 +1369,181 @@ interface ReportViewProps {
     isExecuting: boolean;
 }
 
+// =============================================================================
+// CELL DETAIL MODAL - View full content of truncated cells
+// =============================================================================
+
+interface CellModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    title: string;
+    content: string;
+    rowData?: Record<string, unknown>;
+}
+
+const CellModal = memo(({ isOpen, onClose, title, content, rowData }: CellModalProps) => {
+    if (!isOpen) return null;
+
+    // Parse content for better formatting (handle citations like [[1]](url))
+    const formatContent = (text: string) => {
+        // Replace citation patterns [[n]](url) with cleaner format
+        const withCitations = text.replace(/\[\[(\d+)\]\]\((https?:\/\/[^\s)]+)\)/g, ' [$1]');
+        // Split into paragraphs
+        return withCitations.split(/\n\n+/).filter(p => p.trim());
+    };
+
+    const paragraphs = formatContent(content);
+
+    // Extract key fields from rowData for quick view
+    const keyFields = rowData ? ['symbol', 'price', 'change_percent', 'volume_today', 'sector'] : [];
+    const quickData = keyFields
+        .filter(k => rowData && k in rowData)
+        .map(k => ({ key: k, val: rowData![k] }));
+
+    return (
+        <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+            onClick={onClose}
+        >
+            <motion.div
+                initial={{ scale: 0.95, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.95, opacity: 0, y: 20 }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header with symbol badge */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-600 to-indigo-600">
+                    <div className="flex items-center gap-3">
+                        {(() => {
+                            const symbol = rowData?.symbol;
+                            if (symbol) {
+                                return (
+                                    <span className="px-3 py-1 bg-white/20 rounded-lg text-white font-bold text-sm">
+                                        ${String(symbol)}
+                                    </span>
+                                );
+                            }
+                            return null;
+                        })()}
+                        <h3 className="font-semibold text-white capitalize">{title.replace(/_/g, ' ')}</h3>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                    >
+                        <X className="w-5 h-5 text-white" />
+                    </button>
+                </div>
+
+                {/* Quick stats bar */}
+                {quickData.length > 0 && (
+                    <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center gap-4 flex-wrap">
+                        {quickData.map(({ key, val }) => (
+                            <div key={key} className="flex items-center gap-1.5">
+                                <span className="text-xs text-slate-500 uppercase">{key.replace(/_/g, ' ')}:</span>
+                                <span className={`text-sm font-semibold ${key.includes('change') && typeof val === 'number'
+                                    ? val > 0 ? 'text-emerald-600' : 'text-red-500'
+                                    : 'text-slate-700'
+                                    }`}>
+                                    {key === 'price' && typeof val === 'number' ? `$${val.toFixed(2)}` :
+                                        key.includes('change') && typeof val === 'number' ? `${val > 0 ? '+' : ''}${val.toFixed(2)}%` :
+                                            key.includes('volume') && typeof val === 'number' ? (val >= 1e6 ? `${(val / 1e6).toFixed(1)}M` : val >= 1e3 ? `${(val / 1e3).toFixed(0)}K` : val) :
+                                                String(val ?? '-')}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Main Content */}
+                <div className="p-5 overflow-y-auto max-h-[50vh]">
+                    <div className="space-y-3">
+                        {paragraphs.map((p, i) => (
+                            <p key={i} className={`text-slate-700 leading-relaxed ${i === 0 ? 'text-base font-medium' : 'text-sm'}`}>
+                                {p}
+                            </p>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Expandable full row data */}
+                {rowData && (
+                    <details className="border-t border-slate-200">
+                        <summary className="px-5 py-3 bg-slate-50 cursor-pointer hover:bg-slate-100 text-sm font-medium text-slate-600 flex items-center gap-2">
+                            <span>View All Data Fields ({Object.keys(rowData).length} fields)</span>
+                        </summary>
+                        <div className="px-5 py-4 max-h-[200px] overflow-y-auto bg-slate-50">
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+                                {Object.entries(rowData)
+                                    .filter(([k]) => !['news_summary', 'latest_headline'].includes(k))
+                                    .map(([key, val]) => (
+                                        <div key={key} className="text-xs truncate">
+                                            <span className="font-medium text-slate-500">{key.replace(/_/g, ' ')}: </span>
+                                            <span className="text-slate-700">{
+                                                typeof val === 'number' ? val.toFixed(2) :
+                                                    typeof val === 'boolean' ? (val ? '✓' : '✗') :
+                                                        String(val ?? '-').slice(0, 50)
+                                            }</span>
+                                        </div>
+                                    ))}
+                            </div>
+                        </div>
+                    </details>
+                )}
+
+                {/* Footer */}
+                <div className="px-5 py-4 border-t border-slate-200 bg-white flex justify-end gap-3">
+                    <button
+                        onClick={onClose}
+                        className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+                    >
+                        Close
+                    </button>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+});
+
+CellModal.displayName = 'CellModal';
+
 const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: ReportViewProps) => {
+    // State for cell modal
+    const [cellModal, setCellModal] = useState<{ isOpen: boolean; title: string; content: string; rowData?: Record<string, unknown> }>({
+        isOpen: false,
+        title: '',
+        content: '',
+        rowData: undefined
+    });
+
+    // State for showing all rows per node
+    const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+
+    const toggleNodeExpansion = (nodeId: string) => {
+        setExpandedNodes(prev => {
+            const next = new Set(prev);
+            if (next.has(nodeId)) {
+                next.delete(nodeId);
+            } else {
+                next.add(nodeId);
+            }
+            return next;
+        });
+    };
+
+    const openCellModal = (title: string, content: string, rowData?: Record<string, unknown>) => {
+        setCellModal({ isOpen: true, title, content, rowData });
+    };
+
+    const closeCellModal = () => {
+        setCellModal({ isOpen: false, title: '', content: '', rowData: undefined });
+    };
+
     if (!report) return null;
 
     const nodeEntries = Object.entries(report.nodeResults);
@@ -1394,6 +1568,22 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
         return String(val);
     };
 
+    // Check if a value should be truncated (long text)
+    const shouldTruncate = (val: unknown, col: string): boolean => {
+        if (typeof val !== 'string') return false;
+        const longTextCols = ['headline', 'summary', 'reason', 'content', 'description', 'news'];
+        return val.length > 50 || longTextCols.some(c => col.toLowerCase().includes(c));
+    };
+
+    // Get truncated display value
+    const getTruncatedValue = (val: unknown, col: string): string => {
+        const str = formatValue(val, col);
+        if (shouldTruncate(val, col) && str.length > 50) {
+            return str.slice(0, 47) + '...';
+        }
+        return str;
+    };
+
     // Helper to find a DataFrame in nested data
     const findDataFrame = (obj: unknown, maxDepth = 3): { columns: string[]; data: Record<string, unknown>[] } | null => {
         if (maxDepth <= 0 || !obj || typeof obj !== 'object') return null;
@@ -1416,7 +1606,7 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
         return null;
     };
 
-    const renderDataTable = (data: unknown, title: string): React.ReactNode => {
+    const renderDataTable = (data: unknown, title: string, nodeId: string = 'default'): React.ReactNode => {
         // Try to find a DataFrame anywhere in the data
         const df = findDataFrame(data);
 
@@ -1424,54 +1614,90 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
             // Smart column selection - prioritize enrichment columns
             const priorityCols = [
                 'symbol', 'price', 'change_percent', 'volume_today', 'rvol',
+                // News Enricher columns
+                'has_news', 'news_count', 'latest_headline', 'news_summary',
+                // Narrative Classifier columns
                 'narrative', 'narrative_confidence', 'narrative_reason',
+                // Sentiment Scorer columns
                 'sentiment_score', 'sentiment_label',
-                'risk_score', 'has_binary_event', 'risk_factors',
+                // Risk Scorer columns
+                'risk_score', 'has_binary_event', 'risk_factors', 'event_date',
+                // Sector columns
                 'synthetic_sector', 'sector',
+                // Ranking columns
                 'rank', 'rank_score', 'anomaly_score',
+                // Signal columns
                 'signal_id', 'signal_name'
             ];
 
             // Get available priority columns that exist in data
             const availablePriority = priorityCols.filter(c => df.columns.includes(c));
-            // Add any other columns up to 8 total
+            // Add any other columns up to 15 total for better visibility
             const otherCols = df.columns.filter(c => !availablePriority.includes(c));
-            const cols = [...availablePriority, ...otherCols].slice(0, 8);
+            const cols = [...availablePriority, ...otherCols].slice(0, 15);
 
-            const rows = df.data.slice(0, 10);
+            // Show all rows if expanded, otherwise limit to 15
+            const isExpanded = expandedNodes.has(nodeId);
+            const displayRows = isExpanded ? df.data : df.data.slice(0, 15);
+            const totalRows = df.data.length;
 
             return (
                 <div className="overflow-x-auto">
-                    <table className="w-full text-[10px]">
-                        <thead>
-                            <tr className="border-b border-slate-200">
-                                {cols.map((col, i) => (
-                                    <th key={i} className="px-2 py-1.5 text-left font-medium text-blue-600 uppercase tracking-wider">
-                                        {col.replace(/_/g, ' ')}
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {rows.map((row, i) => (
-                                <tr key={i} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
-                                    {cols.map((col, j) => {
-                                        const val = row[col];
-                                        const formatted = formatValue(val, col);
-                                        const isPositive = typeof val === 'number' && val > 0 && (col.includes('change') || col.includes('percent'));
-                                        const isNegative = typeof val === 'number' && val < 0 && (col.includes('change') || col.includes('percent'));
-                                        return (
-                                            <td key={j} className={`px-2 py-1.5 ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-500' : j === 0 ? 'text-slate-700' : 'text-slate-500'}`}>
-                                                {formatted}
-                                            </td>
-                                        );
-                                    })}
+                    <div className="max-h-[400px] overflow-y-auto">
+                        <table className="w-full text-[10px]">
+                            <thead className="sticky top-0 bg-white z-10">
+                                <tr className="border-b border-slate-200">
+                                    {cols.map((col, i) => (
+                                        <th key={i} className="px-2 py-1.5 text-left font-medium text-blue-600 uppercase tracking-wider whitespace-nowrap">
+                                            {col.replace(/_/g, ' ')}
+                                        </th>
+                                    ))}
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {df.data.length > 10 && (
-                        <p className="text-[9px] text-slate-400 mt-2 text-center">10 of {df.data.length} rows</p>
+                            </thead>
+                            <tbody>
+                                {displayRows.map((row, i) => (
+                                    <tr key={i} className="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                                        {cols.map((col, j) => {
+                                            const val = row[col];
+                                            const fullValue = formatValue(val, col);
+                                            const displayValue = getTruncatedValue(val, col);
+                                            const isTruncated = shouldTruncate(val, col) && fullValue.length > 50;
+                                            const isPositive = typeof val === 'number' && val > 0 && (col.includes('change') || col.includes('percent'));
+                                            const isNegative = typeof val === 'number' && val < 0 && (col.includes('change') || col.includes('percent'));
+
+                                            return (
+                                                <td
+                                                    key={j}
+                                                    className={`px-2 py-1.5 ${isPositive ? 'text-emerald-600' : isNegative ? 'text-red-500' : j === 0 ? 'text-slate-700 font-medium' : 'text-slate-500'} ${isTruncated ? 'cursor-pointer hover:bg-blue-100 rounded' : ''}`}
+                                                    onClick={isTruncated ? () => openCellModal(col.replace(/_/g, ' '), fullValue, row) : undefined}
+                                                    title={isTruncated ? 'Click to view full content' : undefined}
+                                                >
+                                                    <span className="flex items-center gap-1">
+                                                        {displayValue}
+                                                        {isTruncated && (
+                                                            <Maximize2 className="w-3 h-3 text-blue-400 flex-shrink-0" />
+                                                        )}
+                                                    </span>
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                    {totalRows > 15 && (
+                        <div className="flex items-center justify-center gap-2 mt-2 pt-2 border-t border-slate-100">
+                            <span className="text-[9px] text-slate-400">
+                                {isExpanded ? `Showing all ${totalRows} rows` : `${Math.min(15, totalRows)} of ${totalRows} rows`}
+                            </span>
+                            <button
+                                onClick={() => toggleNodeExpansion(nodeId)}
+                                className="text-[9px] text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                                {isExpanded ? 'Show Less' : 'Show All'}
+                            </button>
+                        </div>
                     )}
                 </div>
             );
@@ -1521,13 +1747,13 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                 // Try recursively finding DataFrame
                 const nestedDf = findDataFrame(innerData);
                 if (nestedDf && nestedDf.columns.length > 0 && nestedDf.data.length > 0) {
-                    return renderDataTable(nestedDf, title);
+                    return renderDataTable(nestedDf, title, nodeId);
                 }
                 // Check if innerData itself has data key
                 if (innerData.data && typeof innerData.data === 'object') {
                     const deeperDf = findDataFrame(innerData.data);
                     if (deeperDf && deeperDf.columns.length > 0 && deeperDf.data.length > 0) {
-                        return renderDataTable(deeperDf, title);
+                        return renderDataTable(deeperDf, title, nodeId);
                     }
                 }
             }
@@ -1672,7 +1898,7 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                                 {/* Card Content */}
                                 <div className="p-3">
                                     {result.data ? (
-                                        renderDataTable(result.data, result.title)
+                                        renderDataTable(result.data, result.title, id)
                                     ) : (
                                         <p className="text-slate-400 text-[10px] text-center py-2">No output</p>
                                     )}
@@ -1682,6 +1908,17 @@ const ReportView = memo(({ report, onBackToBuilder, onRerun, isExecuting }: Repo
                     })}
                 </div>
             </div>
+
+            {/* Cell Detail Modal */}
+            <AnimatePresence>
+                <CellModal
+                    isOpen={cellModal.isOpen}
+                    onClose={closeCellModal}
+                    title={cellModal.title}
+                    content={cellModal.content}
+                    rowData={cellModal.rowData}
+                />
+            </AnimatePresence>
         </motion.div>
     );
 });
@@ -1882,22 +2119,40 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                             // Handle DataFrame format: { type: 'dataframe', columns: [...], data: [...] }
                             if (innerData?.type === 'dataframe' && Array.isArray(innerData.data)) {
                                 const allCols = innerData.columns || [];
-                                // Prefer useful columns for display
-                                const preferredCols = ['symbol', 'price', 'change_percent', 'volume_today', 'sector'];
+                                // Prefer useful columns for display (including enrichment columns)
+                                const preferredCols = [
+                                    'symbol', 'price', 'change_percent', 'volume_today', 'rvol', 'sector',
+                                    // News Enricher
+                                    'has_news', 'news_count', 'latest_headline',
+                                    // Narrative Classifier
+                                    'narrative', 'narrative_reason',
+                                    // Sentiment & Risk
+                                    'sentiment_label', 'risk_score', 'has_binary_event'
+                                ];
                                 const displayCols = preferredCols.filter(c => allCols.includes(c));
-                                // Fallback to first 4 if none found
-                                const finalCols = displayCols.length > 0 ? displayCols : allCols.slice(0, 4);
+                                // Fallback to first 6 if none found (increased from 4)
+                                const finalCols = displayCols.length > 0 ? displayCols.slice(0, 8) : allCols.slice(0, 6);
 
                                 tableData = {
                                     columns: finalCols.map((c: string) =>
                                         c === 'change_percent' ? 'Change %' :
                                             c === 'volume_today' ? 'Volume' :
-                                                c.charAt(0).toUpperCase() + c.slice(1).replace('_', ' ')
+                                                c === 'has_news' ? 'News?' :
+                                                    c === 'news_count' ? '#News' :
+                                                        c === 'latest_headline' ? 'Headline' :
+                                                            c === 'has_binary_event' ? 'Event?' :
+                                                                c === 'sentiment_label' ? 'Sentiment' :
+                                                                    c === 'risk_score' ? 'Risk' :
+                                                                        c.charAt(0).toUpperCase() + c.slice(1).replace(/_/g, ' ')
                                     ),
                                     rows: innerData.data.slice(0, 5).map((row: Record<string, unknown>) =>
                                         finalCols.map((col: string) => {
                                             const val = row[col];
                                             if (val === null || val === undefined) return '-';
+                                            // Boolean columns
+                                            if (typeof val === 'boolean') {
+                                                return val ? '✓' : '✗';
+                                            }
                                             if (typeof val === 'number') {
                                                 if (col.includes('percent') || col.includes('change')) {
                                                     return `${val > 0 ? '+' : ''}${val.toFixed(2)}%`;
@@ -1907,9 +2162,15 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                                                         val >= 1000 ? `${(val / 1000).toFixed(0)}K` : String(val);
                                                 }
                                                 if (col === 'price') return `$${val.toFixed(2)}`;
+                                                if (col === 'risk_score') return val.toFixed(2);
                                                 return val.toFixed(2);
                                             }
-                                            return String(val);
+                                            // Truncate long strings (headlines, summaries)
+                                            const strVal = String(val);
+                                            if (col.includes('headline') || col.includes('summary') || col.includes('reason')) {
+                                                return strVal.length > 40 ? strVal.slice(0, 40) + '...' : strVal;
+                                            }
+                                            return strVal;
                                         })
                                     )
                                 };

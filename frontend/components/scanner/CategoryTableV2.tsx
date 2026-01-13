@@ -56,13 +56,13 @@ const columnHelper = createColumnHelper<Ticker>();
 // Columnas no listadas = ocultas por defecto (excepto row_number y symbol que no se ocultan)
 
 const DEFAULT_VISIBLE_COLUMNS: Record<string, string[]> = {
-  // Gappers: enfocado en gap % y volumen relativo
-  gappers_up: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
-  gappers_down: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+  // Gappers: enfocado en gap % (premarket) y volumen relativo
+  gappers_up: ['price', 'change_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+  gappers_down: ['price', 'change_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
 
   // Momentum: cambio % + chg_5min (vela de ignición) + RVOL alto
-  momentum_up: ['price', 'change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
-  momentum_down: ['price', 'change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
+  momentum_up: ['price', 'change_percent', 'premarket_change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
+  momentum_down: ['price', 'change_percent', 'premarket_change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
 
   // Winners/Losers: top movers del día
   winners: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'dollar_volume'],
@@ -93,7 +93,7 @@ const DEFAULT_BASE_COLUMNS = ['price', 'change_percent', 'volume_today', 'rvol',
 
 // Genera el objeto de visibilidad de columnas (todas las columnas excepto las visibles = false)
 const ALL_HIDEABLE_COLUMNS = [
-  'price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float',
+  'price', 'change_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float',
   'shares_outstanding', 'minute_volume', 'avg_volume_5d', 'avg_volume_10d', 'avg_volume_3m',
   'dollar_volume', 'volume_today_pct', 'volume_yesterday_pct', 'vol_1min', 'vol_5min',
   'vol_10min', 'vol_15min', 'vol_30min', 'chg_1min', 'chg_5min', 'chg_10min', 'chg_15min', 'chg_30min',
@@ -903,6 +903,29 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               : 'text-slate-600';
           const prefix = value > 0 ? '+' : '';
           return <div className={`font-mono ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
+      // Pre-Market column (gap from prev_close, live during premarket, frozen at day.o during market hours)
+      columnHelper.accessor('premarket_change_percent', {
+        header: 'Pre%',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined)
+            return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return (
+            <div className={`font-mono font-semibold ${colorClass}`}>
+              {prefix}{value.toFixed(2)}%
+            </div>
+          );
         },
       }),
       // Post-Market columns (populated during POST_MARKET session 16:00-20:00 ET)

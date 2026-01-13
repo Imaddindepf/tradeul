@@ -86,11 +86,21 @@ class NewsEnricherNode(NodeBase):
             
             if result.get("success") and result.get("content"):
                 content = result["content"]
+                # Extract first sentence/paragraph as headline, rest as summary
+                # Split on first period+space or double newline
+                parts = content.split('. ', 1)
+                if len(parts) > 1:
+                    headline = parts[0] + '.'
+                    summary = content  # Full content as summary
+                else:
+                    headline = content[:200] if len(content) > 200 else content
+                    summary = content
+                
                 return {
                     "has_news": True,
                     "count": len(result.get("citations", [])),
-                    "headline": content[:150],
-                    "summary": content[:400]
+                    "headline": headline,
+                    "summary": summary  # Full content, frontend handles display
                 }
             return {"has_news": False, "count": 0, "headline": "", "summary": ""}
         except:

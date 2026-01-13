@@ -105,6 +105,9 @@ class ScannerTicker(BaseModel):
     vwap: Optional[float] = Field(None, description="Volume Weighted Average Price (today)")
     price_vs_vwap: Optional[float] = Field(None, description="% distance from VWAP")
     
+    # Pre-Market metrics (capturado al inicio de MARKET_OPEN, 09:30 ET)
+    premarket_change_percent: Optional[float] = Field(None, description="% change during pre-market (4AM-9:30AM from prev_close)")
+    
     # Post-Market metrics (activos solo durante POST_MARKET session 16:00-20:00 ET)
     postmarket_change_percent: Optional[float] = Field(None, description="% change from regular session close (day.c)")
     postmarket_volume: Optional[int] = Field(None, description="Volume traded in post-market only (min.av - day.v)")
