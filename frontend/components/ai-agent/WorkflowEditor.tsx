@@ -55,6 +55,8 @@ const ICON_TO_BACKEND_TYPE: Record<string, string> = {
     sector_classifier: 'sector_classifier',
 
     // ENRICH nodes
+    quick_news: 'quick_news',
+    deep_research: 'deep_research',
     news_enricher: 'news_enricher',
     narrative_classifier: 'narrative_classifier',
     risk_scorer: 'risk_scorer',
@@ -207,6 +209,16 @@ const DEFAULT_CONFIGS: Record<string, NodeConfig> = {
     },
 
     // === ENRICH NODES ===
+    quick_news: {
+        ticker: '',  // From input or specified
+        limit: 5,
+    },
+
+    deep_research: {
+        ticker: '',  // From input or specified
+        query: '',
+    },
+
     news_enricher: {
         max_tickers: 20,
         news_limit: 3,
@@ -898,6 +910,8 @@ const NODE_TEMPLATES = [
     { type: 'sector_classifier', label: 'Sector Classifier', category: 'ai' as NodeCategory },
 
     // === ENRICH NODES ===
+    { type: 'quick_news', label: 'Quick News', category: 'enrichment' as NodeCategory },
+    { type: 'deep_research', label: 'Deep Research', category: 'ai' as NodeCategory },
     { type: 'news_enricher', label: 'News Enricher', category: 'enrichment' as NodeCategory },
     { type: 'narrative_classifier', label: 'Narrative Classifier', category: 'ai' as NodeCategory },
     { type: 'risk_scorer', label: 'Risk Scorer', category: 'enrichment' as NodeCategory },
@@ -1191,6 +1205,47 @@ const NodeConfigPanel = memo(({ node, onClose, onUpdate }: NodeConfigPanelProps)
                 );
 
             // === ENRICH NODES ===
+            case 'quick_news':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Ticker</label>
+                            <input type="text" value={(config as any).ticker || ''}
+                                placeholder="From input"
+                                onChange={(e) => handleChange('ticker', e.target.value.toUpperCase())}
+                                className={inputClass} />
+                            <p className={hintClass}>Leave empty to use input ticker</p>
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Max Articles</label>
+                            <input type="number" min={1} max={10} value={(config as any).limit || 5}
+                                onChange={(e) => handleChange('limit', parseInt(e.target.value) || 5)}
+                                className={inputClass} />
+                        </div>
+                    </>
+                );
+
+            case 'deep_research':
+                return (
+                    <>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Ticker</label>
+                            <input type="text" value={(config as any).ticker || ''}
+                                placeholder="From input"
+                                onChange={(e) => handleChange('ticker', e.target.value.toUpperCase())}
+                                className={inputClass} />
+                        </div>
+                        <div className="space-y-1">
+                            <label className={labelClass}>Query</label>
+                            <input type="text" value={(config as any).query || ''}
+                                placeholder="Why is it moving?"
+                                onChange={(e) => handleChange('query', e.target.value)}
+                                className={inputClass} />
+                            <p className={hintClass}>Grok AI deep analysis (60-90s)</p>
+                        </div>
+                    </>
+                );
+
             case 'news_enricher':
                 return (
                     <>

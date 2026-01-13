@@ -434,7 +434,7 @@ Response format: Just the extracted info about ${target_ticker}, nothing else. I
                 config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=300)
             )
             
-            return response.text.strip() if response.text else full_text[:300]
+            return (response.text or "").strip() or full_text[:300]
         except Exception as e:
             logger.warning("llm_extraction_failed", error=str(e))
             return full_text[:300]
@@ -465,7 +465,8 @@ Response format: Just the extracted info about ${target_ticker}, nothing else. I
                         summary = await extract_ticker_info(full_text, ticker)
                     else:
                         # Single ticker article - use teaser or full text
-                        summary = art.get("teaser", "").strip()
+                        teaser = art.get("teaser") or ""
+                        summary = teaser.strip() if isinstance(teaser, str) else ""
                         if not summary or summary == " ":
                             summary = full_text[:500]
                     

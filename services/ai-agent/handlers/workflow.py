@@ -81,8 +81,10 @@ NODE_TYPE_TO_TOOL: Dict[str, str] = {
     'momentum_wave': 'get_top_movers',  # Uses top movers logic
     'sector_flow': 'classify_synthetic_sectors',  # New name for sectors
     
-    # Enrichment
-    'news_validator': 'research_ticker',  # Uses Grok for news analysis
+    # Enrichment - News
+    'quick_news': 'quick_news',  # Fast Benzinga lookup (<1s)
+    'news_validator': 'research_ticker',  # Deep research with Grok (60-90s)
+    'deep_research': 'research_ticker',  # Alias for news_validator
     
     # Output
     'results': None,  # Display node - passthrough
@@ -94,6 +96,7 @@ NODE_TYPE_TO_TOOL: Dict[str, str] = {
     'synthetic': 'classify_synthetic_sectors',
     'synthetic_sectors': 'classify_synthetic_sectors',
     'research': 'research_ticker',
+    'news': 'quick_news',  # Fast news alias
     'display': None,  # Passthrough
 }
 
@@ -411,8 +414,19 @@ class WorkflowExecutor:
                                 args['input_data'] = found
                         break
             
+        elif tool_name == 'quick_news':
+            # Fast Benzinga news lookup
+            tickers = input_data.get('tickers', input_data.get('filtered', []))
+            if config.get('ticker'):
+                args['symbol'] = config['ticker']
+            elif isinstance(tickers, list) and len(tickers) > 0:
+                args['symbol'] = tickers[0] if isinstance(tickers[0], str) else tickers[0].get('symbol', '')
+            else:
+                args['symbol'] = ''
+            args['limit'] = config.get('limit', 5)
+            
         elif tool_name == 'research_ticker':
-            # Get tickers from input if available
+            # Deep research with Grok + Benzinga
             tickers = input_data.get('tickers', input_data.get('filtered', []))
             if config.get('ticker'):
                 args['symbol'] = config['ticker']
