@@ -30,6 +30,7 @@ import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insi
 import { FinancialAnalystContent } from '@/components/financial-analyst';
 import { AIAgentContent } from '@/components/ai-agent';
 import { InsightsPanel } from '@/components/insights';
+import { HeatmapContent } from '@/components/heatmap';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -313,6 +314,20 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 275),
                     minWidth: 500,
                     minHeight: 400,
+                });
+                return null;
+
+            case 'heatmap':
+            case 'hm':
+                openWindow({
+                    title: 'Market Heatmap',
+                    content: <HeatmapContent />,
+                    width: 1100,
+                    height: 750,
+                    x: Math.max(50, screenWidth / 2 - 550),
+                    y: Math.max(70, screenHeight / 2 - 375),
+                    minWidth: 800,
+                    minHeight: 500,
                 });
                 return null;
 

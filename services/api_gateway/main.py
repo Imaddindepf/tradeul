@@ -41,6 +41,7 @@ from routes.ratio_analysis import router as ratio_analysis_router
 from routes.morning_news import router as morning_news_router, set_redis_client as set_morning_news_redis
 from routes.insights import router as insights_router, set_redis_client as set_insights_redis
 from routes.symbols import router as symbols_router, set_timescale_client as set_symbols_timescale_client
+from routes.heatmap import router as heatmap_router, set_redis_client as set_heatmap_redis
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
@@ -100,6 +101,10 @@ async def lifespan(app: FastAPI):
     
     set_insights_redis(redis_client)
     logger.info("insights_router_configured")
+    
+    # Configurar router de heatmap con Redis
+    set_heatmap_redis(redis_client)
+    logger.info("heatmap_router_configured")
     
     # Inicializar HTTP Clients con connection pooling
     # Esto evita crear conexiones por request - CRÍTICO para latencia
@@ -200,6 +205,7 @@ app.include_router(ratio_analysis_router)  # Ratio analysis entre dos activos
 app.include_router(morning_news_router)  # Morning News Call diario
 app.include_router(insights_router)  # TradeUL Insights (Morning, Mid-Morning, etc.)
 app.include_router(symbols_router)  # Symbol lookups (market cap filtering for AI agent)
+app.include_router(heatmap_router)  # Market heatmap visualization
 
 
 # ============================================================================
@@ -2990,6 +2996,74 @@ async def fetch_fmp_chunk(
     return bars, oldest_time if has_more else None
 
 
+async def fetch_polygon_daily_chunk(
+    symbol: str,
+    to_date: str,
+    limit: int = 1000
+) -> tuple[List[dict], Optional[int]]:
+    """
+    Fetch daily OHLCV data from Polygon.
+    
+    Usado como FALLBACK cuando FMP no tiene datos (warrants, OTC, SPACs, etc.)
+    
+    Args:
+        symbol: Ticker symbol
+        to_date: Fecha fin YYYY-MM-DD
+        limit: Número de barras a obtener
+    
+    Returns:
+        (bars, oldest_time) para lazy loading pagination
+    """
+    from datetime import datetime as dt, timedelta
+    
+    # Parse to_date
+    try:
+        to_dt = dt.strptime(to_date, "%Y-%m-%d")
+    except:
+        to_dt = dt.now()
+    
+    # Calcular from_date (~5 años de historia para tener suficientes barras)
+    # Trading days ~252/año, pedimos más para asegurar cobertura
+    days_needed = int(limit * 1.5) + 30  # Buffer extra
+    from_date = (to_dt - timedelta(days=days_needed)).strftime("%Y-%m-%d")
+    
+    # Usar cliente Polygon con connection pooling
+    data = await http_clients.polygon.get_daily_aggregates(
+        symbol=symbol,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit
+    )
+    
+    results = data.get("results", [])
+    
+    # Transform to our format (Polygon ya viene en orden ascendente)
+    bars = []
+    for bar in results:
+        try:
+            bars.append({
+                "time": int(bar["t"] / 1000),  # ms to seconds
+                "open": float(bar["o"]),
+                "high": float(bar["h"]),
+                "low": float(bar["l"]),
+                "close": float(bar["c"]),
+                "volume": int(bar["v"])
+            })
+        except Exception:
+            continue
+    
+    # Tomar las últimas 'limit' barras si hay más
+    full_count = len(bars)
+    if len(bars) > limit:
+        bars = bars[-limit:]
+    
+    oldest_time = bars[0]["time"] if bars else None
+    has_more = full_count >= limit or data.get("next_url") is not None
+    
+    logger.info("polygon_daily_chunk_fetched", symbol=symbol, bars=len(bars), total_available=full_count)
+    return bars, oldest_time if has_more else None
+
+
 @app.get("/api/v1/chart/{symbol}")
 async def get_chart_data(
     symbol: str,
@@ -3074,11 +3148,20 @@ async def get_chart_data(
         
         # Usar clientes HTTP con connection pooling (ya inicializados)
         if interval == "1day":
-            # Use FMP for daily data
+            # Use FMP for daily data (primary source)
             chart_data, oldest_time = await fetch_fmp_chunk(
                 symbol, to_date, bars_limit
             )
             source = "fmp"
+            
+            # FALLBACK: Si FMP no tiene datos, usar Polygon
+            # Esto cubre warrants, OTC, y tickers que FMP no soporta
+            if not chart_data:
+                logger.info("fmp_no_data_fallback_polygon", symbol=symbol)
+                chart_data, oldest_time = await fetch_polygon_daily_chunk(
+                    symbol, to_date, bars_limit
+                )
+                source = "polygon"  # Update source to reflect actual data provider
         else:
             # Use Polygon for intraday data
             chart_data, oldest_time = await fetch_polygon_chunk(

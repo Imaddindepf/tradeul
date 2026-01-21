@@ -79,7 +79,7 @@ export function TerminalPalette({
     // No tratar como ticker si es un comando exacto
     const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper)
         && !hasScPrefix
-        && !['SC', 'IPO', 'SET', 'HELP', 'FILTERS', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT'].includes(searchUpper)
+        && !['SC', 'IPO', 'SET', 'HELP', 'FILTERS', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT', 'HM'].includes(searchUpper)
         && !isExactCommand;
 
     // Buscar tickers cuando parece un ticker

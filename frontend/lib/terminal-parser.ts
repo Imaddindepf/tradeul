@@ -249,6 +249,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.PREDICT.description',
         shortcut: null
     },
+    HM: {
+        id: 'heatmap',
+        label: 'HM',
+        name: 'Market Heatmap',
+        descriptionKey: 'terminalCommands.globalCommands.HM.description',
+        shortcut: 'Ctrl+H'
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

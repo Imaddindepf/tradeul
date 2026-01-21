@@ -101,6 +101,38 @@ class PolygonClient:
         response.raise_for_status()
         return response.json()
     
+    async def get_daily_aggregates(
+        self,
+        symbol: str,
+        from_date: str,
+        to_date: str,
+        limit: int = 5000
+    ) -> Dict[str, Any]:
+        """
+        Obtiene datos OHLCV diarios de Polygon.
+        
+        Usado como fallback cuando FMP no tiene datos (warrants, OTC, etc.)
+        
+        Args:
+            symbol: Ticker symbol
+            from_date: Fecha inicio YYYY-MM-DD
+            to_date: Fecha fin YYYY-MM-DD
+            limit: Máximo de resultados
+        
+        Returns:
+            Dict con results[] conteniendo barras diarias
+        """
+        url = f"/v2/aggs/ticker/{symbol}/range/1/day/{from_date}/{to_date}"
+        params = {
+            "adjusted": "true",
+            "sort": "asc",
+            "limit": str(limit),
+            "apiKey": self.api_key
+        }
+        response = await self._client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+    
     async def get_ipos(self, limit: int = 1000) -> Dict[str, Any]:
         """Obtiene lista de IPOs"""
         url = "/vX/reference/ipos"

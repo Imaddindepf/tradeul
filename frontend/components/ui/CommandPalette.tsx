@@ -110,7 +110,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         }
 
         // Comandos que abren ventanas flotantes (principales)
-        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'filters', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider', 'earnings'].includes(value)) {
+        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'filters', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider', 'earnings', 'heatmap', 'predict', 'ai', 'ins', 'fan'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);
@@ -190,6 +190,8 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                 '0': 'with_news',
                 'd': 'dilution-tracker',
                 'D': 'dilution-tracker',
+                'h': 'heatmap',
+                'H': 'heatmap',
             };
 
             const commandId = shortcuts[e.key];
