@@ -748,11 +748,26 @@ function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'com
 
   const tooltip = tooltips[type];
   const [show, setShow] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  const handleMouseEnter = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      // Position tooltip to the right of the button, centered vertically
+      setPosition({
+        top: rect.top + rect.height / 2,
+        left: rect.right + 8
+      });
+    }
+    setShow(true);
+  };
 
   return (
     <div className="relative inline-block">
       <button
-        onMouseEnter={() => setShow(true)}
+        ref={buttonRef}
+        onMouseEnter={handleMouseEnter}
         onMouseLeave={() => setShow(false)}
         className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
         type="button"
@@ -761,13 +776,20 @@ function EducationalTooltip({ type }: { type: 'warrant' | 'atm' | 'shelf' | 'com
       </button>
 
       {show && (
-        <div className="absolute z-50 left-0 top-full mt-1 w-72 bg-slate-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
-          <div className="font-semibold mb-1">{tooltip.title}</div>
-          <div className="text-slate-300 mb-2">{tooltip.description}</div>
-          <div className="text-slate-400 mb-1">{tooltip.impact}</div>
-          <div className="text-slate-500 text-[10px]">{tooltip.filing}</div>
-          {/* Arrow */}
-          <div className="absolute -top-1 left-4 w-2 h-2 bg-slate-900 transform rotate-45" />
+        <div 
+          className="fixed z-[99999] w-72 bg-white text-slate-700 text-xs rounded-lg shadow-2xl border border-slate-200 p-3 pointer-events-none"
+          style={{ 
+            top: position.top, 
+            left: position.left,
+            transform: 'translateY(-50%)'
+          }}
+        >
+          <div className="font-semibold text-slate-900 mb-1">{tooltip.title}</div>
+          <div className="text-slate-600 mb-2">{tooltip.description}</div>
+          <div className="text-slate-500 mb-1">{tooltip.impact}</div>
+          <div className="text-slate-400 text-[10px]">{tooltip.filing}</div>
+          {/* Arrow pointing left */}
+          <div className="absolute top-1/2 -left-1.5 w-2.5 h-2.5 bg-white border-l border-b border-slate-200 transform -translate-y-1/2 rotate-45" />
         </div>
       )}
     </div>
@@ -989,50 +1011,123 @@ function ShelfCard({ registrations }: { registrations: ShelfRegistration[] }) {
           ? `${filingDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} Shelf`
           : 'Shelf Registration';
 
+        // Helper to format large numbers
+        const formatMoney = (val?: number) => val ? `$${(Number(val) / 1_000_000).toFixed(1)}M` : '—';
+        const formatNumber = (val?: number) => val ? Number(val).toLocaleString() : '—';
+        const formatDate = (dateStr?: string) => {
+          if (!dateStr) return '—';
+          return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        };
+
         return (
           <div key={idx} className={idx > 0 ? 'border-t border-slate-200' : ''}>
             {/* Header */}
             <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-slate-700">
-                {title}
-                {shelf.is_baby_shelf && <span className="ml-2 text-xs text-slate-400">(Baby Shelf)</span>}
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-medium text-slate-700">{title}</h3>
+                {shelf.is_baby_shelf && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-medium">
+                    BABY SHELF
+                  </span>
+                )}
+                {shelf.registration_statement && (
+                  <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">
+                    {shelf.registration_statement}
+                  </span>
+                )}
+              </div>
               <EducationalTooltip type="shelf" />
             </div>
 
             {/* Grid Compacto */}
             <div className="p-4">
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                {/* Primary Info */}
                 <div>
-                  <span className="text-slate-500">Registration:</span>
+                  <span className="text-slate-500">Total Shelf Capacity:</span>
                   <span className="ml-2 font-semibold text-slate-900">
-                    {shelf.registration_statement || '—'}
+                    {formatMoney(shelf.total_capacity)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Total Capacity:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
-                    {shelf.total_capacity ? `$${(Number(shelf.total_capacity) / 1_000_000).toFixed(1)}M` : '—'}
+                  <span className="text-slate-500">Current Raisable Amount:</span>
+                  <span className="ml-2 font-semibold text-emerald-600">
+                    {shelf.current_raisable_amount 
+                      ? formatMoney(shelf.current_raisable_amount) 
+                      : formatMoney(shelf.remaining_capacity)}
+                  </span>
+                </div>
+
+                {/* Baby Shelf Info (if applicable) */}
+                {shelf.is_baby_shelf && (
+                  <>
+                    <div>
+                      <span className="text-slate-500">Baby Shelf Restriction:</span>
+                      <span className="ml-2 text-amber-600 font-medium">Yes</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">IB6 Float Value:</span>
+                      <span className="ml-2 font-semibold text-slate-900">
+                        {formatMoney(shelf.ib6_float_value)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Price To Exceed Baby Shelf:</span>
+                      <span className="ml-2 font-semibold text-blue-600">
+                        {shelf.price_to_exceed_baby_shelf 
+                          ? `$${Number(shelf.price_to_exceed_baby_shelf).toFixed(2)}` 
+                          : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Outstanding Shares:</span>
+                      <span className="ml-2 text-slate-900">
+                        {formatNumber(shelf.outstanding_shares_calc)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500">Float:</span>
+                      <span className="ml-2 text-slate-900">
+                        {formatNumber(shelf.free_float_calc)}
+                      </span>
+                    </div>
+                    {shelf.highest_60_day_close && (
+                      <div>
+                        <span className="text-slate-500">Highest 60 Day Close:</span>
+                        <span className="ml-2 text-slate-900">
+                          ${Number(shelf.highest_60_day_close).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* Dates */}
+                <div>
+                  <span className="text-slate-500">Effect Date:</span>
+                  <span className="ml-2 text-slate-900">
+                    {shelf.effect_date ? formatDate(shelf.effect_date) : '—'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Remaining:</span>
-                  <span className="ml-2 font-semibold text-slate-900">
-                    {shelf.remaining_capacity ? `$${(Number(shelf.remaining_capacity) / 1_000_000).toFixed(1)}M` : '—'}
+                  <span className="text-slate-500">Expiration Date:</span>
+                  <span className="ml-2 text-slate-900">
+                    {shelf.expiration_date ? formatDate(shelf.expiration_date) : '~3 years'}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-500">Filing Date:</span>
                   <span className="ml-2 text-slate-900">
-                    {shelf.filing_date ? new Date(shelf.filing_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—'}
+                    {shelf.filing_date ? formatDate(shelf.filing_date) : '—'}
                   </span>
                 </div>
-                <div>
-                  <span className="text-slate-500">Expiration:</span>
-                  <span className="ml-2 text-slate-900">
-                    {shelf.expiration_date ? new Date(shelf.expiration_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '~3 years'}
-                  </span>
-                </div>
+                {shelf.last_update_date && (
+                  <div>
+                    <span className="text-slate-500">Last Update:</span>
+                    <span className="ml-2 text-slate-900">{formatDate(shelf.last_update_date)}</span>
+                  </div>
+                )}
+
                 {shelf.filing_url && (
                   <div className="col-span-2 mt-2">
                     <a

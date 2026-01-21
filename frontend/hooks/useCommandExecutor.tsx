@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useFloatingWindow, useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
-import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG } from '@/components/floating-window';
+import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG, PredictionMarketsContent } from '@/components/floating-window';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
 import { CatalystAlertsConfig } from '@/components/catalyst-alerts';
@@ -13,6 +13,7 @@ import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
 import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
 import { FinancialsContent } from '@/components/financials/FinancialsContent';
 import { IPOContent } from '@/components/ipos/IPOContent';
+import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 // DescriptionContent removed - now using FinancialAnalystContent
@@ -286,6 +287,32 @@ export function useCommandExecutor() {
                     y: Math.max(80, screenHeight / 2 - 250),
                     minWidth: 600,
                     minHeight: 350,
+                });
+                return null;
+
+            case 'earnings':
+                openWindow({
+                    title: 'Earnings Calendar',
+                    content: <EarningsCalendarContent />,
+                    width: 900,
+                    height: 450,
+                    x: Math.max(50, screenWidth / 2 - 450),
+                    y: Math.max(80, screenHeight / 2 - 225),
+                    minWidth: 700,
+                    minHeight: 300,
+                });
+                return null;
+
+            case 'predict':
+                openWindow({
+                    title: 'Prediction Markets',
+                    content: <PredictionMarketsContent />,
+                    width: 650,
+                    height: 550,
+                    x: Math.max(50, screenWidth / 2 - 325),
+                    y: Math.max(80, screenHeight / 2 - 275),
+                    minWidth: 500,
+                    minHeight: 400,
                 });
                 return null;
 
@@ -648,7 +675,7 @@ export function useCommandExecutor() {
         const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
 
         openWindow({
-            title: ticker ? `News: ${ticker.toUpperCase()}` : 'News',
+            title: 'News',  // Siempre "News" - el ticker se persiste en componentState
             content: <NewsContent initialTicker={ticker} highlightArticleId={articleId} />,
             width: 900,
             height: 600,

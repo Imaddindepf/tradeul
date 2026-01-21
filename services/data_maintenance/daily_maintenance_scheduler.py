@@ -13,16 +13,31 @@ FASE 2 - 3:00 AM ET: Mantenimiento principal
 - SIEMPRE carga datos históricos si hay día de trading pendiente
 - SOLO limpia caches si HOY es día de trading
 
-FASE 3 - 7:30 AM ET: Morning News Call
+FASE 3 - 4:00 AM ET: Earnings Calendar
+- Recopila calendario de earnings del día usando Gemini + Google Search
+- Identifica empresas que reportan BMO/AMC con estimados
+
+FASE 4 - 7:30 AM ET: Morning News Call
 - Genera reporte matutino de noticias financieras usando Gemini + Google Search
 - Se distribuye a todos los usuarios via Redis Pub/Sub
 - Solo se ejecuta en días de trading
 
+FASE 5 - 10:00 AM ET: Earnings BMO Results
+- Recopila resultados de empresas que reportaron antes del mercado
+- Actualiza EPS/Revenue actuals, surprise %, guidance
+
+FASE 6 - 12:30 PM ET: Mid-Morning Update
+- Genera el reporte de medio día con datos del scanner
+
+FASE 7 - 5:00 PM ET: Earnings AMC Results
+- Recopila resultados de empresas que reportaron después del cierre
+- Actualiza EPS/Revenue actuals, surprise %, guidance
+
 Casos:
-- Día normal (Lun-Vie): Metadata refresh → Cargar datos ayer → Limpiar caches → Morning News
+- Día normal (Lun-Vie): Metadata refresh → Cargar datos ayer → Limpiar caches → Earnings Calendar → Morning News → Earnings BMO → Midmorning → Earnings AMC
 - Fin de semana: SKIP (no hay datos nuevos)
-- Festivo después de trading: Metadata + Cargar datos + NO limpiar caches + NO morning news
-- Día después de festivo: (datos ya cargados) + Limpiar caches + Morning news
+- Festivo después de trading: Metadata + Cargar datos + NO limpiar caches + NO tareas del día
+- Día después de festivo: (datos ya cargados) + Limpiar caches + Tareas normales
 """
 
 import asyncio
@@ -86,6 +101,14 @@ class DailyMaintenanceScheduler:
         self.midmorning_update_minute = 30
         self.check_interval = 30            # Segundos entre checks
         
+        # Earnings Collector - 3 ejecuciones diarias
+        self.earnings_calendar_hour = 4      # 4:00 AM ET - Calendario del día
+        self.earnings_calendar_minute = 0
+        self.earnings_bmo_hour = 10          # 10:00 AM ET - Resultados BMO
+        self.earnings_bmo_minute = 0
+        self.earnings_amc_hour = 17          # 5:00 PM ET - Resultados AMC
+        self.earnings_amc_minute = 0
+        
         # Estado
         self.last_today_bars_cleanup_date: Optional[date] = None  # Último cleanup de today.parquet
         self.last_metadata_refresh_date: Optional[date] = None  # Último refresh de metadata
@@ -94,6 +117,9 @@ class DailyMaintenanceScheduler:
         self.last_cache_cleanup_date: Optional[date] = None
         self.last_morning_news_date: Optional[date] = None  # Último Morning News Call
         self.last_midmorning_update_date: Optional[date] = None  # Último Mid-Morning Update
+        self.last_earnings_calendar_date: Optional[date] = None  # Último earnings calendar collect
+        self.last_earnings_bmo_date: Optional[date] = None  # Último earnings BMO collect
+        self.last_earnings_amc_date: Optional[date] = None  # Último earnings AMC collect
         self._holidays_cache: Dict[str, bool] = {}
         self._holidays_cache_date: Optional[date] = None  # Fecha del cache para invalidación diaria
     
@@ -255,6 +281,19 @@ class DailyMaintenanceScheduler:
             if last_baselines:
                 self.last_baselines_refresh_date = date.fromisoformat(last_baselines)
                 logger.info("loaded_last_baselines_refresh_date", date=str(self.last_baselines_refresh_date))
+            
+            # Estado de earnings collector
+            last_earnings_cal = await self.redis.get("maintenance:last_earnings_calendar")
+            if last_earnings_cal:
+                self.last_earnings_calendar_date = date.fromisoformat(last_earnings_cal)
+            
+            last_earnings_bmo = await self.redis.get("maintenance:last_earnings_bmo")
+            if last_earnings_bmo:
+                self.last_earnings_bmo_date = date.fromisoformat(last_earnings_bmo)
+            
+            last_earnings_amc = await self.redis.get("maintenance:last_earnings_amc")
+            if last_earnings_amc:
+                self.last_earnings_amc_date = date.fromisoformat(last_earnings_amc)
         except Exception as e:
             logger.warning("failed_to_load_state", error=str(e))
     
@@ -390,6 +429,66 @@ class DailyMaintenanceScheduler:
                     date=str(current_date)
                 )
                 self.last_midmorning_update_date = current_date
+        
+        # =============================================
+        # 5. EARNINGS CALENDAR (4:00 AM ET)
+        # Recopila el calendario de earnings del día
+        # Se ejecuta en días de trading
+        # =============================================
+        is_earnings_calendar_time = (
+            current_hour == self.earnings_calendar_hour and
+            self.earnings_calendar_minute <= current_minute <= self.earnings_calendar_minute + 5
+        )
+        
+        if is_earnings_calendar_time and self.last_earnings_calendar_date != current_date:
+            if await self._is_trading_day(current_date):
+                await self._execute_earnings_calendar(current_date)
+            else:
+                logger.info(
+                    "skipping_earnings_calendar_not_trading_day",
+                    date=str(current_date)
+                )
+                self.last_earnings_calendar_date = current_date
+        
+        # =============================================
+        # 6. EARNINGS BMO RESULTS (10:00 AM ET)
+        # Recopila resultados de earnings BMO
+        # Se ejecuta en días de trading
+        # =============================================
+        is_earnings_bmo_time = (
+            current_hour == self.earnings_bmo_hour and
+            self.earnings_bmo_minute <= current_minute <= self.earnings_bmo_minute + 5
+        )
+        
+        if is_earnings_bmo_time and self.last_earnings_bmo_date != current_date:
+            if await self._is_trading_day(current_date):
+                await self._execute_earnings_bmo(current_date)
+            else:
+                logger.info(
+                    "skipping_earnings_bmo_not_trading_day",
+                    date=str(current_date)
+                )
+                self.last_earnings_bmo_date = current_date
+        
+        # =============================================
+        # 7. EARNINGS AMC RESULTS (5:00 PM ET)
+        # Recopila resultados de earnings AMC
+        # Se ejecuta en días de trading
+        # =============================================
+        is_earnings_amc_time = (
+            current_hour == self.earnings_amc_hour and
+            self.earnings_amc_minute <= current_minute <= self.earnings_amc_minute + 5
+        )
+        
+        if is_earnings_amc_time and self.last_earnings_amc_date != current_date:
+            if await self._is_trading_day(current_date):
+                await self._execute_earnings_amc(current_date)
+            else:
+                logger.info(
+                    "skipping_earnings_amc_not_trading_day",
+                    date=str(current_date)
+                )
+                self.last_earnings_amc_date = current_date
     
     # =========================================================================
     # EJECUCIÓN DE TAREAS
@@ -793,6 +892,120 @@ class DailyMaintenanceScheduler:
                 
         except Exception as e:
             logger.error("midmorning_update_exception", date=str(current_date), error=str(e))
+    
+    async def _execute_earnings_calendar(self, current_date: date):
+        """
+        Recopilar calendario de earnings del día usando Gemini + Google Search.
+        
+        Se ejecuta a las 4:00 AM ET para obtener el calendario antes del pre-market.
+        """
+        logger.info("📅 starting_earnings_calendar_collect", date=str(current_date))
+        
+        start_time = datetime.now()
+        
+        try:
+            from tasks.earnings_collector import EarningsCollectorTask
+            
+            task = EarningsCollectorTask(self.redis, self.db)
+            result = await task.collect_scheduled_earnings(current_date)
+            
+            if result.get("success"):
+                self.last_earnings_calendar_date = current_date
+                await self.redis.set("maintenance:last_earnings_calendar", current_date.isoformat())
+                
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(
+                    "✅ earnings_calendar_completed",
+                    date=str(current_date),
+                    total_found=result.get("total_found", 0),
+                    inserted=result.get("inserted", 0),
+                    duration_seconds=round(elapsed, 2)
+                )
+            else:
+                logger.error(
+                    "❌ earnings_calendar_failed",
+                    date=str(current_date),
+                    error=result.get("error")
+                )
+                
+        except Exception as e:
+            logger.error("earnings_calendar_exception", date=str(current_date), error=str(e))
+    
+    async def _execute_earnings_bmo(self, current_date: date):
+        """
+        Recopilar resultados de earnings BMO (Before Market Open).
+        
+        Se ejecuta a las 10:00 AM ET para dar tiempo a que se publiquen los resultados.
+        """
+        logger.info("📊 starting_earnings_bmo_collect", date=str(current_date))
+        
+        start_time = datetime.now()
+        
+        try:
+            from tasks.earnings_collector import EarningsCollectorTask
+            
+            task = EarningsCollectorTask(self.redis, self.db)
+            result = await task.collect_reported_earnings(current_date, "BMO")
+            
+            if result.get("success"):
+                self.last_earnings_bmo_date = current_date
+                await self.redis.set("maintenance:last_earnings_bmo", current_date.isoformat())
+                
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(
+                    "✅ earnings_bmo_completed",
+                    date=str(current_date),
+                    total_found=result.get("total_found", 0),
+                    updated=result.get("updated", 0),
+                    duration_seconds=round(elapsed, 2)
+                )
+            else:
+                logger.error(
+                    "❌ earnings_bmo_failed",
+                    date=str(current_date),
+                    error=result.get("error")
+                )
+                
+        except Exception as e:
+            logger.error("earnings_bmo_exception", date=str(current_date), error=str(e))
+    
+    async def _execute_earnings_amc(self, current_date: date):
+        """
+        Recopilar resultados de earnings AMC (After Market Close).
+        
+        Se ejecuta a las 5:00 PM ET después del cierre del mercado.
+        """
+        logger.info("📊 starting_earnings_amc_collect", date=str(current_date))
+        
+        start_time = datetime.now()
+        
+        try:
+            from tasks.earnings_collector import EarningsCollectorTask
+            
+            task = EarningsCollectorTask(self.redis, self.db)
+            result = await task.collect_reported_earnings(current_date, "AMC")
+            
+            if result.get("success"):
+                self.last_earnings_amc_date = current_date
+                await self.redis.set("maintenance:last_earnings_amc", current_date.isoformat())
+                
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(
+                    "✅ earnings_amc_completed",
+                    date=str(current_date),
+                    total_found=result.get("total_found", 0),
+                    updated=result.get("updated", 0),
+                    duration_seconds=round(elapsed, 2)
+                )
+            else:
+                logger.error(
+                    "❌ earnings_amc_failed",
+                    date=str(current_date),
+                    error=result.get("error")
+                )
+                
+        except Exception as e:
+            logger.error("earnings_amc_exception", date=str(current_date), error=str(e))
     
     # =========================================================================
     # RECOVERY

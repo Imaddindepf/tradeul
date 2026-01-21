@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { RefreshCw, AlertTriangle, ExternalLink, Loader2, HelpCircle, Filter, LineChart } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { RefreshCw, AlertTriangle, ExternalLink, Loader2, HelpCircle, ChevronDown, BarChart3, Table2, TrendingUp, TrendingDown } from 'lucide-react';
 import { TickerSearch } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { getUserTimezone } from '@/lib/date-utils';
@@ -34,6 +34,7 @@ interface InsiderFiling {
   insider_title: string | null;
   is_director: boolean;
   is_officer: boolean;
+  is_ten_percent_owner?: boolean;
   filed_at: string;
   period_of_report: string | null;
   url: string | null;
@@ -49,6 +50,9 @@ interface InsiderCluster {
 }
 
 type ViewMode = 'ticker' | 'clusters';
+type DisplayMode = 'table' | 'chart';
+type TransactionFilter = 'all' | 'market' | 'buy' | 'sell' | 'exercise' | 'grants' | 'other';
+type ShareholderFilter = 'all' | 'directors' | 'officers' | 'ten_percent';
 
 // ============================================================================
 // Constants
@@ -63,17 +67,84 @@ const FONT_CLASSES: Record<string, string> = {
   'fira-code': 'font-fira-code',
 };
 
-// Transaction type filters
-const TRANSACTION_TYPES = [
-  { code: 'P', label: 'BUY', color: '#10b981', desc: 'Open market purchase' },
-  { code: 'S', label: 'SELL', color: '#ef4444', desc: 'Open market sale' },
-  { code: 'M', label: 'EXERCISE', color: '#8b5cf6', desc: 'Option exercise' },
-  { code: 'A', label: 'GRANT', color: '#3b82f6', desc: 'Stock award/grant' },
-  { code: 'F', label: 'TAX', color: '#f59e0b', desc: 'Tax withholding' },
-  { code: 'G', label: 'GIFT', color: '#06b6d4', desc: 'Gift/donation' },
-  { code: 'J', label: 'TRANSFER', color: '#64748b', desc: 'Other transfer' },
-] as const;
+// Transaction filter options (Bloomberg style)
+const TRANSACTION_FILTERS: { value: TransactionFilter; label: string; codes: string[] }[] = [
+  { value: 'all', label: 'All Transactions', codes: ['P', 'S', 'M', 'A', 'F', 'G', 'J', 'C', 'W', 'D', 'E', 'I', 'L'] },
+  { value: 'market', label: 'Open Market Buy/Sell', codes: ['P', 'S'] },
+  { value: 'buy', label: 'Purchases Only', codes: ['P'] },
+  { value: 'sell', label: 'Sales Only', codes: ['S'] },
+  { value: 'exercise', label: 'Option Exercises', codes: ['M'] },
+  { value: 'grants', label: 'Grants & Awards', codes: ['A'] },
+  { value: 'other', label: 'Other (Gift, Tax, Transfer)', codes: ['F', 'G', 'J', 'C', 'W', 'D', 'E', 'I', 'L'] },
+];
 
+// Shareholder filter options
+const SHAREHOLDER_FILTERS: { value: ShareholderFilter; label: string }[] = [
+  { value: 'all', label: 'All Shareholders' },
+  { value: 'directors', label: 'Directors Only' },
+  { value: 'officers', label: 'Officers Only' },
+  { value: 'ten_percent', label: '10%+ Owners' },
+];
+
+// Action label mapping
+const ACTION_LABELS: Record<string, string> = {
+  'P': 'BUY', 'S': 'SELL', 'M': 'EXERCISE', 'A': 'GRANT', 'F': 'TAX',
+  'G': 'GIFT', 'J': 'TRANSFER', 'C': 'CONVERT', 'W': 'INHERIT',
+  'D': 'RETURN', 'E': 'EXPIRE', 'I': 'DISCR', 'L': 'SMALL'
+};
+
+// ============================================================================
+// Compact Dropdown Component
+// ============================================================================
+
+interface DropdownProps<T extends string> {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  className?: string;
+}
+
+function Dropdown<T extends string>({ value, options, onChange, className = '' }: DropdownProps<T>) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selected = options.find(o => o.value === value);
+
+  return (
+    <div ref={ref} className={`relative ${className}`}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 px-2 py-1 text-[10px] bg-slate-100 hover:bg-slate-200 rounded border border-slate-200 transition-colors min-w-0"
+      >
+        <span className="truncate">{selected?.label}</span>
+        <ChevronDown className={`w-3 h-3 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 min-w-[160px] py-1">
+          {options.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-slate-50 transition-colors ${
+                opt.value === value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ============================================================================
 // Helpers
@@ -97,7 +168,6 @@ function formatDate(dateStr: string | undefined | null): string {
 function formatNumber(num: number): string {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(2)}M`;
   if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-  // For small numbers, show decimals if fractional, otherwise whole number
   if (num % 1 !== 0) {
     return num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 3 });
   }
@@ -125,6 +195,7 @@ export function InsiderTradingContent() {
 
   // State
   const [viewMode, setViewMode] = useState<ViewMode>('ticker');
+  const [displayMode, setDisplayMode] = useState<DisplayMode>('table');
   const [ticker, setTicker] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [filings, setFilings] = useState<InsiderFiling[]>([]);
@@ -132,8 +203,10 @@ export function InsiderTradingContent() {
   const [priceData, setPriceData] = useState<Array<{ date: string; open: number; high: number; low: number; close: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set(['P', 'S', 'M', 'A', 'F', 'G', 'J']));
-  const [showFilters, setShowFilters] = useState(false);
+  
+  // Filters (Bloomberg style)
+  const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>('all');
+  const [shareholderFilter, setShareholderFilter] = useState<ShareholderFilter>('all');
 
   // Fetch detailed insider data for a ticker
   const fetchTickerData = useCallback(async (symbol: string) => {
@@ -141,14 +214,13 @@ export function InsiderTradingContent() {
     setError(null);
 
     try {
-      // Fetch insider filings with details (more for chart)
-      const response = await fetch(`${API_URL}/api/v1/insider-trading/${symbol}/details?size=200`); // SEC-API max is 200
+      const response = await fetch(`${API_URL}/api/v1/insider-trading/${symbol}/details?size=200`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       setFilings(data.filings || []);
 
       // Also fetch price data for the chart
-      const priceResponse = await fetch(`${API_URL}/api/v1/chart/${symbol}?interval=1day&limit=1095`); // 3 years
+      const priceResponse = await fetch(`${API_URL}/api/v1/chart/${symbol}?interval=1day&limit=1095`);
       if (priceResponse.ok) {
         const chartData = await priceResponse.json();
         const bars = chartData.data || chartData.bars || [];
@@ -211,69 +283,106 @@ export function InsiderTradingContent() {
     fetchTickerData(selected.symbol);
   };
 
+  // Get allowed transaction codes based on filter
+  const allowedCodes = useMemo(() => {
+    const filter = TRANSACTION_FILTERS.find(f => f.value === transactionFilter);
+    return new Set(filter?.codes || []);
+  }, [transactionFilter]);
+
+  // Filter filings by shareholder type
+  const filteredFilings = useMemo(() => {
+    if (shareholderFilter === 'all') return filings;
+    return filings.filter(f => {
+      if (shareholderFilter === 'directors') return f.is_director;
+      if (shareholderFilter === 'officers') return f.is_officer;
+      if (shareholderFilter === 'ten_percent') return f.is_ten_percent_owner;
+      return true;
+    });
+  }, [filings, shareholderFilter]);
+
   // Flatten all transactions for table (filtered)
   const allTransactions = useMemo(() => {
-    const txs: Array<Transaction & { insider_name: string; insider_title: string | null; filing_url: string | null }> = [];
+    const txs: Array<Transaction & { 
+      insider_name: string; 
+      insider_title: string | null; 
+      filing_url: string | null;
+      is_director: boolean;
+      is_officer: boolean;
+      is_ten_percent_owner: boolean;
+    }> = [];
     
-    filings.forEach(f => {
+    filteredFilings.forEach(f => {
       f.transactions.forEach(tx => {
         const code = tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D');
-        // Apply filter
-        if (!activeFilters.has(code)) return;
+        if (!allowedCodes.has(code)) return;
         
         txs.push({
           ...tx,
           insider_name: f.insider_name || 'Unknown',
           insider_title: f.insider_title,
-          filing_url: f.url
+          filing_url: f.url,
+          is_director: f.is_director,
+          is_officer: f.is_officer,
+          is_ten_percent_owner: f.is_ten_percent_owner || false,
         });
       });
     });
 
     return txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [filings, activeFilters]);
+  }, [filteredFilings, allowedCodes]);
 
-  // Toggle filter
-  const toggleFilter = (code: string) => {
-    setActiveFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(code)) {
-        next.delete(code);
-      } else {
-        next.add(code);
-      }
-      return next;
-    });
-  };
+  // Calculate largest transactions (Bloomberg style)
+  const largestTransactions = useMemo(() => {
+    const buys = allTransactions.filter(tx => tx.transaction_code === 'P');
+    const sells = allTransactions.filter(tx => tx.transaction_code === 'S');
+    
+    const maxBuy = buys.length > 0 
+      ? buys.reduce((max, tx) => tx.shares > max.shares ? tx : max, buys[0])
+      : null;
+    
+    const maxSell = sells.length > 0
+      ? sells.reduce((max, tx) => tx.shares > max.shares ? tx : max, sells[0])
+      : null;
 
-  // Select only market trades (P/S)
-  const selectMarketOnly = () => {
-    setActiveFilters(new Set(['P', 'S']));
-  };
+    return { maxBuy, maxSell };
+  }, [allTransactions]);
 
-  // Select all
-  const selectAll = () => {
-    setActiveFilters(new Set(['P', 'S', 'M', 'A', 'F', 'G', 'J']));
-  };
+  // Prepare chart transactions
+  const chartTransactions = useMemo(() => {
+    return filteredFilings.flatMap(f => 
+      f.transactions
+        .filter(tx => {
+          const code = tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D');
+          return allowedCodes.has(code);
+        })
+        .map(tx => ({
+          date: tx.date,
+          code: tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D'),
+          shares: tx.shares,
+          value: tx.total_value,
+          insider_name: f.insider_name || undefined
+        }))
+    );
+  }, [filteredFilings, allowedCodes]);
 
   return (
     <div className={`h-full flex flex-col bg-white text-slate-800 ${fontClass}`}>
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-100">
+      {/* Header Row 1 - Main controls */}
+      <div className="flex items-center gap-2 px-2 py-1.5 border-b border-slate-200 bg-slate-50">
         {/* View Toggle */}
-        <div className="flex items-center gap-0.5 bg-slate-100 rounded p-0.5">
+        <div className="flex items-center bg-white rounded border border-slate-200 overflow-hidden">
           <button
             onClick={() => setViewMode('ticker')}
-            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
-              viewMode === 'ticker' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+              viewMode === 'ticker' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
             By Ticker
           </button>
           <button
             onClick={() => setViewMode('clusters')}
-            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
-              viewMode === 'clusters' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+              viewMode === 'clusters' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
             Clusters
@@ -293,65 +402,61 @@ export function InsiderTradingContent() {
             <button
               type="submit"
               disabled={loading || !inputValue.trim()}
-              className="px-2 py-0.5 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              className="px-2 py-1 text-[10px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Go'}
             </button>
           </form>
         )}
 
+        {/* Filters - Bloomberg style dropdowns */}
+        {viewMode === 'ticker' && ticker && (
+          <>
+            <div className="w-px h-5 bg-slate-300" />
+            <Dropdown
+              value={transactionFilter}
+              options={TRANSACTION_FILTERS}
+              onChange={setTransactionFilter}
+            />
+            <Dropdown
+              value={shareholderFilter}
+              options={SHAREHOLDER_FILTERS}
+              onChange={setShareholderFilter}
+            />
+          </>
+        )}
+
         <div className="flex-1" />
 
         {/* Ticker badge */}
         {ticker && viewMode === 'ticker' && (
-          <span className="px-2 py-0.5 text-[10px] font-mono font-semibold bg-slate-100 text-slate-700 rounded">
+          <span className="px-2 py-0.5 text-[10px] font-mono font-bold bg-slate-100 text-slate-800 border border-slate-300 rounded">
             {ticker}
           </span>
         )}
 
-        {/* Chart button - only show when ticker is selected and price data loaded */}
+        {/* Display mode toggle */}
         {viewMode === 'ticker' && ticker && priceData.length > 0 && (
-          <button
-            onClick={() => {
-              // Prepare transactions for chart with insider names
-              const chartTransactions = filings.flatMap(f => 
-                f.transactions.map(tx => ({
-                  date: tx.date,
-                  code: tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D'),
-                  shares: tx.shares,
-                  value: tx.total_value,
-                  insider_name: f.insider_name || undefined
-                }))
-              );
-              const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
-              const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-              openWindow({
-                title: `Insider Activity - ${ticker}`,
-                content: <InsiderChartContent ticker={ticker} priceData={priceData} transactions={chartTransactions} />,
-                width: 700,
-                height: 450,
-                x: Math.max(50, screenWidth / 2 - 350),
-                y: Math.max(70, screenHeight / 2 - 225),
-                minWidth: 400,
-                minHeight: 300,
-              });
-            }}
-            className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
-            title="Open chart in new window"
-          >
-            <LineChart className="w-3.5 h-3.5" />
-          </button>
-        )}
-
-        {/* Filter toggle */}
-        {viewMode === 'ticker' && (
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`p-1 transition-colors ${showFilters ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-            title="Filter by transaction type"
-          >
-            <Filter className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center bg-white rounded border border-slate-200 overflow-hidden">
+            <button
+              onClick={() => setDisplayMode('chart')}
+              className={`p-1.5 transition-colors ${
+                displayMode === 'chart' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+              title="Chart view"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setDisplayMode('table')}
+              className={`p-1.5 transition-colors ${
+                displayMode === 'table' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'
+              }`}
+              title="Table view"
+            >
+              <Table2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
 
         {/* Help */}
@@ -382,81 +487,102 @@ export function InsiderTradingContent() {
           disabled={loading}
           className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
         >
-          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
-      {/* Filter bar */}
-      {showFilters && viewMode === 'ticker' && (
-        <div className="flex items-center gap-1 px-2 py-1 bg-slate-50 border-b border-slate-100 flex-wrap">
-          {TRANSACTION_TYPES.map(t => (
-            <button
-              key={t.code}
-              onClick={() => toggleFilter(t.code)}
-              className={`px-1.5 py-0.5 text-[9px] font-medium rounded border transition-colors ${
-                activeFilters.has(t.code)
-                  ? 'border-transparent text-white'
-                  : 'border-slate-200 text-slate-400 bg-white'
-              }`}
-              style={activeFilters.has(t.code) ? { backgroundColor: t.color } : {}}
-              title={t.desc}
-            >
-              {t.label}
-            </button>
-          ))}
-          <div className="flex-1" />
-          <button
-            onClick={selectMarketOnly}
-            className="px-1.5 py-0.5 text-[8px] text-slate-500 hover:text-slate-700"
-          >
-            Market only
-          </button>
-          <span className="text-slate-300">|</span>
-          <button
-            onClick={selectAll}
-            className="px-1.5 py-0.5 text-[8px] text-slate-500 hover:text-slate-700"
-          >
-            All
-          </button>
+      {/* Largest Transactions Panel - Bloomberg style */}
+      {viewMode === 'ticker' && ticker && allTransactions.length > 0 && (
+        <div className="px-2 py-1.5 border-b border-slate-200 bg-white">
+          <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1 font-medium">Largest Transactions</div>
+          <div className="flex gap-4 text-[10px]">
+            {/* Max Buy */}
+            <div className="flex items-center gap-2 min-w-0">
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+              <span className="text-slate-500">Max bought:</span>
+              {largestTransactions.maxBuy ? (
+                <>
+                  <span className="font-medium text-slate-800 truncate max-w-[100px]" title={largestTransactions.maxBuy.insider_name}>
+                    {largestTransactions.maxBuy.insider_name}
+                  </span>
+                  <span className="text-slate-400">{formatDate(largestTransactions.maxBuy.date)}</span>
+                  <span className="font-bold text-emerald-700 tabular-nums">{formatNumber(largestTransactions.maxBuy.shares)}</span>
+                </>
+              ) : (
+                <span className="text-slate-400">—</span>
+              )}
+            </div>
+            
+            <div className="w-px bg-slate-200" />
+            
+            {/* Max Sell */}
+            <div className="flex items-center gap-2 min-w-0">
+              <TrendingDown className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+              <span className="text-slate-500">Max sold:</span>
+              {largestTransactions.maxSell ? (
+                <>
+                  <span className="font-medium text-slate-800 truncate max-w-[100px]" title={largestTransactions.maxSell.insider_name}>
+                    {largestTransactions.maxSell.insider_name}
+                  </span>
+                  <span className="text-slate-400">{formatDate(largestTransactions.maxSell.date)}</span>
+                  <span className="font-bold text-red-700 tabular-nums">-{formatNumber(largestTransactions.maxSell.shares)}</span>
+                </>
+              ) : (
+                <span className="text-slate-400">—</span>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Error */}
       {error && (
-        <div className="mx-3 mt-2 px-2 py-1.5 bg-red-50 border border-red-200 rounded flex items-center gap-2 text-red-700">
+        <div className="mx-2 mt-2 px-2 py-1.5 bg-red-50 border border-red-200 rounded flex items-center gap-2 text-red-700">
           <AlertTriangle className="w-3 h-3" />
           <span className="text-[10px]">{error}</span>
         </div>
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto min-h-0">
         {viewMode === 'ticker' ? (
-          <>
-            {/* Transactions Table */}
-            <div className="flex-1 overflow-auto">
-              <table className="w-full text-[10px]">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr className="text-left text-[9px] text-slate-500 uppercase tracking-wide">
-                    <th className="px-2 py-1.5 font-medium">Date</th>
-                    <th className="px-2 py-1.5 font-medium">Insider</th>
-                    <th className="px-2 py-1.5 font-medium">Role</th>
-                    <th className="px-2 py-1.5 font-medium text-center">Action</th>
-                    <th className="px-2 py-1.5 font-medium text-right">Shares</th>
-                    <th className="px-2 py-1.5 font-medium text-right">$/Share</th>
-                    <th className="px-2 py-1.5 font-medium text-right">Total</th>
-                    <th className="px-2 py-1.5 font-medium w-6"></th>
+          displayMode === 'chart' && priceData.length > 0 ? (
+            // Chart View
+            <div className="h-full">
+              <InsiderChartContent 
+                ticker={ticker} 
+                priceData={priceData} 
+                transactions={chartTransactions} 
+              />
+            </div>
+          ) : (
+            // Table View
+            <table className="w-full text-[10px]">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr className="text-left text-[9px] text-slate-500 uppercase tracking-wide">
+                  <th className="px-2 py-1.5 font-medium">Date</th>
+                  <th className="px-2 py-1.5 font-medium">Insider</th>
+                  <th className="px-2 py-1.5 font-medium">Role</th>
+                  <th className="px-2 py-1.5 font-medium text-center">Action</th>
+                  <th className="px-2 py-1.5 font-medium text-right">Shares</th>
+                  <th className="px-2 py-1.5 font-medium text-right">$/Share</th>
+                  <th className="px-2 py-1.5 font-medium text-right">Total</th>
+                  <th className="px-2 py-1.5 font-medium w-6"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {allTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
+                      {loading ? 'Loading...' : ticker ? 'No transactions found' : 'Enter a ticker to view insider transactions'}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {allTransactions.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-3 py-8 text-center text-slate-400">
-                        {loading ? 'Loading...' : ticker ? 'No transactions found' : 'Enter a ticker to view insider transactions'}
-                      </td>
-                    </tr>
-                  ) : (
-                    allTransactions.map((tx, i) => (
+                ) : (
+                  allTransactions.map((tx, i) => {
+                    const code = tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D');
+                    const label = ACTION_LABELS[code] || (tx.transaction_type === 'A' ? '+' : '−');
+                    
+                    return (
                       <tr key={i} className="hover:bg-slate-50 group">
                         <td className="px-2 py-1.5 text-slate-600 tabular-nums whitespace-nowrap">
                           {formatDate(tx.date)}
@@ -470,29 +596,19 @@ export function InsiderTradingContent() {
                         <td className="px-2 py-1.5 text-center">
                           <span 
                             className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold ${
-                              tx.transaction_code === 'P' ? 'bg-emerald-100 text-emerald-800' :
-                              tx.transaction_code === 'S' ? 'bg-red-100 text-red-800' :
-                              tx.transaction_code === 'M' ? 'bg-violet-100 text-violet-800' :
-                              tx.transaction_code === 'F' ? 'bg-amber-100 text-amber-800' :
+                              code === 'P' ? 'bg-emerald-100 text-emerald-800' :
+                              code === 'S' ? 'bg-red-100 text-red-800' :
+                              code === 'M' ? 'bg-violet-100 text-violet-800' :
+                              code === 'F' ? 'bg-amber-100 text-amber-800' :
+                              code === 'G' ? 'bg-cyan-100 text-cyan-800' :
+                              code === 'A' ? 'bg-blue-100 text-blue-800' :
+                              code === 'J' ? 'bg-slate-100 text-slate-700' :
                               tx.transaction_type === 'A' ? 'bg-sky-50 text-sky-700' :
                               'bg-orange-50 text-orange-700'
                             }`}
                             title={tx.transaction_code_desc || (tx.transaction_type === 'A' ? 'Acquisition' : 'Disposition')}
                           >
-                            {tx.transaction_code === 'P' ? 'BUY' :
-                             tx.transaction_code === 'S' ? 'SELL' :
-                             tx.transaction_code === 'M' ? 'EXERCISE' :
-                             tx.transaction_code === 'F' ? 'TAX' :
-                             tx.transaction_code === 'G' ? 'GIFT' :
-                             tx.transaction_code === 'A' ? 'GRANT' :
-                             tx.transaction_code === 'J' ? 'TRANSFER' :
-                             tx.transaction_code === 'C' ? 'CONVERT' :
-                             tx.transaction_code === 'W' ? 'INHERIT' :
-                             tx.transaction_code === 'D' ? 'RETURN' :
-                             tx.transaction_code === 'E' ? 'EXPIRE' :
-                             tx.transaction_code === 'I' ? 'DISCR' :
-                             tx.transaction_code === 'L' ? 'SMALL' :
-                             tx.transaction_type === 'A' ? '+' : '−'}
+                            {label}
                           </span>
                         </td>
                         <td className="px-2 py-1.5 text-right text-slate-700 tabular-nums">
@@ -517,12 +633,12 @@ export function InsiderTradingContent() {
                           )}
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )
         ) : (
           // Clusters View
           <table className="w-full text-[10px]">
@@ -593,8 +709,8 @@ export function InsiderTradingContent() {
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-1 border-t border-slate-100 text-[8px] text-slate-400 flex justify-between">
-        <span>Form 4 Data</span>
+      <div className="px-2 py-1 border-t border-slate-200 text-[9px] text-slate-400 flex justify-between bg-slate-50">
+        <span>SEC Form 4 Data</span>
         <span>{viewMode === 'ticker' && allTransactions.length > 0 ? `${allTransactions.length} transactions` : ''}</span>
       </div>
     </div>

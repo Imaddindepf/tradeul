@@ -131,7 +131,7 @@
     "noCommandsFound": "No se encontraron comandos.",
     "sc": {
       "name": "Scanner",
-      "description": "Abrir scanner de mercado"
+      "description": "Scanner de mercado"
     },
     "dt": {
       "name": "Dilution Tracker",
@@ -139,83 +139,91 @@
     },
     "fa": {
       "name": "Financial Analysis",
-      "description": "Balance, Income, Cash Flow"
+      "description": "Datos financieros"
     },
     "sec": {
       "name": "SEC Filings",
-      "description": "Filings de la SEC en tiempo real"
+      "description": "Filings de la SEC"
     },
     "news": {
       "name": "News",
-      "description": "Noticias del mercado"
+      "description": "Noticias"
     },
     "ins": {
       "name": "Insights",
-      "description": "Reportes y analisis de TradeUL"
+      "description": "Análisis de mercado"
     },
     "alerts": {
-      "name": "Alertas de Catalizador",
-      "description": "Alertas de noticias con movimientos explosivos"
+      "name": "Alertas",
+      "description": "Alertas de precio"
     },
     "ipo": {
       "name": "IPOs",
-      "description": "Ofertas Públicas Iniciales"
+      "description": "Calendario de IPOs"
     },
     "wl": {
       "name": "Quote Monitor",
-      "description": "Watchlist con quotes en tiempo real"
+      "description": "Seguimiento de acciones"
     },
     "profile": {
       "name": "Profile",
-      "description": "Tu perfil y cuenta"
+      "description": "Tu cuenta"
     },
     "settings": {
       "name": "Settings",
-      "description": "Configuración de la app"
+      "description": "Preferencias"
     },
     "filters": {
       "name": "Scanner Filters",
-      "description": "Filtros del scanner en tiempo real"
+      "description": "Personalizar scanner"
     },
     "chat": {
       "name": "Community Chat",
-      "description": "Chat con la comunidad de traders"
+      "description": "Chat de traders"
     },
     "notes": {
       "name": "Notas",
-      "description": "Editor de notas personal"
+      "description": "Notas personales"
     },
     "patterns": {
       "name": "Pattern Matching",
-      "description": "Búsqueda de patrones con IA"
+      "description": "Buscar gráficos similares"
     },
     "ratio": {
       "name": "Ratio Analysis",
-      "description": "Correlación y regresión entre activos"
+      "description": "Comparar activos"
     },
     "screener": {
       "name": "Stock Screener",
-      "description": "Filtrar acciones por criterios técnicos"
+      "description": "Filtros personalizados"
     },
     "mp": {
       "name": "Multi-Security",
-      "description": "Comparar múltiples tickers históricamente"
+      "description": "Vista multi-gráfico"
     },
     "insider": {
       "name": "Insider Trading",
-      "description": "Form 4 - Compras/ventas de insiders"
+      "description": "Transacciones de insiders"
     },
     "fan": {
       "name": "Financial Analyst",
-      "description": "Análisis financiero con datos en tiempo real"
+      "description": "Reporte financiero con IA"
     },
     "ai": {
       "name": "AI Agent",
-      "description": "Asistente IA para análisis de mercado en lenguaje natural"
+      "description": "Pregunta a la IA"
+    },
+    "earnings": {
+      "name": "Earnings Calendar",
+      "description": "Próximos earnings"
+    },
+    "predict": {
+      "name": "Prediction Markets",
+      "description": "Mercados de predicción"
     },
     "help": {
       "name": "Help",
-      "description": "Mostrar ayuda del terminal"
+      "description": "Ayuda"
     }
   },
   "scanner": {
@@ -234,19 +242,19 @@
     "withNews": "Con Noticias",
     "marketClosed": "El mercado está cerrado. Los datos se actualizarán cuando abra.",
     "clickDescription": "Clic para analizar",
-    "gapUpDescription": "Gap ≥ 2% desde cierre anterior",
-    "gapDownDescription": "Gap ≤ -2% desde cierre anterior",
-    "momentumUpDescription": "Ignición: Chg5min ≥1.5%, HOD ≤2%, VWAP+, RVOL ≥500%",
-    "momentumDownDescription": "Caída fuerte: Cambio ≤ -3%",
-    "topGainersDescription": "Mayores ganadores: Cambio ≥ 5%",
-    "topLosersDescription": "Mayores perdedores: Cambio ≤ -5%",
-    "newHighsDescription": "Precio = máximo intradiario (pre/post market)",
-    "newLowsDescription": "Precio = mínimo intradiario (pre/post market)",
-    "anomaliesDescription": "Z-Score ≥3: trades hoy vs prom 5d (anomalía estadística)",
-    "highVolumeDescription": "Alto volumen relativo: RVOL ≥ 200%",
-    "reversalsDescription": "Gap + reversión: Gap ≥2% pero cayendo (o viceversa)",
-    "postMarketDescription": "Post-market: PM Vol ≥20K o PM Chg ≥0.5%",
-    "withNewsDescription": "Tickers del scanner con noticias de hoy",
+    "gapUpDescription": "Acciones con gap alcista",
+    "gapDownDescription": "Acciones con gap bajista",
+    "momentumUpDescription": "Momentum alcista fuerte",
+    "momentumDownDescription": "Momentum bajista fuerte",
+    "topGainersDescription": "Mayores ganadores del día",
+    "topLosersDescription": "Mayores perdedores del día",
+    "newHighsDescription": "En máximos intradiarios",
+    "newLowsDescription": "En mínimos intradiarios",
+    "anomaliesDescription": "Actividad inusual",
+    "highVolumeDescription": "Alto volumen relativo",
+    "reversalsDescription": "Reversiones de gap",
+    "postMarketDescription": "Movimientos en horario extendido",
+    "withNewsDescription": "Acciones con noticias recientes",
     "noTickersWithNews": "Sin tickers con noticias",
     "noTickersWithNewsDescription": "Abre primero alguna tabla del scanner (Gap Up, Momentum, etc.)",
     "noTickersWithNewsButScanner": "Hay {{count}} tickers en el scanner, pero ninguno tiene noticias hoy.",
@@ -485,107 +493,114 @@
   "terminalCommands": {
     "tickerCommands": {
       "Q": {
-        "description": "Precio bid/ask en tiempo real"
+        "description": "Cotización"
       },
       "DES": {
-        "description": "Perfil completo: info, gráfico, estadísticas, analista"
+        "description": "Perfil de empresa"
       },
       "G": {
-        "description": "Gráfico del ticker con TradingView"
-      },
-      "DT": {
-        "description": "Análisis de dilución del ticker"
-      },
-      "FA": {
-        "description": "Balance, Income, Cash Flow"
-      },
-      "SEC": {
-        "description": "Filings de la SEC para este ticker"
-      },
-      "NEWS": {
-        "description": "Noticias del ticker"
-      },
-      "PM": {
-        "description": "Búsqueda de patrones similares con IA"
-      },
-      "FAN": {
-        "description": "Análisis financiero con datos en tiempo real"
-      }
-    },
-    "globalCommands": {
-      "SC": {
-        "description": "Abrir scanner de mercado"
+        "description": "Gráfico de precio"
       },
       "DT": {
         "description": "Análisis de dilución"
       },
       "FA": {
-        "description": "Balance, Income, Cash Flow"
+        "description": "Datos financieros"
       },
       "SEC": {
-        "description": "Filings de la SEC en tiempo real"
+        "description": "Filings SEC"
       },
       "NEWS": {
-        "description": "Noticias del mercado"
-      },
-      "INS": {
-        "description": "Reportes y analisis de TradeUL"
-      },
-      "ALERTS": {
-        "description": "Alertas de noticias con movimientos explosivos"
-      },
-      "IPO": {
-        "description": "Ofertas Públicas Iniciales"
-      },
-      "WL": {
-        "description": "Watchlist con quotes en tiempo real"
-      },
-      "PROFILE": {
-        "description": "Tu perfil y cuenta"
-      },
-      "SET": {
-        "description": "Configuración de la app"
-      },
-      "FILTERS": {
-        "description": "Filtros del scanner en tiempo real"
-      },
-      "HELP": {
-        "description": "Mostrar ayuda del terminal"
-      },
-      "CHAT": {
-        "description": "Chat con la comunidad de traders"
-      },
-      "NOTE": {
-        "description": "Editor de notas personal"
+        "description": "Noticias"
       },
       "PM": {
-        "description": "Búsqueda de patrones con IA"
-      },
-      "PRT": {
-        "description": "Scanner de patrones en tiempo real con seguimiento de rendimiento"
-      },
-      "GR": {
-        "description": "Ratio, correlación y regresión entre activos"
-      },
-      "SCREEN": {
-        "description": "Filtrar acciones por RSI, volumen, precio..."
-      },
-      "MP": {
-        "description": "Comparar múltiples tickers históricamente"
-      },
-      "INSIDER": {
-        "description": "Form 4 - Compras/ventas de insiders y clusters"
+        "description": "Gráficos similares"
       },
       "FAN": {
-        "description": "Analista financiero con búsqueda en tiempo real"
+        "description": "Reporte IA"
+      }
+    },
+    "globalCommands": {
+      "SC": {
+        "description": "Scanner de mercado"
       },
-      "AI": {
-        "description": "Asistente IA para análisis de mercado en lenguaje natural"
+      "DT": {
+        "description": "Análisis de dilución"
+      },
+      "FA": {
+        "description": "Datos financieros"
+      },
+      "SEC": {
+        "description": "Filings de la SEC"
+      },
+      "NEWS": {
+        "description": "Noticias"
       },
       "INS": {
-        "description": "Reportes y analisis de TradeUL"
+        "description": "Análisis de mercado"
+      },
+      "ALERTS": {
+        "description": "Alertas de precio"
+      },
+      "IPO": {
+        "description": "Calendario de IPOs"
+      },
+      "WL": {
+        "description": "Seguimiento de acciones"
+      },
+      "PROFILE": {
+        "description": "Tu cuenta"
+      },
+      "SET": {
+        "description": "Preferencias"
+      },
+      "FILTERS": {
+        "description": "Personalizar scanner"
+      },
+      "HELP": {
+        "description": "Ayuda"
+      },
+      "CHAT": {
+        "description": "Chat de traders"
+      },
+      "NOTE": {
+        "description": "Notas personales"
+      },
+      "PM": {
+        "description": "Buscar gráficos similares"
+      },
+      "PRT": {
+        "description": "Scanner de patrones"
+      },
+      "GR": {
+        "description": "Comparar activos"
+      },
+      "SCREEN": {
+        "description": "Filtros personalizados"
+      },
+      "MP": {
+        "description": "Vista multi-gráfico"
+      },
+      "INSIDER": {
+        "description": "Transacciones de insiders"
+      },
+      "FAN": {
+        "description": "Reporte financiero con IA"
+      },
+      "AI": {
+        "description": "Pregunta a la IA"
+      },
+      "ERN": {
+        "description": "Próximos earnings"
+      },
+      "PREDICT": {
+        "description": "Mercados de predicción"
       }
     }
+  },
+  "predictions": {
+    "events": "eventos",
+    "markets": "mercados"
   },
   "insights": {
     "title": "Insights",

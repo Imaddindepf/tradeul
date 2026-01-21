@@ -185,14 +185,70 @@ class SECCashHistoryService:
                 "error": None
             }
             
+            # ============================================================
+            # FALLBACK: Si no hay datos XBRL, usar Gemini Pro para extraer
+            # Esto es común en empresas extranjeras (IFRS, F-1, 20-F, 6-K)
+            # ============================================================
+            if not cash_history:
+                logger.info("no_xbrl_cash_data_trying_ai_extraction", ticker=ticker)
+                try:
+                    from services.extraction.foreign_financials_extractor import extract_foreign_financials
+                    
+                    # Obtener company name del primer filing si existe
+                    company_name = ""
+                    if filings:
+                        company_name = filings[0].get("companyName", ticker)
+                    
+                    ai_result = await extract_foreign_financials(ticker, company_name)
+                    
+                    if ai_result.get("data_found") and ai_result.get("cash_position", {}).get("total_cash"):
+                        cash_data = ai_result["cash_position"]
+                        ocf_data = ai_result.get("operating_cash_flow", {})
+                        burn_data = ai_result.get("burn_rate_analysis", {})
+                        
+                        # Construir resultado desde AI
+                        result["latest_cash"] = cash_data.get("total_cash", 0)
+                        result["last_report_date"] = cash_data.get("period_end_date")
+                        result["days_since_report"] = self._days_since(cash_data.get("period_end_date")) if cash_data.get("period_end_date") else 0
+                        result["source"] = "gemini_ai_extraction"
+                        result["ai_extraction"] = ai_result
+                        
+                        # Operating CF desde AI
+                        if ocf_data.get("quarterly_ocf") is not None:
+                            result["latest_operating_cf"] = ocf_data["quarterly_ocf"]
+                        elif ocf_data.get("annual_ocf") is not None:
+                            # Convertir anual a trimestral
+                            result["latest_operating_cf"] = ocf_data["annual_ocf"] / 4
+                        
+                        # Burn rate y runway desde AI
+                        if burn_data.get("monthly_burn_rate"):
+                            result["burn_rate_monthly"] = burn_data["monthly_burn_rate"]
+                        if burn_data.get("runway_months"):
+                            result["estimated_runway_months"] = burn_data["runway_months"]
+                        
+                        # Recalcular métricas con los nuevos datos
+                        result.update(self._calculate_metrics(result))
+                        
+                        logger.info("ai_cash_extraction_success", 
+                                   ticker=ticker, 
+                                   cash=result["latest_cash"],
+                                   confidence=ai_result.get("data_quality", {}).get("confidence"))
+                    else:
+                        logger.info("ai_cash_extraction_no_data", ticker=ticker)
+                        result["ai_extraction"] = ai_result
+                        
+                except Exception as ai_err:
+                    logger.warning("ai_cash_extraction_failed", ticker=ticker, error=str(ai_err))
+                    result["ai_extraction_error"] = str(ai_err)
+            
             # Calculate burn rate and runway
             result.update(self._calculate_metrics(result))
             
             # Cache for 6 hours
-            if self.redis and cash_history:
+            if self.redis and (cash_history or result.get("latest_cash")):
                 await self.redis.set(cache_key, result, ttl=21600, serialize=True)
             
-            logger.info("cash_history_fetched", ticker=ticker, quarters=len(cash_history))
+            logger.info("cash_history_fetched", ticker=ticker, quarters=len(cash_history), source=result.get("source"))
             
             return result
             
@@ -741,57 +797,105 @@ class SECCashHistoryService:
         
         DilutionTracker uses the most recent ANNUAL operating CF (from 10-K or 20-F),
         not the quarterly CF from interim reports.
+        
+        IMPORTANTE: Si hay datos de AI extraction, RESPETARLOS en lugar de sobrescribir.
+        Esto es crítico para empresas extranjeras (IFRS) sin datos XBRL.
         """
         cf_history_ytd = data.get("cashflow_history_ytd", [])
         latest_cash = data.get("latest_cash", 0)
         days_since = data.get("days_since_report", 0)
         
-        # Find the most recent ANNUAL operating CF (from 10-K/20-F, not 10-Q/6-K)
-        # Annual filings have month = 12 (US companies) or 09 (some foreign like AZI)
-        annual_ocf = 0
-        quarterly_ocf = 0
+        # =========================================================================
+        # PRIORIDAD 1: Usar datos de AI extraction si existen y son válidos
+        # =========================================================================
+        ai_extraction = data.get("ai_extraction", {})
+        ai_ocf = ai_extraction.get("operating_cash_flow", {})
+        ai_burn = ai_extraction.get("burn_rate_analysis", {})
         
-        for cf in reversed(cf_history_ytd):
-            ocf = cf.get("operating_cf", 0) or 0
-            form = cf.get("form", "")
-            date = cf.get("date", "")
+        # Si el AI ya calculó annual_ocf, usarlo
+        ai_annual_ocf = ai_ocf.get("annual_ocf")
+        ai_monthly_burn = ai_burn.get("monthly_burn_rate")
+        ai_runway_months = ai_burn.get("runway_months")
+        
+        has_ai_data = ai_annual_ocf is not None and ai_annual_ocf != 0
+        
+        if has_ai_data:
+            # Usar datos del AI
+            annual_ocf = ai_annual_ocf
+            quarterly_ocf = annual_ocf / 4
             
-            # 10-K and 20-F are annual reports
-            if form in ["10-K", "20-F"] and ocf != 0:
-                annual_ocf = ocf
-                break
-            # Also check for full-year periods (ending in 12 or fiscal year end)
-            elif date and date[5:7] in ["12", "09"] and ocf != 0:
-                annual_ocf = ocf
-                break
-        
-        # Fallback: if no annual found, use the most recent with highest absolute value
-        if annual_ocf == 0 and cf_history_ytd:
-            # Find the CF with the largest absolute value (likely annual)
-            annual_ocf = max(cf_history_ytd, key=lambda x: abs(x.get("operating_cf", 0) or 0)).get("operating_cf", 0)
-        
-        # Calculate quarterly CF = Annual / 4 (DilutionTracker method)
-        quarterly_ocf = annual_ocf / 4 if annual_ocf else 0
-        
-        # Daily burn rate = Annual CF / 365 (DilutionTracker method)
-        daily_burn = abs(annual_ocf) / 365 if annual_ocf < 0 else 0
-        
-        # Prorated CF = Daily burn × Days since last report
-        # Use negative sign since it's cash outflow
-        prorated_cf = (annual_ocf / 365) * days_since if annual_ocf else 0
-        
-        # Estimated current cash = Latest Cash + Prorated CF
-        estimated_cash = latest_cash + prorated_cf
-        
-        # Runway calculation
-        if daily_burn > 0:
-            runway_days = int(estimated_cash / daily_burn)
-            runway_months = runway_days / 30
+            # Calcular daily burn desde monthly burn del AI o desde annual_ocf
+            if ai_monthly_burn:
+                daily_burn = ai_monthly_burn / 30
+            else:
+                daily_burn = abs(annual_ocf) / 365 if annual_ocf < 0 else 0
+            
+            # Prorated CF
+            prorated_cf = (annual_ocf / 365) * days_since if annual_ocf else 0
+            estimated_cash = latest_cash + prorated_cf
+            
+            # Runway: usar el del AI si existe, sino calcular
+            if ai_runway_months is not None:
+                runway_months = ai_runway_months
+                runway_days = int(runway_months * 30)
+            elif daily_burn > 0:
+                runway_days = int(estimated_cash / daily_burn)
+                runway_months = runway_days / 30
+            else:
+                runway_days = None
+                runway_months = None
+            
+            logger.debug("using_ai_extraction_metrics", 
+                        annual_ocf=annual_ocf,
+                        daily_burn=daily_burn,
+                        runway_months=runway_months)
         else:
-            runway_days = None
-            runway_months = None
+            # =========================================================================
+            # PRIORIDAD 2: Calcular desde XBRL cashflow_history_ytd
+            # =========================================================================
+            annual_ocf = 0
+            quarterly_ocf = 0
+            
+            # Find the most recent ANNUAL operating CF (from 10-K/20-F, not 10-Q/6-K)
+            for cf in reversed(cf_history_ytd):
+                ocf = cf.get("operating_cf", 0) or 0
+                form = cf.get("form", "")
+                date = cf.get("date", "")
+                
+                # 10-K and 20-F are annual reports
+                if form in ["10-K", "20-F"] and ocf != 0:
+                    annual_ocf = ocf
+                    break
+                # Also check for full-year periods (ending in 12 or fiscal year end)
+                elif date and date[5:7] in ["12", "09"] and ocf != 0:
+                    annual_ocf = ocf
+                    break
+            
+            # Fallback: if no annual found, use the most recent with highest absolute value
+            if annual_ocf == 0 and cf_history_ytd:
+                annual_ocf = max(cf_history_ytd, key=lambda x: abs(x.get("operating_cf", 0) or 0)).get("operating_cf", 0)
+            
+            # Calculate quarterly CF = Annual / 4 (DilutionTracker method)
+            quarterly_ocf = annual_ocf / 4 if annual_ocf else 0
+            
+            # Daily burn rate = Annual CF / 365 (DilutionTracker method)
+            daily_burn = abs(annual_ocf) / 365 if annual_ocf < 0 else 0
+            
+            # Prorated CF
+            prorated_cf = (annual_ocf / 365) * days_since if annual_ocf else 0
+            estimated_cash = latest_cash + prorated_cf
+            
+            # Runway calculation
+            if daily_burn > 0:
+                runway_days = int(estimated_cash / daily_burn)
+                runway_months = runway_days / 30
+            else:
+                runway_days = None
+                runway_months = None
         
-        # Risk level
+        # =========================================================================
+        # RISK LEVEL (común para ambos casos)
+        # =========================================================================
         if runway_months is None:
             risk_level = "low" if annual_ocf >= 0 else "unknown"
         elif runway_months < 3:
@@ -809,9 +913,10 @@ class SECCashHistoryService:
             "estimated_current_cash": estimated_cash,
             "runway_days": runway_days,
             "runway_risk_level": risk_level,
-            "quarterly_operating_cf": quarterly_ocf,  # DilutionTracker: Annual / 4
+            "quarterly_operating_cf": quarterly_ocf,
             "annual_operating_cf": annual_ocf,
-            "ytd_operating_cf": cf_history_ytd[-1].get("operating_cf", 0) if cf_history_ytd else 0
+            "ytd_operating_cf": cf_history_ytd[-1].get("operating_cf", 0) if cf_history_ytd else 0,
+            "_source": "ai_extraction" if has_ai_data else "xbrl"
         }
 
 

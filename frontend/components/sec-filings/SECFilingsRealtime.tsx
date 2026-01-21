@@ -88,20 +88,17 @@ export function SECFilingsRealtime() {
         const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
         // Extraer base URL sin el path /ws/scanner
         const wsBaseUrl = wsUrl.replace('/ws/scanner', '');
-        console.log('🔌 Connecting to WebSocket:', wsBaseUrl);
 
         const ws = new WebSocket(wsBaseUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log('✅ WebSocket connected');
             setWsConnected(true);
 
             // Suscribirse a SEC Filings
             ws.send(JSON.stringify({
                 action: 'subscribe_sec_filings'
             }));
-            console.log('📋 Subscribed to SEC Filings stream');
         };
 
         ws.onmessage = (event) => {
@@ -120,7 +117,6 @@ export function SECFilingsRealtime() {
                         return;
                     }
 
-                    console.log('📄 New SEC filing received:', filing.ticker, filing.formType);
 
                     // Agregar al inicio de la lista
                     setRealtimeFilings(prev => {
@@ -136,7 +132,6 @@ export function SECFilingsRealtime() {
 
                 // Confirmar suscripción
                 else if (message.type === 'subscribed' && message.channel === 'SEC_FILINGS') {
-                    console.log('✅ Subscription confirmed:', message.message);
                 }
             } catch (err) {
                 console.error('Error processing WebSocket message:', err);
@@ -149,7 +144,6 @@ export function SECFilingsRealtime() {
         };
 
         ws.onclose = () => {
-            console.log('🔌 WebSocket disconnected');
             setWsConnected(false);
         };
 

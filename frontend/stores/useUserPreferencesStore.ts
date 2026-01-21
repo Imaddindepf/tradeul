@@ -276,11 +276,48 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         set({ layoutInitialized: initialized }),
 
       updateWindowComponentState: (windowId, state) =>
-        set((s) => ({
-          windowLayouts: s.windowLayouts.map((w) =>
-            w.id === windowId ? { ...w, componentState: state } : w
-          ),
-        })),
+        set((s) => {
+          // CORREGIDO: Guardar en workspace activo, no en legacy
+          const activeWsId = s.activeWorkspaceId;
+          
+          // Función helper para actualizar o crear layout en un array
+          const updateOrCreateLayout = (layouts: WindowLayout[]): WindowLayout[] => {
+            const existingIndex = layouts.findIndex((w) => w.id === windowId);
+            if (existingIndex !== -1) {
+              // Layout existe: actualizar componentState
+              return layouts.map((w) =>
+                w.id === windowId ? { ...w, componentState: state } : w
+              );
+            } else {
+              // Layout no existe: crear uno temporal con solo el componentState
+              // (el resto se llenará cuando se auto-guarde el layout completo)
+              return [
+                ...layouts,
+                {
+                  id: windowId,
+                  type: 'unknown',
+                  title: '',
+                  position: { x: 0, y: 0 },
+                  size: { width: 400, height: 300 },
+                  isMinimized: false,
+                  zIndex: 0,
+                  componentState: state,
+                } as WindowLayout,
+              ];
+            }
+          };
+          
+          return {
+            // Actualizar en workspaces (sistema nuevo)
+            workspaces: s.workspaces.map((ws) =>
+              ws.id === activeWsId
+                ? { ...ws, windowLayouts: updateOrCreateLayout(ws.windowLayouts) }
+                : ws
+            ),
+            // También actualizar en legacy por compatibilidad
+            windowLayouts: updateOrCreateLayout(s.windowLayouts),
+          };
+        }),
 
       getWindowComponentState: (windowId) => {
         const state = get();

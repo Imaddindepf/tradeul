@@ -227,8 +227,8 @@ class WebSocketHandler:
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Send text response
-            if result.response and not outputs:
+            # Send text response - always send if there's content
+            if result.response:
                 await websocket.send_json({
                     "type": "assistant_text",
                     "message_id": message_id,
@@ -262,6 +262,16 @@ class WebSocketHandler:
                         "title": self._format_title(name),
                         "columns": value.columns.tolist(),
                         "rows": self._clean_rows(value.head(100)),
+                        "total": len(value)
+                    })
+                elif isinstance(value, list) and value and isinstance(value[0], dict):
+                    # List of records (from parquet converted to dict)
+                    columns = list(value[0].keys()) if value else []
+                    outputs.append({
+                        "type": "table",
+                        "title": self._format_title(name),
+                        "columns": columns,
+                        "rows": value[:100],  # Limit to 100 rows
                         "total": len(value)
                     })
                 elif isinstance(value, dict):

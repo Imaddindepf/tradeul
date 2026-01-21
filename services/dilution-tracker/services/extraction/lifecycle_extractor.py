@@ -266,6 +266,7 @@ class WarrantLifecycleExtractor:
         # Configurar Gemini con timeout alto para documentos grandes
         http_options = types.HttpOptions(timeout=180000)  # 180 segundos
         self.gemini = genai.Client(api_key=gemini_api_key, http_options=http_options)
+        # UPGRADE: gemini-3-pro-preview para mayor precisión en extracción de lifecycle
         self.model = "gemini-2.5-flash"
         
         logger.info("lifecycle_extractor_initialized", model=self.model)

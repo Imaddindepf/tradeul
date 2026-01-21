@@ -16,12 +16,16 @@ sys.path.append('/app')
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import httpx
+import asyncio
 
 from shared.utils.logger import get_logger
 from shared.config.settings import settings
 from models.filing_models import SECFilingCreate, FilingCategory
 
 logger = get_logger(__name__)
+
+# Import rate limiter from fulltext search module
+from services.sec.sec_fulltext_search import _query_rate_limiter
 
 
 class SECAPIFilingsService:
@@ -48,6 +52,9 @@ class SECAPIFilingsService:
             }
             
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Rate limiting
+                await _query_rate_limiter.acquire()
+                
                 resp = await client.post(
                     f"{self.base_url}?token={self.api_key}",
                     json=query
@@ -101,6 +108,9 @@ class SECAPIFilingsService:
             }
             
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Rate limiting
+                await _query_rate_limiter.acquire()
+                
                 resp = await client.post(
                     f"{self.base_url}?token={self.api_key}",
                     json=query
@@ -163,6 +173,9 @@ class SECAPIFilingsService:
             }
             
             async with httpx.AsyncClient(timeout=30.0) as client:
+                # Rate limiting
+                await _query_rate_limiter.acquire()
+                
                 resp = await client.post(
                     f"{self.base_url}?token={self.api_key}",
                     json=query

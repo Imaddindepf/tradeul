@@ -38,8 +38,11 @@ from dataclasses import dataclass, field, asdict
 
 import httpx
 import structlog
-from google import genai
-from google.genai import types
+
+# NO usar SDK de Google - tiene bugs de bloqueo con asyncio
+# Ver: https://github.com/googleapis/python-aiplatform/issues/4509
+# Usamos httpx directo que es verdaderamente cancelable
+from services.extraction.gemini_httpx_client import GeminiHttpxClientWrapper
 
 from shared.config.settings import settings
 
@@ -75,6 +78,14 @@ Esta cadena contiene todos los filings relacionados con un mismo File Number:
 1. **S-1/F-1**: IPO o follow-on offering (venta directa de acciones)
 2. **Shelf (S-3/F-3)**: Registro para vender en el futuro (capacidad total)
 3. **ATM**: At-The-Market offering (ventas graduales via placement agent)
+4. **Equity Line (ELOC/SPA)**: Acuerdo con Lincoln Park, White Lion, YA II, etc.
+
+## DETECTAR EQUITY LINES:
+Los S-1/S-3 tipo "Resale" a menudo registran acciones para Equity Lines:
+- Busca "Purchase Agreement" o "Stock Purchase Agreement" con capacidad en USD
+- Busca "Equity Line of Credit", "ELOC", "Committed Equity Facility", "SEDA"
+- Frases clave: "we may direct [investor] to purchase", "at our sole discretion"
+- Datos: capacidad total, nombre del counterparty, fecha inicio/fin
 
 TU TAREA:
 Extraer los instrumentos dilutivos de esta cadena de registro.
@@ -85,16 +96,21 @@ OUTPUT (JSON):
     "type": "S-1|F-1|Shelf|ATM",
     "series_name": "Month Year [Underwriter] Type",
     "file_number": "333-XXXXXX",
+    "registration_type": "S-1|S-3|F-1|F-3|S-11",
     "status": "Filed|Effective|Priced|Withdrawn",
     "filing_date": "YYYY-MM-DD",
-    "effect_date": "YYYY-MM-DD or null",
+    "effect_date": "YYYY-MM-DD or null (fecha en que SEC declaró efectivo)",
+    "expiration_date": "YYYY-MM-DD (típicamente 3 años después de effect_date)",
     "total_capacity": <capacidad total del shelf/ATM en USD>,
     "remaining_capacity": <capacidad restante>,
+    "amount_raised_to_date": <total levantado de este shelf hasta ahora>,
     "final_deal_size": <para offerings priced>,
     "final_pricing": <precio por acción>,
     "shares_offered": <número>,
     "underwriter": "nombre del placement agent/underwriter",
-    "baby_shelf_restricted": true/false
+    "last_banker": "último banco/underwriter usado",
+    "baby_shelf_restricted": true/false,
+    "is_baby_shelf": true/false (si el float de la empresa es <$75M)
   }},
   "warrants": [
     {{
@@ -112,14 +128,77 @@ OUTPUT (JSON):
       "is_registered": true/false
     }}
   ],
-  "notes": [],
-  "preferred": []
+  "convertible_notes": [
+    {{
+      "series_name": "Month Year Convertible Note",
+      "total_principal_amount": <USD total emitido>,
+      "remaining_principal_amount": <USD restante>,
+      "conversion_price": <precio de conversión>,
+      "total_shares_when_converted": <shares si se convierte todo>,
+      "remaining_shares_when_converted": <shares restantes por convertir>,
+      "issue_date": "YYYY-MM-DD",
+      "convertible_date": "YYYY-MM-DD",
+      "maturity_date": "YYYY-MM-DD",
+      "known_owners": "nombres de holders (ej: Madryn, EW Healthcare)",
+      "underwriter_agent": "nombre si aplica",
+      "price_protection": "Customary Anti-Dilution|Weighted Average|Full Ratchet|None",
+      "pp_clause": "texto exacto de la cláusula si existe",
+      "status": "Outstanding|Converted|Default",
+      "is_registered": true/false
+    }}
+  ],
+  "convertible_preferred": [
+    {{
+      "series_name": "Month Year Series X Preferred Stock",
+      "series": "Series A|B|C|X|Y|etc",
+      "total_dollar_amount_issued": <USD total emitido>,
+      "remaining_dollar_amount": <USD restante no convertido>,
+      "conversion_price": <precio de conversión por share>,
+      "total_shares_when_converted": <shares totales si se convierte todo>,
+      "remaining_shares_when_converted": <shares restantes por convertir>,
+      "issue_date": "YYYY-MM-DD",
+      "convertible_date": "YYYY-MM-DD (cuando puede convertirse)",
+      "maturity_date": "YYYY-MM-DD o null si perpetuo",
+      "known_owners": "nombres de holders (ej: Madryn, C/M Capital, WVP)",
+      "underwriter_agent": "nombre del placement agent",
+      "price_protection": "Customary Anti-Dilution|Full Ratchet|Variable Rate|None",
+      "pp_clause": "texto exacto de la cláusula de protección",
+      "floor_price": <precio floor si existe>,
+      "is_toxic": true/false (si tiene variable rate o death spiral),
+      "status": "Outstanding|Converted|Pending Effect",
+      "is_registered": true/false
+    }}
+  ],
+  "equity_lines": [
+    {{
+      "series_name": "Month Year Provider ELOC/SPA",
+      "total_capacity": <capacidad total en USD>,
+      "remaining_capacity": <capacidad restante>,
+      "counterparty": "Lincoln Park|White Lion|YA II|etc",
+      "agreement_start_date": "YYYY-MM-DD",
+      "agreement_end_date": "YYYY-MM-DD",
+      "is_registered": true/false
+    }}
+  ]
 }}
 
 REGLAS:
 1. El 424B4/424B5 tiene los datos FINALES (precios reales, no rangos)
 2. Si hay discrepancia entre filings, usar el MÁS RECIENTE
 3. Los precios de warrants deben ser EXACTOS como aparecen
+
+## ⚠️ REGLA ANTI-ALUCINACIÓN (CRÍTICO):
+- SOLO extrae instrumentos que puedas CITAR TEXTUALMENTE del filing
+- NO inventes datos que no aparezcan en el texto
+- Si NO encuentras warrants/notes/preferred → devuelve listas vacías []
+- Si falta un campo (ej: exercise_price) → usa null, NO inventes un valor
+- Si no hay fecha → null, NO inventes "Pre-IPO" ni fechas genéricas
+- CADA precio y cantidad DEBE aparecer literalmente en el filing
+
+PROHIBIDO:
+- Inventar "Pre-IPO Warrants" si no se mencionan explícitamente
+- Generar precios que no aparecen en el texto ($2.37, $0.01, etc.)
+- Crear cantidades aproximadas o redondeadas sin soporte textual
 
 ## FORMATO DE NOMBRES (CRÍTICO):
 El series_name SIEMPRE debe seguir este patrón:
@@ -160,6 +239,25 @@ Los ATM (At-The-Market) se anuncian en 6-K/8-K como:
 - "ATM Agreement" o "Sales Agreement" con placement agent
 - "At-The-Market Offering Program"
 - Incluye: capacidad total, placement agent, fecha de inicio
+
+## BUSCA TAMBIÉN EQUITY LINES (ELOC/SPA) - MUY IMPORTANTE:
+Los Equity Lines son acuerdos donde la empresa puede vender acciones a un inversor a su discreción.
+
+**Patrones de texto a detectar:**
+- "Purchase Agreement" o "Stock Purchase Agreement" con capacidad en USD
+- "Equity Line of Credit" o "ELOC"
+- "Committed Equity Facility" o "Equity Distribution Agreement"
+- "Standby Equity Distribution Agreement" o "SEDA"
+- Frases como: "we may direct [investor] to purchase", "at our sole discretion, sell shares"
+- "from time to time" + "purchase up to $X"
+
+**Datos a extraer:**
+- series_name: "Month Year [Counterparty] ELOC/SPA" (ej: "June 2020 Lincoln Park SPA")
+- total_capacity: capacidad total en USD del acuerdo
+- remaining_capacity: si se menciona cuánto queda disponible
+- counterparty: nombre del inversor/contraparte (extraer del texto)
+- agreement_start_date: fecha del acuerdo
+- agreement_end_date: fecha de expiración (típicamente 2-3 años después)
 
 ## CRÍTICO - COMPLETED OFFERINGS (424B4/424B5):
 Los filings 424B4 y 424B5 contienen los DETALLES FINALES de ofertas CERRADAS:
@@ -542,11 +640,13 @@ class SECAPIClient:
         )
         
         # Método 1: Buscar archivo .txt completo en los documentos del filing
+        logger.debug("fetch_content_method1_start", url=url[:60])
         if filing_data:
             docs = filing_data.get('documentFormatFiles', [])
             for doc in docs:
                 doc_url = doc.get('documentUrl', '')
                 if doc_url.endswith('.txt') and 'submission' in doc.get('description', '').lower():
+                    logger.debug("fetch_content_method1_found_txt", doc_url=doc_url[:60])
                     txt_content = await self._fetch_sec_direct(doc_url)
                     if txt_content and len(txt_content) > 1000:
                         logger.debug("filing_txt_fetched", url=doc_url[:60], chars=len(txt_content))
@@ -555,14 +655,18 @@ class SECAPIClient:
         # Método 2: Construir URL del .txt desde la URL del filing
         # URL típica: .../000110465925123289/tm2534000d1_6k.htm
         # TXT URL:    .../000110465925123289/0001104659-25-123289.txt
+        logger.debug("fetch_content_method2_start", url=url[:60])
         txt_url = self._build_txt_url(url)
         if txt_url:
+            logger.debug("fetch_content_method2_fetching", txt_url=txt_url[:60])
             txt_content = await self._fetch_sec_direct(txt_url)
+            logger.debug("fetch_content_method2_fetched", chars=len(txt_content) if txt_content else 0)
             if txt_content and len(txt_content) > 1000:
                 logger.debug("filing_txt_constructed", url=txt_url[:60], chars=len(txt_content))
                 return txt_content
         
         # Método 3: SEC-API.io filing-reader (fallback)
+        logger.debug("fetch_content_method3_start", url=url[:60])
         try:
             full_url = f"{self.filing_reader_url}?token={self.api_key}&url={url}"
             
@@ -611,22 +715,92 @@ class SECAPIClient:
         return None
     
     async def _fetch_sec_direct(self, url: str) -> Optional[str]:
-        """Descarga contenido directamente de SEC.gov"""
-        from services.extraction.section_extractor import clean_html_preserve_structure
+        """
+        Descarga contenido directamente de SEC.gov con limpieza inteligente.
+        
+        ESTRATEGIA DE LIMPIEZA (v4.4 - TOP):
+        =====================================
+        1. Archivos gigantes (>10MB): Truncar a 3MB PRIMERO, luego limpiar
+           - Evita procesar 50MB+ con regex
+           - 3MB de HTML → ~1MB limpio → suficiente info
+           
+        2. Archivos grandes (2-10MB): Limpieza rápida con regex
+           - clean_html_for_llm elimina CSS, imágenes, scripts
+           - ~60% reducción típica
+           
+        3. Archivos normales (<2MB): Limpieza completa con BeautifulSoup
+           - Preserva mejor estructura de tablas
+           - Más lento pero más preciso
+        """
+        from services.extraction.section_extractor import clean_html_preserve_structure, clean_html_for_llm
+        import time
+        
+        # Límites de tamaño para evitar bloqueos
+        MAX_SIZE_FOR_FULL_CLEAN = 2_000_000     # <2MB: limpieza completa (BeautifulSoup)
+        MAX_SIZE_FOR_FAST_CLEAN = 10_000_000    # 2-10MB: limpieza rápida (regex)
+        PRE_TRUNCATE_SIZE = 3_000_000           # >10MB: truncar a 3MB ANTES de limpiar
+        MAX_CONTENT_SIZE = 200_000              # Resultado final máximo
         
         try:
+            start_time = time.time()
+            logger.debug("sec_direct_fetching", url=url[:60])
             async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.get(url, headers=self.sec_headers)
+                logger.debug("sec_direct_response", url=url[:60], status=response.status_code, elapsed=time.time()-start_time)
                 if response.status_code == 200:
                     content = response.text
+                    original_size = len(content)
+                    logger.debug("sec_direct_content_received", chars=original_size)
+                    
                     # Verificar que no es error de SEC
                     if 'Request Originates from an Undeclared' in content:
                         logger.warning("sec_rate_limited", url=url[:60])
                         return None
                     
-                    # v4.1: Limpiar preservando estructura si tiene HTML
+                    # v4.4: Estrategia de limpieza inteligente según tamaño
                     if '<html' in content.lower() or '<table' in content.lower():
-                        content = clean_html_preserve_structure(content)
+                        if original_size > MAX_SIZE_FOR_FAST_CLEAN:
+                            # ═══════════════════════════════════════════════════════
+                            # ARCHIVO GIGANTE (>10MB): PRE-TRUNCAR + LIMPIAR
+                            # ═══════════════════════════════════════════════════════
+                            # Truncar a 3MB ANTES de limpiar (más info que 1MB crudo)
+                            # 3MB HTML → ~1.2MB limpio → suficiente para dilución
+                            logger.debug("sec_direct_giant_file", 
+                                        original_chars=original_size,
+                                        pre_truncate_to=PRE_TRUNCATE_SIZE)
+                            content = content[:PRE_TRUNCATE_SIZE]
+                            clean_start = time.time()
+                            content = clean_html_for_llm(content, aggressive=True)
+                            logger.debug("sec_direct_giant_cleaned", 
+                                        chars=len(content), 
+                                        reduction_pct=round((1 - len(content)/PRE_TRUNCATE_SIZE)*100, 1),
+                                        clean_time=round(time.time()-clean_start, 2))
+                                        
+                        elif original_size > MAX_SIZE_FOR_FULL_CLEAN:
+                            # ═══════════════════════════════════════════════════════
+                            # ARCHIVO GRANDE (2-10MB): LIMPIEZA RÁPIDA
+                            # ═══════════════════════════════════════════════════════
+                            # Regex para eliminar CSS, imágenes, scripts
+                            # ~60% reducción típica
+                            logger.debug("sec_direct_large_file", chars=original_size)
+                            clean_start = time.time()
+                            content = clean_html_for_llm(content, aggressive=True)
+                            logger.debug("sec_direct_large_cleaned", 
+                                        chars=len(content), 
+                                        reduction_pct=round((1 - len(content)/original_size)*100, 1),
+                                        clean_time=round(time.time()-clean_start, 2))
+                                        
+                        else:
+                            # ═══════════════════════════════════════════════════════
+                            # ARCHIVO NORMAL (<2MB): LIMPIEZA COMPLETA
+                            # ═══════════════════════════════════════════════════════
+                            # BeautifulSoup preserva mejor estructura de tablas
+                            logger.debug("sec_direct_normal_file", chars=original_size)
+                            clean_start = time.time()
+                            content = clean_html_preserve_structure(content)
+                            logger.debug("sec_direct_normal_cleaned", 
+                                        chars=len(content), 
+                                        clean_time=round(time.time()-clean_start, 2))
                     
                     return content[:200000]
         except Exception as e:
@@ -692,13 +866,24 @@ class ContextualDilutionExtractor:
     def __init__(self, sec_api_key: str, gemini_api_key: str):
         self.sec_client = SECAPIClient(sec_api_key)
         
-        # v4.1: Configurar timeout de 120 segundos para evitar que se cuelgue
-        # con requests muy grandes (800K+ chars)
-        http_options = types.HttpOptions(timeout=120000)  # 120 segundos en ms
-        self.gemini = genai.Client(api_key=gemini_api_key, http_options=http_options)
+        # Usar cliente httpx directo en lugar del SDK de Google
+        # El SDK de Google tiene bugs de bloqueo que no respetan asyncio.wait_for
+        # Ver: https://github.com/googleapis/python-aiplatform/issues/4509
+        self._gemini_api_key = gemini_api_key
+        self._timeout_seconds = 60.0  # 60 segundos
+        
+        self.gemini = GeminiHttpxClientWrapper(
+            api_key=gemini_api_key, 
+            timeout_seconds=self._timeout_seconds
+        )
+        # UPGRADE: gemini-3-pro-preview es el modelo PRO más potente disponible
+        # Máxima precisión para extracción estructurada de datos financieros
         self.model = "gemini-2.5-flash"
         
-        logger.info("contextual_extractor_initialized", model=self.model, timeout_ms=120000)
+        logger.info("contextual_extractor_initialized_httpx", 
+                   model=self.model, 
+                   timeout_seconds=self._timeout_seconds,
+                   client_type="httpx_direct")
     
     async def extract_all(
         self, 
@@ -1303,21 +1488,49 @@ class ContextualDilutionExtractor:
             for c in contents
         ])
         
-        # Llamar a Gemini con retry para rate limiting
-        import time
+        # Llamar a Gemini con httpx (verdaderamente cancelable)
+        import asyncio
+        GEMINI_TIMEOUT = 65  # segundos
         max_retries = 3
+        
         for attempt in range(max_retries):
             try:
-                response = self.gemini.models.generate_content(
-                    model=self.model,
-                    contents=[combined_content, REGISTRATION_CHAIN_PROMPT],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.1
-                    )
+                response = await asyncio.wait_for(
+                    self.gemini.generate_content(
+                        model=self.model,
+                        contents=[combined_content, REGISTRATION_CHAIN_PROMPT],
+                        config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.1
+                        }
+                    ),
+                    timeout=GEMINI_TIMEOUT
                 )
                 
-                result = self._parse_json(response.text)
+                raw_response_text = response["text"]
+                result = self._parse_json(raw_response_text)
+                
+                # Guardar debug para diagnóstico de falsos positivos
+                try:
+                    from services.pipeline.gemini_debug_service import GeminiDebugService
+                    from shared.utils.redis_client import RedisClient
+                    redis_debug = RedisClient()
+                    await redis_debug.connect()
+                    try:
+                        debug_service = GeminiDebugService(redis_debug)
+                        await debug_service.save_chain_extraction(
+                            ticker=context.ticker,  # Usar context.ticker, no self.ticker
+                            file_no=file_no,
+                            chain_type=chain_type,
+                            prompt_preview=combined_content[:5000] if combined_content else "",
+                            raw_response=raw_response_text,
+                            parsed_result=result,
+                            filing_urls=[f.get('linkToFilingDetails', '') for f in key_filings[:5]]
+                        )
+                    finally:
+                        await redis_debug.disconnect()
+                except Exception as debug_err:
+                    logger.debug("gemini_debug_save_skipped", error=str(debug_err))
                 
                 # Agregar al contexto
                 self._add_chain_to_context(result, file_no, context)
@@ -1328,15 +1541,21 @@ class ContextualDilutionExtractor:
                            offering=bool(result.get('offering')),
                            warrants=len(result.get('warrants', [])))
                 
-                # Delay entre llamadas exitosas para evitar rate limit
-                time.sleep(2)
+                await asyncio.sleep(2)
                 break
                 
+            except asyncio.TimeoutError:
+                logger.error("gemini_chain_timeout_httpx", file_no=file_no, attempt=attempt+1, timeout=GEMINI_TIMEOUT)
+                # Con httpx no necesitamos recrear cliente - el timeout funciona
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3)
+                    continue
+                break
             except Exception as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    wait_time = (attempt + 1) * 10  # 10s, 20s, 30s
+                    wait_time = (attempt + 1) * 10
                     logger.warning("gemini_rate_limit_retry", file_no=file_no, attempt=attempt+1, wait=wait_time)
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
                 else:
                     logger.error("chain_extraction_error", file_no=file_no, error=str(e))
                     break
@@ -1440,7 +1659,9 @@ class ContextualDilutionExtractor:
         )
 
         for idx, filing in enumerate(recent):
+            logger.debug("transaction_loop_iteration", idx=idx+1, total=len(recent), form=filing.get('formType', 'unknown')[:10])
             await self._process_single_transaction_filing(filing, context, idx=idx + 1, total=len(recent))
+            logger.debug("transaction_loop_iteration_done", idx=idx+1)
 
     def _get_filing_identity(self, filing: Dict) -> Dict[str, str]:
         """Extrae identidad estable del filing (accessionNo + url + form + date)."""
@@ -1459,21 +1680,27 @@ class ContextualDilutionExtractor:
         total: int
     ):
         """Procesa un único filing de transacción con contexto y hace upsert/merge en el contexto."""
+        logger.debug("transaction_filing_start", idx=idx, form=filing.get('formType', 'unknown')[:10])
         ident = self._get_filing_identity(filing)
         accession = ident["accession"] or ident["url"]
         if not accession:
+            logger.debug("transaction_skip_no_accession", idx=idx)
             return
 
         if accession in context.processed_accessions:
+            logger.debug("transaction_skip_already_processed", idx=idx, accession=accession[:20])
             return
         context.processed_accessions.add(accession)
 
         url = ident["url"]
         if not url:
+            logger.debug("transaction_skip_no_url", idx=idx)
             return
 
+        logger.debug("transaction_fetching_content", idx=idx, url=url[:60])
         content = await self.sec_client.fetch_filing_content(url, filing_data=filing)
         if not content:
+            logger.debug("transaction_skip_no_content", idx=idx)
             return
 
         # keyword gate para 8-K/6-K (424B suele ser relevante aunque no mencione "warrant")
@@ -1496,6 +1723,10 @@ class ContextualDilutionExtractor:
             filings_content=filings_content
         )
 
+        # LOG DETALLADO para debugging de idx=5
+        context_str = context.to_context_string()
+        prompt_size = len(prompt)
+        
         logger.info(
             "gemini_transaction_call",
             ticker=context.ticker,
@@ -1505,39 +1736,59 @@ class ContextualDilutionExtractor:
             date=ident["date"],
             accession=ident["accession"][:32] if ident["accession"] else "",
             content_chars=min(len(content), MAX_CONTENT_PER_FILING),
+            context_chars=len(context_str),
+            prompt_total_chars=prompt_size,
+            warrants_in_context=len(context.warrants),
+            notes_in_context=len(context.convertible_notes),
         )
 
-        # Retry para rate limiting
-        import time
+        # Llamar a Gemini con httpx (verdaderamente cancelable)
+        import asyncio
+        GEMINI_TIMEOUT = 65  # segundos
         result = None
+        
         for attempt in range(3):
             try:
-                response = self.gemini.models.generate_content(
-                    model=self.model,
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.1
-                    )
+                response = await asyncio.wait_for(
+                    self.gemini.generate_content(
+                        model=self.model,
+                        contents=[prompt],
+                        config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.1
+                        }
+                    ),
+                    timeout=GEMINI_TIMEOUT
                 )
-                result = self._parse_json(response.text)
-                time.sleep(1)  # Delay entre llamadas
+                result = self._parse_json(response["text"])
+                logger.debug("transaction_parsed", idx=idx, form=form, date=ident["date"], result_keys=list(result.keys()) if isinstance(result, dict) else "not_dict")
+                await asyncio.sleep(1)  # Delay entre llamadas
                 break
+            except asyncio.TimeoutError:
+                logger.error("gemini_timeout_httpx", form=form, date=ident["date"], attempt=attempt+1, timeout=GEMINI_TIMEOUT)
+                # Con httpx el timeout funciona correctamente - solo retry
+                if attempt < 2:
+                    await asyncio.sleep(3)
+                    continue
+                return
             except Exception as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     wait_time = (attempt + 1) * 10
                     logger.warning("gemini_rate_limit_retry", form=form, attempt=attempt+1, wait=wait_time)
-                    time.sleep(wait_time)
+                    await asyncio.sleep(wait_time)
                 else:
                     logger.error("transaction_extraction_error", form=form, date=ident["date"], error=str(e))
                     return
 
         if result is None:
+            logger.debug("transaction_result_none", idx=idx, form=form)
             return
 
         if not isinstance(result, dict):
+            logger.debug("transaction_result_not_dict", idx=idx, form=form, type=type(result).__name__)
             return
 
+        logger.debug("transaction_processing_instruments", idx=idx, form=form)
         new_instruments = result.get('new_instruments', {}) or {}
         if not isinstance(new_instruments, dict):
             new_instruments = {}
@@ -1594,6 +1845,8 @@ class ContextualDilutionExtractor:
             co['_source'] = source_tag
             # No deduplicamos completed offerings - cada deal es único
             context.completed_offerings.append(co)
+
+        logger.debug("transaction_filing_complete", idx=idx, form=form, date=ident["date"])
 
     async def _process_financials(
         self,
@@ -1720,31 +1973,43 @@ class ContextualDilutionExtractor:
                    date=ident["date"],
                    content_chars=len(relevant_content))
         
-        # Llamar a Gemini con retry
+        # Llamar a Gemini con httpx (verdaderamente cancelable)
+        import asyncio
+        GEMINI_TIMEOUT = 65  # segundos
         max_retries = 3
+        
         for attempt in range(max_retries):
             try:
-                response = self.gemini.models.generate_content(
-                    model=self.model,
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(
-                        temperature=0.1,
-                        response_mime_type="application/json"
-                    )
+                response = await asyncio.wait_for(
+                    self.gemini.generate_content(
+                        model=self.model,
+                        contents=[prompt],
+                        config={
+                            "temperature": 0.1,
+                            "response_mime_type": "application/json"
+                        }
+                    ),
+                    timeout=GEMINI_TIMEOUT
                 )
                 
-                if response and response.text:
+                if response and response.get("text"):
                     self._apply_financial_updates(
-                        response.text, 
+                        response["text"], 
                         context, 
                         ident,
                         url
                     )
                 
-                # Rate limiting - esperar entre llamadas
                 await asyncio.sleep(1.5)
                 break
                 
+            except asyncio.TimeoutError:
+                logger.error("gemini_financial_timeout_httpx", form=ident["form"], attempt=attempt+1, timeout=GEMINI_TIMEOUT)
+                # Con httpx el timeout funciona - solo retry
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3)
+                    continue
+                break
             except Exception as e:
                 error_str = str(e)
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
@@ -2212,29 +2477,51 @@ class ContextualDilutionExtractor:
             filings_content=filings_content
         )
         
-        # Llamar a Gemini con contexto
-        try:
-            total_chars = sum(len(c['content']) for c in contents)
-            logger.info("gemini_calling_with_context",
-                       batch=batch_num,
-                       filings=len(contents),
-                       total_chars=total_chars,
-                       context_instruments=len(context.warrants) + len(context.convertible_notes))
-            
-            response = self.gemini.models.generate_content(
-                model=self.model,
-                contents=[prompt],
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1
+        # Llamar a Gemini con httpx (verdaderamente cancelable)
+        import asyncio
+        GEMINI_TIMEOUT = 65  # segundos
+        max_retries = 2
+        response = None
+        
+        for attempt in range(max_retries):
+            try:
+                total_chars = sum(len(c['content']) for c in contents)
+                logger.info("gemini_calling_with_context",
+                           batch=batch_num,
+                           filings=len(contents),
+                           total_chars=total_chars,
+                           context_instruments=len(context.warrants) + len(context.convertible_notes),
+                           attempt=attempt+1)
+                
+                response = await asyncio.wait_for(
+                    self.gemini.generate_content(
+                        model=self.model,
+                        contents=[prompt],
+                        config={
+                            "response_mime_type": "application/json",
+                            "temperature": 0.1
+                        }
+                    ),
+                    timeout=GEMINI_TIMEOUT
                 )
-            )
-            
+                break  # Éxito, salir del loop
+            except asyncio.TimeoutError:
+                logger.error("gemini_batch_timeout_httpx", batch=batch_num, attempt=attempt+1, timeout=GEMINI_TIMEOUT)
+                # Con httpx el timeout funciona - solo retry
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(3)
+                    continue
+                return  # Falló después de todos los reintentos
+        
+        if response is None:
+            return
+        
+        try:
             logger.debug("gemini_response_received",
                         batch=batch_num,
-                        response_len=len(response.text) if response.text else 0)
+                        response_len=len(response.get("text", "")) if response else 0)
             
-            result = self._parse_json(response.text)
+            result = self._parse_json(response["text"])
             
             # Validar que result es un diccionario
             if not isinstance(result, dict):

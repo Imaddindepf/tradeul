@@ -369,15 +369,14 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       className="bg-white"
     >
       <div id={`floating-window-${window.id}`} className="flex flex-col h-full overflow-hidden">
-        {/* Title Bar - Solo mostrar si hideHeader es false */}
+        {/* Title Bar - Compacto estilo Godel Terminal */}
         {!window.hideHeader && (
-          <div className="window-title-bar flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200 cursor-move select-none">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div className="w-2 h-2 rounded-full bg-blue-500" />
-              <h3 className="text-sm font-semibold text-slate-800 truncate">{window.title}</h3>
+          <div className="window-title-bar flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200 cursor-move select-none">
+            <div className="flex items-center gap-1 flex-1 min-w-0">
+              <h3 className="text-xs font-medium text-slate-700 truncate">{window.title}</h3>
             </div>
 
-            <div className="flex items-center gap-1 ml-4">
+            <div className="flex items-center gap-0.5 ml-2">
               {/* Open in New Window Button */}
               <button
                 onMouseDown={(e) => {
@@ -387,11 +386,11 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                   e.stopPropagation();
                   handleOpenNewWindow();
                 }}
-                className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
+                className="p-0.5 rounded hover:bg-blue-100 transition-colors group"
                 aria-label={t('floatingWindow.openInNewWindow')}
                 title={t('floatingWindow.openInNewWindow')}
               >
-                <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-blue-600" />
+                <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-blue-600" />
               </button>
 
               {/* Close Button */}
@@ -403,10 +402,10 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
                   e.stopPropagation();
                   handleClose();
                 }}
-                className="p-1.5 rounded hover:bg-red-100 transition-colors group"
+                className="p-0.5 rounded hover:bg-red-100 transition-colors group"
                 aria-label={t('common.close')}
               >
-                <X className="w-4 h-4 text-slate-600 group-hover:text-red-600" />
+                <X className="w-3 h-3 text-slate-500 group-hover:text-red-600" />
               </button>
             </div>
           </div>

@@ -32,9 +32,18 @@ from shared.config.settings import settings
 logger = structlog.get_logger(__name__)
 
 # Configuración
-GEMINI_MODEL = "gemini-3-pro-preview"
+# Lista de modelos en orden de preferencia (fallback si hay error de cuota)
+GEMINI_MODELS_FALLBACK = [
+    "gemini-2.5-pro",           # Más potente disponible
+    "gemini-2.5-flash",         # Rápido y con buena cuota
+    "gemini-2.0-flash",         # Fallback adicional
+]
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 REQUEST_TIMEOUT = 180.0  # 3 minutos - Pro necesita más tiempo con búsqueda
+
+# Errores que indican problema de cuota (activar fallback)
+QUOTA_ERROR_CODES = [429, 503]
+QUOTA_ERROR_STATUSES = ["RESOURCE_EXHAUSTED", "UNAVAILABLE"]
 
 # Thread pool para llamadas síncronas
 _executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="gemini_pro_dedup_")
@@ -62,43 +71,50 @@ Identifica TODOS los splits desde 2020:
 {instruments_json}
 
 ## PASO 3: IDENTIFICAR DUPLICADOS
+
+### Para WARRANTS, NOTES, PREFERRED:
 Dos instrumentos son EL MISMO si:
 1. Misma fecha de emisión (mes/año) + mismo tipo → 99% duplicado
 2. Nombres similares ("Common Warrants" = "Shareholder Warrants" = "Investor Warrants")
 3. Mismo ejercicio precio (post-split adjusted)
 
-## PASO 4: AJUSTAR POR SPLIT (REGLA DETERMINÍSTICA)
+### ⚠️ REGLAS ESPECIALES PARA SHELF REGISTRATIONS:
+Los shelf registrations son ÚNICOS y NO deben fusionarse. Cada uno representa un filing diferente:
+1. CADA file_number único = UN SHELF DIFERENTE (NO fusionar)
+2. Shelfs "Resale" vs "Primary/Universal" = DIFERENTES tipos (NO fusionar)
+3. Shelfs de diferentes años = DIFERENTES (NO fusionar aunque tengan nombres similares)
+4. MANTENER TODOS los shelfs - incluso expirados son histórico importante
+5. Solo marcar status: "Active" (vigente), "Expired" (>3 años), "Resale" (para reventa)
 
-⚠️ REGLA EXACTA - NO ASUMIR NADA:
-Para CADA instrumento, compara su issue_date con CADA split_date:
+## PASO 4: NO AJUSTAR POR SPLITS (DELEGADO A CAPA PYTHON)
 
-```
-SI issue_date < split_date → AJUSTAR:
-   - exercise_price → MULTIPLICAR × split_ratio (ej: $2.50 × 10 = $25.00)
-   - outstanding → DIVIDIR ÷ split_ratio (ej: 1,000,000 ÷ 10 = 100,000)
-   - total_issued → DIVIDIR ÷ split_ratio (ej: 1,500,000 ÷ 10 = 150,000)
-   
-SI issue_date >= split_date → NO AJUSTAR (ya es post-split)
-SI issue_date es NULL → NO AJUSTAR, marcar needs_review=true
-```
+⚠️ IMPORTANTE - NO HAGAS AJUSTES DE SPLIT:
+Los ajustes de split se manejan por una capa separada determinística en Python.
 
-EJEMPLO con reverse split 1-for-10 el 2025-12-12:
-- Warrant emitido 2024-05-15: price $2.50→$25.00, outstanding 1M→100K
-- Warrant emitido 2025-12-20: SIN CAMBIOS (post-split)
+TU TRABAJO:
+1. Extraer precios TAL COMO aparecen en los filings (sin modificar)
+2. Indicar la fecha del filing fuente más reciente
+3. Marcar split_adjusted=false para TODOS los instrumentos
+4. Si encuentras información de splits en los filings, reportarla en split_history
 
-⚠️ CRÍTICO: En reverse split, los PRECIOS SUBEN y las CANTIDADES BAJAN.
-NO uses heurísticas. USA SOLO LA FECHA para decidir.
+⚠️ CRÍTICO: 
+- NO multipliques ni dividas precios
+- NO ajustes outstanding o total_issued
+- Solo extrae los valores EXACTOS como aparecen en los documentos
+- La capa de Python usará Polygon API para splits reales
 
 ## PASO 5: CONSOLIDAR DATOS
 Para cada grupo de duplicados, elige:
 - **series_name**: El nombre más descriptivo y claro
 - **exercise_price**: 
   - Preferir 6-K/8-K sobre F-1 (precio final vs estimado)
-  - AJUSTAR POR SPLIT si es necesario
+  - Usar el precio del filing MÁS RECIENTE (ya estará actualizado)
+  - NO ajustar por splits - usar valor exacto del filing
 - **total_issued**: El número del filing más cercano a la emisión
 - **outstanding**: El número más reciente
 - **expiration_date**: El del filing más reciente
 - **source_filings**: COMBINAR todas las fuentes
+- **source_filing_date**: Fecha del filing de donde viene el precio
 
 ## OUTPUT REQUERIDO (JSON):
 {{
@@ -116,13 +132,9 @@ Para cada grupo de duplicados, elige:
         "series_name": "Nombre canónico final",
         "warrant_type": "Common|Pre-Funded|Private|Public",
         "exercise_price": 15.00,
-        "exercise_price_pre_split": 1.50,
         "outstanding": 90000,
-        "outstanding_pre_split": 900000,
         "total_issued": 100000,
-        "total_issued_pre_split": 1000000,
-        "split_adjusted": true,
-        "split_adjustment_reason": "issue_date 2024-01-15 < split_date 2025-12-12, factor 10x",
+        "split_adjusted": false,
         "issue_date": "2024-01-15",
         "expiration_date": "2029-01-15",
         "known_owners": "si se conocen",
@@ -130,6 +142,7 @@ Para cada grupo de duplicados, elige:
         "price_protection": "Customary Anti-Dilution|Full Ratchet|None",
         "is_registered": true,
         "source_filings": ["F-1 2024-01-10", "6-K 2024-01-20"],
+        "source_filing_date": "2024-01-20",
         "merged_from": ["original_id_1", "original_id_2"],
         "merge_reasoning": "Mismo mes de emisión, mismo tipo, nombres equivalentes"
       }}
@@ -142,13 +155,14 @@ Para cada grupo de duplicados, elige:
   "unique_instruments": {{
     "warrants": [...],
     "convertible_notes": [...],
-    "convertible_preferred": [...]
+    "convertible_preferred": [...],
+    "atm_offerings": [...],
+    "shelf_registrations": [...]
   }},
   "dedup_summary": {{
     "total_input": 15,
     "total_output": 8,
-    "merged_groups": 4,
-    "split_adjustments_made": 3
+    "merged_groups": 4
   }},
   "warnings": [
     "Posible warrant faltante: texto menciona Series B pero no extraído",
@@ -158,14 +172,13 @@ Para cada grupo de duplicados, elige:
 
 ## REGLAS CRÍTICAS:
 1. NO inventes datos - si no tienes info, usa null
-2. Si NO encuentras splits, split_history = []
+2. Si NO encuentras info de splits en filings, split_history = []
 3. Si un instrumento está SOLO (sin duplicados), va a unique_instruments
 4. SIEMPRE incluye merge_reasoning para grupos fusionados
-5. AJUSTE DE SPLIT: Decide SOLO basándote en comparar issue_date vs split_date
-   - issue_date < split_date → split_adjusted=true
-   - issue_date >= split_date → split_adjusted=false
-   - issue_date=null → split_adjusted=false, needs_review=true
-6. SIEMPRE incluye split_adjustment_reason explicando la decisión
+5. NO AJUSTES POR SPLIT - marca split_adjusted=false para TODOS
+   - Los ajustes de split se hacen en capa Python con datos de Polygon API
+   - Tu trabajo es extraer precios EXACTOS como aparecen en los filings
+6. Incluye source_filing_date para que la capa Python sepa de qué fecha es el precio
 
 ## VALIDACIONES DE PRECIOS (RANGOS TÍPICOS - SOLO PARA REFERENCIA):
 - Pre-funded warrants: $0.0001 - $0.01 (típico $0.001)
@@ -473,10 +486,9 @@ class GeminiProDeduplicator:
         timeout: float
     ) -> Optional[Dict]:
         """
-        Llama a Gemini 3 Pro con Google Search habilitado.
+        Llama a Gemini con fallback inteligente entre modelos.
+        Si un modelo tiene error de cuota (429/RESOURCE_EXHAUSTED), intenta el siguiente.
         """
-        gemini_url = f"{GEMINI_API_BASE}/{GEMINI_MODEL}:generateContent?key={self.api_key}"
-        
         headers = {"Content-Type": "application/json"}
         
         payload = {
@@ -501,36 +513,135 @@ class GeminiProDeduplicator:
             }
         }
         
-        try:
-            logger.info("gemini_pro_calling", ticker=ticker, model=GEMINI_MODEL)
+        last_error = None
+        
+        # Intentar cada modelo en orden de preferencia
+        for model_idx, model in enumerate(GEMINI_MODELS_FALLBACK):
+            gemini_url = f"{GEMINI_API_BASE}/{model}:generateContent?key={self.api_key}"
             
+            try:
+                logger.info("gemini_pro_calling", ticker=ticker, model=model, attempt=model_idx+1)
+                
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(gemini_url, headers=headers, json=payload)
+                    
+                    # Verificar si es error de cuota
+                    if response.status_code in QUOTA_ERROR_CODES:
+                        error_data = response.json() if response.text else {}
+                        error_status = error_data.get("error", {}).get("status", "")
+                        error_msg = error_data.get("error", {}).get("message", "")[:100]
+                        
+                        logger.warning("gemini_pro_quota_error",
+                                      ticker=ticker,
+                                      model=model,
+                                      status=response.status_code,
+                                      error_status=error_status,
+                                      message=error_msg)
+                        
+                        # Si es error de cuota y hay más modelos, continuar al siguiente
+                        if model_idx < len(GEMINI_MODELS_FALLBACK) - 1:
+                            logger.info("gemini_pro_fallback_next",
+                                       ticker=ticker,
+                                       failed_model=model,
+                                       next_model=GEMINI_MODELS_FALLBACK[model_idx + 1])
+                            last_error = f"Quota error on {model}"
+                            continue
+                        else:
+                            # No hay más modelos para intentar
+                            logger.error("gemini_pro_all_models_exhausted", ticker=ticker)
+                            return None
+                    
+                    if response.status_code != 200:
+                        # Error no relacionado con cuota - también intentar fallback
+                        logger.warning("gemini_pro_api_error",
+                                      status=response.status_code,
+                                      model=model,
+                                      body=response.text[:300])
+                        
+                        if model_idx < len(GEMINI_MODELS_FALLBACK) - 1:
+                            last_error = f"API error {response.status_code} on {model}"
+                            continue
+                        return None
+                    
+                    data = response.json()
+                    
+                    # Extraer texto de la respuesta
+                    candidates = data.get("candidates", [])
+                    if not candidates:
+                        logger.warning("gemini_pro_no_candidates", ticker=ticker, model=model)
+                        if model_idx < len(GEMINI_MODELS_FALLBACK) - 1:
+                            continue
+                        return None
+                    
+                    content = candidates[0].get("content", {})
+                    parts = content.get("parts", [])
+                    
+                    text = ""
+                    for part in parts:
+                        if "text" in part:
+                            text += part["text"]
+                    
+                    if not text:
+                        logger.warning("gemini_pro_empty_response", ticker=ticker, model=model)
+                        if model_idx < len(GEMINI_MODELS_FALLBACK) - 1:
+                            continue
+                        return None
+                    
+                    # ¡Éxito! Log qué modelo funcionó
+                    logger.info("gemini_pro_success", ticker=ticker, model=model)
+                    
+                    # Parsear JSON
+                    return self._parse_json_response(text, ticker)
+                    
+            except httpx.TimeoutException:
+                logger.warning("gemini_pro_timeout", ticker=ticker, model=model, timeout=timeout)
+                last_error = f"Timeout on {model}"
+                if model_idx < len(GEMINI_MODELS_FALLBACK) - 1:
+                    continue
+                return None
+            except Exception as e:
+                logger.warning("gemini_pro_request_error", ticker=ticker, model=model, error=str(e))
+                last_error = str(e)
+                if model_idx < len(GEMINI_MODELS_FALLBACK) - 1:
+                    continue
+                return None
+        
+        # Si llegamos aquí, todos los modelos fallaron
+        logger.error("gemini_pro_all_attempts_failed", ticker=ticker, last_error=last_error)
+        return None
+    
+    async def _call_gemini_pro_legacy(
+        self,
+        ticker: str,
+        prompt: str,
+        timeout: float,
+        model: str = "gemini-2.5-pro"
+    ) -> Optional[Dict]:
+        """
+        Método legacy para llamadas directas sin fallback (para compatibilidad).
+        """
+        gemini_url = f"{GEMINI_API_BASE}/{model}:generateContent?key={self.api_key}"
+        headers = {"Content-Type": "application/json"}
+        
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192}
+        }
+        
+        try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(gemini_url, headers=headers, json=payload)
-                
                 if response.status_code != 200:
-                    logger.error("gemini_pro_api_error",
-                               status=response.status_code,
-                               body=response.text[:500])
                     return None
-                
                 data = response.json()
-                
-                # Extraer texto de la respuesta
                 candidates = data.get("candidates", [])
                 if not candidates:
-                    logger.warning("gemini_pro_no_candidates", ticker=ticker)
                     return None
-                
-                content = candidates[0].get("content", {})
-                parts = content.get("parts", [])
-                
                 text = ""
-                for part in parts:
+                for part in candidates[0].get("content", {}).get("parts", []):
                     if "text" in part:
                         text += part["text"]
-                
                 if not text:
-                    logger.warning("gemini_pro_empty_response", ticker=ticker)
                     return None
                 
                 # Parsear JSON

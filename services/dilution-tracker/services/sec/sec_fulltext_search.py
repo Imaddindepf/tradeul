@@ -17,6 +17,7 @@ INCLUYE TODAS LAS KEYWORDS POSIBLES:
 """
 
 import httpx
+import asyncio
 from typing import List, Dict, Optional, Any, Set, Tuple
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -24,6 +25,43 @@ from shared.config.settings import settings
 from shared.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+# =============================================================================
+# RATE LIMITER PARA SEC-API.IO
+# =============================================================================
+
+class RateLimiter:
+    """
+    Rate limiter con ventana deslizante para SEC-API.io.
+    
+    Limits (Personal & Startups):
+    - Full-Text Search: 10 req/seg
+    - Query API: 20 req/seg
+    """
+    
+    def __init__(self, requests_per_second: float = 8.0):  # Conservador: 8 de 10
+        self.requests_per_second = requests_per_second
+        self.min_interval = 1.0 / requests_per_second
+        self._last_request_time = 0.0
+        self._lock = asyncio.Lock()
+    
+    async def acquire(self):
+        """Espera hasta que sea seguro hacer otra request."""
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            time_since_last = now - self._last_request_time
+            
+            if time_since_last < self.min_interval:
+                wait_time = self.min_interval - time_since_last
+                await asyncio.sleep(wait_time)
+            
+            self._last_request_time = asyncio.get_event_loop().time()
+
+
+# Rate limiters globales para diferentes APIs
+_fulltext_rate_limiter = RateLimiter(requests_per_second=8.0)  # 8 de 10 permitidos
+_query_rate_limiter = RateLimiter(requests_per_second=15.0)     # 15 de 20 permitidos
 
 
 # =============================================================================
@@ -489,7 +527,7 @@ class SECFullTextSearch:
         end_date: str,
         max_pages: int = 5
     ) -> List[Dict]:
-        """Ejecuta búsqueda full-text y pagina resultados."""
+        """Ejecuta búsqueda full-text con rate limiting y retry."""
         all_results = []
         
         for page in range(1, max_pages + 1):
@@ -501,27 +539,54 @@ class SECFullTextSearch:
                 "page": str(page)
             }
             
-            try:
-                response = await client.post(
-                    f"{self.FULLTEXT_ENDPOINT}?token={self.api_key}",
-                    json=payload
-                )
-                
-                if response.status_code != 200:
-                    logger.warning("fulltext_search_error", 
-                                  status=response.status_code)
-                    break
-                
-                data = response.json()
-                filings = data.get("filings", [])
-                all_results.extend(filings)
-                
-                # Si menos de 100, no hay más páginas
-                if len(filings) < 100:
+            # Retry con backoff exponencial para errores 429
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    # Rate limiting - esperar antes de cada request
+                    await _fulltext_rate_limiter.acquire()
+                    
+                    response = await client.post(
+                        f"{self.FULLTEXT_ENDPOINT}?token={self.api_key}",
+                        json=payload
+                    )
+                    
+                    if response.status_code == 429:
+                        # Rate limit hit - backoff exponencial
+                        wait_time = (2 ** retry) * 2  # 2, 4, 8 segundos
+                        logger.warning("fulltext_rate_limit_hit", 
+                                      retry=retry+1, 
+                                      wait_seconds=wait_time,
+                                      cik=cik)
+                        await asyncio.sleep(wait_time)
+                        continue
+                    
+                    if response.status_code != 200:
+                        logger.warning("fulltext_search_error", 
+                                      status=response.status_code,
+                                      cik=cik)
+                        break
+                    
+                    data = response.json()
+                    filings = data.get("filings", [])
+                    all_results.extend(filings)
+                    
+                    # Si menos de 100, no hay más páginas
+                    if len(filings) < 100:
+                        break
+                    
+                    # Request exitosa, salir del retry loop
                     break
                     
-            except Exception as e:
-                logger.error("fulltext_search_exception", error=str(e))
+                except Exception as e:
+                    logger.error("fulltext_search_exception", error=str(e), retry=retry)
+                    if retry < max_retries - 1:
+                        await asyncio.sleep(2 ** retry)
+                    else:
+                        break
+            else:
+                # Se agotaron los retries
+                logger.error("fulltext_search_max_retries", cik=cik, page=page)
                 break
         
         return all_results
@@ -612,14 +677,22 @@ class SECFullTextSearch:
                 
                 all_results = []
                 
-                # Paginar hasta obtener todos
+                # Paginar hasta obtener todos (con rate limiting)
                 for offset in range(0, 500, 50):
                     payload["from"] = str(offset)
+                    
+                    # Rate limiting
+                    await _query_rate_limiter.acquire()
                     
                     response = await client.post(
                         f"{self.S1_424B4_ENDPOINT}?token={self.api_key}",
                         json=payload
                     )
+                    
+                    if response.status_code == 429:
+                        logger.warning("s1_424b4_rate_limit", offset=offset)
+                        await asyncio.sleep(2)
+                        continue
                     
                     if response.status_code != 200:
                         logger.warning("s1_424b4_api_error", status=response.status_code)
@@ -685,10 +758,18 @@ class SECFullTextSearch:
                 for offset in range(0, 200, 50):
                     payload["from"] = str(offset)
                     
+                    # Rate limiting
+                    await _query_rate_limiter.acquire()
+                    
                     response = await client.post(
                         f"{self.FORM_D_ENDPOINT}?token={self.api_key}",
                         json=payload
                     )
+                    
+                    if response.status_code == 429:
+                        logger.warning("form_d_rate_limit", offset=offset)
+                        await asyncio.sleep(2)
+                        continue
                     
                     if response.status_code != 200:
                         logger.warning("form_d_api_error", status=response.status_code)

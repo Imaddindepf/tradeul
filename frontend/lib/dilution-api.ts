@@ -102,11 +102,14 @@ export interface ShelfRegistration {
   amount_raised_last_12_months?: number;
   // Baby Shelf (IB-6) fields
   is_baby_shelf?: boolean;
+  baby_shelf_restriction?: boolean;
   public_float?: number;
   highest_60_day_close?: number;
   ib6_float_value?: number;
   current_raisable_amount?: number;
   price_to_exceed_baby_shelf?: number;
+  outstanding_shares_calc?: number;
+  free_float_calc?: number;
   // Registration type: "S-1" | "S-3" | "F-1" | "F-3"
   registration_statement?: 'S-1' | 'S-3' | 'F-1' | 'F-3' | string;
   registration_type?: string; // alias

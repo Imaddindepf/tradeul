@@ -25,21 +25,21 @@ type TickerResult = {
     displayName: string;
 };
 
-// Scanner commands with accurate criteria descriptions
+// Scanner commands - descripciones genéricas sin revelar lógica de negocio
 const SCANNER_COMMANDS = [
-    { id: 'gappers_up', label: 'Gap Up', description: 'Gap ≥2% from prev close' },
-    { id: 'gappers_down', label: 'Gap Down', description: 'Gap ≤-2% from prev close' },
-    { id: 'momentum_up', label: 'Momentum Up', description: 'Ignition: Chg5min ≥1.5%, HOD ≤2%, VWAP+, RVOL ≥500%' },
-    { id: 'momentum_down', label: 'Momentum Down', description: 'Strong drop: Change ≤-3%' },
-    { id: 'winners', label: 'Winners', description: 'Top gainers: Change ≥5%' },
-    { id: 'losers', label: 'Losers', description: 'Top losers: Change ≤-5%' },
-    { id: 'new_highs', label: 'New Highs', description: 'Price = intraday high (incl. pre/post)' },
-    { id: 'new_lows', label: 'New Lows', description: 'Price = intraday low (incl. pre/post)' },
-    { id: 'anomalies', label: 'Anomalies', description: 'Z-Score ≥3: trades today vs avg 5d (statistical anomaly)' },
-    { id: 'high_volume', label: 'High Volume', description: 'High relative volume: RVOL ≥200%' },
-    { id: 'reversals', label: 'Reversals', description: 'Gap ≥2% but reversing direction' },
-    { id: 'post_market', label: 'Post-Market', description: 'PM Vol ≥20K or PM Chg ≥0.5%' },
-    { id: 'with_news', label: 'With News', description: 'Scanner tickers with news today' },
+    { id: 'gappers_up', label: 'Gap Up', description: 'Stocks gapping up at open' },
+    { id: 'gappers_down', label: 'Gap Down', description: 'Stocks gapping down at open' },
+    { id: 'momentum_up', label: 'Momentum Up', description: 'Strong upward momentum' },
+    { id: 'momentum_down', label: 'Momentum Down', description: 'Strong downward momentum' },
+    { id: 'winners', label: 'Winners', description: 'Biggest gainers today' },
+    { id: 'losers', label: 'Losers', description: 'Biggest losers today' },
+    { id: 'new_highs', label: 'New Highs', description: 'Hitting intraday highs' },
+    { id: 'new_lows', label: 'New Lows', description: 'Hitting intraday lows' },
+    { id: 'anomalies', label: 'Anomalies', description: 'Unusual trading activity' },
+    { id: 'high_volume', label: 'High Volume', description: 'High relative volume' },
+    { id: 'reversals', label: 'Reversals', description: 'Gap reversals' },
+    { id: 'post_market', label: 'Post-Market', description: 'Extended hours movers' },
+    { id: 'with_news', label: 'With News', description: 'Stocks with recent news' },
 ];
 
 export function TerminalPalette({
@@ -79,7 +79,7 @@ export function TerminalPalette({
     // No tratar como ticker si es un comando exacto
     const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper)
         && !hasScPrefix
-        && !['SC', 'IPO', 'SET', 'HELP', 'FILTERS', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER'].includes(searchUpper)
+        && !['SC', 'IPO', 'SET', 'HELP', 'FILTERS', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT'].includes(searchUpper)
         && !isExactCommand;
 
     // Buscar tickers cuando parece un ticker

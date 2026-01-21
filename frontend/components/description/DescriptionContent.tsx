@@ -196,7 +196,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
     const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
 
     openWindow({
-      title: `News: ${ticker}`,
+      title: 'News',  // Siempre "News" - el ticker se filtra internamente
       content: <TickerNewsMini ticker={ticker} />,
       width: 500,
       height: 500,

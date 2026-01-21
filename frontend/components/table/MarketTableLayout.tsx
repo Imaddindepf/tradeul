@@ -71,58 +71,48 @@ export function MarketTableLayout({
   };
 
   return (
-    <div className="table-drag-handle flex items-center justify-between px-3 py-2 bg-white border-b-2 border-blue-500 cursor-move">
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <div className="w-1 h-6 bg-blue-500 rounded-full"></div>
-          <h2 className="text-base font-bold text-slate-900 tracking-tight">{title}</h2>
-        </div>
+    <div className="table-drag-handle flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200 cursor-move">
+      <div className="flex items-center gap-2">
+        <h2 className="text-xs font-semibold text-slate-700">{title}</h2>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-          <span className={`text-xs font-medium ${isLive ? 'text-emerald-600' : 'text-slate-500'}`}>
+          <span className={`text-[10px] font-medium ${isLive ? 'text-emerald-600' : 'text-slate-400'}`}>
             {isLive ? t('common.live') : t('common.offline')}
           </span>
         </div>
 
         {typeof count === 'number' && (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 rounded border border-blue-200">
-              <span className="text-xs font-semibold text-blue-600">{count}</span>
-              <span className="text-xs text-slate-600">tickers</span>
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-50 rounded border border-blue-200">
+              <span className="text-[10px] font-semibold text-blue-600">{count}</span>
             </div>
             {typeof sequence === 'number' && (
-              <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-50 rounded border border-slate-200">
-                <span className="text-xs text-slate-500">seq</span>
-                <span className="text-xs font-mono font-semibold text-slate-900">{sequence}</span>
-              </div>
+              <span className="text-[10px] font-mono text-slate-400">#{sequence}</span>
             )}
           </div>
         )}
       </div>
 
       <div
-        className="flex items-center gap-2"
+        className="flex items-center gap-1"
         onMouseDown={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
         {lastUpdateTime && (
-          <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-slate-500">Updated</span>
-            <span className="font-mono font-medium text-slate-700">
-              {lastUpdateTime.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
-            </span>
-          </div>
+          <span className="text-[10px] font-mono text-slate-400">
+            {lastUpdateTime.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+          </span>
         )}
 
         {/* Botón de abrir en nueva ventana */}
         {listName && (
           <button
             onClick={handleOpenNewWindow}
-            className="p-1.5 rounded hover:bg-blue-100 transition-colors group"
+            className="p-0.5 rounded hover:bg-blue-100 transition-colors group"
             title="Open in new window"
           >
-            <ExternalLink className="w-4 h-4 text-slate-600 group-hover:text-blue-600" />
+            <ExternalLink className="w-3 h-3 text-slate-500 group-hover:text-blue-600" />
           </button>
         )}
 
@@ -132,10 +122,10 @@ export function MarketTableLayout({
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1.5 rounded hover:bg-red-100 transition-colors group"
+            className="p-0.5 rounded hover:bg-red-100 transition-colors group"
             title="Close table"
           >
-            <X className="w-4 h-4 text-slate-600 group-hover:text-red-600" />
+            <X className="w-3 h-3 text-slate-500 group-hover:text-red-600" />
           </button>
         )}
       </div>

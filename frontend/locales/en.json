@@ -131,19 +131,19 @@
     "noCommandsFound": "No commands found.",
     "sc": {
       "name": "Scanner",
-      "description": "Open market scanner"
+      "description": "Market scanner"
     },
     "dt": {
       "name": "Dilution Tracker",
-      "description": "Dilution analysis"
+      "description": "Dilution risk analysis"
     },
     "fa": {
       "name": "Financial Analysis",
-      "description": "Balance, Income, Cash Flow"
+      "description": "Company financials"
     },
     "sec": {
       "name": "SEC Filings",
-      "description": "Real-time SEC filings"
+      "description": "SEC filings feed"
     },
     "news": {
       "name": "News",
@@ -151,71 +151,79 @@
     },
     "ins": {
       "name": "Insights",
-      "description": "TradeUL reports and analysis"
+      "description": "Market insights"
     },
     "alerts": {
       "name": "Catalyst Alerts",
-      "description": "News catalyst alerts for explosive moves"
+      "description": "Price alerts"
     },
     "ipo": {
       "name": "IPOs",
-      "description": "Initial Public Offerings"
+      "description": "IPO calendar"
     },
     "wl": {
       "name": "Quote Monitor",
-      "description": "Watchlist with real-time quotes"
+      "description": "Track stocks"
     },
     "profile": {
       "name": "Profile",
-      "description": "Your profile and account"
+      "description": "Your account"
     },
     "settings": {
       "name": "Settings",
-      "description": "App settings"
+      "description": "Preferences"
     },
     "filters": {
       "name": "Scanner Filters",
-      "description": "Real-time scanner filters"
+      "description": "Customize scanner"
     },
     "chat": {
       "name": "Community Chat",
-      "description": "Chat with the trader community"
+      "description": "Trader chat"
     },
     "notes": {
       "name": "Notes",
-      "description": "Personal notes editor"
+      "description": "Personal notes"
     },
     "patterns": {
       "name": "Pattern Matching",
-      "description": "AI pattern similarity search"
+      "description": "Find similar charts"
     },
     "ratio": {
       "name": "Ratio Analysis",
-      "description": "Asset correlation and regression"
+      "description": "Compare assets"
     },
     "screener": {
       "name": "Stock Screener",
-      "description": "Filter stocks by technical criteria"
+      "description": "Custom filters"
     },
     "mp": {
       "name": "Multi-Security",
-      "description": "Compare multiple tickers historically"
+      "description": "Multi-chart view"
     },
     "insider": {
       "name": "Insider Trading",
-      "description": "Form 4 - Insider buys/sells"
+      "description": "Insider transactions"
     },
     "fan": {
       "name": "Financial Analyst",
-      "description": "Financial analysis with real-time data"
+      "description": "AI financial report"
     },
     "ai": {
       "name": "AI Agent",
-      "description": "AI assistant for market analysis with natural language"
+      "description": "Ask AI anything"
+    },
+    "earnings": {
+      "name": "Earnings Calendar",
+      "description": "Upcoming earnings"
+    },
+    "predict": {
+      "name": "Prediction Markets",
+      "description": "Prediction markets"
     },
     "help": {
       "name": "Help",
-      "description": "Show terminal help"
+      "description": "Help"
     }
   },
   "scanner": {
@@ -234,19 +242,19 @@
     "withNews": "With News",
     "marketClosed": "Market is closed. Data will update when the market opens.",
     "clickDescription": "Click to analyze",
-    "gapUpDescription": "Gap ≥ 2% from prev close",
-    "gapDownDescription": "Gap ≤ -2% from prev close",
-    "momentumUpDescription": "Ignition: Chg5min ≥1.5%, HOD ≤2%, VWAP+, RVOL ≥500%",
-    "momentumDownDescription": "Strong drop: Change ≤ -3%",
-    "topGainersDescription": "Top gainers: Change ≥ 5%",
-    "topLosersDescription": "Top losers: Change ≤ -5%",
-    "newHighsDescription": "Price = intraday high (incl. pre/post)",
-    "newLowsDescription": "Price = intraday low (incl. pre/post)",
-    "anomaliesDescription": "Z-Score ≥3: trades today vs avg 5d (statistical anomaly)",
-    "highVolumeDescription": "High relative volume: RVOL ≥ 200%",
-    "reversalsDescription": "Gap + reversal: Gap ≥2% but falling (or vice versa)",
-    "postMarketDescription": "Post-market: PM Vol ≥20K or PM Chg ≥0.5%",
-    "withNewsDescription": "Scanner tickers with today's news",
+    "gapUpDescription": "Stocks gapping up at open",
+    "gapDownDescription": "Stocks gapping down at open",
+    "momentumUpDescription": "Strong upward momentum",
+    "momentumDownDescription": "Strong downward momentum",
+    "topGainersDescription": "Biggest gainers today",
+    "topLosersDescription": "Biggest losers today",
+    "newHighsDescription": "Hitting intraday highs",
+    "newLowsDescription": "Hitting intraday lows",
+    "anomaliesDescription": "Unusual trading activity",
+    "highVolumeDescription": "High relative volume",
+    "reversalsDescription": "Gap reversals",
+    "postMarketDescription": "Extended hours movers",
+    "withNewsDescription": "Stocks with recent news",
     "noTickersWithNews": "No tickers with news",
     "noTickersWithNewsDescription": "Open a scanner table first (Gap Up, Momentum, etc.)",
     "noTickersWithNewsButScanner": "There are {{count}} tickers in the scanner, but none have news today.",
@@ -485,107 +493,114 @@
   "terminalCommands": {
     "tickerCommands": {
       "Q": {
-        "description": "Real-time bid/ask price"
+        "description": "Quote"
       },
       "DES": {
-        "description": "Full profile: info, chart, stats, analyst"
+        "description": "Company profile"
       },
       "G": {
-        "description": "Ticker chart with TradingView"
-      },
-      "DT": {
-        "description": "Ticker dilution analysis"
-      },
-      "FA": {
-        "description": "Balance, Income, Cash Flow"
-      },
-      "SEC": {
-        "description": "SEC filings for this ticker"
-      },
-      "NEWS": {
-        "description": "Ticker news"
-      },
-      "PM": {
-        "description": "AI pattern similarity search for this ticker"
-      },
-      "FAN": {
-        "description": "Financial analysis with real-time data"
-      }
-    },
-    "globalCommands": {
-      "SC": {
-        "description": "Open market scanner"
+        "description": "Price chart"
       },
       "DT": {
         "description": "Dilution analysis"
       },
       "FA": {
-        "description": "Balance, Income, Cash Flow"
+        "description": "Financials"
       },
       "SEC": {
-        "description": "Real-time SEC filings"
+        "description": "SEC filings"
+      },
+      "NEWS": {
+        "description": "News"
+      },
+      "PM": {
+        "description": "Similar charts"
+      },
+      "FAN": {
+        "description": "AI report"
+      }
+    },
+    "globalCommands": {
+      "SC": {
+        "description": "Market scanner"
+      },
+      "DT": {
+        "description": "Dilution risk analysis"
+      },
+      "FA": {
+        "description": "Company financials"
+      },
+      "SEC": {
+        "description": "SEC filings feed"
       },
       "NEWS": {
         "description": "Market news"
       },
       "INS": {
-        "description": "TradeUL reports and analysis"
+        "description": "Market insights"
       },
       "ALERTS": {
-        "description": "News catalyst alerts for explosive moves"
+        "description": "Price alerts"
       },
       "IPO": {
-        "description": "Initial Public Offerings"
+        "description": "IPO calendar"
       },
       "WL": {
-        "description": "Watchlist with real-time quotes"
+        "description": "Track stocks"
       },
       "PROFILE": {
-        "description": "Your profile and account"
+        "description": "Your account"
       },
       "SET": {
-        "description": "App settings"
+        "description": "Preferences"
       },
       "FILTERS": {
-        "description": "Real-time scanner filters"
+        "description": "Customize scanner"
       },
       "HELP": {
-        "description": "Show terminal help"
+        "description": "Help"
       },
       "CHAT": {
-        "description": "Community chat for traders"
+        "description": "Trader chat"
       },
       "NOTE": {
-        "description": "Personal notes editor"
+        "description": "Personal notes"
       },
       "PM": {
-        "description": "AI pattern similarity search"
+        "description": "Find similar charts"
       },
       "PRT": {
-        "description": "Real-time batch pattern scanner with performance tracking"
+        "description": "Pattern scanner"
       },
       "GR": {
-        "description": "Asset ratio, correlation and regression"
+        "description": "Compare assets"
       },
       "SCREEN": {
-        "description": "Filter stocks by RSI, volume, price..."
+        "description": "Custom filters"
       },
       "MP": {
-        "description": "Compare multiple tickers historically"
+        "description": "Multi-chart view"
       },
       "INSIDER": {
-        "description": "Form 4 - Insider buys/sells & clusters"
+        "description": "Insider transactions"
       },
       "FAN": {
-        "description": "Financial analyst with real-time search"
+        "description": "AI financial report"
       },
       "AI": {
-        "description": "AI assistant for natural language market analysis"
+        "description": "Ask AI anything"
       },
-      "INS": {
-        "description": "TradeUL reports and analysis"
+      "ERN": {
+        "description": "Upcoming earnings"
+      },
+      "PREDICT": {
+        "description": "Prediction markets"
       }
     }
+  },
+  "predictions": {
+    "events": "events",
+    "markets": "markets"
   },
   "insights": {
     "title": "Insights",

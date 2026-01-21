@@ -208,15 +208,445 @@ app.include_router(symbols_router)  # Symbol lookups (market cap filtering for A
 
 FINANCIAL_ANALYST_URL = os.getenv("FINANCIAL_ANALYST_URL", "http://financial_analyst:8099")
 
+
+async def _get_ticker_metadata_for_fan(symbol: str) -> dict:
+    """
+    Obtener metadata del ticker para pasarla al Financial Analyst.
+    Esto evita que Gemini busque datos que ya tenemos en BD.
+    """
+    from decimal import Decimal
+    
+    try:
+        query = """
+            SELECT 
+                symbol, company_name, exchange, sector, industry,
+                market_cap, shares_outstanding, free_float, free_float_percent,
+                description, homepage_url, total_employees, cik, list_date,
+                is_etf, type
+            FROM ticker_metadata
+            WHERE symbol = $1
+        """
+        result = await timescale_client.fetchrow(query, symbol.upper())
+        
+        if result:
+            metadata = {}
+            for key, value in dict(result).items():
+                if value is None:
+                    continue
+                # Convertir Decimal a float para JSON
+                if isinstance(value, Decimal):
+                    metadata[key] = float(value)
+                # Convertir date/datetime a string
+                elif hasattr(value, 'isoformat'):
+                    metadata[key] = str(value)
+                else:
+                    metadata[key] = value
+            return metadata
+    except Exception as e:
+        logger.warning("fan_metadata_fetch_error", symbol=symbol, error=str(e))
+    
+    return {}
+
+
+SCREENER_URL = os.getenv("SCREENER_URL", "http://screener:8000")
+
+
+async def _get_technical_indicators_for_fan(symbol: str) -> dict:
+    """
+    Obtener indicadores técnicos DIARIOS desde el Screener service.
+    El screener tiene RSI, SMA, 52W precomputados y es ~20x más rápido que SQL.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.post(
+                f"{SCREENER_URL}/api/v1/screener/screen",
+                json={"filters": [], "symbols": [symbol.upper()], "limit": 1}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                results = data.get("results", [])
+                if results:
+                    r = results[0]
+                    price = r.get("price")
+                    sma_50 = r.get("sma_50")
+                    sma_200 = r.get("sma_200")
+                    
+                    # Calcular high/low 52W desde el porcentaje
+                    from_high = r.get("from_52w_high")  # Negativo = debajo del máximo
+                    from_low = r.get("from_52w_low")    # Positivo = arriba del mínimo
+                    
+                    high_52w = price / (1 + from_high/100) if from_high and price else None
+                    low_52w = price / (1 + from_low/100) if from_low and price else None
+                    
+                    # RSI status
+                    rsi = r.get("rsi_14")
+                    rsi_status = "Oversold" if rsi and rsi < 30 else "Overbought" if rsi and rsi > 70 else "Neutral"
+                    
+                    return {
+                        "last_close": round(price, 2) if price else None,
+                        "rsi_14": round(rsi, 1) if rsi else None,
+                        "rsi_status": rsi_status,
+                        "ma_50": round(sma_50, 2) if sma_50 else None,
+                        "ma_200": round(sma_200, 2) if sma_200 else None,
+                        "high_52w": round(high_52w, 2) if high_52w else None,
+                        "low_52w": round(low_52w, 2) if low_52w else None,
+                        "from_52w_high_pct": round(from_high, 1) if from_high else None,
+                        "from_52w_low_pct": round(from_low, 1) if from_low else None,
+                        "gap_percent": round(r.get("gap_percent", 0), 2),
+                        "relative_volume": round(r.get("relative_volume", 0), 2),
+                        "atr_14": round(r.get("atr_14", 0), 2) if r.get("atr_14") else None,
+                        "query_time_ms": data.get("query_time_ms")
+                    }
+    except Exception as e:
+        logger.warning("fan_technical_fetch_error", symbol=symbol, error=str(e))
+    
+    return {}
+
+
+async def _get_insider_summary_for_fan(symbol: str) -> dict:
+    """
+    Obtener resumen de actividad insider reciente.
+    """
+    try:
+        # Usar nuestro endpoint existente
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"http://localhost:8000/api/v1/insider-trading/{symbol}/details",
+                params={"size": 10}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                transactions = data.get("transactions", [])
+                
+                if not transactions:
+                    return {}
+                
+                # Calcular resumen
+                buys = [t for t in transactions if t.get("transaction_type") in ["P", "A"]]
+                sells = [t for t in transactions if t.get("transaction_type") in ["S", "D"]]
+                
+                total_bought = sum(t.get("shares", 0) or 0 for t in buys)
+                total_sold = sum(t.get("shares", 0) or 0 for t in sells)
+                
+                # Encontrar CEO/CFO en las transacciones
+                executives = {}
+                for t in transactions:
+                    title = (t.get("owner_title") or "").upper()
+                    name = t.get("owner_name", "")
+                    if "CEO" in title or "CHIEF EXECUTIVE" in title:
+                        executives["ceo"] = name
+                    elif "CFO" in title or "CHIEF FINANCIAL" in title:
+                        executives["cfo"] = name
+                
+                return {
+                    "recent_transactions": len(transactions),
+                    "buys_count": len(buys),
+                    "sells_count": len(sells),
+                    "total_shares_bought": total_bought,
+                    "total_shares_sold": total_sold,
+                    "net_insider_sentiment": "Bullish" if total_bought > total_sold else "Bearish" if total_sold > total_bought else "Neutral",
+                    **executives
+                }
+    except Exception as e:
+        logger.warning("fan_insider_fetch_error", symbol=symbol, error=str(e))
+    
+    return {}
+
+
+async def _get_price_snapshot_for_fan(symbol: str) -> dict:
+    """
+    Obtener precio actual y cambio desde Polygon snapshot.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"http://localhost:8000/api/v1/ticker/{symbol}/snapshot"
+            )
+            if response.status_code == 200:
+                data = response.json()
+                ticker_data = data.get("ticker", {})
+                day = ticker_data.get("day", {})
+                prev_day = ticker_data.get("prevDay", {})
+                
+                current_price = day.get("c") or prev_day.get("c")
+                prev_close = prev_day.get("c")
+                
+                if current_price and prev_close:
+                    change_pct = ((current_price - prev_close) / prev_close) * 100
+                    return {
+                        "current_price": round(current_price, 2),
+                        "prev_close": round(prev_close, 2),
+                        "change_percent": round(change_pct, 2),
+                        "day_volume": day.get("v"),
+                        "day_high": day.get("h"),
+                        "day_low": day.get("l")
+                    }
+    except Exception as e:
+        logger.warning("fan_snapshot_fetch_error", symbol=symbol, error=str(e))
+    
+    return {}
+
+
+async def _get_fundamentals_for_fan(symbol: str, current_price: float, cik: str = None) -> dict:
+    """
+    Obtener fundamentales desde SEC XBRL (P/E, P/B, P/S, EV/EBITDA, D/E).
+    Datos oficiales de 10-K/10-Q, cacheados 7 días.
+    
+    Args:
+        symbol: Ticker
+        current_price: Precio actual
+        cik: CIK de SEC (más preciso que ticker)
+    """
+    try:
+        from fundamentals_extractor import get_fundamentals_for_fan
+        result = await get_fundamentals_for_fan(symbol, current_price, redis_client, cik)
+        
+        if result.get("status") == "success":
+            ratios = result.get("ratios", {})
+            fundamentals = result.get("fundamentals", {})
+            filing = result.get("filing", {})
+            
+            return {
+                # Ratios calculados
+                "pe_ratio": ratios.get("pe_ratio"),
+                "pb_ratio": ratios.get("pb_ratio"),
+                "ps_ratio": ratios.get("ps_ratio"),
+                "ev_ebitda": ratios.get("ev_ebitda"),
+                "debt_equity": ratios.get("debt_equity"),
+                "profit_margin": ratios.get("profit_margin"),
+                # Datos crudos
+                "eps_diluted": fundamentals.get("eps_diluted"),
+                "revenue": fundamentals.get("revenue"),
+                "net_income": fundamentals.get("net_income"),
+                "total_debt": fundamentals.get("total_debt"),
+                "cash": fundamentals.get("cash"),
+                # Info del filing
+                "filing_type": filing.get("form_type"),
+                "filing_date": filing.get("period_end"),
+                "accounting_standard": result.get("standard")
+            }
+    except Exception as e:
+        logger.warning("fan_fundamentals_error", symbol=symbol, error=str(e))
+    
+    return {}
+
+
+@app.get("/api/report/{ticker}/instant")
+async def get_instant_report(ticker: str):
+    """Endpoint RÁPIDO: Solo datos internos sin Gemini (~1-2s).
+    
+    Devuelve inmediatamente:
+    - Metadata de BD (company_name, sector, industry, etc.)
+    - Technical (RSI, MA50, MA200, 52W)
+    - Insider summary + CEO/CFO
+    - Price snapshot
+    - Fundamentals XBRL (P/E, P/B, P/S, EV/EBITDA)
+    
+    El frontend puede mostrar esto mientras espera a Gemini.
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        # 1. Primero obtener precio Y metadata en paralelo (necesitamos CIK)
+        price_task = _get_price_snapshot_for_fan(ticker)
+        metadata_task = _get_ticker_metadata_for_fan(ticker)
+        
+        price, db_metadata = await asyncio.gather(price_task, metadata_task, return_exceptions=True)
+        
+        if isinstance(price, Exception):
+            price = {}
+        if isinstance(db_metadata, Exception):
+            db_metadata = {}
+        
+        current_price = price.get("current_price", 0) if price else 0
+        cik = db_metadata.get("cik") if db_metadata else None
+        
+        # 2. Ejecutar el resto EN PARALELO
+        technical_task = _get_technical_indicators_for_fan(ticker)
+        insider_task = _get_insider_summary_for_fan(ticker)
+        fundamentals_task = _get_fundamentals_for_fan(ticker, current_price, cik) if current_price else asyncio.sleep(0)
+        
+        technical, insider, fundamentals = await asyncio.gather(
+            technical_task, insider_task, fundamentals_task,
+            return_exceptions=True
+        )
+        
+        # Manejar excepciones
+        technical = {} if isinstance(technical, Exception) else technical
+        insider = {} if isinstance(insider, Exception) else insider
+        fundamentals = {} if isinstance(fundamentals, Exception) or fundamentals is None else fundamentals
+        
+        elapsed_ms = round((time.time() - start_time) * 1000)
+        logger.info("instant_report_complete", ticker=ticker, elapsed_ms=elapsed_ms)
+        
+        # Construir respuesta con estructura similar a AIReport pero solo datos internos
+        return {
+            "ticker": ticker.upper(),
+            "company_name": db_metadata.get("company_name", ticker.upper()),
+            "sector": db_metadata.get("sector"),
+            "industry": db_metadata.get("industry"),
+            "exchange": db_metadata.get("exchange"),
+            "ceo": insider.get("ceo"),
+            "website": db_metadata.get("website"),
+            "employees": db_metadata.get("employees"),
+            "business_summary": db_metadata.get("description"),
+            "special_status": None,
+            # Valuation from XBRL
+            "pe_ratio": fundamentals.get("pe_ratio"),
+            "pb_ratio": fundamentals.get("pb_ratio"),
+            "ps_ratio": fundamentals.get("ps_ratio"),
+            "ev_ebitda": fundamentals.get("ev_ebitda"),
+            "forward_pe": None,  # Requiere Gemini
+            "peg_ratio": None,   # Requiere Gemini
+            "dividend_yield": None,  # Requiere Gemini
+            "dividend_frequency": None,
+            # Financial health from XBRL
+            "financial_health": {
+                "debt_to_equity": fundamentals.get("debt_equity"),
+                "profit_margin": fundamentals.get("profit_margin"),
+            } if fundamentals else None,
+            "financial_grade": None,  # Requiere Gemini
+            # Technical from Screener
+            "technical": {
+                "trend": None,  # Requiere Gemini
+                "rsi_status": _interpret_rsi(technical.get("rsi_14")) if technical.get("rsi_14") else None,
+                "ma_50_status": technical.get("ma_50_status"),
+                "ma_200_status": technical.get("ma_200_status"),
+                "support_level": None,  # Requiere Gemini
+                "resistance_level": None,
+            } if technical else None,
+            # Insider
+            "insider_sentiment": insider.get("sentiment"),
+            "insider_activity": insider.get("recent_transactions", []),
+            # Price
+            "price_snapshot": price,
+            # Campos que requieren Gemini (vacíos)
+            "consensus_rating": None,
+            "analyst_ratings": [],
+            "average_price_target": None,
+            "price_target_high": None,
+            "price_target_low": None,
+            "short_interest": None,
+            "competitors": None,
+            "upcoming_catalysts": None,
+            "earnings_date": None,
+            "news_sentiment": None,
+            "risk_sentiment": None,
+            "risk_factors": [],
+            "critical_event": None,
+            # Metadata
+            "generated_at": None,
+            "_instant": True,  # Flag para indicar que es respuesta instantánea
+            "_elapsed_ms": elapsed_ms,
+        }
+    except Exception as e:
+        logger.error("instant_report_error", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _interpret_rsi(rsi: float | None) -> str | None:
+    """Interpreta RSI como status textual."""
+    if rsi is None:
+        return None
+    if rsi < 30:
+        return "Oversold"
+    elif rsi > 70:
+        return "Overbought"
+    else:
+        return "Neutral"
+
+
 @app.get("/api/report/{ticker}")
 async def proxy_financial_analyst_report(ticker: str, lang: str = Query("en")):
-    """Proxy to Financial Analyst service for AI-generated reports"""
+    """Proxy to Financial Analyst service for AI-generated reports (completo con Gemini).
+    
+    Optimización HÍBRIDA: Obtenemos datos de múltiples fuentes locales en paralelo
+    y los pasamos a financial-analyst para reducir el trabajo de Gemini.
+    
+    Datos locales (paralelo):
+    - Metadata: company_name, sector, industry, exchange, employees, etc.
+    - Technical: RSI-14, MA50, MA200, 52W High/Low (desde Screener)
+    - Insider: resumen de actividad insider + nombres CEO/CFO
+    - Price: precio actual y cambio desde Polygon
+    - Fundamentals: P/E, P/B, P/S, EV/EBITDA desde SEC XBRL (NUEVO)
+    """
+    import time
+    start_time = time.time()
+    
     try:
+        # 1. Primero obtener precio Y metadata en paralelo (necesitamos CIK de metadata)
+        price_task = _get_price_snapshot_for_fan(ticker)
+        metadata_task = _get_ticker_metadata_for_fan(ticker)
+        
+        price, db_metadata = await asyncio.gather(price_task, metadata_task, return_exceptions=True)
+        
+        if isinstance(price, Exception):
+            logger.warning("fan_price_exception", error=str(price))
+            price = {}
+        if isinstance(db_metadata, Exception):
+            logger.warning("fan_metadata_exception", error=str(db_metadata))
+            db_metadata = {}
+        
+        current_price = price.get("current_price", 0) if price else 0
+        cik = db_metadata.get("cik") if db_metadata else None  # CIK para búsqueda precisa en SEC
+        
+        # 2. Ejecutar el resto EN PARALELO (usando CIK para fundamentals)
+        technical_task = _get_technical_indicators_for_fan(ticker)
+        insider_task = _get_insider_summary_for_fan(ticker)
+        fundamentals_task = _get_fundamentals_for_fan(ticker, current_price, cik) if current_price else asyncio.sleep(0)
+        
+        technical, insider, fundamentals = await asyncio.gather(
+            technical_task, insider_task, fundamentals_task,
+            return_exceptions=True
+        )
+        
+        # Manejar excepciones individuales
+        if isinstance(technical, Exception):
+            logger.warning("fan_technical_exception", error=str(technical))
+            technical = {}
+        if isinstance(insider, Exception):
+            logger.warning("fan_insider_exception", error=str(insider))
+            insider = {}
+        if isinstance(fundamentals, Exception) or fundamentals is None:
+            if isinstance(fundamentals, Exception):
+                logger.warning("fan_fundamentals_exception", error=str(fundamentals))
+            fundamentals = {}
+        
+        # 3. Combinar todos los datos
+        enriched_metadata = {
+            **db_metadata,
+            "technical_daily": technical,      # RSI, MA, 52W - DIARIOS
+            "insider_summary": insider,        # Resumen + CEO/CFO
+            "price_snapshot": price,           # Precio actual
+            "fundamentals_xbrl": fundamentals  # P/E, P/B, P/S desde SEC (NUEVO)
+        }
+        
+        local_time = round((time.time() - start_time) * 1000)
+        logger.info("fan_local_data_collected", 
+                   ticker=ticker, 
+                   local_time_ms=local_time,
+                   has_metadata=bool(db_metadata),
+                   has_technical=bool(technical),
+                   has_insider=bool(insider),
+                   has_price=bool(price),
+                   has_fundamentals=bool(fundamentals))
+        
+        # 3. Llamar a financial-analyst con TODOS los datos
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.get(
+            response = await client.post(
                 f"{FINANCIAL_ANALYST_URL}/api/report/{ticker}",
-                params={"lang": lang}
+                params={"lang": lang},
+                json={"db_metadata": enriched_metadata}
             )
+            
+            total_time = round((time.time() - start_time) * 1000)
+            logger.info("fan_report_complete",
+                       ticker=ticker,
+                       total_time_ms=total_time,
+                       local_time_ms=local_time,
+                       gemini_time_ms=total_time - local_time)
+            
             return Response(
                 content=response.content,
                 status_code=response.status_code,
@@ -1275,6 +1705,206 @@ async def proxy_news_article(url: str = Query(..., description="News article URL
 
 
 # ============================================================================
+# Prediction Markets Proxy
+# ============================================================================
+
+PREDICTION_MARKETS_URL = os.getenv("PREDICTION_MARKETS_URL", "http://prediction-markets:8021")
+
+@app.get("/api/v1/predictions")
+async def proxy_predictions(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    refresh: bool = Query(False, description="Force refresh from source"),
+):
+    """
+    Proxy para el servicio de Prediction Markets (Polymarket)
+    Retorna datos de mercados de prediccion organizados por categoria
+    """
+    try:
+        params = {}
+        if category:
+            params["category"] = category
+        if refresh:
+            params["refresh"] = "true"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{PREDICTION_MARKETS_URL}/api/v1/predictions",
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Prediction Markets request timed out")
+    except Exception as e:
+        logger.error("predictions_proxy_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/events")
+async def proxy_predictions_events(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    subcategory: Optional[str] = Query(None, description="Filter by subcategory"),
+    min_volume: Optional[float] = Query(None, description="Minimum total volume"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=200, description="Page size"),
+):
+    """Proxy para lista de eventos de prediction markets"""
+    try:
+        params = {"page": page, "page_size": page_size}
+        if category:
+            params["category"] = category
+        if subcategory:
+            params["subcategory"] = subcategory
+        if min_volume:
+            params["min_volume"] = min_volume
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(
+                f"{PREDICTION_MARKETS_URL}/api/v1/predictions/events",
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error("predictions_events_proxy_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/categories")
+async def proxy_predictions_categories():
+    """Proxy para lista de categorias disponibles"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{PREDICTION_MARKETS_URL}/api/v1/predictions/categories")
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error("predictions_categories_proxy_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/event/{event_id}")
+async def proxy_predictions_event(event_id: str):
+    """Proxy para obtener un evento especifico por ID"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{PREDICTION_MARKETS_URL}/api/v1/predictions/event/{event_id}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+        raise HTTPException(status_code=502, detail="Prediction Markets service error")
+    except Exception as e:
+        logger.error("predictions_event_proxy_error", event_id=event_id, error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/series")
+async def proxy_predictions_series(
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    """Proxy para obtener series de eventos"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{PREDICTION_MARKETS_URL}/api/v1/predictions/series",
+                params={"limit": limit, "offset": offset}
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error("predictions_series_proxy_error", error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/series/{series_id}")
+async def proxy_predictions_series_detail(series_id: str):
+    """Proxy para obtener una serie especifica"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{PREDICTION_MARKETS_URL}/api/v1/predictions/series/{series_id}")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Series {series_id} not found")
+        raise HTTPException(status_code=502, detail="Prediction Markets service error")
+    except Exception as e:
+        logger.error("predictions_series_detail_proxy_error", series_id=series_id, error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/comments/{event_id}")
+async def proxy_predictions_comments(
+    event_id: str,
+    limit: int = Query(30, ge=1, le=100),
+):
+    """Proxy para obtener comentarios de un evento"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{PREDICTION_MARKETS_URL}/api/v1/predictions/comments/{event_id}",
+                params={"limit": limit}
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error("predictions_comments_proxy_error", event_id=event_id, error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/top-holders/{market_id}")
+async def proxy_predictions_top_holders(
+    market_id: str,
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Proxy para obtener top holders de un mercado"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                f"{PREDICTION_MARKETS_URL}/api/v1/predictions/top-holders/{market_id}",
+                params={"limit": limit}
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error("predictions_top_holders_proxy_error", market_id=market_id, error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/volume/{event_id}")
+async def proxy_predictions_volume(event_id: str):
+    """Proxy para obtener volumen en vivo de un evento"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{PREDICTION_MARKETS_URL}/api/v1/predictions/volume/{event_id}")
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error("predictions_volume_proxy_error", event_id=event_id, error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+@app.get("/api/v1/predictions/event/{event_id}/detail")
+async def proxy_predictions_event_detail(event_id: str):
+    """Proxy para obtener detalle completo de un evento con comentarios y sparklines"""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(f"{PREDICTION_MARKETS_URL}/api/v1/predictions/event/{event_id}/detail")
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+        raise HTTPException(status_code=502, detail="Prediction Markets service error")
+    except Exception as e:
+        logger.error("predictions_event_detail_proxy_error", event_id=event_id, error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
+# ============================================================================
 # Pattern Matching Proxy
 # ============================================================================
 
@@ -1504,6 +2134,139 @@ async def proxy_pattern_realtime_ws(websocket: WebSocket):
             await websocket.close()
         except Exception:
             pass
+
+
+# ============================================================================
+# Earnings Calendar Endpoints
+# ============================================================================
+
+@app.get("/api/v1/earnings/calendar")
+async def get_earnings_calendar(
+    date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format (default: today)"),
+    status: Optional[str] = Query(None, description="Filter by status: scheduled, reported"),
+    time_slot: Optional[str] = Query(None, description="Filter by time: BMO, AMC"),
+):
+    """
+    Get earnings calendar for a specific date.
+    Returns both scheduled and reported earnings.
+    """
+    from datetime import datetime, date as date_type
+    
+    try:
+        # Parse date or use today
+        if date:
+            target_date = date_type.fromisoformat(date)
+        else:
+            target_date = datetime.now().date()
+        
+        # Build query
+        query = """
+            SELECT 
+                symbol, company_name, report_date, time_slot, fiscal_quarter,
+                eps_estimate, eps_actual, eps_surprise_pct, beat_eps,
+                revenue_estimate, revenue_actual, revenue_surprise_pct, beat_revenue,
+                guidance_direction, guidance_commentary, key_highlights,
+                market_cap, sector, status, source, created_at
+            FROM earnings_calendar
+            WHERE report_date = $1
+        """
+        params = [target_date]
+        
+        if status:
+            query += " AND status = $2"
+            params.append(status)
+        
+        if time_slot:
+            param_num = len(params) + 1
+            query += f" AND time_slot = ${param_num}"
+            params.append(time_slot.upper())
+        
+        query += " ORDER BY time_slot, symbol"
+        
+        rows = await timescale_client.fetch(query, *params)
+        
+        # Process results
+        reports = []
+        total_bmo = 0
+        total_amc = 0
+        total_reported = 0
+        total_scheduled = 0
+        
+        for row in rows:
+            report = dict(row)
+            # Convert date to string
+            if report.get('report_date'):
+                report['report_date'] = str(report['report_date'])
+            if report.get('created_at'):
+                report['created_at'] = str(report['created_at'])
+            
+            reports.append(report)
+            
+            # Count stats
+            if report.get('time_slot') == 'BMO':
+                total_bmo += 1
+            elif report.get('time_slot') == 'AMC':
+                total_amc += 1
+            
+            if report.get('status') == 'reported':
+                total_reported += 1
+            else:
+                total_scheduled += 1
+        
+        return {
+            "date": str(target_date),
+            "reports": reports,
+            "total_bmo": total_bmo,
+            "total_amc": total_amc,
+            "total_reported": total_reported,
+            "total_scheduled": total_scheduled
+        }
+        
+    except Exception as e:
+        logger.error(f"earnings_calendar_error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/earnings/ticker/{symbol}")
+async def get_earnings_by_ticker(
+    symbol: str,
+    limit: int = Query(10, ge=1, le=50, description="Number of recent earnings"),
+):
+    """
+    Get earnings history for a specific ticker.
+    """
+    try:
+        query = """
+            SELECT 
+                symbol, company_name, report_date, time_slot, fiscal_quarter,
+                eps_estimate, eps_actual, eps_surprise_pct, beat_eps,
+                revenue_estimate, revenue_actual, revenue_surprise_pct, beat_revenue,
+                guidance_direction, guidance_commentary, key_highlights,
+                status, source
+            FROM earnings_calendar
+            WHERE symbol = $1
+            ORDER BY report_date DESC
+            LIMIT $2
+        """
+        
+        rows = await timescale_client.fetch(query, symbol.upper(), limit)
+        
+        reports = []
+        for row in rows:
+            report = dict(row)
+            if report.get('report_date'):
+                report['report_date'] = str(report['report_date'])
+            reports.append(report)
+        
+        return {
+            "symbol": symbol.upper(),
+            "earnings": reports,
+            "count": len(reports)
+        }
+        
+    except Exception as e:
+        logger.error(f"earnings_ticker_error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
@@ -1914,8 +2677,8 @@ async def get_insider_trading_details(
 ):
     """
     Get detailed insider trading data for a specific ticker.
-    Parses Form 4 XML to extract transaction details (shares, price, value).
-    Uses concurrent requests for 5-10x faster loading.
+    Uses SEC-API.io /insider-trading endpoint which returns pre-parsed JSON.
+    NO requests to SEC.gov needed - avoids rate limits!
     """
     try:
         if not http_clients.sec_api:
@@ -1930,75 +2693,88 @@ async def get_insider_trading_details(
             if cached:
                 return {**cached, "cached": True}
         
-        # Fetch filings
-        data = await http_clients.sec_api.search_form4(ticker=ticker, size=size)
-        filings_raw = data.get('filings', [])[:size]
+        # Fetch from SEC-API.io /insider-trading endpoint (max 50 per request)
+        all_transactions = []
+        from_index = 0
+        batch_size = 50  # Max per request for this endpoint
         
-        # Prepare filing data and collect XML URLs
-        filing_data_list = []
-        xml_tasks = []
-        
-        for f in filings_raw:
-            # Get XML URL
-            xml_url = None
-            for doc in f.get('documentFormatFiles', []):
-                if doc.get('type') == '4' and 'xml' in doc.get('documentUrl', ''):
-                    xml_url = doc.get('documentUrl')
-                    break
-            if not xml_url:
-                xml_url = f.get('linkToFilingDetails')
+        while len(all_transactions) < size:
+            data = await http_clients.sec_api.search_insider_trading(
+                ticker=ticker, 
+                size=batch_size, 
+                from_index=from_index
+            )
+            transactions = data.get('transactions', [])
+            if not transactions:
+                break
+            all_transactions.extend(transactions)
+            from_index += batch_size
             
-            # Extract basic info
-            insider_name = None
-            for e in f.get('entities', []):
-                if 'Reporting' in e.get('companyName', ''):
-                    insider_name = e.get('companyName', '').replace(' (Reporting)', '')
+            # Check if we got all available
+            total_available = data.get('total', {}).get('value', 0)
+            if from_index >= total_available or from_index >= 500:  # Limit to 500 max
+                break
+        
+        # Transform SEC-API.io format to our format
+        filing_data_list = []
+        for tx in all_transactions[:size]:
+            issuer = tx.get('issuer', {})
+            owner = tx.get('reportingOwner', {})
+            relationship = owner.get('relationship', {})
+            
+            # Extract transactions from nonDerivativeTable and derivativeTable
+            transactions = []
+            
+            # Non-derivative transactions (stocks)
+            nd_table = tx.get('nonDerivativeTable', {})
+            for t in nd_table.get('transactions', []):
+                amounts = t.get('amounts', {})
+                transactions.append({
+                    'transaction_code': t.get('coding', {}).get('code', 'U'),
+                    'security_title': t.get('securityTitle', 'Common Stock'),
+                    'shares': amounts.get('shares', 0),
+                    'price': amounts.get('pricePerShare', 0),
+                    'acquired_disposed': amounts.get('acquiredDisposedCode', 'A'),
+                    'date': t.get('transactionDate'),
+                    'total_value': (amounts.get('shares', 0) or 0) * (amounts.get('pricePerShare', 0) or 0)
+                })
+            
+            # Derivative transactions (options, warrants)
+            d_table = tx.get('derivativeTable', {})
+            for t in d_table.get('transactions', []):
+                amounts = t.get('amounts', {})
+                underlying = t.get('underlyingSecurity', {})
+                transactions.append({
+                    'transaction_code': t.get('coding', {}).get('code', 'U'),
+                    'security_title': t.get('securityTitle', 'Derivative'),
+                    'shares': amounts.get('shares', 0) or underlying.get('shares', 0),
+                    'price': amounts.get('pricePerShare', 0),
+                    'acquired_disposed': amounts.get('acquiredDisposedCode', 'A'),
+                    'date': t.get('transactionDate'),
+                    'total_value': (amounts.get('shares', 0) or 0) * (amounts.get('pricePerShare', 0) or 0),
+                    'is_derivative': True
+                })
             
             filing_data = {
-                'id': f.get('id'),
-                'ticker': f.get('ticker'),
-                'company': f.get('companyName'),
-                'insider_name': insider_name,
-                'filed_at': f.get('filedAt'),
-                'period_of_report': f.get('periodOfReport'),
-                'url': f.get('linkToFilingDetails'),
-                'transactions': [],
-                'insider_title': None,
-                'is_director': False,
-                'is_officer': False,
+                'id': tx.get('id') or tx.get('accessionNo'),
+                'ticker': issuer.get('tradingSymbol', ticker),
+                'company': issuer.get('name'),
+                'insider_name': owner.get('name'),
+                'filed_at': tx.get('filedAt'),
+                'period_of_report': tx.get('periodOfReport'),
+                'url': f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={issuer.get('cik')}&type=4",
+                'transactions': transactions,
+                'insider_title': relationship.get('officerTitle'),
+                'is_director': relationship.get('isDirector', False),
+                'is_officer': relationship.get('isOfficer', False),
+                'is_ten_percent_owner': relationship.get('isTenPercentOwner', False),
             }
             filing_data_list.append(filing_data)
-            
-            # Create async task for XML parsing
-            if xml_url and xml_url.endswith('.xml'):
-                xml_tasks.append(http_clients.sec_api.parse_form4_xml(xml_url))
-            else:
-                xml_tasks.append(None)  # Placeholder for filings without XML
-        
-        # Filter out None tasks and track indices
-        valid_tasks = [(i, task) for i, task in enumerate(xml_tasks) if task is not None]
-        
-        if valid_tasks:
-            # Execute all XML parsing concurrently (10x faster!)
-            start_time = datetime.now()
-            results = await asyncio.gather(*[t[1] for t in valid_tasks], return_exceptions=True)
-            elapsed = (datetime.now() - start_time).total_seconds()
-            logger.info("xml_parsing_complete", count=len(valid_tasks), elapsed_seconds=round(elapsed, 2))
-            
-            # Merge XML data into filing data
-            for (idx, _), xml_data in zip(valid_tasks, results):
-                if isinstance(xml_data, Exception):
-                    logger.warning("form4_xml_parse_failed", filing_id=filing_data_list[idx].get('id'), error=str(xml_data))
-                elif isinstance(xml_data, dict):
-                    filing_data_list[idx]['transactions'] = xml_data.get('transactions', [])
-                    filing_data_list[idx]['insider_title'] = xml_data.get('insider_title')
-                    filing_data_list[idx]['is_director'] = xml_data.get('is_director', False)
-                    filing_data_list[idx]['is_officer'] = xml_data.get('is_officer', False)
         
         result = {
             "status": "OK",
             "ticker": ticker,
-            "total": data.get('total', {}).get('value', 0),
+            "total": len(filing_data_list),
             "filings": filing_data_list,
             "fetched_at": datetime.now().isoformat()
         }

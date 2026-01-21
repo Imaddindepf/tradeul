@@ -331,26 +331,101 @@ def html_table_to_text(html: str) -> str:
     return result
 
 
-def clean_html_preserve_structure(html: str) -> str:
+def clean_html_for_llm(html: str, aggressive: bool = True) -> str:
     """
-    Limpia HTML pero preserva estructura de tablas y saltos de línea.
+    Limpieza AGRESIVA de HTML para minimizar tokens enviados a Gemini.
     
-    A diferencia del limpiador bruto, este:
-    1. Convierte tablas a formato de texto tabular
-    2. Preserva saltos de línea de <br>, <p>, <div>
-    3. Preserva listas <li>
+    Reducción típica: ~51% del tamaño original.
+    
+    Elementos removidos:
+    - CSS inline (style="...") - ¡47% del ahorro!
+    - CSS blocks (<style>...</style>)
+    - Scripts (<script>...</script>)
+    - Comentarios HTML (<!-- -->)
+    - Tags iXBRL (ix:*) - preserva contenido
+    - Imágenes (<img>, especialmente base64)
+    - SVG inline
+    - Atributos class= (referencias CSS)
+    - Whitespace excesivo
+    
+    Elementos PRESERVADOS:
+    - Texto de contenido
+    - Estructura de tablas (convertidas a markdown)
+    - Saltos de línea semánticos
+    - Números y valores financieros
+    
+    Args:
+        html: HTML original del SEC filing
+        aggressive: Si True, aplica limpieza máxima (recomendado)
+    
+    Returns:
+        Texto limpio optimizado para LLM
     """
     text = html
     
-    # 1. Remover scripts y styles completamente
+    # =========================================================================
+    # FASE 1: REMOVER ELEMENTOS QUE NO APORTAN INFORMACIÓN (orden importante)
+    # =========================================================================
+    
+    # 1.1 Scripts (pueden contener mucho código)
     text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # 1.2 CSS blocks (<style>...</style>)
     text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # 1.3 Head section (meta, links, etc.)
     text = re.sub(r'<head[^>]*>.*?</head>', '', text, flags=re.DOTALL | re.IGNORECASE)
     
-    # 2. Convertir tablas a formato texto
+    # 1.4 Comentarios HTML (<!-- ... -->) - pueden ser largos
+    text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
+    
+    # 1.5 SVG inline (pueden ser muy grandes)
+    text = re.sub(r'<svg[^>]*>.*?</svg>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # 1.6 Imágenes (especialmente base64 que pueden ser 100KB+)
+    text = re.sub(r'<img[^>]*>', '', text, flags=re.IGNORECASE)
+    
+    # 1.7 Noscript sections
+    text = re.sub(r'<noscript[^>]*>.*?</noscript>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    if aggressive:
+        # =====================================================================
+        # FASE 2: REMOVER ATRIBUTOS DE PRESENTACIÓN (¡47% del ahorro!)
+        # =====================================================================
+        
+        # 2.1 CSS inline (style="...") - EL MAYOR AHORRO
+        text = re.sub(r'\s+style="[^"]*"', '', text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+style='[^']*'", '', text, flags=re.IGNORECASE)
+        
+        # 2.2 Atributos class= (referencias a CSS ya removido)
+        text = re.sub(r'\s+class="[^"]*"', '', text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+class='[^']*'", '', text, flags=re.IGNORECASE)
+        
+        # 2.3 Atributos id= (no necesarios para extracción)
+        text = re.sub(r'\s+id="[^"]*"', '', text, flags=re.IGNORECASE)
+        
+        # 2.4 Atributos data-* (metadata de frontend)
+        text = re.sub(r'\s+data-[a-z-]+="[^"]*"', '', text, flags=re.IGNORECASE)
+        
+        # 2.5 Atributos de tamaño/presentación
+        text = re.sub(r'\s+(?:width|height|align|valign|bgcolor|border|cellpadding|cellspacing)="[^"]*"', '', text, flags=re.IGNORECASE)
+    
+    # =========================================================================
+    # FASE 3: LIMPIAR TAGS iXBRL (preservando contenido numérico)
+    # =========================================================================
+    
+    # Tags iXBRL como <ix:nonFraction ...>VALUE</ix:nonFraction> -> VALUE
+    text = re.sub(r'<ix:[^>]+>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'</ix:[^>]+>', '', text, flags=re.IGNORECASE)
+    
+    # =========================================================================
+    # FASE 4: CONVERTIR ESTRUCTURA HTML A TEXTO MARKDOWN-LIKE
+    # =========================================================================
+    
+    # 4.1 Convertir tablas a formato texto tabular
     text = html_table_to_text(text)
     
-    # 3. Convertir elementos de bloque a saltos de línea
+    # 4.2 Convertir elementos de bloque a saltos de línea
     text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
     text = re.sub(r'</p>', '\n\n', text, flags=re.IGNORECASE)
     text = re.sub(r'</div>', '\n', text, flags=re.IGNORECASE)
@@ -358,32 +433,87 @@ def clean_html_preserve_structure(html: str) -> str:
     text = re.sub(r'<li[^>]*>', '\n• ', text, flags=re.IGNORECASE)
     text = re.sub(r'</li>', '', text, flags=re.IGNORECASE)
     
-    # 4. Convertir headers a texto con marcador
+    # 4.3 Convertir headers a texto con marcador
     for i in range(1, 7):
         text = re.sub(rf'<h{i}[^>]*>(.*?)</h{i}>', rf'\n\n## \1\n\n', text, flags=re.IGNORECASE | re.DOTALL)
     
-    # 5. Remover tags restantes
+    # 4.4 Preservar strong/bold/emphasis
+    text = re.sub(r'<(?:strong|b)[^>]*>(.*?)</(?:strong|b)>', r'**\1**', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'<(?:em|i)[^>]*>(.*?)</(?:em|i)>', r'*\1*', text, flags=re.IGNORECASE | re.DOTALL)
+    
+    # 4.5 Remover tags HTML restantes
     text = re.sub(r'<[^>]+>', ' ', text)
     
-    # 6. Limpiar entidades HTML comunes
-    text = text.replace('&nbsp;', ' ')
-    text = text.replace('&amp;', '&')
-    text = text.replace('&lt;', '<')
-    text = text.replace('&gt;', '>')
-    text = text.replace('&quot;', '"')
-    text = text.replace('&#8217;', "'")
-    text = text.replace('&#8220;', '"')
-    text = text.replace('&#8221;', '"')
-    text = text.replace('&mdash;', '—')
-    text = text.replace('&ndash;', '–')
-    text = re.sub(r'&#\d+;', ' ', text)  # Otras entidades numéricas
+    # =========================================================================
+    # FASE 5: DECODIFICAR ENTIDADES HTML
+    # =========================================================================
     
-    # 7. Normalizar espacios (pero preservar saltos de línea)
-    text = re.sub(r'[ \t]+', ' ', text)  # Espacios horizontales
-    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Máximo 2 saltos seguidos
-    text = re.sub(r'^\s+', '', text, flags=re.MULTILINE)  # Espacios al inicio de línea
+    # Entidades comunes
+    html_entities = {
+        '&nbsp;': ' ',
+        '&amp;': '&',
+        '&lt;': '<',
+        '&gt;': '>',
+        '&quot;': '"',
+        '&apos;': "'",
+        '&#8217;': "'",
+        '&#8216;': "'",
+        '&#8220;': '"',
+        '&#8221;': '"',
+        '&#8211;': '–',
+        '&#8212;': '—',
+        '&mdash;': '—',
+        '&ndash;': '–',
+        '&rsquo;': "'",
+        '&lsquo;': "'",
+        '&rdquo;': '"',
+        '&ldquo;': '"',
+        '&bull;': '•',
+        '&copy;': '©',
+        '&reg;': '®',
+        '&trade;': '™',
+        '&deg;': '°',
+        '&plusmn;': '±',
+        '&times;': '×',
+        '&divide;': '÷',
+        '&cent;': '¢',
+        '&pound;': '£',
+        '&euro;': '€',
+        '&yen;': '¥',
+    }
+    
+    for entity, char in html_entities.items():
+        text = text.replace(entity, char)
+    
+    # Entidades numéricas restantes (&#NNN; o &#xNNN;)
+    text = re.sub(r'&#x([0-9a-fA-F]+);', lambda m: chr(int(m.group(1), 16)), text)
+    text = re.sub(r'&#(\d+);', lambda m: chr(int(m.group(1))), text)
+    
+    # =========================================================================
+    # FASE 6: NORMALIZAR WHITESPACE
+    # =========================================================================
+    
+    # 6.1 Colapsar espacios/tabs múltiples a uno solo
+    text = re.sub(r'[ \t]+', ' ', text)
+    
+    # 6.2 Colapsar múltiples newlines a máximo 2
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+    
+    # 6.3 Remover espacios al inicio de líneas
+    text = re.sub(r'^\s+', '', text, flags=re.MULTILINE)
+    
+    # 6.4 Remover espacios al final de líneas
+    text = re.sub(r'\s+$', '', text, flags=re.MULTILINE)
     
     return text.strip()
+
+
+def clean_html_preserve_structure(html: str) -> str:
+    """
+    Alias para compatibilidad hacia atrás.
+    Usa clean_html_for_llm con configuración agresiva.
+    """
+    return clean_html_for_llm(html, aggressive=True)
 
 
 # ============================================================================

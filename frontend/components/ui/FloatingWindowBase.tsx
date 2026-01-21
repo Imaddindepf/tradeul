@@ -48,8 +48,8 @@ function FloatingWindowBaseComponent({
 }: FloatingWindowBaseProps) {
   // Posición inicial segura que respeta los límites del navbar
   const getInitialPosition = () => {
-    const navbarHeight = 64; // h-16
-    const minY = navbarHeight + 10; // 74px - LÍMITE: debajo del navbar
+    const navbarHeight = 44; // h-11 (navbar compacto)
+    const minY = navbarHeight + 6; // 50px - LÍMITE: debajo del navbar
     const minX = 10; // Margen desde el borde izquierdo
 
     if (initialPosition) {
@@ -140,9 +140,9 @@ function FloatingWindowBaseComponent({
       let newY = startPosY + deltaY;
 
       // Límites de la pantalla (sin sidebar ahora)
-      const navbarHeight = 64; // h-16 = 64px
+      const navbarHeight = 44; // h-11 = 44px (navbar compacto)
       const minX = 10; // Margen desde borde izquierdo
-      const minY = navbarHeight + 10; // LÍMITE: Navbar + margen
+      const minY = navbarHeight + 6; // LÍMITE: Navbar + margen
       const maxX = window.innerWidth - size.width - 10;
       const maxY = window.innerHeight - 100; // Dejar espacio para ver el header
 
@@ -231,7 +231,7 @@ function FloatingWindowBaseComponent({
         height: `${size.height}px`,
         zIndex: zIndex,
       }}
-      className={`rounded-lg shadow-2xl border-4 transition-shadow flex flex-col ${isFocused ? focusedBorderColor + ' shadow-blue-500/50' : 'border-slate-200'
+      className={`rounded-lg shadow-md border transition-shadow flex flex-col ${isFocused ? 'border-blue-300 shadow-sm' : 'border-slate-200'
         } ${className}`}
       onMouseDown={handleDragStart}
     >

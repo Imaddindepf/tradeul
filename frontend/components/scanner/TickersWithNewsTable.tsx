@@ -386,7 +386,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
 
   const handleOpenNews = useCallback((symbol: string, articles: NewsArticle[]) => {
     openWindow({
-      title: `News: ${symbol}`,
+      title: 'News',  // Siempre "News" - el ticker se filtra internamente
       content: <MiniNewsWindow ticker={symbol} articles={articles} />,
       width: 400,
       height: 350,

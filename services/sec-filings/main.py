@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query as QueryParam, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query as QueryParam, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
 import httpx
@@ -495,14 +495,22 @@ async def get_latest_filings(count: int = 50):
     }
 
 
-@app.get("/api/v1/proxy", response_class=HTMLResponse)
-async def proxy_sec_filing(url: str = QueryParam(..., description="SEC.gov URL to proxy")):
+@app.get("/api/v1/proxy")
+async def proxy_sec_filing(
+    url: str = QueryParam(..., description="SEC.gov URL to proxy"),
+    request: Request = None
+):
     """
     Proxy para cargar filings de SEC.gov sin restricciones de CORS/X-Frame-Options
     
     Esto permite mostrar filings en iframe dentro de la app.
-    Similar a Godel Terminal.
+    Reescribe links para que pasen por el proxy.
+    Soporta HTML, imágenes, PDFs y otros archivos.
     """
+    import re
+    from urllib.parse import urljoin, quote
+    from fastapi.responses import Response
+    
     # Validar que la URL sea de SEC.gov
     if not url.startswith("https://www.sec.gov/") and not url.startswith("https://sec.gov/"):
         raise HTTPException(
@@ -512,7 +520,6 @@ async def proxy_sec_filing(url: str = QueryParam(..., description="SEC.gov URL t
     
     try:
         # SEC.gov requiere User-Agent con información de contacto
-        # Referencia: https://www.sec.gov/os/accessing-edgar-data
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(url, headers={
                 "User-Agent": "TradeUL App admin@tradeul.com",
@@ -522,9 +529,88 @@ async def proxy_sec_filing(url: str = QueryParam(..., description="SEC.gov URL t
             })
             response.raise_for_status()
             
-            # Devolver el HTML sin headers restrictivos
+            content_type = response.headers.get("content-type", "")
+            
+            # Determine if this is HTML that needs link rewriting
+            is_html = (
+                "html" in content_type.lower() or 
+                "xml" in content_type.lower() or
+                url.endswith(".htm") or 
+                url.endswith(".html")
+            )
+            
+            # For non-HTML content (images, PDFs, etc), return as-is with original content-type
+            if not is_html:
+                return Response(
+                    content=response.content,
+                    status_code=200,
+                    media_type=content_type.split(';')[0].strip(),
+                    headers={
+                        "Cache-Control": "public, max-age=86400",  # Cache images longer
+                        "X-Content-Type-Options": "nosniff"
+                    }
+                )
+            
+            # For HTML content, rewrite links
+            content = response.text
+            
+            # Get proxy base URL (relative to sec.tradeul.com)
+            proxy_base = "/api/v1/proxy?url="
+            
+            # Rewrite absolute SEC.gov links
+            # href="https://www.sec.gov/..." -> href="/api/v1/proxy?url=https%3A%2F%2Fwww.sec.gov%2F..."
+            def rewrite_absolute(match):
+                attr = match.group(1)  # href or src
+                sec_url = match.group(2)
+                return f'{attr}="{proxy_base}{quote(sec_url, safe="")}"'
+            
+            content = re.sub(
+                r'(href|src)="(https?://(?:www\.)?sec\.gov[^"]*)"',
+                rewrite_absolute,
+                content,
+                flags=re.IGNORECASE
+            )
+            
+            # Rewrite relative links starting with /
+            # href="/Archives/..." -> href="/api/v1/proxy?url=https%3A%2F%2Fwww.sec.gov%2FArchives%2F..."
+            def rewrite_relative_slash(match):
+                attr = match.group(1)
+                path = match.group(2)
+                full_url = f"https://www.sec.gov{path}"
+                return f'{attr}="{proxy_base}{quote(full_url, safe="")}"'
+            
+            content = re.sub(
+                r'(href|src)="(/[^"]*)"',
+                rewrite_relative_slash,
+                content,
+                flags=re.IGNORECASE
+            )
+            
+            # Get base URL for relative paths (directory of current document)
+            base_url = url.rsplit('/', 1)[0] + '/'
+            
+            # Rewrite relative links WITHOUT leading slash (e.g., "exhibit.htm", "image.jpg")
+            # These are relative to the current document's directory
+            # href="file.htm" -> href="/api/v1/proxy?url=https%3A%2F%2Fwww.sec.gov%2F...%2Ffile.htm"
+            def rewrite_relative_file(match):
+                attr = match.group(1)
+                filename = match.group(2)
+                # Skip if it's a fragment, javascript, mailto, data URI, or already absolute
+                if filename.startswith(('#', 'javascript:', 'mailto:', 'data:', 'http://', 'https://')):
+                    return match.group(0)
+                full_url = base_url + filename
+                return f'{attr}="{proxy_base}{quote(full_url, safe="")}"'
+            
+            # Match href/src="filename" where filename doesn't start with / or http
+            content = re.sub(
+                r'(href|src)="([^"/:#][^"]*)"',
+                rewrite_relative_file,
+                content,
+                flags=re.IGNORECASE
+            )
+            
             return HTMLResponse(
-                content=response.text,
+                content=content,
                 status_code=200,
                 headers={
                     "Cache-Control": "public, max-age=3600",

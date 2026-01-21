@@ -187,7 +187,8 @@ Respond ONLY with valid JSON (no markdown):
         from google.genai import types
         
         # Use gemini-2.0-flash specifically - it handles JSON better than 2.5
-        response = llm_client.client.models.generate_content(
+        # Using async API for non-blocking execution
+        response = await llm_client.client.aio.models.generate_content(
             model="gemini-2.0-flash",
             contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
             config=types.GenerateContentConfig(

@@ -110,7 +110,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         }
 
         // Comandos que abren ventanas flotantes (principales)
-        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'filters', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider'].includes(value)) {
+        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'filters', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider', 'earnings'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);
@@ -228,9 +228,9 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         className="hidden"
                     />
 
-                    {/* Header minimalista */}
-                    <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-200 bg-slate-50">
-                        <span className="text-xs text-slate-500 uppercase tracking-wide font-mono">
+                    {/* Header compacto */}
+                    <div className="flex items-center justify-between px-2 py-1 border-b border-slate-200 bg-slate-50">
+                        <span className="text-[10px] text-slate-500 uppercase tracking-wide font-mono">
                             {hasScPrefix ? t('commandPalette.scanner') : hasDtPrefix ? t('commandPalette.dilutionTracker') : t('commandPalette.commands')}
                         </span>
                         <button
@@ -240,12 +240,12 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                             }}
                             className="text-slate-400 hover:text-slate-600"
                         >
-                            <X className="w-3 h-3" />
+                            <X className="w-2.5 h-2.5" />
                         </button>
                     </div>
 
-                    <Command.List className="overflow-y-auto p-1" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-                        <Command.Empty className="py-8 text-center text-xs text-slate-400">
+                    <Command.List className="overflow-y-auto p-0.5" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+                        <Command.Empty className="py-4 text-center text-[10px] text-slate-400">
                             {t('commands.noCommandsFound')}
                         </Command.Empty>
 
@@ -259,19 +259,19 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                             value={cmd.id}
                                             keywords={[cmd.label, cmd.description, cmd.id]}
                                             onSelect={() => handleSelect(cmd.id)}
-                                            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
+                                            className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer
                                                        hover:bg-slate-100 data-[selected=true]:bg-slate-100
                                                        transition-colors"
                                         >
-                                            <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
+                                            <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmd.label}
                                             </span>
                                             {cmd.isNew && (
-                                                <span className="px-1.5 py-0.5 text-[9px] font-bold bg-blue-600 text-white rounded">
+                                                <span className="px-1 py-0.5 text-[8px] font-bold bg-blue-600 text-white rounded">
                                                     NEW
                                                 </span>
                                             )}
-                                            <span className="text-xs text-slate-600">{t(cmd.description)}</span>
+                                            <span className="text-[10px] text-slate-500">{t(cmd.description)}</span>
                                         </Command.Item>
                                     );
                                 })}
@@ -291,14 +291,14 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                             value={cmd.id}
                                             keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
                                             onSelect={() => handleSelect(cmd.id)}
-                                            className="flex items-center gap-2 px-2 py-1.5 cursor-pointer
+                                            className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer
                                                        hover:bg-slate-100 data-[selected=true]:bg-slate-100
                                                        transition-colors"
                                         >
-                                            <span className="px-1.5 py-0.5 text-xs font-mono font-bold border border-slate-300 text-slate-700">
+                                            <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-slate-300 text-slate-700">
                                                 {cmdName}
                                             </span>
-                                            <span className="text-xs text-slate-600">{t(cmd.description)}</span>
+                                            <span className="text-[10px] text-slate-500">{t(cmd.description)}</span>
                                         </Command.Item>
                                     );
                                 })}
@@ -306,9 +306,9 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         )}
                     </Command.List>
 
-                    {/* Footer minimalista */}
-                    <div className="flex items-center justify-end px-3 py-1 border-t border-slate-200 bg-slate-50">
-                        <span className="text-xs text-slate-400 font-mono">Ent</span>
+                    {/* Footer compacto */}
+                    <div className="flex items-center justify-end px-2 py-0.5 border-t border-slate-200 bg-slate-50">
+                        <span className="text-[9px] text-slate-400 font-mono">↵</span>
                     </div>
                 </Command>
             </div>

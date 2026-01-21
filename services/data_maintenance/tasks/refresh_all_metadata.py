@@ -26,7 +26,7 @@ Fuentes:
 import asyncio
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, date as date_type
 from typing import Dict, List, Optional, Tuple
 import httpx
 
@@ -248,7 +248,7 @@ class RefreshAllMetadataTask:
                     "phone_number": data.get("phone_number"),
                     "address": data.get("address"),
                     "total_employees": data.get("total_employees"),
-                    "list_date": data.get("list_date"),
+                    "list_date": self._parse_date(data.get("list_date")),
                     "logo_url": data.get("branding", {}).get("logo_url") if data.get("branding") else None,
                     "icon_url": data.get("branding", {}).get("icon_url") if data.get("branding") else None,
                     "composite_figi": data.get("composite_figi"),
@@ -264,6 +264,19 @@ class RefreshAllMetadataTask:
             except Exception as e:
                 logger.debug("fetch_ticker_error", symbol=symbol, error=str(e))
                 return None
+    
+    def _parse_date(self, date_str: Optional[str]) -> Optional[date_type]:
+        """Convertir string de fecha a objeto date"""
+        if not date_str:
+            return None
+        try:
+            if isinstance(date_str, str):
+                return datetime.strptime(date_str, '%Y-%m-%d').date()
+            elif isinstance(date_str, date_type):
+                return date_str
+        except (ValueError, TypeError):
+            return None
+        return None
     
     async def _update_database(self, updates: List[Dict]):
         """Actualizar BD con los nuevos datos de Polygon (sin validaciones, Polygon cura datos)"""

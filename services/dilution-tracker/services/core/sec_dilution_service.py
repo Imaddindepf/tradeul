@@ -47,6 +47,9 @@ from services.data.enhanced_data_fetcher import (
 )
 from services.data.shares_data_service import SharesDataService
 
+# Split Adjustment Service v2 (capa centralizada y determinística)
+from services.splits import get_split_adjustment_service
+
 # NOTE: Grok services removed - now using ContextualDilutionExtractor v4
 
 # Analysis services
@@ -75,6 +78,9 @@ from services.market.market_data_calculator import MarketDataCalculator, get_mar
 # SEC services
 from services.sec.sec_filing_fetcher import SECFilingFetcher, get_sec_filing_fetcher
 from services.sec.sec_fulltext_search import SECFullTextSearch, get_fulltext_search
+
+# Pipeline services - Checkpoints para debugging
+from services.pipeline.checkpoint_service import PipelineCheckpoint
 # NOTE: filing_grouper removed - now using ContextualDilutionExtractor v4
 
 # Extraction services - v4 Contextual Extractor (Gemini long context)
@@ -757,7 +763,7 @@ class SECDilutionService:
         
         return merged
     
-    def _deduplicate_with_priority(self, data: Dict) -> Dict:
+    def _deduplicate_with_priority(self, data: Dict, ticker: str = "") -> Dict:
         """
         Deduplicar instrumentos dando prioridad a fuentes más confiables.
         
@@ -783,6 +789,47 @@ class SECDilutionService:
             warrants.sort(key=lambda x: x.get('_source_priority', 5))
             warrants = deduplicate_warrants(warrants)
         
+        # VALIDAR warrants para filtrar alucinaciones de Gemini
+        if warrants:
+            try:
+                from services.analysis.warrant_validator import validate_and_filter_warrants
+                # Obtener precio actual para validación
+                current_price = None
+                try:
+                    from services.market.market_data_service import MarketDataService
+                    market_service = MarketDataService()
+                    market_data = market_service.get_current_price(ticker)
+                    if market_data:
+                        current_price = float(market_data.get('price', 0))
+                except:
+                    pass
+                
+                # Validar y marcar (NO remover, solo marcar)
+                warrants = validate_and_filter_warrants(
+                    warrants, 
+                    current_price=current_price, 
+                    ticker=ticker,
+                    remove_suspicious=False  # Solo marcar, no remover
+                )
+                
+                # Filtrar warrants con confianza < 0.5 (muy probablemente alucinados)
+                from services.analysis.warrant_validator import WarrantValidator
+                validator = WarrantValidator()
+                filtered_warrants = []
+                for w in warrants:
+                    confidence = validator.get_confidence_score(w, current_price)
+                    if confidence >= 0.5:
+                        filtered_warrants.append(w)
+                    else:
+                        logger.warning("warrant_filtered_low_confidence",
+                                     ticker=ticker,
+                                     series_name=w.get('series_name'),
+                                     confidence=confidence,
+                                     issues=w.get('_validation_issues', []))
+                warrants = filtered_warrants
+            except Exception as e:
+                logger.warning("warrant_validation_skipped", ticker=ticker, error=str(e))
+        
         data['warrants'] = warrants
         
         # Deduplicar otros instrumentos
@@ -791,9 +838,11 @@ class SECDilutionService:
         
         if data.get('shelf_registrations'):
             data['shelf_registrations'] = deduplicate_shelfs(data['shelf_registrations'])
+            # FIX: Clasificar status de shelf (Active, Expired, Resale)
+            data['shelf_registrations'] = classify_shelf_status(data['shelf_registrations'], ticker)
         
         if data.get('completed_offerings'):
-            data['completed_offerings'] = deduplicate_completed(data['completed_offerings'])
+            data['completed_offerings'] = deduplicate_completed(data['completed_offerings'], ticker)
         
         if data.get('equity_lines'):
             data['equity_lines'] = deduplicate_equity_lines(data['equity_lines'])
@@ -1525,6 +1574,11 @@ class SECDilutionService:
             try:
                 logger.info("starting_sec_scrape_hybrid", ticker=ticker)
                 
+                # ================================================================
+                # CHECKPOINT SERVICE - Para debugging del pipeline
+                # ================================================================
+                checkpoint = PipelineCheckpoint(self.redis, ticker)
+                
                 # 1. Obtener CIK
                 cik, company_name = await self._get_cik_and_company_name(ticker)
                 if not cik:
@@ -1624,6 +1678,17 @@ class SECDilutionService:
                 logger.info("filing_contents_downloaded", ticker=ticker, count=len(filing_contents),
                            total_chars=sum(len(f['content']) for f in filing_contents))
                 
+                # CHECKPOINT: Filings descargados
+                await checkpoint.save("step1_filings_fetched", {
+                    "cik": cik,
+                    "company_name": company_name,
+                    "relevant_filings_count": len(relevant_filings),
+                    "filing_contents_count": len(filing_contents),
+                    "fulltext_priority_count": len(priority_filings_from_fulltext),
+                    "prospectus_data_count": len(prospectus_data),
+                    "filings_forms": [f.get('form_type') for f in relevant_filings[:20]]
+                })
+                
                 # ================================================================
                 # 4. CONTEXTUAL EXTRACTION v4 (ÚNICO MÉTODO)
                 # ================================================================
@@ -1668,6 +1733,18 @@ class SECDilutionService:
                 
                 logger.info("extraction_complete", ticker=ticker, source="contextual_v4")
                 
+                # CHECKPOINT: Datos crudos de Gemini (ANTES de cualquier procesamiento)
+                await checkpoint.save("step2_gemini_extracted", {
+                    "warrants": extracted_data.get("warrants", []),
+                    "convertible_notes": extracted_data.get("convertible_notes", []),
+                    "convertible_preferred": extracted_data.get("convertible_preferred", []),  # FIX: Añadido
+                    "completed_offerings": extracted_data.get("completed_offerings", []),
+                    "atm_offerings": extracted_data.get("atm_offerings", []),
+                    "shelf_registrations": extracted_data.get("shelf_registrations", []),
+                    "s1_offerings": extracted_data.get("s1_offerings", []),
+                    "equity_lines": extracted_data.get("equity_lines", []),
+                }, metadata={"source": "contextual_v4_gemini"})
+                
                 # Enriquecer con datos estructurados de S-1/424B4 API (si hay)
                 if prospectus_data:
                     extracted_data = self._enrich_with_prospectus_data(
@@ -1686,87 +1763,124 @@ class SECDilutionService:
                         'has_convertibles': fulltext_discovery.get('summary', {}).get('has_convertibles', False),
                     }
                 
-                # 6. Ajustar warrants por stock splits
-                # ESTRATEGIA: Verificar cada instrumento individualmente
-                # Si Gemini marcó split_adjusted=True, no re-ajustar ese instrumento
-                # Si no está marcado, Python lo ajusta (incluso si _gemini_pro_adjusted=True)
-                gemini_already_adjusted = extracted_data.get('_gemini_pro_adjusted', False)
+                # ================================================================
+                # CHECKPOINT 2.5: ANTES DE SPLITS (para debugging)
+                # ================================================================
+                await checkpoint.save("step2_5_before_splits", {
+                    "warrants": [
+                        {
+                            "series_name": w.get("series_name"),
+                            "exercise_price": w.get("exercise_price"),
+                            "outstanding": w.get("outstanding"),
+                            "issue_date": w.get("issue_date"),
+                            "split_adjusted": w.get("split_adjusted"),
+                        } for w in extracted_data.get("warrants", [])
+                    ],
+                    "convertible_notes": [
+                        {
+                            "series_name": n.get("series_name"),
+                            "conversion_price": n.get("conversion_price"),
+                            "total_principal_amount": n.get("total_principal_amount") or n.get("principal_amount"),
+                            "issue_date": n.get("issue_date"),
+                        } for n in extracted_data.get("convertible_notes", [])
+                    ],
+                    "convertible_preferred": [
+                        {
+                            "series_name": p.get("series_name"),
+                            "conversion_price": p.get("conversion_price"),
+                            "total_dollar_amount": p.get("total_dollar_amount") or p.get("dollar_amount"),
+                            "issue_date": p.get("issue_date"),
+                        } for p in extracted_data.get("convertible_preferred", [])
+                    ],
+                    "equity_lines": extracted_data.get("equity_lines", []),
+                }, metadata={"note": "BEFORE any split adjustment"})
                 
+                # ================================================================
+                # 6. AJUSTE DE SPLITS - CAPA CENTRALIZADA v2.0
+                # ================================================================
+                # Usa SplitAdjustmentService para ajuste determinístico:
+                # - Fuente única de verdad (Polygon API)
+                # - Idempotente (no doble-ajusta)
+                # - Trazable (guarda original_* para auditoría)
+                # ================================================================
+                
+                split_service = get_split_adjustment_service(self.redis)
+                
+                # 6a. Ajustar warrants
                 if extracted_data.get('warrants'):
-                    # Filtrar: solo ajustar warrants que NO tienen split_adjusted=True
-                    unadjusted_warrants = [
-                        w for w in extracted_data['warrants'] 
-                        if not w.get('split_adjusted') == True
-                    ]
-                    already_adjusted_warrants = [
-                        w for w in extracted_data['warrants'] 
-                        if w.get('split_adjusted') == True
-                    ]
-                    
-                    if unadjusted_warrants:
-                        logger.info("adjusting_unadjusted_warrants",
+                    logger.info("split_adjustment_warrants_start",
                                    ticker=ticker,
-                                   unadjusted_count=len(unadjusted_warrants),
-                                   already_adjusted_count=len(already_adjusted_warrants),
-                                   gemini_flag=gemini_already_adjusted)
+                               count=len(extracted_data['warrants']))
                         
-                        adjusted = await self._adjust_warrants_for_splits(
+                    extracted_data['warrants'] = await split_service.adjust_warrants(
                             ticker, 
-                            unadjusted_warrants
-                        )
-                        # Combinar warrants ya ajustados + recién ajustados
-                        extracted_data['warrants'] = already_adjusted_warrants + adjusted
-                    elif gemini_already_adjusted:
-                        logger.info("skip_warrant_split_adjustment", 
-                                   ticker=ticker, 
-                                   reason="all_warrants_already_adjusted",
-                                   count=len(already_adjusted_warrants))
+                        extracted_data["warrants"], force_readjust=False  # Gemini ya no ajusta - solo nosotros
+                    )
                 
-                # 6b. Ajustar convertible notes por stock splits
-                if extracted_data.get('convertible_notes'):
-                    unadjusted_notes = [
-                        n for n in extracted_data['convertible_notes'] 
-                        if not n.get('split_adjusted') == True
-                    ]
-                    already_adjusted_notes = [
-                        n for n in extracted_data['convertible_notes'] 
-                        if n.get('split_adjusted') == True
-                    ]
-                    
-                    if unadjusted_notes:
-                        logger.info("adjusting_unadjusted_notes",
-                                   ticker=ticker,
-                                   unadjusted_count=len(unadjusted_notes),
-                                   already_adjusted_count=len(already_adjusted_notes))
-                        
-                        adjusted = await self._adjust_convertible_notes_for_splits(
-                            ticker, 
-                            unadjusted_notes
-                        )
-                        extracted_data['convertible_notes'] = already_adjusted_notes + adjusted
-                
-                # 6c. Ajustar convertible preferred por stock splits
+                # 6b. Ajustar convertible preferred
                 if extracted_data.get('convertible_preferred'):
-                    unadjusted_preferred = [
-                        p for p in extracted_data['convertible_preferred'] 
-                        if not p.get('split_adjusted') == True
-                    ]
-                    already_adjusted_preferred = [
-                        p for p in extracted_data['convertible_preferred'] 
-                        if p.get('split_adjusted') == True
-                    ]
-                    
-                    if unadjusted_preferred:
-                        adjusted = await self._adjust_convertible_preferred_for_splits(
+                    logger.info("split_adjustment_preferred_start",
+                                   ticker=ticker,
+                               count=len(extracted_data['convertible_preferred']))
+                        
+                    extracted_data['convertible_preferred'] = await split_service.adjust_convertible_preferred(
                             ticker, 
-                            unadjusted_preferred
+                        extracted_data['convertible_preferred']
+                    )
+                
+                # 6c. Ajustar convertible notes (usa misma lógica que preferred)
+                if extracted_data.get('convertible_notes'):
+                    logger.info("split_adjustment_notes_start",
+                               ticker=ticker,
+                               count=len(extracted_data['convertible_notes']))
+                    
+                    # Reutilizar adjust_convertible_preferred ya que tiene misma estructura
+                    extracted_data['convertible_notes'] = await split_service.adjust_convertible_preferred(
+                            ticker, 
+                        extracted_data['convertible_notes']
                         )
-                        extracted_data['convertible_preferred'] = already_adjusted_preferred + adjusted
                 
                 # 7. Obtener precio actual y shares outstanding
                 current_price, shares_outstanding, free_float = await self._get_current_market_data(ticker)
                 
-                # 7. Construir profile completo
+                # ================================================================
+                # CHECKPOINT: PRE-DEDUPLICACIÓN (datos crudos antes de limpiar)
+                # ================================================================
+                await checkpoint.save("step3_pre_dedup", {
+                    "warrants": extracted_data.get("warrants", []),
+                    "convertible_notes": extracted_data.get("convertible_notes", []),
+                    "convertible_preferred": extracted_data.get("convertible_preferred", []),  # FIX: Añadido
+                    "completed_offerings": extracted_data.get("completed_offerings", []),
+                    "atm_offerings": extracted_data.get("atm_offerings", []),
+                    "shelf_registrations": extracted_data.get("shelf_registrations", []),
+                    "equity_lines": extracted_data.get("equity_lines", []),  # FIX: Añadido
+                })
+                
+                # ================================================================
+                # 7.5. DEDUPLICACIÓN - CRÍTICO: Eliminar duplicados
+                # ================================================================
+                logger.info("starting_deduplication", ticker=ticker,
+                           completed_before=len(extracted_data.get("completed_offerings", [])),
+                           warrants_before=len(extracted_data.get("warrants", [])))
+                
+                extracted_data = self._deduplicate_with_priority(extracted_data, ticker)
+                
+                logger.info("deduplication_complete", ticker=ticker,
+                           completed_after=len(extracted_data.get("completed_offerings", [])),
+                           warrants_after=len(extracted_data.get("warrants", [])))
+                
+                # CHECKPOINT: POST-DEDUPLICACIÓN (datos limpios)
+                await checkpoint.save("step4_post_dedup", {
+                    "warrants": extracted_data.get("warrants", []),
+                    "convertible_notes": extracted_data.get("convertible_notes", []),
+                    "convertible_preferred": extracted_data.get("convertible_preferred", []),  # FIX: Añadido
+                    "completed_offerings": extracted_data.get("completed_offerings", []),
+                    "atm_offerings": extracted_data.get("atm_offerings", []),
+                    "shelf_registrations": extracted_data.get("shelf_registrations", []),
+                    "equity_lines": extracted_data.get("equity_lines", []),  # FIX: Añadido
+                })
+                
+                # 8. Construir profile completo
                 profile = self._build_profile(
                     ticker=ticker,
                     cik=cik,
@@ -1783,6 +1897,20 @@ class SECDilutionService:
                     profile,
                     free_float=free_float
                 )
+                
+                # CHECKPOINT: POST-ENRICHMENT (perfil completo antes de validación)
+                await checkpoint.save("step5_post_enrichment", {
+                    "warrants": len(profile.warrants),
+                    "convertible_notes": len(profile.convertible_notes),
+                    "convertible_preferred": len(profile.convertible_preferred),  # FIX: Añadido
+                    "completed_offerings": len(profile.completed_offerings),
+                    "atm_offerings": len(profile.atm_offerings),
+                    "shelf_registrations": len(profile.shelf_registrations),
+                    "equity_lines": len(profile.equity_lines),  # FIX: Añadido
+                    "current_price": float(profile.current_price) if profile.current_price else None,
+                    "shares_outstanding": profile.shares_outstanding,
+                    "free_float": profile.free_float,
+                }, metadata={"step": "post_baby_shelf_enrichment"})
                 
                 # 9. VALIDACIÓN CON GEMINI - Corregir precios, completar datos
                 try:
@@ -1816,6 +1944,26 @@ class SECDilutionService:
                 except Exception as e:
                     logger.warning("gemini_validation_error", ticker=ticker, error=str(e))
                     # Continuar sin validación - no bloquear el flujo
+                
+                # CHECKPOINT FINAL: Pipeline completado
+                await checkpoint.save("step9_final", {
+                    "warrants": len(profile.warrants),
+                    "convertible_notes": len(profile.convertible_notes),
+                    "convertible_preferred": len(profile.convertible_preferred),  # FIX: Añadido
+                    "completed_offerings": len(profile.completed_offerings),
+                    "atm_offerings": len(profile.atm_offerings),
+                    "shelf_registrations": len(profile.shelf_registrations),
+                    "equity_lines": len(profile.equity_lines),  # FIX: Añadido
+                    "s1_offerings": len(profile.s1_offerings),
+                    "completed_offerings_data": [
+                        {
+                            "type": o.offering_type,
+                            "date": str(o.offering_date) if o.offering_date else None,
+                            "shares": o.shares_issued,
+                            "amount": float(o.amount_raised) if o.amount_raised else None
+                        } for o in profile.completed_offerings
+                    ]
+                }, metadata={"status": "completed"})
                 
                 logger.info("sec_scrape_completed", ticker=ticker)
                 return profile
@@ -2442,6 +2590,77 @@ class SECDilutionService:
             logger.error("apply_validation_corrections_failed", error=str(e))
             return profile
     
+    def _process_warrant_expirations(self, warrants: List[Dict], ticker: str) -> List[Dict]:
+        """
+        Procesa warrants para marcar los expirados.
+        
+        Similar a DilutionTracker.com:
+        - Warrants expirados: status='Expired', outstanding=0, exclude_from_dilution=True
+        - Se mantienen en la lista para contexto histórico
+        
+        Returns:
+            Lista de warrants procesados
+        """
+        from datetime import date
+        today = date.today()
+        
+        processed = []
+        expired_count = 0
+        
+        for w in warrants:
+            # Crear copia para no mutar el original
+            warrant = dict(w)
+            
+            # Obtener expiration_date
+            exp_date = warrant.get('expiration_date')
+            
+            if exp_date:
+                try:
+                    # Parsear fecha si es string
+                    if isinstance(exp_date, str):
+                        exp_date = date.fromisoformat(exp_date[:10])
+                    
+                    # Verificar si está expirado
+                    if exp_date < today:
+                        old_status = warrant.get('status')
+                        old_outstanding = warrant.get('outstanding')
+                        
+                        # Marcar como expirado
+                        warrant['status'] = 'Expired'
+                        # FIX: No borrar outstanding, guardar para histórico
+                        warrant["outstanding_at_expiration"] = warrant.get("outstanding")
+                        warrant['exclude_from_dilution'] = True
+                        
+                        # Agregar nota explicativa
+                        existing_notes = warrant.get('notes') or ''
+                        warrant['notes'] = f"[EXPIRED {exp_date}] {existing_notes}".strip()
+                        
+                        logger.info("warrant_marked_expired",
+                                   ticker=ticker,
+                                   series=warrant.get('series_name'),
+                                   expiration_date=str(exp_date),
+                                   old_status=old_status,
+                                   old_outstanding=old_outstanding)
+                        expired_count += 1
+                        
+                except (ValueError, TypeError) as e:
+                    logger.warning("warrant_expiration_parse_error",
+                                  ticker=ticker,
+                                  series=warrant.get('series_name'),
+                                  expiration_date=str(exp_date),
+                                  error=str(e))
+            
+            processed.append(warrant)
+        
+        if expired_count > 0:
+            logger.info("warrants_expiration_processed",
+                       ticker=ticker,
+                       total=len(warrants),
+                       expired=expired_count,
+                       active=len(warrants) - expired_count)
+        
+        return processed
+    
     def _build_profile(
         self,
         ticker: str,
@@ -2454,6 +2673,11 @@ class SECDilutionService:
         source_filings: List[Dict]
     ) -> SECDilutionProfile:
         """Construir SECDilutionProfile desde datos extraídos"""
+        
+        # 🚀 PROCESAR WARRANTS EXPIRADOS ANTES DE CONSTRUIR EL PROFILE
+        raw_warrants = extracted_data.get('warrants', [])
+        processed_warrants = self._process_warrant_expirations(raw_warrants, ticker)
+        extracted_data['warrants'] = processed_warrants
         
         # Log datos recibidos de Grok
         logger.info("building_profile", ticker=ticker,
@@ -2603,8 +2827,8 @@ class SECDilutionService:
             ConvertibleNoteModel(
                 ticker=ticker,
                 series_name=cn.get('series_name'),  # CRITICAL: Include series name
-                total_principal_amount=cn.get('total_principal_amount'),
-                remaining_principal_amount=cn.get('remaining_principal_amount'),
+                total_principal_amount=cn.get('total_principal_amount') or cn.get('principal_amount'),  # FIX: Gemini devuelve 'principal_amount'
+                remaining_principal_amount=cn.get('remaining_principal_amount') or cn.get('remaining_principal'),  # FIX
                 conversion_price=cn.get('conversion_price'),
                 original_conversion_price=cn.get('original_conversion_price'),
                 conversion_ratio=cn.get('conversion_ratio') or cn.get('conversion_rate'),

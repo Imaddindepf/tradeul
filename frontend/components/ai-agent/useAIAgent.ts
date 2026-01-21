@@ -21,8 +21,18 @@ import {
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || 'https://agent.tradeul.com';
 const WS_URL = AGENT_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
+// Timeouts profesionales
+const REQUEST_TIMEOUT_MS = 120000;  // 2 min max para una respuesta completa
+const ACTIVITY_TIMEOUT_MS = 45000;  // 45s sin actividad = problema
+
 interface UseAIAgentOptions {
   onMarketUpdate?: (session: string) => void;
+}
+
+interface PendingRequest {
+  messageId: string;
+  content: string;
+  sentAt: number;
 }
 
 export function useAIAgent(options: UseAIAgentOptions = {}) {
@@ -40,14 +50,93 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const optionsRef = useRef(options);
   const isConnectingRef = useRef(false);
+  
+  // Request lifecycle tracking
+  const pendingRequestRef = useRef<PendingRequest | null>(null);
+  const requestTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const activityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastActivityRef = useRef<number>(0);
 
   // Mantener opciones actualizadas
   useEffect(() => {
     optionsRef.current = options;
   }, [options]);
 
+  // ============================================================================
+  // REQUEST LIFECYCLE MANAGEMENT (como ChatGPT/Slack)
+  // ============================================================================
+  
+  // Cancelar request pendiente y limpiar estado
+  const cancelPendingRequest = useCallback((reason: 'timeout' | 'disconnect' | 'error') => {
+    const pending = pendingRequestRef.current;
+    if (!pending) return;
+    
+    console.warn(`Request cancelled: ${reason}`, { messageId: pending.messageId });
+    
+    // Marcar mensaje como error con mensaje descriptivo
+    const errorMessages: Record<string, string> = {
+      timeout: 'La solicitud tardó demasiado. Por favor, intenta de nuevo.',
+      disconnect: 'Se perdió la conexión. Reconectando...',
+      error: 'Error al procesar la solicitud.'
+    };
+    
+    setMessages(prev => prev.map(m =>
+      m.id === pending.messageId || m.status === 'thinking'
+        ? { ...m, status: 'error', content: m.content || errorMessages[reason] }
+        : m
+    ));
+    
+    // Limpiar estado
+    pendingRequestRef.current = null;
+    currentMessageIdRef.current = null;
+    setIsLoading(false);
+    
+    // Limpiar timeouts
+    if (requestTimeoutRef.current) {
+      clearTimeout(requestTimeoutRef.current);
+      requestTimeoutRef.current = null;
+    }
+    if (activityTimeoutRef.current) {
+      clearTimeout(activityTimeoutRef.current);
+      activityTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Resetear activity timeout (llamar cada vez que llega un mensaje)
+  const resetActivityTimeout = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    
+    if (activityTimeoutRef.current) {
+      clearTimeout(activityTimeoutRef.current);
+    }
+    
+    // Solo si hay request pendiente
+    if (pendingRequestRef.current) {
+      activityTimeoutRef.current = setTimeout(() => {
+        console.warn('Activity timeout - no response from server');
+        cancelPendingRequest('timeout');
+      }, ACTIVITY_TIMEOUT_MS);
+    }
+  }, [cancelPendingRequest]);
+
+  // Completar request exitosamente
+  const completeRequest = useCallback(() => {
+    pendingRequestRef.current = null;
+    
+    if (requestTimeoutRef.current) {
+      clearTimeout(requestTimeoutRef.current);
+      requestTimeoutRef.current = null;
+    }
+    if (activityTimeoutRef.current) {
+      clearTimeout(activityTimeoutRef.current);
+      activityTimeoutRef.current = null;
+    }
+  }, []);
+
   // Procesar mensajes WebSocket
   const handleWSMessage = useCallback((event: MessageEvent) => {
+    // Resetear activity timeout en CUALQUIER mensaje recibido
+    resetActivityTimeout();
     try {
       const data: WSMessage = JSON.parse(event.data);
 
@@ -194,6 +283,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           ));
           setIsLoading(false);
           currentMessageIdRef.current = null;
+          completeRequest(); // Limpiar tracking de request
           break;
         }
 
@@ -208,6 +298,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           }
           setError(msg.error);
           setIsLoading(false);
+          completeRequest(); // Limpiar tracking de request
           break;
         }
 
@@ -233,7 +324,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     } catch (e) {
       console.error('Error parsing WS message:', e);
     }
-  }, []);
+  }, [resetActivityTimeout, completeRequest]);
 
   // Conectar WebSocket
   const connect = useCallback(() => {
@@ -258,6 +349,11 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
       isConnectingRef.current = false;
       wsRef.current = null;
 
+      // IMPORTANTE: Cancelar cualquier request pendiente al desconectar
+      if (pendingRequestRef.current) {
+        cancelPendingRequest('disconnect');
+      }
+
       // Reconectar despues de 3 segundos
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -274,19 +370,33 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     };
 
     wsRef.current = ws;
-  }, [handleWSMessage]);
+  }, [handleWSMessage, cancelPendingRequest]);
 
   // Desconectar
   const disconnect = useCallback(() => {
+    // Limpiar todos los timeouts
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
+    if (requestTimeoutRef.current) {
+      clearTimeout(requestTimeoutRef.current);
+      requestTimeoutRef.current = null;
+    }
+    if (activityTimeoutRef.current) {
+      clearTimeout(activityTimeoutRef.current);
+      activityTimeoutRef.current = null;
+    }
+    
+    // Limpiar request pendiente
+    pendingRequestRef.current = null;
+    
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
     setIsConnected(false);
+    setIsLoading(false);
     isConnectingRef.current = false;
   }, []);
 
@@ -299,8 +409,15 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
 
     if (!content.trim()) return;
 
+    // Cancelar request pendiente anterior si existe
+    if (pendingRequestRef.current) {
+      console.warn('Cancelling previous pending request');
+      cancelPendingRequest('error');
+    }
+
+    const messageId = `user-${Date.now()}`;
     const userMessage: Message = {
-      id: `user-${Date.now()}`,
+      id: messageId,
       role: 'user',
       content: content.trim(),
       timestamp: new Date()
@@ -309,14 +426,33 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     setIsLoading(true);
     setError(null);
 
-    // NO borrar resultados anteriores - mantener historial de conversacion
+    // Trackear request pendiente
+    pendingRequestRef.current = {
+      messageId,
+      content: content.trim(),
+      sentAt: Date.now()
+    };
+    lastActivityRef.current = Date.now();
 
+    // Timeout absoluto de request (2 min max)
+    requestTimeoutRef.current = setTimeout(() => {
+      console.error('Request timeout - max time exceeded');
+      cancelPendingRequest('timeout');
+    }, REQUEST_TIMEOUT_MS);
+
+    // Activity timeout (45s sin respuesta)
+    activityTimeoutRef.current = setTimeout(() => {
+      console.warn('Activity timeout - no initial response');
+      cancelPendingRequest('timeout');
+    }, ACTIVITY_TIMEOUT_MS);
+
+    // Enviar mensaje
     wsRef.current.send(JSON.stringify({
       type: 'chat_message',
       content: content.trim(),
       conversation_id: conversationIdRef.current
     }));
-  }, []);
+  }, [cancelPendingRequest]);
 
   // Limpiar historial
   const clearHistory = useCallback(() => {

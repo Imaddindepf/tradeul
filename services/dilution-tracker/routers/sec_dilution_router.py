@@ -9,7 +9,7 @@ sys.path.append('/app')
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from typing import Optional, AsyncGenerator
-from datetime import datetime
+from datetime import datetime, date
 import asyncio
 
 from shared.utils.timescale_client import TimescaleClient
@@ -21,9 +21,115 @@ from services.analysis.spac_detector import SPACDetector
 from services.analysis.preliminary_analyzer import get_preliminary_analyzer
 from services.market.cash_runway_service import get_enhanced_cash_runway
 from calculators.dilution_tracker_risk_scorer import DilutionTrackerRiskScorer
-from models.sec_dilution_models import DilutionProfileResponse
+from models.sec_dilution_models import DilutionProfileResponse, SECDilutionProfile
 
 logger = get_logger(__name__)
+
+
+def _process_warrant_expirations(profile: SECDilutionProfile) -> SECDilutionProfile:
+    """
+    Procesa warrants para marcar los expirados en tiempo real.
+    
+    Esta función se aplica DESPUÉS de obtener el profile de cache/BD
+    para asegurar que los warrants expirados siempre se muestren correctamente.
+    
+    Similar a DilutionTracker.com:
+    - Warrants expirados: status='Expired', outstanding=0, exclude_from_dilution=True
+    - Se mantienen en la lista para contexto histórico
+    """
+    today = date.today()
+    expired_count = 0
+    
+    for warrant in profile.warrants:
+        exp_date = warrant.expiration_date
+        
+        if exp_date:
+            try:
+                # Parsear fecha si es string
+                if isinstance(exp_date, str):
+                    exp_date = date.fromisoformat(exp_date[:10])
+                
+                # Verificar si está expirado
+                if exp_date < today:
+                    old_status = warrant.status
+                    old_outstanding = warrant.outstanding
+                    
+                    # Marcar como expirado
+                    warrant.status = 'Expired'
+                    warrant.outstanding = 0
+                    warrant.exclude_from_dilution = True
+                    
+                    # Agregar nota explicativa si no existe
+                    if warrant.notes:
+                        if '[EXPIRED' not in warrant.notes:
+                            warrant.notes = f"[EXPIRED {exp_date}] {warrant.notes}"
+                    else:
+                        warrant.notes = f"[EXPIRED {exp_date}]"
+                    
+                    logger.debug("warrant_marked_expired_at_read",
+                               ticker=profile.ticker,
+                               series=warrant.series_name,
+                               expiration_date=str(exp_date),
+                               old_status=old_status,
+                               old_outstanding=old_outstanding)
+                    expired_count += 1
+                    
+            except (ValueError, TypeError) as e:
+                logger.warning("warrant_expiration_parse_error",
+                              ticker=profile.ticker,
+                              series=warrant.series_name,
+                              expiration_date=str(exp_date),
+                              error=str(e))
+    
+    if expired_count > 0:
+        logger.info("warrants_expiration_processed_at_read",
+                   ticker=profile.ticker,
+                   total=len(profile.warrants),
+                   expired=expired_count,
+                   active=len(profile.warrants) - expired_count)
+    
+    return profile
+
+
+def _normalize_warrant_display_prices(profile: SECDilutionProfile) -> SECDilutionProfile:
+    """
+    Normaliza precios de warrants para display consistente con DilutionTracker.com.
+    
+    DilutionTracker.com muestra precios ORIGINALES (pre-split) para warrants,
+    no los ajustados. Para ser consistentes:
+    
+    - Si existe original_exercise_price > 0: usar ese para display
+    - Si no existe: usar exercise_price
+    
+    NOTA: Los cálculos de ITM/OTM siguen usando exercise_price (ajustado)
+    porque el precio actual de la acción está en términos post-split.
+    """
+    adjusted_count = 0
+    
+    for warrant in profile.warrants:
+        orig_price = warrant.original_exercise_price
+        curr_price = warrant.exercise_price
+        
+        # Si tiene precio original válido y es diferente del actual
+        if orig_price and float(orig_price) > 0 and curr_price:
+            if float(orig_price) != float(curr_price):
+                # Guardar el precio ajustado para cálculos
+                # El frontend puede mostrar original_exercise_price
+                logger.debug("warrant_price_normalized_for_display",
+                           ticker=profile.ticker,
+                           issue_date=str(warrant.issue_date),
+                           original_price=float(orig_price),
+                           adjusted_price=float(curr_price),
+                           display_recommendation="use original_exercise_price for UI")
+                adjusted_count += 1
+    
+    if adjusted_count > 0:
+        logger.info("warrant_display_prices_normalized",
+                   ticker=profile.ticker,
+                   warrants_with_original_price=adjusted_count)
+    
+    return profile
+
 
 # SPAC Detector (singleton)
 spac_detector = SPACDetector()
@@ -175,10 +281,23 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
                 runway_days = cash_data.get("runway_days")
                 if runway_days is not None:
                     runway_months = runway_days / 30
-                quarterly_cf = cash_data.get("quarterly_operating_cf", 0)
-                has_positive_cf = quarterly_cf > 0 if quarterly_cf else False
+                
+                # CORRECCIÓN: Usar annual_operating_cf para determinar has_positive_cf
+                # Cuando annual_ocf >= 0 (positivo O sin datos de burn), es "positivo"
+                # Esto alinea con la lógica del cash service que dice "low" cuando annual_ocf >= 0
+                annual_ocf = cash_data.get("annual_operating_cf", 0) or 0
+                quarterly_cf = cash_data.get("quarterly_operating_cf", 0) or 0
+                
+                # Si no hay datos de OCF (annual_ocf == 0) o es positivo, la empresa
+                # no está claramente quemando dinero → low risk
+                # Solo es "quemando dinero" si annual_ocf < 0
+                has_positive_cf = annual_ocf >= 0
+                
                 logger.debug("cash_runway_found", ticker=ticker, 
-                           runway_months=runway_months, has_positive_cf=has_positive_cf)
+                           runway_months=runway_months, 
+                           annual_ocf=annual_ocf,
+                           has_positive_cf=has_positive_cf,
+                           cash_risk_level=cash_data.get("runway_risk_level"))
         except Exception as e:
             logger.debug("cash_history_fetch_failed", ticker=ticker, error=str(e))
         
@@ -274,6 +393,10 @@ async def check_sec_dilution_cache(
             
             if profile:
                 # Hay datos en caché - devolverlos
+                
+                # 🚀 PROCESAR WARRANTS EN TIEMPO REAL (no depende de cache)
+                profile = _process_warrant_expirations(profile)
+                profile = _normalize_warrant_display_prices(profile)
                 
                 # RECALCULAR ATM potential_shares usando current_price y remaining_capacity
                 # (el valor guardado puede estar mal si se calculó con total_capacity)
@@ -416,6 +539,12 @@ async def get_sec_dilution_profile(
                     status_code=404,
                     detail=f"Could not retrieve dilution profile for {ticker}. Ticker may not exist or SEC data unavailable."
                 )
+            
+            # 🚀 PROCESAR WARRANTS EN TIEMPO REAL (no depende de cache)
+            # 1. Marcar expirados
+            profile = _process_warrant_expirations(profile)
+            # 2. Normalizar precios para display (DilutionTracker.com compatible)
+            profile = _normalize_warrant_display_prices(profile)
             
             # RECALCULAR ATM potential_shares usando current_price y remaining_capacity
             # (el valor guardado puede estar mal si se calculó con total_capacity)
@@ -1104,8 +1233,12 @@ async def get_risk_ratings(ticker: str):
                 runway_days = cash_data.get("runway_days")
                 if runway_days is not None:
                     runway_months = runway_days / 30
-                quarterly_cf = cash_data.get("quarterly_operating_cf", 0)
-                has_positive_cf = quarterly_cf > 0 if quarterly_cf else False
+                
+                # CORRECCIÓN: Usar annual_operating_cf para determinar has_positive_cf
+                # Cuando annual_ocf >= 0 (positivo O sin datos de burn), la empresa no está
+                # claramente quemando dinero → se considera "positivo" para efectos de risk
+                annual_ocf = cash_data.get("annual_operating_cf", 0) or 0
+                has_positive_cf = annual_ocf >= 0
             
             # Get historical O/S (3 years ago) from shares history
             shares_3yr_ago = 0
@@ -1266,7 +1399,8 @@ async def get_enhanced_profile(
 @router.get("/{ticker}/preliminary/stream")
 async def stream_preliminary_analysis(
     ticker: str,
-    company_name: Optional[str] = Query(default=None, description="Company name for better analysis context")
+    company_name: Optional[str] = Query(default=None, description="Company name for better analysis context"),
+    current_price: Optional[float] = Query(default=None, description="Override current price (useful for pre-market/after-hours)")
 ):
     """
     🔬 STREAMING PRELIMINARY DILUTION ANALYSIS
@@ -1284,6 +1418,11 @@ async def stream_preliminary_analysis(
     };
     ```
     
+    **Parámetros:**
+    - `ticker`: Symbol del ticker
+    - `company_name`: Nombre de la empresa (opcional)
+    - `current_price`: Precio actual override (opcional - útil para pre-market/after-hours)
+    
     **Output:** Texto formateado como terminal con secciones:
     - [SCAN] Búsqueda en SEC EDGAR
     - [RISK] Score de dilución (1-10)
@@ -1294,14 +1433,18 @@ async def stream_preliminary_analysis(
     - [VERDICT] Opinión del analista
     """
     ticker = ticker.upper()
-    logger.info("preliminary_stream_requested", ticker=ticker)
+    logger.info("preliminary_stream_requested", ticker=ticker, price_override=current_price)
     
     analyzer = get_preliminary_analyzer()
     
     async def generate_sse() -> AsyncGenerator[str, None]:
         """Generator for SSE events."""
         try:
-            async for chunk in analyzer.analyze_streaming(ticker, company_name or ticker):
+            async for chunk in analyzer.analyze_streaming(
+                ticker, 
+                company_name or ticker,
+                current_price_override=current_price
+            ):
                 # Split chunk by lines and send each line as separate SSE event
                 # This ensures proper SSE format where each line has the data: prefix
                 lines = chunk.split('\n')
@@ -2206,3 +2349,252 @@ async def quick_verify_dilution(ticker: str):
         logger.error("quick_verify_failed", ticker=ticker, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# ============================================================================
+# PIPELINE DEBUGGING ENDPOINTS
+# ============================================================================
+
+@router.get("/{ticker}/pipeline/checkpoints")
+async def get_pipeline_checkpoints(
+    ticker: str,
+    step: Optional[str] = Query(None, description="Paso específico a obtener (ej: step3_pre_dedup)")
+):
+    """
+    Obtener checkpoints del pipeline para debugging.
+    
+    Muestra los datos guardados en cada paso del pipeline para diagnosticar
+    dónde falló la deduplicación u otro procesamiento.
+    
+    Pasos disponibles:
+    - step1_filings_fetched: Después de descargar filings
+    - step2_gemini_extracted: Datos crudos de Gemini
+    - step3_pre_dedup: ANTES de deduplicación
+    - step4_post_dedup: DESPUÉS de deduplicación
+    - step5_post_enrichment: Después de Baby Shelf enrichment
+    - step9_final: Perfil final guardado
+    
+    Ejemplo:
+    ```
+    GET /api/sec-dilution/ROLR/pipeline/checkpoints
+    GET /api/sec-dilution/ROLR/pipeline/checkpoints?step=step3_pre_dedup
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            from services.pipeline.checkpoint_service import PipelineCheckpoint
+            
+            checkpoint = PipelineCheckpoint(redis, ticker)
+            
+            if step:
+                # Obtener paso específico
+                data = await checkpoint.get(step)
+                if not data:
+                    return {
+                        "ticker": ticker,
+                        "step": step,
+                        "error": f"Checkpoint '{step}' not found. Pipeline may not have run recently.",
+                        "available_steps": await _get_available_steps(checkpoint)
+                    }
+                return data
+            else:
+                # Obtener resumen de todos los pasos
+                summary = await checkpoint.get_summary()
+                return summary
+                
+        finally:
+            await redis.disconnect()
+        
+    except Exception as e:
+        logger.error("get_checkpoints_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{ticker}/pipeline/compare")
+async def compare_pipeline_steps(
+    ticker: str,
+    step1: str = Query(..., description="Paso anterior (ej: step3_pre_dedup)"),
+    step2: str = Query(..., description="Paso posterior (ej: step4_post_dedup)")
+):
+    """
+    Comparar dos checkpoints para ver diferencias.
+    
+    Útil para diagnosticar qué cambió entre pasos, especialmente
+    para entender qué eliminó la deduplicación.
+    
+    Ejemplo:
+    ```
+    GET /api/sec-dilution/ROLR/pipeline/compare?step1=step3_pre_dedup&step2=step4_post_dedup
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            from services.pipeline.checkpoint_service import compare_checkpoints
+            
+            comparison = await compare_checkpoints(redis, ticker, step1, step2)
+            return comparison
+                
+        finally:
+            await redis.disconnect()
+        
+    except Exception as e:
+        logger.error("compare_checkpoints_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _get_available_steps(checkpoint) -> list:
+    """Helper para obtener pasos disponibles."""
+    from services.pipeline.checkpoint_service import PIPELINE_STEPS
+    available = []
+    for step in PIPELINE_STEPS:
+        data = await checkpoint.get(step)
+        if data:
+            available.append(step)
+    return available
+
+
+# ============================================================================
+# GEMINI DEBUG ENDPOINTS
+# ============================================================================
+
+@router.get("/{ticker}/debug/gemini")
+async def get_gemini_debug(
+    ticker: str,
+    file_no: Optional[str] = Query(None, description="File number específico (ej: 333-276176)")
+):
+    """
+    Obtener datos de debug de las extracciones de Gemini.
+    
+    Muestra:
+    - Prompt enviado a Gemini (preview)
+    - Respuesta raw de Gemini
+    - Resultado parseado
+    
+    Útil para diagnosticar falsos positivos/negativos.
+    
+    Ejemplo:
+    ```
+    GET /api/sec-dilution/ROLR/debug/gemini
+    GET /api/sec-dilution/ROLR/debug/gemini?file_no=333-276176
+    ```
+    """
+    try:
+        ticker = ticker.upper()
+        
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            from services.pipeline.gemini_debug_service import get_gemini_debug_service
+            
+            debug_service = get_gemini_debug_service(redis)
+            
+            if file_no:
+                # Obtener debug específico de una cadena
+                data = await debug_service.get_chain_debug(ticker, file_no)
+                if not data:
+                    return {
+                        "ticker": ticker,
+                        "file_no": file_no,
+                        "error": "Debug data not found. Pipeline may not have run recently or debug not enabled.",
+                    }
+                return data
+            else:
+                # Obtener resumen de todos los debug
+                return await debug_service.get_all_debug_for_ticker(ticker)
+                
+        finally:
+            await redis.disconnect()
+        
+    except Exception as e:
+        logger.error("get_gemini_debug_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{ticker}/debug/warrants")
+async def get_warrants_debug(ticker: str):
+    """
+    Analiza los warrants extraídos y muestra cuáles son sospechosos.
+    
+    Útil para identificar falsos positivos.
+    """
+    try:
+        ticker = ticker.upper()
+        
+        db = TimescaleClient()
+        await db.connect()
+        redis = RedisClient()
+        await redis.connect()
+        
+        try:
+            service = SECDilutionService(db, redis)
+            profile = await service.get_from_cache_only(ticker)
+            
+            if not profile or not profile.warrants:
+                return {
+                    "ticker": ticker,
+                    "warrants_count": 0,
+                    "message": "No warrants found"
+                }
+            
+            from services.analysis.warrant_validator import WarrantValidator
+            
+            validator = WarrantValidator()
+            
+            # Obtener precio actual
+            current_price = float(profile.current_price) if profile.current_price else None
+            
+            # Convertir warrants a dicts
+            warrants_data = [w.dict() if hasattr(w, 'dict') else w for w in profile.warrants]
+            
+            # Validar
+            validated, suspicious = validator.validate_warrants(
+                warrants_data, 
+                current_price=current_price,
+                ticker=ticker
+            )
+            
+            return {
+                "ticker": ticker,
+                "current_price": current_price,
+                "total_warrants": len(warrants_data),
+                "valid_warrants": len(validated),
+                "suspicious_warrants": len(suspicious),
+                "analysis": {
+                    "validated": [
+                        {
+                            "series_name": w.get("series_name"),
+                            "exercise_price": w.get("exercise_price"),
+                            "outstanding": w.get("outstanding"),
+                            "confidence": validator.get_confidence_score(w, current_price)
+                        } for w in validated
+                    ],
+                    "suspicious": [
+                        {
+                            "series_name": w.get("series_name"),
+                            "exercise_price": w.get("exercise_price"),
+                            "outstanding": w.get("outstanding"),
+                            "issues": w.get("_validation_issues", []),
+                            "confidence": validator.get_confidence_score(w, current_price)
+                        } for w in suspicious
+                    ]
+                }
+            }
+                
+        finally:
+            await db.disconnect()
+            await redis.disconnect()
+        
+    except Exception as e:
+        logger.error("get_warrants_debug_failed", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))

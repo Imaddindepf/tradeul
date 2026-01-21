@@ -25,6 +25,8 @@ import {
   Brain,
   Bot,
   Sun,
+  Calendar,
+  Globe,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -63,6 +65,8 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'insider', label: 'INSIDER', description: 'commands.insider.description', icon: Users, shortcut: 'Ctrl+I' },
   { id: 'fan', label: 'FAN', description: 'commands.fan.description', icon: Brain, shortcut: 'Ctrl+Shift+F', isNew: true },
   { id: 'ai', label: 'AI', description: 'commands.ai.description', icon: Bot, shortcut: 'Ctrl+Shift+A', isNew: true },
+  { id: 'earnings', label: 'ERN', description: 'commands.earnings.description', icon: Calendar, shortcut: 'Ctrl+E', isNew: true },
+  { id: 'predict', label: 'PREDICT', description: 'commands.predict.description', icon: Globe, isNew: true },
 ];
 
 /**

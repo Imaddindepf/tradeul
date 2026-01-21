@@ -47,7 +47,7 @@ NY_TZ = ZoneInfo("America/New_York")
 
 @dataclass
 class ScannerTicker:
-    """Ticker del scanner con datos relevantes"""
+    """Ticker del scanner con datos relevantes para trading"""
     symbol: str
     price: float
     change_percent: float
@@ -57,6 +57,19 @@ class ScannerTicker:
     sector: Optional[str] = None
     industry: Optional[str] = None
     name: Optional[str] = None
+    # Trading metrics
+    atr: Optional[float] = None
+    atr_percent: Optional[float] = None
+    vwap: Optional[float] = None
+    price_vs_vwap: Optional[float] = None
+    intraday_high: Optional[float] = None
+    intraday_low: Optional[float] = None
+    premarket_change: Optional[float] = None
+    gap_percent: Optional[float] = None
+    spread_percent: Optional[float] = None
+    shares_outstanding: Optional[int] = None
+    free_float: Optional[int] = None
+    trades_today: Optional[int] = None
 
 
 @dataclass
@@ -224,6 +237,12 @@ class ScannerDataExtractor:
                     tickers_raw = json.loads(data) if isinstance(data, str) else data
                     tickers = []
                     for t in tickers_raw[:limit_per_category]:
+                        # Extract gap info from metadata if available
+                        gap_pct = None
+                        metadata = t.get('metadata', {})
+                        if metadata and 'gaps' in metadata:
+                            gap_pct = metadata['gaps'].get('gap_from_prev_close')
+                        
                         tickers.append(ScannerTicker(
                             symbol=t.get('symbol', ''),
                             price=t.get('price', 0),
@@ -233,7 +252,20 @@ class ScannerDataExtractor:
                             market_cap=t.get('market_cap'),
                             sector=t.get('sector'),
                             industry=t.get('industry'),
-                            name=t.get('name')
+                            name=t.get('name'),
+                            # Trading metrics
+                            atr=t.get('atr'),
+                            atr_percent=t.get('atr_percent'),
+                            vwap=t.get('vwap'),
+                            price_vs_vwap=t.get('price_vs_vwap'),
+                            intraday_high=t.get('intraday_high'),
+                            intraday_low=t.get('intraday_low'),
+                            premarket_change=t.get('premarket_change_percent'),
+                            gap_percent=gap_pct,
+                            spread_percent=t.get('spread_percent'),
+                            shares_outstanding=t.get('shares_outstanding'),
+                            free_float=t.get('free_float'),
+                            trades_today=t.get('trades_today'),
                         ))
                     result[category] = tickers
                     logger.info(f"scanner_category_loaded", category=category, count=len(tickers))
@@ -426,36 +458,31 @@ class GrokSentimentEnricher:
         
         today = datetime.now(NY_TZ).strftime("%B %d, %Y")
         
-        prompt = f'''Search X.com for trader SENTIMENT and MARKET CHATTER about these stocks TODAY ({today}).
+        prompt = f'''Search X.com (Twitter) for trader discussion about these stocks TODAY ({today}).
 
-STOCKS:
-{chr(10).join(ticker_info)}
+STOCKS: {', '.join([f"${t.symbol}" for t in tickers[:25]])}
 
-CRITICAL RULES - READ CAREFULLY:
-1. ONLY report what you ACTUALLY FIND on X.com from TODAY
-2. If you find NOTHING for a ticker, write: "No X activity found"
-3. DO NOT INVENT information - if there's no chatter, say so
-4. Clearly distinguish between:
-   - CONFIRMED posts you found (summarize sentiment)
-   - RUMORS being discussed (label as "Rumor:")
-5. Report the GENERAL SENTIMENT: bullish/bearish/mixed
-6. Include options flow ONLY if you find actual posts mentioning it
+STRICT RULES:
+1. Search X.com for EACH ticker
+2. Report ONLY sentiment you actually find: Bullish, Bearish, Mixed, or "None"
+3. If NO posts exist about a ticker, respond: "None"
+4. DO NOT invent news, partnerships, FDA approvals, acquisitions, or any events
+5. Keep responses SHORT - max 15 words per ticker
 
-FOR EACH TICKER, report ONLY what you find:
-- Trader sentiment (bullish/bearish/mixed)
-- Key price levels being discussed
-- Options activity IF mentioned in posts
-- Rumors IF being discussed (clearly labeled)
+OUTPUT FORMAT (one per line):
+$SYMBOL: [Bullish/Bearish/Mixed/None] - [Brief real sentiment if found]
 
-OUTPUT FORMAT:
-$SYMBOL: [Sentiment: bullish/bearish/mixed]. [What traders are actually saying]. [Rumor: X if any]. [Key levels: $X support, $X resistance if discussed].
+GOOD EXAMPLES:
+$NVDA: Bullish - Traders excited about earnings beat
+$AAPL: Mixed - Debate over China sales weakness
+$XYZ: None
+$ABC: Bearish - Concerns about dilution filing
 
-Example of GOOD response:
-$NVDA: Sentiment: bullish. Traders celebrating AI demand growth. Call buying heavy at $900 strike mentioned. Key levels: $850 support.
-$AAPL: No X activity found.
-$XYZ: Sentiment: mixed. Rumor: Possible acquisition being discussed but unconfirmed. Key levels: $45 resistance.
+BAD EXAMPLES (DO NOT DO THIS):
+$XYZ: Bullish - Rumored $500M deal with Exxon  ← NEVER invent deals
+$ABC: Bullish - FDA approval expected  ← NEVER invent FDA news
 
-DO NOT make up data. Report what exists:'''
+Search X.com now and report ONLY real sentiment:'''
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -1063,19 +1090,36 @@ class ReportConsolidator:
             news = self._clean_markdown(google_news.get(t.symbol, ""))
             xcom = xcom_sentiment.get(t.symbol, "")
             
-            report_lines.append(f"{t.symbol} {change_str}")
+            # Header line with key metrics
+            metrics_parts = [f"{t.symbol} {change_str}"]
+            if t.rvol and t.rvol > 1:
+                metrics_parts.append(f"RVOL: {t.rvol:.1f}x")
+            if t.gap_percent and abs(t.gap_percent) > 1:
+                metrics_parts.append(f"Gap: {t.gap_percent:+.1f}%")
+            report_lines.append(" | ".join(metrics_parts))
             
-            # Noticias confirmadas primero
-            if news and "no confirmed news" not in news.lower() and "no news" not in news.lower():
-                report_lines.append(f"   {news}")
+            # Trading levels line
+            levels = []
+            if t.vwap:
+                vwap_pos = "above" if t.price > t.vwap else "below"
+                levels.append(f"VWAP: ${t.vwap:.2f} ({vwap_pos})")
+            if t.intraday_high and t.intraday_low:
+                levels.append(f"Range: ${t.intraday_low:.2f}-${t.intraday_high:.2f}")
+            if t.atr_percent:
+                levels.append(f"ATR: {t.atr_percent:.1f}%")
+            if levels:
+                report_lines.append(f"   Levels: {' | '.join(levels)}")
             
-            # Sentiment/Rumors separado y etiquetado
-            if xcom and len(xcom) > 10:
-                # Limpiar y acortar
-                xcom_clean = self._clean_markdown(xcom)
-                if len(xcom_clean) > 200:
-                    xcom_clean = xcom_clean[:200] + "..."
-                report_lines.append(f"   [Sentiment] {xcom_clean}")
+            # News (ONLY confirmed from Google)
+            if news and "no confirmed news" not in news.lower() and "no news" not in news.lower() and len(news) > 20:
+                report_lines.append(f"   Catalyst: {news}")
+            else:
+                report_lines.append(f"   Catalyst: No confirmed news - likely technical/momentum move")
+            
+            # X.com sentiment (ONLY if found, very brief)
+            if xcom and len(xcom) > 5 and "none" not in xcom.lower():
+                xcom_clean = self._clean_markdown(xcom)[:100]
+                report_lines.append(f"   X Sentiment: {xcom_clean}")
             
             report_lines.append("")
         
@@ -1090,16 +1134,32 @@ class ReportConsolidator:
             news = self._clean_markdown(google_news.get(t.symbol, ""))
             xcom = xcom_sentiment.get(t.symbol, "")
             
-            report_lines.append(f"{t.symbol} {change_str}")
+            # Header with metrics
+            metrics_parts = [f"{t.symbol} {change_str}"]
+            if t.rvol and t.rvol > 1:
+                metrics_parts.append(f"RVOL: {t.rvol:.1f}x")
+            report_lines.append(" | ".join(metrics_parts))
             
-            if news and "no confirmed news" not in news.lower() and "no news" not in news.lower():
-                report_lines.append(f"   {news}")
+            # Trading levels
+            levels = []
+            if t.vwap:
+                vwap_pos = "above" if t.price > t.vwap else "below"
+                levels.append(f"VWAP: ${t.vwap:.2f} ({vwap_pos})")
+            if t.intraday_high and t.intraday_low:
+                levels.append(f"Range: ${t.intraday_low:.2f}-${t.intraday_high:.2f}")
+            if levels:
+                report_lines.append(f"   Levels: {' | '.join(levels)}")
             
-            if xcom and len(xcom) > 10:
-                xcom_clean = self._clean_markdown(xcom)
-                if len(xcom_clean) > 200:
-                    xcom_clean = xcom_clean[:200] + "..."
-                report_lines.append(f"   [Sentiment] {xcom_clean}")
+            # News
+            if news and "no confirmed news" not in news.lower() and "no news" not in news.lower() and len(news) > 20:
+                report_lines.append(f"   Catalyst: {news}")
+            else:
+                report_lines.append(f"   Catalyst: No confirmed news")
+            
+            # Sentiment
+            if xcom and len(xcom) > 5 and "none" not in xcom.lower():
+                xcom_clean = self._clean_markdown(xcom)[:100]
+                report_lines.append(f"   X Sentiment: {xcom_clean}")
             
             report_lines.append("")
         
@@ -1115,7 +1175,21 @@ class ReportConsolidator:
                 vol_str = f"{t.volume/1e6:.1f}M" if t.volume > 1e6 else f"{t.volume/1e3:.0f}K"
                 rvol_str = f"{t.rvol:.1f}x avg" if t.rvol else ""
                 change_str = self._format_change(t.change_percent)
-                report_lines.append(f"{t.symbol} {change_str} | Volume: {vol_str} ({rvol_str})")
+                
+                # Additional trading info
+                extra = []
+                if t.trades_today:
+                    extra.append(f"Trades: {t.trades_today:,}")
+                if t.spread_percent and t.spread_percent > 0.5:
+                    extra.append(f"Spread: {t.spread_percent:.1f}%")
+                if t.price_vs_vwap:
+                    vwap_dir = "↑" if t.price_vs_vwap > 0 else "↓"
+                    extra.append(f"vs VWAP: {vwap_dir}{abs(t.price_vs_vwap):.1f}%")
+                
+                line = f"{t.symbol} {change_str} | Volume: {vol_str} ({rvol_str})"
+                if extra:
+                    line += f" | {' | '.join(extra)}"
+                report_lines.append(line)
             report_lines.append("")
             report_lines.append("")
         
@@ -1362,7 +1436,17 @@ CRITICAL TRANSLATION RULES:
    - "UNUSUAL VOLUME" → "VOLUMEN INUSUAL"
    - "SECTOR ETF PERFORMANCE" → "RENDIMIENTO DE ETFs SECTORIALES"
    - "MARKET NARRATIVE" → "NARRATIVA DEL MERCADO"
-   - "[Sentiment]" → "[Sentimiento]"
+   - "Catalyst:" → "Catalizador:"
+   - "X Sentiment:" → "Sentimiento X:"
+   - "Levels:" → "Niveles:"
+   - "Range:" → "Rango:"
+   - "above" → "arriba"
+   - "below" → "abajo"
+   - "No confirmed news" → "Sin noticias confirmadas"
+   - "technical/momentum move" → "movimiento técnico/momentum"
+   - "Trades:" → "Operaciones:"
+   - "Spread:" → "Spread:"
+   - "vs VWAP:" → "vs VWAP:"
 3. Keep ALL ticker symbols exactly as they are (AAPL, NVDA, etc.)
 4. Keep all numbers, percentages, and dollar amounts exactly as they are
 5. Translate: "Beat" → "Superado", "Miss" → "No cumplido", "Met" → "Cumplido"

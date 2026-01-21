@@ -235,6 +235,20 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.AI.description',
         shortcut: 'Ctrl+Shift+A'
     },
+    ERN: {
+        id: 'earnings',
+        label: 'ERN',
+        name: 'Earnings Calendar',
+        descriptionKey: 'terminalCommands.globalCommands.ERN.description',
+        shortcut: 'Ctrl+E'
+    },
+    PREDICT: {
+        id: 'predict',
+        label: 'PREDICT',
+        name: 'Prediction Markets',
+        descriptionKey: 'terminalCommands.globalCommands.PREDICT.description',
+        shortcut: null
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

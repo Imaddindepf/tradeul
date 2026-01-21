@@ -674,6 +674,11 @@ Be concise but accurate.
 
 TERMINAL_STREAMING_PROMPT = """DILUTION FORENSICS: ULTRA-DEEP SCAN FOR {ticker} ({company_name})
 
+## 📊 CURRENT MARKET DATA (USE THIS - DO NOT SEARCH FOR PRICE!)
+**CURRENT STOCK PRICE: ${current_price}** (Real-time from Polygon API - includes pre-market/after-hours)
+**Data Timestamp: {price_timestamp}**
+⚠️ USE THIS PRICE FOR ALL CALCULATIONS. Do NOT search Google for the stock price.
+
 YOU ARE A WALL STREET FORENSIC ANALYST. Your job is to PROTECT retail investors from dilution traps.
 
 ## ⚠️ CRITICAL: RECONCILIATION RULES (PREVENT "PHANTOM DEBT" ERRORS)
@@ -777,7 +782,7 @@ For EACH warrant series found, provide this EXACT format:
 
 ▸ **TOTAL WARRANTS OUTSTANDING:** [SUM of all active warrants]
 ▸ **Reverse Split Impact:** [e.g., "1-for-8 split (May 2025) adjusted legacy strikes from $X to $Y"]
-▸ **In-The-Money Analysis:** [How many ITM at current price $X.XX?]
+▸ **In-The-Money Analysis:** [How many ITM at current price ${current_price}?]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -879,7 +884,7 @@ For EACH shelf:
 ▸ Float: [X,XXX,XXX]
 ▸ Highest 60 Day Close: $[X.XX]
 ▸ Price To Exceed Baby Shelf: $[X.XX] (Calculate: Market Cap needed for $75M float)
-▸ IB6 Float Value: $[X,XXX,XXX] (Float × Current Price)
+▸ IB6 Float Value: $[X,XXX,XXX] (Float × ${current_price})
 ▸ Last Banker: [Name of last underwriter used]
 ▸ Effect Date: [YYYY-MM-DD]
 ▸ Expiration Date: [YYYY-MM-DD]
@@ -948,7 +953,7 @@ For EACH shelf:
    └─ Active Warrants (Status=Outstanding): +[X.X]M shares ([X]% of O/S)
    └─ Active Convertible Preferred (Remaining>0): +[X.X]M shares
    └─ Active Convertible Notes (Remaining Principal>$0): +[X.X]M shares
-   └─ Unused Shelf/ATM Capacity: $[X]M = ~[X.X]M shares at current price
+   └─ Unused Shelf/ATM Capacity: $[X]M = ~[X.X]M shares at ${current_price}
    └─ **TOTAL ACTIVE OVERHANG:** [X.X]M shares = [X]% potential dilution
 
 ▸ **HISTORICAL DILUTION (Already Absorbed in O/S):**
@@ -1077,9 +1082,9 @@ You MUST run these 12 searches before generating output:
 4. **BABY SHELF CALCULATIONS** (Required for every S-3):
    - Outstanding Shares: [exact]
    - Float: [exact]
-   - Current Price: $[X.XX]
+   - Current Price: ${current_price} (USE THE PRICE PROVIDED ABOVE!)
    - Highest 60 Day Close: $[X.XX]
-   - IB6 Float Value: Float × Price = $[exact]
+   - IB6 Float Value: Float × ${current_price} = $[exact]
    - Price To Exceed Baby Shelf: $75M ÷ Float = $[X.XX]
 
 5. **COMPLETED OFFERINGS TABLE - MINIMUM 5 YEARS**:

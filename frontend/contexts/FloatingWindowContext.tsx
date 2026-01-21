@@ -57,39 +57,56 @@ export function WindowStateProvider({
   const savedState = useMemo(() => getWindowComponentState(windowId), [windowId, getWindowComponentState]);
   const [state, setStateInternal] = useState<WindowComponentState>(() => savedState || initialState);
 
-  // Ref para debounce del guardado
+  // Refs para debounce y estado pendiente
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isFirstRenderRef = useRef(true);
+  const pendingStateRef = useRef<WindowComponentState | null>(null);  // Estado pendiente de guardar
+  const hasPendingSaveRef = useRef(false);  // Flag para saber si hay guardado pendiente
+
+  // Función interna para guardar inmediatamente
+  const saveImmediately = useCallback((stateToSave: WindowComponentState) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    updateWindowComponentState(windowId, stateToSave);
+    hasPendingSaveRef.current = false;
+    pendingStateRef.current = null;
+  }, [windowId, updateWindowComponentState]);
 
   // Actualizar estado y programar guardado
   const setState = useCallback((newState: WindowComponentState) => {
     setStateInternal(newState);
+    pendingStateRef.current = newState;
+    hasPendingSaveRef.current = true;
 
     // Programar guardado con debounce
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
     saveTimeoutRef.current = setTimeout(() => {
-      updateWindowComponentState(windowId, newState);
-    }, 1000);
-  }, [windowId, updateWindowComponentState]);
+      saveImmediately(newState);
+    }, 500);  // Reducido a 500ms para mejor responsividad
+  }, [saveImmediately]);
 
   // Actualizar parcialmente el estado
   const updateState = useCallback((partial: Partial<WindowComponentState>) => {
     setStateInternal((prev) => {
       const newState = { ...prev, ...partial };
+      pendingStateRef.current = newState;
+      hasPendingSaveRef.current = true;
 
       // Programar guardado con debounce
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
       saveTimeoutRef.current = setTimeout(() => {
-        updateWindowComponentState(windowId, newState);
-      }, 1000);
+        saveImmediately(newState);
+      }, 500);  // Reducido a 500ms para mejor responsividad
 
       return newState;
     });
-  }, [windowId, updateWindowComponentState]);
+  }, [saveImmediately]);
 
   // Sincronizar estado guardado al montar (si hay)
   useEffect(() => {
@@ -99,14 +116,18 @@ export function WindowStateProvider({
     }
   }, [savedState]);
 
-  // Cleanup timeout al desmontar
+  // Cleanup: GUARDAR INMEDIATAMENTE al desmontar si hay cambios pendientes
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      // IMPORTANTE: Guardar estado pendiente antes de desmontar
+      if (hasPendingSaveRef.current && pendingStateRef.current) {
+        updateWindowComponentState(windowId, pendingStateRef.current);
+      }
     };
-  }, []);
+  }, [windowId, updateWindowComponentState]);
 
   const contextValue = useMemo(() => ({
     state,

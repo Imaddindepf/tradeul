@@ -428,7 +428,8 @@ Article:
 
 Response format: Just the extracted info about ${target_ticker}, nothing else. If no specific info found, say "No specific details for ${target_ticker}"."""
 
-            response = client.models.generate_content(
+            # Use async API for non-blocking execution
+            response = await client.aio.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
                 config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=300)

@@ -10,15 +10,10 @@ from dataclasses import dataclass
 import structlog
 from datetime import datetime
 import pytz
-from concurrent.futures import ThreadPoolExecutor
-
 from google import genai
 from google.genai import types
 
 from .prompts import SystemPrompts
-
-# Thread pool para ejecutar llamadas sincronas de Gemini
-_executor = ThreadPoolExecutor(max_workers=4)
 
 logger = structlog.get_logger(__name__)
 
@@ -158,8 +153,8 @@ Puedes usar el código anterior como base:
         ))
         
         try:
-            # Llamar a Gemini
-            response = self.client.models.generate_content(
+            # Llamar a Gemini (async API)
+            response = await self.client.aio.models.generate_content(
                 model=self.model,
                 contents=contents,
                 config=types.GenerateContentConfig(
@@ -268,47 +263,24 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
         ))
         
         try:
-            # El SDK de genai usa generadores sincronos, ejecutamos en thread pool
-            # y usamos una queue async para el streaming
-            queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
-            loop = asyncio.get_event_loop()
-            
-            def _generate_sync():
-                """Ejecuta la generacion sincrona y pone chunks en la queue"""
-                try:
-                    for chunk in self.client.models.generate_content_stream(
-                        model=self.model,
-                        contents=contents,
-                        config=types.GenerateContentConfig(
-                            temperature=0.7,
-                            top_p=0.95,
-                            max_output_tokens=4096,
-                        )
-                    ):
-                        if chunk.text:
-                            # Poner chunk en queue de forma thread-safe
-                            loop.call_soon_threadsafe(queue.put_nowait, chunk.text)
-                except Exception as e:
-                    loop.call_soon_threadsafe(queue.put_nowait, f"\n\nError: {str(e)}")
-                finally:
-                    # Señal de fin
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
-            
-            # Iniciar generacion en thread separado
-            future = loop.run_in_executor(_executor, _generate_sync)
+            # Use native async streaming API (no ThreadPoolExecutor needed)
+            stream = await self.client.aio.models.generate_content_stream(
+                model=self.model,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=0.7,
+                    top_p=0.95,
+                    max_output_tokens=4096,
+                )
+            )
             
             full_response = ""
             
-            # Consumir chunks de la queue
-            while True:
-                chunk = await queue.get()
-                if chunk is None:
-                    break
-                full_response += chunk
-                yield chunk
-            
-            # Esperar a que termine el thread
-            await future
+            # Async iterate over chunks
+            async for chunk in stream:
+                if chunk.text:
+                    full_response += chunk.text
+                    yield chunk.text
             
             # Actualizar historial despues del streaming
             history.append(Message(role="user", content=user_message))
@@ -368,8 +340,8 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
         response_text = ""
         
         try:
-            # Enable thinking with ThinkingConfig
-            response = self.client.models.generate_content(
+            # Enable thinking with ThinkingConfig (async API)
+            response = await self.client.aio.models.generate_content(
                 model=self.model_thinking,
                 contents=[types.Content(
                     role="user",
@@ -428,8 +400,8 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
         current_thought = ""
         
         try:
-            # Stream with thinking enabled
-            for chunk in self.client.models.generate_content_stream(
+            # Stream with thinking enabled (async API)
+            stream = await self.client.aio.models.generate_content_stream(
                 model=self.model_thinking,
                 contents=[types.Content(
                     role="user",
@@ -442,7 +414,8 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
                         include_thoughts=True
                     )
                 )
-            ):
+            )
+            async for chunk in stream:
                 if chunk.candidates and chunk.candidates[0].content:
                     for part in chunk.candidates[0].content.parts:
                         if hasattr(part, 'thought') and part.thought:
@@ -492,7 +465,8 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
         import json
         
         try:
-            response = self.client.models.generate_content(
+            # Use async API for non-blocking execution
+            response = await self.client.aio.models.generate_content(
                 model=self.model,
                 contents=[types.Content(
                     role="user",
@@ -575,7 +549,8 @@ INSTRUCCIONES:
 CÓDIGO CORREGIDO:"""
 
         try:
-            response = self.client.models.generate_content(
+            # Use async API for non-blocking execution
+            response = await self.client.aio.models.generate_content(
                 model=self.model,
                 contents=[types.Content(
                     role="user",

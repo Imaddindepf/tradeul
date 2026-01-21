@@ -172,7 +172,6 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
             params.append('page_size', PAGE_SIZE.toString());
             params.append('from_index', ((page - 1) * PAGE_SIZE).toString());
 
-            console.log('🔍 SEC Query params:', params.toString());
             
             const secFilingsUrl = process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012';
             const response = await fetch(`${secFilingsUrl}/api/v1/filings/live?${params}`);
@@ -252,7 +251,6 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
         
         // Debounce filter changes
         const timer = setTimeout(() => {
-            console.log('🔄 Filters changed, refetching...', filters);
             fetchFilings(1, undefined, filters);
         }, 300);
         

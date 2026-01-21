@@ -788,43 +788,277 @@ class DeduplicationService:
     def deduplicate_completed(self, completed: List[Dict], ticker: str = "") -> List[Dict]:
         """
         Deduplicar completed offerings inteligentemente.
+        
+        v7.0: PRIORIZACIÓN POR FILING SOURCE (basado en DilutionTracker.com guide)
+        
+        FASE 1: Filtrar registros basura (sin tipo o sin datos)
+        FASE 2: Agrupar por (mes, amount_bucket) - MÁS AGRESIVO
+                - "Direct Issuance" y "Public Offering" del mismo mes+amount = mismo evento
+        FASE 3: Dentro de cada grupo, priorizar por FILING SOURCE:
+                - 424B4/424B5 (prospecto final) > 8-K > S-1/S-3 > 10-Q/10-K
+        
+        La clave: El 424B4 es la "fuente de verdad" para un IPO/offering.
+        Los 10-Q/10-K solo REFERENCIAN eventos históricos.
         """
+        if not completed:
+            return []
+        
+        # ================================================================
+        # FILING PRIORITY (basado en DilutionTracker.com guide)
+        # Menor número = mayor prioridad (fuente más autoritativa)
+        # ================================================================
+        FILING_PRIORITY = {
+            '424B4': 1,   # Final prospectus - FUENTE DEFINITIVA para offerings
+            '424B5': 1,   # Prospectus supplement - FUENTE DEFINITIVA
+            '424B3': 2,   # Post-EFFECT prospectus
+            '8-K': 3,     # Material disclosure (anuncio)
+            '6-K': 3,     # Material disclosure (foreign)
+            'S-1': 4,     # Registration statement
+            'F-1': 4,     # Registration (foreign)
+            'S-3': 4,     # Shelf registration
+            'F-3': 4,     # Shelf (foreign)
+            '10-Q': 9,    # Quarterly financials - SOLO REFERENCIA
+            '10-K': 9,    # Annual financials - SOLO REFERENCIA
+            '20-F': 9,    # Annual (foreign) - SOLO REFERENCIA
+            '40-F': 9,    # Annual (Canadian) - SOLO REFERENCIA
+        }
+        
+        def get_filing_type_from_url(url: str) -> str:
+            """Extraer el tipo de filing de una URL de SEC."""
+            if not url:
+                return ''
+            url_lower = url.lower()
+            # Buscar patrones comunes en URLs de SEC
+            if '424b4' in url_lower:
+                return '424B4'
+            if '424b5' in url_lower:
+                return '424B5'
+            if '424b3' in url_lower:
+                return '424B3'
+            if '8-k' in url_lower or '8k' in url_lower:
+                return '8-K'
+            if '6-k' in url_lower or '6k' in url_lower:
+                return '6-K'
+            if 's-1' in url_lower or 's1' in url_lower:
+                return 'S-1'
+            if 'f-1' in url_lower or 'f1' in url_lower:
+                return 'F-1'
+            if 's-3' in url_lower or 's3' in url_lower:
+                return 'S-3'
+            if '10-q' in url_lower or '10q' in url_lower:
+                return '10-Q'
+            if '10-k' in url_lower or '10k' in url_lower:
+                return '10-K'
+            if '20-f' in url_lower or '20f' in url_lower:
+                return '20-F'
+            return ''
+        
+        def get_filing_priority(c: Dict) -> int:
+            """Obtener prioridad del filing (menor = mejor)."""
+            # Intentar obtener de source_form primero
+            source_form = c.get('source_form', '')
+            if source_form:
+                form_upper = source_form.upper().replace(' ', '')
+                for form_key, priority in FILING_PRIORITY.items():
+                    if form_key.replace('-', '') in form_upper.replace('-', ''):
+                        return priority
+            
+            # Fallback: extraer del filing_url
+            filing_url = c.get('filing_url', '') or c.get('source_filing', '')
+            form_type = get_filing_type_from_url(filing_url)
+            return FILING_PRIORITY.get(form_type, 5)  # Default: prioridad media
+        
+        # ================================================================
+        # FASE 1: Filtrar registros basura
+        # ================================================================
         with_data = []
-        without_data = 0
+        filtered_reasons = {'no_type': 0, 'no_data': 0, 'garbage': 0}
         
         for c in completed:
             shares = normalize_grok_value(c.get('shares_issued'), 'number')
             amount = normalize_grok_value(c.get('amount_raised'), 'number')
+            price = normalize_grok_value(c.get('price_per_share'), 'number')
+            offering_type = safe_get_for_key(c, 'offering_type', 'string')
+            offering_date = safe_get_for_key(c, 'offering_date', 'date')
             
-            if shares or amount:
-                with_data.append(c)
-            else:
-                without_data += 1
+            # Filtrar basura absoluta (sin tipo y sin fecha)
+            if not offering_type and not offering_date:
+                filtered_reasons['garbage'] += 1
+                logger.debug("completed_garbage_filtered", 
+                           ticker=ticker,
+                           shares=shares, amount=amount, price=price)
+                continue
+            
+            # Filtrar sin tipo (no sabemos qué es)
+            if not offering_type:
+                filtered_reasons['no_type'] += 1
+                continue
+            
+            # Filtrar sin datos significativos (ni shares ni amount)
+            if not shares and not amount:
+                filtered_reasons['no_data'] += 1
+                continue
+            
+            with_data.append(c)
         
-        if without_data > 0:
-            logger.info("completed_filtered_no_data", ticker=ticker, filtered_count=without_data)
+        total_filtered = sum(filtered_reasons.values())
+        if total_filtered > 0:
+            logger.info("completed_filtered_invalid", 
+                       ticker=ticker, 
+                       total_filtered=total_filtered,
+                       reasons=filtered_reasons)
         
-        seen = set()
-        unique = []
+        # ================================================================
+        # FASE 2: Normalizar tipos y agrupar
+        # ================================================================
+        def normalize_offering_type(otype: str) -> str:
+            """Normaliza tipos de offering similares a una categoría común."""
+            otype_lower = (otype or '').lower()
+            
+            # IPO / Public Offering / Direct Issuance (al underwriter) = mismo evento
+            if any(x in otype_lower for x in ['ipo', 'public offering', 'initial public', 'direct issuance', 'direct offering']):
+                return 'PUBLIC_OFFERING'
+            # ATM
+            if 'atm' in otype_lower or 'at-the-market' in otype_lower or 'at the market' in otype_lower:
+                return 'ATM'
+            # Commitment Shares
+            if 'commitment' in otype_lower:
+                return 'COMMITMENT_SHARES'
+            # Note Conversion
+            if 'note' in otype_lower and 'conversion' in otype_lower:
+                return 'NOTE_CONVERSION'
+            # RSU Vesting
+            if 'rsu' in otype_lower or 'restricted stock unit' in otype_lower:
+                return 'RSU_VESTING'
+            # Warrant Issuance
+            if 'warrant' in otype_lower:
+                return 'WARRANT_ISSUANCE'
+            # Shares for Services
+            if 'service' in otype_lower:
+                return 'SHARES_FOR_SERVICES'
+            # PIPE / Private Placement
+            if 'pipe' in otype_lower or 'private' in otype_lower:
+                return 'PRIVATE_PLACEMENT'
+            
+            return otype[:30].upper().replace(' ', '_')
         
+        def get_month_key(date_val) -> str:
+            """Extraer YYYY-MM de una fecha para agrupar por mes."""
+            if not date_val:
+                return 'unknown'
+            try:
+                if isinstance(date_val, str):
+                    return date_val[:7]  # YYYY-MM
+                elif hasattr(date_val, 'strftime'):
+                    return date_val.strftime('%Y-%m')
+            except:
+                pass
+            return 'unknown'
+        
+        def get_amount_bucket(amount) -> int:
+            """Redondear amount a bucket de $1M para agrupar montos similares."""
+            try:
+                val = float(amount or 0)
+                if val <= 0:
+                    return 0
+                # Round to nearest $1M (más tolerante que $100K)
+                return int(round(val / 1_000_000) * 1_000_000)
+            except:
+                return 0
+        
+        def get_shares_bucket(shares) -> int:
+            """Redondear shares a bucket de 100K para agrupar cantidades similares."""
+            try:
+                val = float(shares or 0)
+                if val <= 0:
+                    return 0
+                return int(round(val / 100_000) * 100_000)
+            except:
+                return 0
+        
+        # Agrupar por (tipo_normalizado, mes, amount_bucket OR shares_bucket)
+        groups = {}
         for c in with_data:
             try:
                 offering_type = safe_get_for_key(c, 'offering_type', 'string') or ''
                 offering_date = safe_get_for_key(c, 'offering_date', 'date')
-                amount = safe_get_for_key(c, 'amount_raised', 'number')
-                shares = safe_get_for_key(c, 'shares_issued', 'number')
+                amount = normalize_grok_value(c.get('amount_raised'), 'number')
+                shares = normalize_grok_value(c.get('shares_issued'), 'number')
                 
-                key = (offering_type[:30], offering_date, amount or shares)
+                normalized_type = normalize_offering_type(offering_type)
+                month_key = get_month_key(offering_date)
+                amount_bucket = get_amount_bucket(amount)
+                shares_bucket = get_shares_bucket(shares)
                 
-                if key not in seen:
-                    seen.add(key)
-                    unique.append(c)
+                # Clave: tipo + mes + (amount_bucket o shares_bucket si no hay amount)
+                value_key = amount_bucket if amount_bucket > 0 else shares_bucket
+                key = (normalized_type, month_key, value_key)
+                
+                if key not in groups:
+                    groups[key] = []
+                groups[key].append(c)
             except Exception as e:
-                logger.warning("completed_dedup_error", error=str(e))
-                unique.append(c)
+                logger.warning("completed_grouping_error", ticker=ticker, error=str(e))
+                groups[('error', id(c), str(e)[:20])] = [c]
         
-        logger.info("completed_deduplication", ticker=ticker, 
-                   input_count=len(completed), output_count=len(unique))
+        # ================================================================
+        # FASE 3: Seleccionar el mejor de cada grupo por FILING PRIORITY
+        # ================================================================
+        unique = []
+        duplicates_merged = 0
+        
+        for key, group in groups.items():
+            if len(group) == 1:
+                unique.append(group[0])
+            else:
+                # PRIORIZAR POR FILING SOURCE + completeness
+                def priority_score(c):
+                    """
+                    Score combinado: filing_priority (peso alto) + completeness (peso bajo).
+                    Menor filing_priority = mejor fuente (424B4 > 10-Q)
+                    """
+                    filing_priority = get_filing_priority(c)
+                    
+                    # Invertir para que menor prioridad = mayor score
+                    filing_score = (10 - filing_priority) * 100
+                    
+                    # Bonus por completeness
+                    completeness = 0
+                    if c.get('shares_issued'):
+                        completeness += 5
+                    if c.get('amount_raised'):
+                        completeness += 5
+                    if c.get('price_per_share'):
+                        completeness += 3
+                    if c.get('offering_date'):
+                        completeness += 2
+                    
+                    return filing_score + completeness
+                
+                sorted_group = sorted(group, key=priority_score, reverse=True)
+                best = sorted_group[0]
+                unique.append(best)
+                duplicates_merged += len(group) - 1
+                
+                # Log detallado para debugging
+                filing_types = [get_filing_type_from_url(c.get('filing_url', '')) or 'unknown' for c in group]
+                logger.info("completed_group_merged",
+                           ticker=ticker,
+                           key=str(key),
+                           merged_count=len(group),
+                           filing_sources=filing_types,
+                           selected_type=best.get('offering_type'),
+                           selected_filing=get_filing_type_from_url(best.get('filing_url', '')),
+                           selected_amount=best.get('amount_raised'),
+                           selected_shares=best.get('shares_issued'))
+        
+        logger.info("completed_deduplication", 
+                   ticker=ticker, 
+                   input_count=len(completed), 
+                   after_filter=len(with_data),
+                   output_count=len(unique),
+                   duplicates_merged=duplicates_merged)
+        
         return unique
     
     # ========================================================================
@@ -874,6 +1108,26 @@ class DeduplicationService:
         if not notes:
             return []
         
+        def get_principal_amount(n: Dict) -> float:
+            """
+            Obtener el principal amount de una nota.
+            FIX: Gemini puede devolver diferentes nombres de campo:
+            - total_principal_amount (esperado)
+            - principal_amount (común)
+            - original_principal_amount (alternativo)
+            """
+            # Intentar múltiples campos en orden de preferencia
+            for field in ['total_principal_amount', 'principal_amount', 'original_principal_amount']:
+                val = n.get(field)
+                if val:
+                    try:
+                        parsed = normalize_grok_value(val, 'number')
+                        if parsed and parsed > 0:
+                            return parsed
+                    except:
+                        pass
+            return 0.0
+        
         def parse_date_key(date_val) -> str:
             """Extraer YYYY-MM de una fecha para agrupar."""
             if not date_val:
@@ -903,12 +1157,10 @@ class DeduplicationService:
             """Calcular score de completitud de una nota."""
             score = 0
             # Campos críticos (más peso)
-            if n.get('total_principal_amount'):
-                try:
-                    if float(n.get('total_principal_amount', 0)) > 0:
-                        score += 10
-                except:
-                    pass
+            # FIX: Usar helper que busca múltiples campos de principal
+            principal = get_principal_amount(n)
+            if principal > 0:
+                score += 10
             if n.get('conversion_price'):
                 try:
                     if float(n.get('conversion_price', 0)) > 0:
@@ -936,7 +1188,8 @@ class DeduplicationService:
         
         def get_dedup_key(n: Dict) -> str:
             """Generar clave basada en principal + issue_date."""
-            principal_key = normalize_principal(n.get('total_principal_amount'))
+            # FIX: Usar helper que busca múltiples campos de principal
+            principal_key = normalize_principal(get_principal_amount(n))
             issue_key = parse_date_key(n.get('issue_date'))
             return f"{principal_key}_{issue_key}"
         
@@ -993,12 +1246,44 @@ class DeduplicationService:
         
         # PASO 1: Filtrar notas inválidas
         valid_notes = []
-        filtered_reasons = {'zero_principal': 0, 'incremental': 0}
+        filtered_reasons = {'zero_principal': 0, 'incremental': 0, 'kept_historical': 0}
+        
+        def has_historical_value(n: Dict) -> bool:
+            """
+            Determina si una nota con principal=0 tiene valor histórico.
+            FIX: No borrar "instrumentos zombis" que explican dilución histórica.
+            Ejemplo: Nota canjeada con remaining=$0 pero total=$26M
+            """
+            # Tiene datos de propietarios conocidos
+            if n.get('known_owners'):
+                return True
+            # Tiene fecha de emisión (podemos rastrear la historia)
+            if n.get('issue_date'):
+                return True
+            # Tiene nombre de serie específico (no genérico)
+            series = str(n.get('series_name', '')).lower()
+            if series and 'unnamed' not in series and 'unknown' not in series:
+                return True
+            # Tiene acciones emitidas registradas
+            if n.get('total_shares_issued') or n.get('shares_issued'):
+                return True
+            return False
         
         for n in notes:
-            principal = normalize_grok_value(n.get('total_principal_amount'), 'number') or 0
+            # FIX: Usar helper que busca múltiples campos de principal
+            principal = get_principal_amount(n)
             
             if principal <= 0:
+                # FIX: No borrar si tiene valor histórico (instrumentos zombis)
+                if has_historical_value(n):
+                    logger.info("note_kept_historical_value",
+                               series=n.get('series_name'),
+                               owners=n.get('known_owners'),
+                               issue_date=n.get('issue_date'))
+                    filtered_reasons['kept_historical'] += 1
+                    valid_notes.append(n)
+                    continue
+                    
                 logger.debug("note_filtered_zero_principal", 
                            series=n.get('series_name'))
                 filtered_reasons['zero_principal'] += 1

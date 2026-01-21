@@ -109,3 +109,8 @@ services/pattern-matching/data/
 *.npy
 patterns_metadata.db
 trajectories.npy
+
+# Build artifacts
+*.tsbuildinfo
+real_results_*.txt
+

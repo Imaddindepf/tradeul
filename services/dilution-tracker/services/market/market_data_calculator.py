@@ -264,17 +264,23 @@ class MarketDataCalculator:
     ) -> Decimal:
         """
         Calcula el precio necesario para que la empresa deje de ser baby shelf
-        y pueda usar la capacidad completa del shelf
         
-        Formula: (Total_Capacity × 3) / Float
+        Una empresa es "baby shelf" si su float value < $75M.
         
-        If the stock price reaches this level, the company would no longer be
-        subject to baby shelf restrictions for this shelf.
+        Formula CORRECTA: $75,000,000 / Float
+        
+        Este es el precio al que el stock price debe llegar para que el 
+        float market value supere el umbral de $75M y la empresa pueda
+        usar más del 1/3 del IB6 float value bajo Instruction I.B.6.
+        
+        Ejemplo: Si float = 3.2M shares
+        Price to exceed = $75M / 3.2M = $23.44
         """
         if free_float <= 0:
             return Decimal("0")
         
-        return (total_capacity * Decimal("3")) / Decimal(str(free_float))
+        # El precio al que float_value = $75M (umbral de baby shelf)
+        return Decimal(str(self.BABY_SHELF_THRESHOLD)) / Decimal(str(free_float))
     
     def is_baby_shelf_company(
         self,

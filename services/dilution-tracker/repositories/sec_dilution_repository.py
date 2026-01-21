@@ -615,13 +615,19 @@ class SECDilutionRepository:
             return []
     
     async def _get_convertible_preferred(self, ticker: str) -> List[ConvertiblePreferredModel]:
-        """Obtener convertible preferred de un ticker (si existe tabla)"""
+        """Obtener convertible preferred de un ticker (con todas las columnas)"""
         try:
             query = """
-            SELECT id, ticker, series, total_dollar_amount_issued, remaining_dollar_amount,
+            SELECT id, ticker, series, series_name, 
+                   total_dollar_amount_issued, remaining_dollar_amount,
                    conversion_price, total_shares_when_converted, remaining_shares_when_converted,
                    issue_date, convertible_date, maturity_date, underwriter_agent,
-                   filing_url, notes
+                   filing_url, notes,
+                   known_owners, price_protection, pp_clause,
+                   status, is_registered, registration_type,
+                   floor_price, variable_rate_adjustment, is_toxic,
+                   last_update_date, source_filing, source_filings, merged_from_count,
+                   split_adjusted, split_factor, original_conversion_price
             FROM sec_convertible_preferred
             WHERE ticker = $1
             ORDER BY issue_date DESC NULLS LAST
@@ -632,6 +638,7 @@ class SECDilutionRepository:
                     id=row['id'],
                     ticker=row['ticker'],
                     series=row['series'],
+                    series_name=row['series_name'],
                     total_dollar_amount_issued=row['total_dollar_amount_issued'],
                     remaining_dollar_amount=row['remaining_dollar_amount'],
                     conversion_price=row['conversion_price'],
@@ -642,19 +649,37 @@ class SECDilutionRepository:
                     maturity_date=row['maturity_date'],
                     underwriter_agent=row['underwriter_agent'],
                     filing_url=row['filing_url'],
-                    notes=row['notes']
+                    notes=row['notes'],
+                    known_owners=row['known_owners'],
+                    price_protection=row['price_protection'],
+                    pp_clause=row['pp_clause'],
+                    status=row['status'],
+                    is_registered=row['is_registered'],
+                    registration_type=row['registration_type'],
+                    floor_price=row['floor_price'],
+                    variable_rate_adjustment=row['variable_rate_adjustment'],
+                    is_toxic=row['is_toxic'],
+                    last_update_date=row['last_update_date'],
+                    source_filing=row['source_filing'],
+                    source_filings=row['source_filings'],
+                    merged_from_count=row['merged_from_count'],
+                    split_adjusted=row['split_adjusted'],
+                    split_factor=row['split_factor'],
+                    original_conversion_price=row['original_conversion_price']
                 )
                 for row in rows
             ]
-        except Exception:
+        except Exception as e:
+            logger.warning("get_convertible_preferred_failed", ticker=ticker, error=str(e))
             return []
     
     async def _get_equity_lines(self, ticker: str) -> List[EquityLineModel]:
-        """Obtener equity lines de un ticker (si existe tabla)"""
+        """Obtener equity lines de un ticker (con todas las columnas)"""
         try:
             query = """
-            SELECT id, ticker, total_capacity, remaining_capacity,
-                   agreement_start_date, agreement_end_date, filing_url, notes
+            SELECT id, ticker, series_name, total_capacity, remaining_capacity,
+                   agreement_start_date, agreement_end_date, filing_url, notes,
+                   is_registered, registration_type, counterparty, last_update_date
             FROM sec_equity_lines
             WHERE ticker = $1
             ORDER BY agreement_start_date DESC NULLS LAST
@@ -664,16 +689,22 @@ class SECDilutionRepository:
                 EquityLineModel(
                     id=row['id'],
                     ticker=row['ticker'],
+                    series_name=row['series_name'],
                     total_capacity=row['total_capacity'],
                     remaining_capacity=row['remaining_capacity'],
                     agreement_start_date=row['agreement_start_date'],
                     agreement_end_date=row['agreement_end_date'],
                     filing_url=row['filing_url'],
-                    notes=row['notes']
+                    notes=row['notes'],
+                    is_registered=row['is_registered'],
+                    registration_type=row['registration_type'],
+                    counterparty=row['counterparty'],
+                    last_update_date=row['last_update_date']
                 )
                 for row in rows
             ]
-        except Exception:
+        except Exception as e:
+            logger.warning("get_equity_lines_failed", ticker=ticker, error=str(e))
             return []
     
     async def _delete_ticker_data(self, ticker: str):
@@ -1058,21 +1089,30 @@ class SECDilutionRepository:
             pass
     
     async def _insert_convertible_preferred(self, ticker: str, cp: ConvertiblePreferredModel):
-        """Insertar un convertible preferred (si existe tabla)"""
+        """Insertar un convertible preferred (con todas las columnas)"""
         try:
+            import json
             query = """
             INSERT INTO sec_convertible_preferred (
-                ticker, series, total_dollar_amount_issued, remaining_dollar_amount,
+                ticker, series, series_name, 
+                total_dollar_amount_issued, remaining_dollar_amount,
                 conversion_price, total_shares_when_converted, remaining_shares_when_converted,
                 issue_date, convertible_date, maturity_date, underwriter_agent,
-                filing_url, notes
+                filing_url, notes,
+                known_owners, price_protection, pp_clause,
+                status, is_registered, registration_type,
+                floor_price, variable_rate_adjustment, is_toxic,
+                last_update_date, source_filing, source_filings, merged_from_count,
+                split_adjusted, split_factor, original_conversion_price
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 
+                    $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30)
             """
             await self.db.execute(
                 query,
                 ticker,
                 cp.series,
+                cp.series_name,
                 cp.total_dollar_amount_issued,
                 cp.remaining_dollar_amount,
                 cp.conversion_price,
@@ -1083,33 +1123,53 @@ class SECDilutionRepository:
                 cp.maturity_date,
                 cp.underwriter_agent,
                 cp.filing_url,
-                cp.notes
+                cp.notes,
+                cp.known_owners,
+                cp.price_protection,
+                cp.pp_clause,
+                cp.status,
+                cp.is_registered,
+                cp.registration_type,
+                float(cp.floor_price) if cp.floor_price else None,
+                cp.variable_rate_adjustment,
+                cp.is_toxic,
+                cp.last_update_date,
+                cp.source_filing,
+                json.dumps(cp.source_filings) if cp.source_filings else None,
+                cp.merged_from_count,
+                cp.split_adjusted,
+                float(cp.split_factor) if cp.split_factor else None,
+                float(cp.original_conversion_price) if cp.original_conversion_price else None
             )
-        except Exception:
-            # Tabla no existe aún, ignorar
-            pass
+        except Exception as e:
+            logger.warning("insert_convertible_preferred_failed", ticker=ticker, error=str(e))
     
     async def _insert_equity_line(self, ticker: str, el: EquityLineModel):
-        """Insertar un equity line (si existe tabla)"""
+        """Insertar un equity line (con todas las columnas)"""
         try:
             query = """
             INSERT INTO sec_equity_lines (
-                ticker, total_capacity, remaining_capacity,
-                agreement_start_date, agreement_end_date, filing_url, notes
+                ticker, series_name, total_capacity, remaining_capacity,
+                agreement_start_date, agreement_end_date, filing_url, notes,
+                is_registered, registration_type, counterparty, last_update_date
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             """
             await self.db.execute(
                 query,
                 ticker,
+                el.series_name,
                 el.total_capacity,
                 el.remaining_capacity,
                 el.agreement_start_date,
                 el.agreement_end_date,
                 el.filing_url,
-                el.notes
+                el.notes,
+                el.is_registered,
+                el.registration_type,
+                el.counterparty,
+                el.last_update_date
             )
-        except Exception:
-            # Tabla no existe aún, ignorar
-            pass
+        except Exception as e:
+            logger.warning("insert_equity_line_failed", ticker=ticker, error=str(e))
 

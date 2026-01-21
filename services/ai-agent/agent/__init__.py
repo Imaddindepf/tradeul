@@ -1,11 +1,34 @@
 """
-Agent Module - Function Calling Architecture
-=============================================
-Core agent implementation using Gemini's native function calling.
-Single LLM call decides and executes tools.
+Agent Module V3 - Direct Function Calling (2026)
+================================================
+- NO intent router (no MiniLM, no cold start)
+- NO regex patterns (no fragility)
+- Gemini Flash for routing (cheap, fast, understands variations)
+- Gemini Pro for code generation
+- Self-correction loop
 """
 
-from .core import MarketAgent, AgentStep, AgentResult
-from .tools import MARKET_TOOLS, execute_tool
+# V3: Direct Function Calling
+from .core_v3 import MarketAgentV3 as MarketAgent, AgentResult
 
-__all__ = ["MarketAgent", "AgentStep", "AgentResult", "MARKET_TOOLS", "execute_tool"]
+from .tool_definitions import MARKET_TOOLS
+from .tools import execute_tool
+
+# AgentStep for websocket handler compatibility
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
+
+@dataclass
+class AgentStep:
+    step_type: str
+    content: str
+    data: Optional[Dict[str, Any]] = None
+    tool_name: Optional[str] = None
+
+__all__ = [
+    "MarketAgent",
+    "AgentResult", 
+    "AgentStep",
+    "MARKET_TOOLS",
+    "execute_tool",
+]

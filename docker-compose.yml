@@ -535,6 +535,46 @@ services:
         reservations:
           memory: 256M
 
+  prediction-markets:
+    build:
+      context: ./services/prediction-markets
+      dockerfile: Dockerfile
+    container_name: tradeul_prediction_markets
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - POSTGRES_HOST=tradeul_timescale
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
+      - SERVICE_PORT=8021
+      - LOG_LEVEL=INFO
+      - EVENTS_CACHE_TTL=300
+      - REFRESH_INTERVAL_SECONDS=300
+      - MAX_EVENTS_FETCH=200
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8021:8021"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
   # =============================================
   # CHAT SERVICE (REST API)
   # =============================================
@@ -712,7 +752,7 @@ services:
     ports:
       - "127.0.0.1:8035:8035"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8035/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8035/health" ]
       interval: 30s
       timeout: 10s
       retries: 3

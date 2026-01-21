@@ -247,12 +247,6 @@ class SECAPIClient:
                 "User-Agent": "Tradeul-Scanner/1.0"
             }
         )
-        # Shared client for SEC.gov XML requests with high concurrency
-        self._sec_gov_client = httpx.AsyncClient(
-            timeout=10.0,
-            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
-            headers={'User-Agent': 'TradeUL/1.0 support@tradeul.com'}
-        )
         logger.info("sec_api_client_initialized")
     
     async def search_s1_424b4(self, query: str, size: int = 10) -> Dict[str, Any]:
@@ -269,6 +263,46 @@ class SECAPIClient:
         response.raise_for_status()
         return response.json()
     
+    async def search_insider_trading(
+        self, 
+        ticker: Optional[str] = None,
+        insider_cik: Optional[str] = None,
+        size: int = 50,
+        from_index: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Busca Insider Trading usando el endpoint dedicado de SEC-API.io
+        que ya devuelve transacciones parseadas (NO necesita ir a SEC.gov)
+        
+        Args:
+            ticker: Filtrar por ticker de la empresa
+            insider_cik: Filtrar por CIK del insider
+            size: Número de resultados (max 50)
+            from_index: Offset para paginación
+        """
+        # Construir query para el endpoint /insider-trading
+        query_parts = []
+        
+        if ticker:
+            query_parts.append(f'issuer.tradingSymbol:{ticker.upper()}')
+        if insider_cik:
+            query_parts.append(f'reportingOwner.cik:{insider_cik}')
+        
+        query = " AND ".join(query_parts) if query_parts else "*"
+        
+        # Usar el endpoint específico /insider-trading que ya parsea XMLs
+        response = await self._client.post(
+            f"/insider-trading?token={self.api_key}",
+            json={
+                "query": query,
+                "from": str(from_index),
+                "size": str(min(size, 50)),  # Max 50 por request
+                "sort": [{"filedAt": {"order": "desc"}}]
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    
     async def search_form4(
         self, 
         ticker: Optional[str] = None,
@@ -277,15 +311,9 @@ class SECAPIClient:
         from_index: int = 0
     ) -> Dict[str, Any]:
         """
-        Busca Form 4 (insider trading) filings
-        
-        Args:
-            ticker: Filtrar por ticker de la empresa
-            insider_cik: Filtrar por CIK del insider
-            size: Número de resultados
-            from_index: Offset para paginación
+        DEPRECATED: Use search_insider_trading instead.
+        Busca Form 4 usando búsqueda genérica (no incluye transacciones)
         """
-        # Construir query
         query_parts = ['formType:4', 'NOT formType:"N-4"', 'NOT formType:"4/A"']
         
         if ticker:
@@ -318,14 +346,16 @@ class SECAPIClient:
         import xml.etree.ElementTree as ET
         
         try:
-            # Remove XSL transforms from URL to get raw XML (xslF345X03, xslF345X05, etc.)
-            import re
-            xml_url = re.sub(r'xslF345X\d+/', '', xml_url)
+            # Remove xslF345X05 from URL to get raw XML
+            if 'xslF345X05/' in xml_url:
+                xml_url = xml_url.replace('xslF345X05/', '')
             
-            # Use shared client with connection pool for concurrent requests
-            response = await self._sec_gov_client.get(xml_url)
-            response.raise_for_status()
-            xml_content = response.text
+            # Use separate client for SEC.gov requests
+            async with httpx.AsyncClient(timeout=15.0) as sec_client:
+                headers = {'User-Agent': 'TradeUL/1.0 support@tradeul.com'}
+                response = await sec_client.get(xml_url, headers=headers)
+                response.raise_for_status()
+                xml_content = response.text
             
             root = ET.fromstring(xml_content)
             
@@ -352,20 +382,12 @@ class SECAPIClient:
                     is_dir = rel.find('isDirector')
                     is_off = rel.find('isOfficer')
                     is_ten = rel.find('isTenPercentOwner')
-                    is_other = rel.find('isOther')
                     title = rel.find('officerTitle')
-                    other_text = rel.find('otherText')
                     
                     result['is_director'] = is_dir is not None and is_dir.text == '1'
                     result['is_officer'] = is_off is not None and is_off.text == '1'
                     result['is_ten_percent_owner'] = is_ten is not None and is_ten.text == '1'
-                    # Prefer officerTitle, fallback to otherText
-                    if title is not None and title.text:
-                        result['insider_title'] = title.text
-                    elif other_text is not None and other_text.text:
-                        result['insider_title'] = other_text.text
-                    else:
-                        result['insider_title'] = None
+                    result['insider_title'] = title.text if title is not None else None
             
             # Extraer transacciones non-derivative
             for tx in root.findall('.//nonDerivativeTransaction'):
@@ -387,29 +409,6 @@ class SECAPIClient:
     
     def _parse_transaction(self, tx_element, is_derivative: bool = False) -> Optional[Dict]:
         """Helper para parsear una transacción individual"""
-        # Transaction codes: P=Purchase, S=Sale, J=Other, G=Gift, M=Exercise, C=Conversion, etc.
-        TRANSACTION_CODES = {
-            'P': 'Purchase',
-            'S': 'Sale', 
-            'J': 'Other',
-            'G': 'Gift',
-            'M': 'Exercise',
-            'C': 'Conversion',
-            'A': 'Award',
-            'F': 'Tax',
-            'I': 'Discretionary',
-            'W': 'Will/Inheritance',
-            'K': 'Swap',
-            'D': 'Disposition to Issuer',
-            'E': 'Expiration',
-            'H': 'Expiration (short)',
-            'O': 'Out-of-money',
-            'X': 'Exercise (out-of-money)',
-            'U': 'Disposition (not to issuer)',
-            'L': 'Small acquisition',
-            'Z': 'Deposit/withdrawal',
-        }
-        
         try:
             def get_value(path):
                 el = tx_element.find(path)
@@ -420,27 +419,16 @@ class SECAPIClient:
             acq_disp = get_value('.//transactionAcquiredDisposedCode/value')
             date = get_value('.//transactionDate/value')
             security = get_value('.//securityTitle/value')
-            tx_code = get_value('.//transactionCoding/transactionCode')
             
             # Calcular valor total
             shares_float = float(shares) if shares else 0
             price_float = float(price) if price else 0
             total_value = shares_float * price_float
             
-            # Determine if it's a buy or sell based on code and A/D
-            is_acquisition = acq_disp == 'A'
-            tx_code_desc = TRANSACTION_CODES.get(tx_code, tx_code or 'Unknown')
-            
-            # Only P (Purchase) is a real market buy, S (Sale) is a real market sell
-            is_market_trade = tx_code in ('P', 'S')
-            
             return {
                 'date': date,
                 'security': security,
-                'transaction_type': 'A' if is_acquisition else 'D',
-                'transaction_code': tx_code,
-                'transaction_code_desc': tx_code_desc,
-                'is_market_trade': is_market_trade,
+                'transaction_type': 'A' if acq_disp == 'A' else 'D',  # A=Acquired, D=Disposed
                 'shares': shares_float,
                 'price': price_float,
                 'total_value': total_value,

@@ -51,9 +51,75 @@ class PreliminaryAnalyzer:
     def __init__(self):
         # Gemini API Key (única key necesaria)
         self.api_key = os.environ.get("GOOGL_API_KEY")
+        # Polygon API Key para obtener precio en tiempo real
+        self.polygon_api_key = os.environ.get("POLYGON_API_KEY")
         
         if not self.api_key:
             logger.warning("gemini_api_key_not_configured (GOOGL_API_KEY missing)")
+        if not self.polygon_api_key:
+            logger.warning("polygon_api_key_not_configured (POLYGON_API_KEY missing)")
+    
+    async def _get_price_from_polygon(self, ticker: str) -> tuple[Optional[float], Optional[str]]:
+        """
+        Obtiene el precio actual desde Polygon Single Ticker Snapshot API.
+        
+        Incluye pre-market y after-hours data (lastTrade.p).
+        
+        Returns:
+            Tuple (price, timestamp) o (None, None) si no se puede obtener
+        """
+        if not self.polygon_api_key:
+            logger.warning("polygon_api_key_missing_for_price", ticker=ticker)
+            return None, None
+        
+        url = f"https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}"
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    url,
+                    params={"apiKey": self.polygon_api_key}
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    ticker_data = data.get('ticker', {})
+                    
+                    # Intentar obtener precio del último trade (incluye pre/after market)
+                    last_trade = ticker_data.get('lastTrade', {})
+                    price = last_trade.get('p')
+                    timestamp = last_trade.get('t')
+                    
+                    if not price:
+                        # Fallback: precio del día actual
+                        day = ticker_data.get('day', {})
+                        price = day.get('c')
+                    
+                    if not price:
+                        # Fallback: precio de cierre del día anterior
+                        prev_day = ticker_data.get('prevDay', {})
+                        price = prev_day.get('c')
+                    
+                    if price:
+                        # Formatear timestamp
+                        ts_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S EST")
+                        if timestamp:
+                            try:
+                                # Polygon timestamp es en nanoseconds
+                                ts_datetime = datetime.fromtimestamp(timestamp / 1_000_000_000)
+                                ts_str = ts_datetime.strftime("%Y-%m-%d %H:%M:%S EST")
+                            except:
+                                pass
+                        
+                        logger.info("polygon_price_fetched", ticker=ticker, price=price, timestamp=ts_str)
+                        return float(price), ts_str
+                
+                logger.warning("polygon_snapshot_no_price", ticker=ticker, status=response.status_code)
+                return None, None
+                
+        except Exception as e:
+            logger.error("get_price_from_polygon_failed", ticker=ticker, error=str(e))
+            return None, None
     
     def _stream_gemini_sync(
         self,
@@ -147,10 +213,17 @@ class PreliminaryAnalyzer:
         self,
         ticker: str,
         company_name: str = "",
-        timeout: float = 300.0  # Gemini 3 needs more time for deep thinking (5 min)
+        timeout: float = 300.0,  # Gemini 3 needs more time for deep thinking (5 min)
+        current_price_override: Optional[float] = None  # Override price from frontend (pre-market etc)
     ) -> AsyncGenerator[str, None]:
         """
         Genera análisis en streaming para experiencia de terminal real-time.
+        
+        Args:
+            ticker: Symbol del ticker
+            company_name: Nombre de la empresa
+            timeout: Timeout en segundos
+            current_price_override: Precio opcional para usar en lugar de Polygon (útil para pre-market)
         
         IMPORTANTE: Usa un thread separado para no bloquearse con el scraping.
         """
@@ -161,12 +234,35 @@ class PreliminaryAnalyzer:
         if not company_name:
             company_name = ticker
         
+        # 🚀 OBTENER PRECIO EN TIEMPO REAL DE POLYGON (o usar override)
+        current_price = current_price_override
+        price_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S EST")
+        price_source = "override" if current_price_override else "polygon"
+        
+        if not current_price:
+            # Obtener de Polygon Single Ticker Snapshot (incluye pre-market/after-hours)
+            current_price, price_timestamp = await self._get_price_from_polygon(ticker)
+        
+        # Si no pudimos obtener precio, usar placeholder
+        if not current_price:
+            current_price = 0.0
+            price_timestamp = "N/A - Price unavailable"
+            logger.warning("price_unavailable_for_analysis", ticker=ticker)
+        
+        logger.info("preliminary_analysis_price_ready", 
+                   ticker=ticker, 
+                   price=current_price, 
+                   source=price_source,
+                   timestamp=price_timestamp)
+        
         prompt = TERMINAL_STREAMING_PROMPT.format(
             ticker=ticker,
-            company_name=company_name
+            company_name=company_name,
+            current_price=f"{current_price:.2f}" if current_price else "N/A",
+            price_timestamp=price_timestamp
         )
         
-        logger.info("preliminary_analysis_streaming_start", ticker=ticker)
+        logger.info("preliminary_analysis_streaming_start", ticker=ticker, price=current_price)
         
         # Yield connecting message (diferente al output de Gemini)
         logger.info("preliminary_yielding_header", ticker=ticker)

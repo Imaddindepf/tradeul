@@ -37,6 +37,7 @@ import { ScreenerContent } from '@/components/screener';
 import { HistoricalMultipleSecurityContent } from '@/components/historical-multiple-security';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
+import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -109,6 +110,7 @@ export default function ScannerPage() {
     if (title === 'Ratio Analysis') return <RatioAnalysisContent />;
     if (title === 'Stock Screener') return <ScreenerContent />;
     if (title === 'Historical Multiple Security') return <HistoricalMultipleSecurityContent />;
+    if (title === 'Earnings Calendar') return <EarningsCalendarContent />;
 
     // === Ventanas con ticker específico ===
     // Chart: TICKER
@@ -136,9 +138,10 @@ export default function ScannerPage() {
       const ticker = title.replace('SEC: ', '');
       return <SECFilingsContent initialTicker={ticker} />;
     }
-    // News: TICKER
-    if (title.startsWith('News: ')) {
-      const ticker = title.replace('News: ', '');
+    // News (con o sin ticker en título - el ticker se persiste en componentState)
+    if (title === 'News' || title.startsWith('News: ')) {
+      // Para compatibilidad con ventanas guardadas con formato antiguo
+      const ticker = title.startsWith('News: ') ? title.replace('News: ', '') : undefined;
       return <NewsContent initialTicker={ticker} />;
     }
     // Patterns: TICKER
@@ -347,13 +350,7 @@ export default function ScannerPage() {
     <>
       {/* Navbar */}
       <Navbar>
-        <div className="flex items-center h-full w-full gap-4">
-          {/* Logo */}
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 
-                        flex items-center justify-center shadow-sm flex-shrink-0">
-            <span className="text-white font-bold text-base">T</span>
-          </div>
-
+        <div className="flex items-center h-full w-full gap-3">
           {/* Command Prompt / Quote Strip */}
           <div className="flex-1 flex items-center gap-2 relative">
             <span className="text-slate-400 font-mono text-sm select-none">{'>'}</span>
