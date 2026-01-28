@@ -68,14 +68,14 @@ export function useHeatmapWorker({
   viewLevel,
   selectedSector,
 }: UseHeatmapWorkerOptions): UseHeatmapWorkerReturn {
-  
+
   const treemapData = useMemo(() => {
     if (!data?.sectors?.length) {
       return null;
     }
 
     const start = performance.now();
-    
+
     const ids: string[] = [];
     const labels: string[] = [];
     const parents: string[] = [];

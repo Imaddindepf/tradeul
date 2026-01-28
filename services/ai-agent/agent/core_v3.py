@@ -98,6 +98,7 @@ class MarketAgentV3:
             result = await self._process_with_function_calling(
                 query=query,
                 market_context=market_context or {},
+                on_step=on_step,
             )
             
             result.execution_time = (datetime.now() - start_time).total_seconds()
@@ -115,12 +116,23 @@ class MarketAgentV3:
         self,
         query: str,
         market_context: Dict[str, Any],
+        on_step: Optional[Callable] = None,
     ) -> AgentResult:
         """
         Direct function calling - no router needed.
         
         The LLM sees all tools and picks the best one.
         """
+        from . import AgentStep
+        
+        # Helper to emit steps
+        async def emit(step: AgentStep):
+            if on_step:
+                try:
+                    await on_step(step)
+                except Exception as e:
+                    logger.warning("step_emit_error", error=str(e))
+        
         tools_used = []
         tool_calls = []
         data = {}
@@ -133,7 +145,16 @@ class MarketAgentV3:
         # All tools available
         tool_definitions = self._build_all_tools()
         
-        # Step 1: Let Gemini Flash decide which tool to use
+        # Step 1: Routing - emit step
+        routing_step = AgentStep(
+            id="routing",
+            type="routing",
+            title="Analyzing query",
+            description="Selecting best tool...",
+            status="running"
+        )
+        await emit(routing_step)
+        
         logger.info("routing_with_flash", query=query[:50])
         
         response = await self.client.aio.models.generate_content(
@@ -181,6 +202,21 @@ class MarketAgentV3:
                 
                 logger.info("tool_selected", tool=tool_name, by="flash")
                 
+                # Update routing step as complete
+                routing_step.status = "complete"
+                routing_step.description = f"Selected: {tool_name}"
+                await emit(routing_step)
+                
+                # Emit tool execution step
+                tool_step = AgentStep(
+                    id=f"tool_{tool_name}",
+                    type="tool",
+                    title=f"Executing {tool_name}",
+                    description="Processing...",
+                    status="running"
+                )
+                await emit(tool_step)
+                
                 # Special handling for execute_analysis
                 if tool_name == "execute_analysis":
                     result = await self._handle_execute_analysis(
@@ -190,6 +226,16 @@ class MarketAgentV3:
                     data.update(result.get("data", {}))
                     charts.update(result.get("charts", {}))
                     self_corrections = result.get("self_corrections", 0)
+                    
+                    # Update tool step
+                    tool_step.status = "complete" if not result.get("error") else "error"
+                    tool_step.description = f"{self_corrections} corrections" if self_corrections else "Done"
+                    await emit(tool_step)
+                    
+                    # Update tool step
+                    tool_step.status = "complete" if not result.get("error") else "error"
+                    tool_step.description = "Done"
+                    await emit(tool_step)
                     
                     if result.get("error"):
                         return AgentResult(
@@ -204,13 +250,24 @@ class MarketAgentV3:
                 else:
                     # Execute other tools directly
                     try:
+                        # Ensure llm_client is available for tools that need it
+                        self._context["llm_client"] = self
                         tool_result = await execute_tool(tool_name, tool_args, self._context)
                         
                         # Convert DataFrame to JSON-serializable format
                         tool_result = self._make_json_serializable(tool_result)
                         data[tool_name] = tool_result
+                        
+                        # Update tool step - complete
+                        tool_step.status = "complete"
+                        tool_step.description = "Done"
+                        await emit(tool_step)
+                        
                     except Exception as e:
                         logger.error("tool_error", tool=tool_name, error=str(e))
+                        tool_step.status = "error"
+                        tool_step.description = str(e)[:50]
+                        await emit(tool_step)
                         return AgentResult(
                             success=False,
                             response=f"Tool error: {str(e)}",
@@ -504,20 +561,26 @@ Data: day_aggs (parquet files by date), minute_aggs"""
         if not data:
             return "No data found."
         
-        # Extract the actual data to show
+        # Extract the actual data to show - NO LIMIT, respect user's request
         data_to_interpret = {}
         for tool_name, result in data.items():
             if isinstance(result, dict):
-                # For get_market_snapshot, extract the ticker data
+                # For get_market_snapshot, extract ALL ticker data
                 if "data" in result and isinstance(result["data"], list):
-                    # Take top 10 for response
-                    data_to_interpret[tool_name] = result["data"][:10]
+                    data_to_interpret[tool_name] = result["data"]  # No limit
+                # For classify_synthetic_sectors - keep full structure for preview
+                elif "sectors" in result and isinstance(result["sectors"], list):
+                    data_to_interpret[tool_name] = result  # Keep full for preview
                 elif "tickers" in result:
-                    data_to_interpret[tool_name] = result["tickers"][:10]
+                    data_to_interpret[tool_name] = result["tickers"]  # No limit
+                # For research_ticker - skip interpretation, use content directly
+                elif "content" in result:
+                    # Research results have their own formatted content
+                    return "Research completed. See results below."
                 else:
                     data_to_interpret[tool_name] = result
             elif isinstance(result, list):
-                data_to_interpret[tool_name] = result[:10]
+                data_to_interpret[tool_name] = result  # No limit
             else:
                 data_to_interpret[tool_name] = result
         
@@ -528,22 +591,54 @@ Data: day_aggs (parquet files by date), minute_aggs"""
         except:
             data_json = str(data_to_interpret)
         
-        # Use Flash to interpret and respond
+        # Count results for context
+        result_count = 0
+        for v in data_to_interpret.values():
+            if isinstance(v, list):
+                result_count = len(v)
+                break
+        
+        # Get preview of data safely
+        preview = "[]"
+        if data_to_interpret:
+            try:
+                first_key = list(data_to_interpret.keys())[0]
+                first_val = data_to_interpret[first_key]
+                if isinstance(first_val, list) and first_val:
+                    preview = json.dumps(first_val[:3], indent=2, default=str)
+                elif isinstance(first_val, dict):
+                    # Check for synthetic sectors result (has 'sectors' list)
+                    if "sectors" in first_val and isinstance(first_val.get("sectors"), list):
+                        sectors = first_val["sectors"][:3]
+                        preview = json.dumps(sectors, indent=2, default=str)
+                        result_count = len(first_val.get("sectors", []))
+                    # For research results, just show success status
+                    elif "content" in first_val:
+                        preview = json.dumps({"status": "research completed"}, default=str)
+                    else:
+                        # Generic dict - show first few keys
+                        preview = json.dumps(dict(list(first_val.items())[:3]), indent=2, default=str)
+                else:
+                    preview = json.dumps(str(first_val)[:500], default=str)
+            except Exception as e:
+                logger.warning("preview_error", error=str(e))
+                preview = "[]"
+        
+        # Use Flash to interpret and respond - NO TABLES (frontend renders data)
         interpret_prompt = f"""The user asked: "{query}"
 
-Here is the data retrieved:
-```json
-{data_json}
-```
+Data retrieved: {result_count if result_count > 0 else 'research'} results.
 
-Generate a helpful, concise response that:
-1. Directly answers the user's question
-2. Shows the TOP results in a clean format (table or list)
-3. Highlights key insights (biggest gainers, notable moves, etc.)
+Top 3 for context:
+{preview}
+
+Generate a SHORT response (2-3 sentences max):
+1. Confirm what was found (e.g. "Found {result_count} stocks...")
+2. Mention 1-2 key highlights (biggest gainer, notable pattern)
+3. DO NOT create tables or lists - the data will be shown in a table automatically
 4. Respond in the same language as the user's query
 
-For market data, show: Symbol, Price, Change%, Volume
-Keep it concise but informative."""
+Be brief. The full data table is displayed separately."""
 
         try:
             response = await self.client.aio.models.generate_content(

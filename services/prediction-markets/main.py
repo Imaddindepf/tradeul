@@ -1,6 +1,9 @@
 """
 Prediction Markets Service
 FastAPI service for aggregating and serving prediction market data
+
+V4: Simple architecture - uses Polymarket's native categories directly.
+    No LLM needed. Categories are from Polymarket's frontend.
 """
 
 import asyncio
@@ -13,8 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import structlog
 
 from config import settings
+from config_categories import INCLUDE_CATEGORIES, EXCLUDE_CATEGORIES, EVENTS_PER_CATEGORY
 from clients.polymarket import polymarket_client
-from services.classifier import CategoryClassifier
 from services.processor import EventProcessor
 from services.cache_manager import cache_manager
 from services.config_manager import ConfigurationManager
@@ -32,7 +35,7 @@ from models.processed import (
     SparklineData,
     EventDetail,
 )
-from routers.admin import router as admin_router, set_config_manager
+# Admin router removed in V4 - no longer needed
 
 
 # Configure structured logging
@@ -54,14 +57,17 @@ logger = structlog.get_logger(__name__)
 
 # Global instances
 config_manager: Optional[ConfigurationManager] = None
-classifier: Optional[CategoryClassifier] = None
 processor: Optional[EventProcessor] = None
 background_task: Optional[asyncio.Task] = None
 is_refreshing = False
 
 
 async def refresh_data() -> Optional[PredictionMarketsResponse]:
-    """Fetch and process fresh data from Polymarket"""
+    """
+    Fetch and process fresh data from Polymarket.
+    
+    V4: Simple - fetch by Polymarket's native categories. No LLM needed.
+    """
     global is_refreshing
     
     if is_refreshing:
@@ -71,20 +77,27 @@ async def refresh_data() -> Optional[PredictionMarketsResponse]:
     is_refreshing = True
     
     try:
-        logger.info("refresh_started")
+        logger.info(
+            "refresh_started_v4",
+            categories=INCLUDE_CATEGORIES,
+            exclude=EXCLUDE_CATEGORIES
+        )
         
-        # Fetch events from Polymarket
-        events = await polymarket_client.get_all_events(
+        # Fetch events by Polymarket's native categories (simple!)
+        events = await polymarket_client.fetch_events_by_categories(
+            categories=INCLUDE_CATEGORIES,
+            exclude_categories=EXCLUDE_CATEGORIES,
             active=True,
             closed=False,
-            max_events=settings.max_events_fetch
+            max_events=settings.max_events_fetch,
+            events_per_category=EVENTS_PER_CATEGORY
         )
         
         if not events:
             logger.warning("no_events_fetched")
             return None
         
-        # Process and categorize events
+        # Process events (categories from Polymarket tags)
         response = await processor.process_events(
             events,
             fetch_price_history=True,
@@ -95,10 +108,11 @@ async def refresh_data() -> Optional[PredictionMarketsResponse]:
         await cache_manager.set_full_response(response)
         
         logger.info(
-            "refresh_completed",
+            "refresh_completed_v4",
             events=response.total_events,
             markets=response.total_markets,
-            categories=len(response.categories)
+            categories=len(response.categories),
+            top_categories=[c.category for c in response.categories[:5]]
         )
         
         return response
@@ -124,32 +138,29 @@ async def background_refresh_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management"""
-    global config_manager, classifier, processor, background_task
+    global config_manager, processor, background_task
     
-    logger.info("service_starting", service=settings.service_name)
+    logger.info(
+        "service_starting_v4",
+        service=settings.service_name,
+        categories=INCLUDE_CATEGORIES
+    )
     
     # Connect to services
     await polymarket_client.connect()
     await cache_manager.connect()
     
-    # Initialize configuration manager (connects to database)
+    # Initialize configuration manager (for admin settings)
     config_manager = ConfigurationManager(
         database_url=settings.database_url,
         cache_ttl_seconds=300,
     )
     await config_manager.connect()
-    set_config_manager(config_manager)  # Inject into admin router
     
-    # Load configuration and initialize classifier
-    loaded_config = await config_manager.get_config()
-    classifier = CategoryClassifier.from_loaded_config(loaded_config)
-    processor = EventProcessor(polymarket_client, classifier)
+    # Initialize processor (V4: simple, uses Polymarket native categories)
+    processor = EventProcessor(polymarket_client)
     
-    logger.info(
-        "config_loaded",
-        from_db=loaded_config.is_from_db,
-        categories=len(loaded_config.categories),
-    )
+    logger.info("processor_initialized_v4", msg="Using Polymarket native categories")
     
     # Initial data fetch
     await refresh_data()
@@ -157,7 +168,7 @@ async def lifespan(app: FastAPI):
     # Start background refresh task
     background_task = asyncio.create_task(background_refresh_loop())
     
-    logger.info("service_ready", service=settings.service_name)
+    logger.info("service_ready_v4", service=settings.service_name)
     
     yield
     
@@ -197,8 +208,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include admin router
-app.include_router(admin_router, prefix="/api/v1/predictions")
+# V4: Admin router removed - categories are in config_categories.py
 
 
 # =============================================================================
@@ -219,14 +229,57 @@ async def get_status():
     
     return {
         "service": settings.service_name,
+        "version": "v4",
         "is_refreshing": is_refreshing,
         "cache": cache_stats,
         "polymarket_api": api_health,
+        "categories": {
+            "include": INCLUDE_CATEGORIES,
+            "exclude": EXCLUDE_CATEGORIES,
+            "events_per_category": EVENTS_PER_CATEGORY,
+        },
         "config": {
             "refresh_interval_seconds": settings.refresh_interval_seconds,
             "events_cache_ttl": settings.events_cache_ttl,
             "max_events_fetch": settings.max_events_fetch,
         }
+    }
+
+
+@app.get("/api/v1/predictions/config")
+async def get_categories_config():
+    """Get current Polymarket categories configuration"""
+    return {
+        "include_categories": INCLUDE_CATEGORIES,
+        "exclude_categories": EXCLUDE_CATEGORIES,
+        "events_per_category": EVENTS_PER_CATEGORY,
+        "note": "Categories are from Polymarket's native frontend - no LLM needed"
+    }
+
+
+@app.get("/api/v1/predictions/check-categories")
+async def check_polymarket_categories():
+    """
+    Check Polymarket for new/changed categories.
+    
+    Compares Polymarket's current categories with our config.
+    Use this to discover new categories that might be relevant.
+    """
+    from services.category_checker import check_categories, suggest_categories
+    
+    result = await check_categories()
+    suggestions = await suggest_categories()
+    
+    return {
+        "our_config": {
+            "include": INCLUDE_CATEGORIES,
+            "exclude": EXCLUDE_CATEGORIES,
+        },
+        "polymarket_total": len(result["polymarket_categories"]),
+        "new_categories": result["new_categories"],
+        "suggestions": suggestions,
+        "missing_from_polymarket": result["missing_from_polymarket"],
+        "checked_at": result["checked_at"],
     }
 
 

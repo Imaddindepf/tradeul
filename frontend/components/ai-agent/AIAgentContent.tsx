@@ -117,8 +117,8 @@ export const AIAgentContent = memo(function AIAgentContent({
           <WorkflowEditor onExecute={handleWorkflowExecute} />
         ) : (
           <div className="flex h-full">
-      {/* Chat Panel - 35% width */}
-      <div className="w-[35%] min-w-[280px] max-w-[400px] border-r border-gray-200 flex flex-col min-h-0">
+      {/* Chat Panel - 30% width (narrower, just for reasoning) */}
+      <div className="w-[30%] min-w-[260px] max-w-[350px] border-r border-slate-200 flex flex-col min-h-0 bg-white">
         <ChatPanel
           messages={messages}
           isConnected={isConnected}
@@ -130,7 +130,7 @@ export const AIAgentContent = memo(function AIAgentContent({
         />
       </div>
 
-      {/* Results Panel - resto del ancho */}
+      {/* Results Panel */}
       <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <ResultsPanel
           blocks={resultBlocks}

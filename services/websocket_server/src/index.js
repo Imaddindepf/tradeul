@@ -822,6 +822,14 @@ function processDeltaMessage(message) {
       // Broadcast snapshot
       broadcastToListSubscribers(list, snapshot);
     } else if (type === "delta") {
+      // INVALIDAR CACHE: Cuando llega un delta, el cache puede estar desactualizado
+      // Esto asegura que nuevos clientes lean datos frescos de Redis
+      // Especialmente importante al inicio del premarket cuando el cache puede estar vacío
+      if (lastSnapshots.has(list)) {
+        lastSnapshots.delete(list);
+        logger.debug({ list }, "🗑️ Cache invalidated due to incoming delta");
+      }
+
       // Parsear deltas
       const deltas = JSON.parse(message.deltas || "[]");
 

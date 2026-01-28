@@ -276,31 +276,81 @@ class WebSocketHandler:
                     })
                 elif isinstance(value, dict):
                     # Special case: quick_news results (fast Benzinga lookup)
-                    if name == "quick_news" and "news" in value:
-                        outputs.append({
-                            "type": "news",
-                            "title": f"News: {value.get('symbol', 'Ticker')}",
-                            "symbol": value.get("symbol", ""),
-                            "news": value.get("news", []),
-                            "count": value.get("count", 0),
-                            "deep_research_available": value.get("deep_research_available", True)
-                        })
+                    # Handle both direct format and nested {"success": True, "data": {...}} format
+                    if name == "quick_news":
+                        news_data = value.get("data", value) if isinstance(value.get("data"), dict) else value
+                        if news_data.get("news") is not None:
+                            outputs.append({
+                                "type": "news",
+                                "title": f"News: {news_data.get('symbol', 'Ticker')}",
+                                "symbol": news_data.get("symbol", ""),
+                                "news": news_data.get("news", []),
+                                "count": news_data.get("count", len(news_data.get("news", []))),
+                                "deep_research_available": news_data.get("deep_research_available", True)
+                            })
                     # Special case: research_ticker results (deep research)
-                    elif name == "research_ticker" and value.get("content"):
-                        outputs.append({
-                            "type": "research",
-                            "title": f"Research: {value.get('ticker', 'Ticker')}",
-                            "content": value.get("content", ""),
-                            "citations": value.get("citations", []),
-                            "inline_citations": value.get("inline_citations", [])
-                        })
-                    # Could be Plotly config or other data
+                    # Handle both direct format and nested {"success": True, "data": {...}} format
+                    elif name == "research_ticker":
+                        research_data = value.get("data", value) if isinstance(value.get("data"), dict) else value
+                        if research_data.get("content"):
+                            outputs.append({
+                                "type": "research",
+                                "title": f"Research: {research_data.get('ticker', value.get('ticker', 'Ticker'))}",
+                                "content": research_data.get("content", ""),
+                                "citations": research_data.get("citations", []),
+                                "inline_citations": research_data.get("inline_citations", [])
+                            })
+                    # Special case: classify_synthetic_sectors results
+                    elif name == "classify_synthetic_sectors":
+                        # Sectors performance table
+                        if value.get("sectors"):
+                            sectors_data = value["sectors"]
+                            columns = list(sectors_data[0].keys()) if sectors_data else []
+                            outputs.append({
+                                "type": "table",
+                                "title": "Synthetic ETF Performance",
+                                "columns": columns,
+                                "rows": sectors_data,
+                                "total": len(sectors_data)
+                            })
+                        # Individual tickers table
+                        if value.get("tickers"):
+                            tickers_data = value["tickers"]
+                            columns = list(tickers_data[0].keys()) if tickers_data else []
+                            outputs.append({
+                                "type": "table",
+                                "title": "ETF Holdings",
+                                "columns": columns,
+                                "rows": tickers_data[:100],
+                                "total": len(tickers_data)
+                            })
+                        # Chart if generated
+                        if value.get("chart"):
+                            outputs.append({
+                                "type": "chart",
+                                "title": "Synthetic ETF Chart",
+                                "chart_type": "image",
+                                "image_base64": value["chart"]
+                            })
+                    # Plotly chart
                     elif "data" in value and "layout" in value:
                         outputs.append({
                             "type": "plotly_chart",
                             "title": self._format_title(name),
                             "plotly_config": value
                         })
+                    # Dict with "data" list (e.g., get_market_snapshot)
+                    elif "data" in value and isinstance(value["data"], list) and value["data"]:
+                        data_list = value["data"]
+                        if isinstance(data_list[0], dict):
+                            columns = list(data_list[0].keys())
+                            outputs.append({
+                                "type": "table",
+                                "title": self._format_title(name),
+                                "columns": columns,
+                                "rows": data_list[:100],
+                                "total": len(data_list)
+                            })
         
         # Process charts
         for chart_name, chart_bytes in result.charts.items():

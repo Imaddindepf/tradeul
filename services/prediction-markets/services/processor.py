@@ -1,6 +1,9 @@
 """
 Event Processor Service
-Transforms raw Polymarket data into processed models with calculated metrics
+Transforms raw Polymarket data into processed models with calculated metrics.
+
+V3: 100% dynamic - uses Polymarket's native tags directly as categories.
+    No hardcoded mappings. LLM decides which tags to fetch, Polymarket decides categories.
 """
 
 from typing import Optional, List, Dict
@@ -16,9 +19,7 @@ from models.processed import (
     PredictionMarketsResponse,
     MarketSource,
 )
-from models.categories import DEFAULT_CATEGORIES
 from clients.polymarket import PolymarketClient
-from services.classifier import CategoryClassifier
 
 
 logger = structlog.get_logger(__name__)
@@ -26,19 +27,53 @@ logger = structlog.get_logger(__name__)
 
 class EventProcessor:
     """
-    Processes raw Polymarket events into frontend-ready format
-    - Calculates price changes from history
-    - Groups events by category/subcategory
-    - Handles market aggregation
+    Processes raw Polymarket events into frontend-ready format.
+    
+    V3: 100% dynamic categorization:
+    - Category = first tag with forceShow=True (Polymarket's primary category)
+    - Fallback = first tag label
+    - NO hardcoded mappings or priority lists
     """
     
-    def __init__(
-        self,
-        polymarket_client: PolymarketClient,
-        classifier: CategoryClassifier,
-    ):
+    def __init__(self, polymarket_client: PolymarketClient):
         self.client = polymarket_client
-        self.classifier = classifier
+    
+    # Polymarket's main categories (from their navigation bar)
+    # These are stable - Polymarket rarely adds new main categories
+    MAIN_CATEGORIES = {
+        "politics", "crypto", "finance", "geopolitics", "tech", 
+        "sports", "culture", "world", "economy", "earnings",
+        "business", "elections", "science",
+    }
+    
+    def _get_category_from_tags(self, event: PolymarketEvent) -> str:
+        """
+        Get category from Polymarket tags - scalable approach.
+        
+        Strategy:
+        1. Use forceShow=true tag (Polymarket's explicit primary category)
+        2. Find first tag matching Polymarket's main categories
+        3. Fallback to first tag
+        
+        This is scalable because Polymarket's main categories are stable.
+        """
+        tags = event.tags or []
+        
+        # 1. Use forceShow=true (Polymarket's explicit choice)
+        for tag in tags:
+            if tag.force_show and tag.label:
+                return tag.label
+        
+        # 2. Find first tag that's a main category
+        for tag in tags:
+            if tag.slug and tag.slug.lower() in self.MAIN_CATEGORIES:
+                return tag.label or tag.slug.capitalize()
+        
+        # 3. Fallback to first tag
+        if tags and tags[0].label:
+            return tags[0].label
+        
+        return "Other"
     
     def _format_date_label(self, dt: Optional[datetime]) -> Optional[str]:
         """Format date as readable label (e.g., 'March 31, 2026')"""
@@ -264,20 +299,19 @@ class EventProcessor:
         max_history_markets: int = 100,
     ) -> PredictionMarketsResponse:
         """
-        Process and categorize a list of events
+        Process and categorize events using Polymarket's native tags.
+        
+        V3: 100% dynamic - categories come directly from Polymarket tags.
         
         Args:
-            events: Raw events from Polymarket
+            events: Raw events from Polymarket (already filtered by LLM tags)
             fetch_price_history: Whether to fetch price histories
             max_history_markets: Max markets to fetch history for
         
         Returns:
             PredictionMarketsResponse with categorized events
         """
-        # Filter and classify events
-        classified = self.classifier.filter_and_classify_events(events)
-        
-        if not classified:
+        if not events:
             return PredictionMarketsResponse()
         
         # Collect token IDs for price history
@@ -285,9 +319,9 @@ class EventProcessor:
         
         if fetch_price_history:
             token_ids: List[str] = []
-            for event, _, _, _ in classified[:max_history_markets]:
+            for event in events[:max_history_markets]:
                 if event.markets:
-                    for market in event.markets[:5]:  # Max 5 markets per event
+                    for market in event.markets[:5]:
                         token_id = market.get_yes_token_id()
                         if token_id:
                             token_ids.append(token_id)
@@ -299,68 +333,58 @@ class EventProcessor:
                     max_concurrent=20
                 )
         
-        # Process events and group by category
-        category_events: Dict[str, Dict[Optional[str], List[ProcessedEvent]]] = defaultdict(
-            lambda: defaultdict(list)
-        )
+        # Group events by category (from Polymarket tags - no hardcoding!)
+        category_events: Dict[str, List[ProcessedEvent]] = defaultdict(list)
         total_markets = 0
         
-        for event, category, subcategory, score in classified:
+        for event in events:
+            # Category comes directly from Polymarket's tags
+            category = self._get_category_from_tags(event)
+            score = (event.volume or 0) / 1_000_000
+            
             processed = self._process_event(
-                event, category, subcategory, score, price_histories
+                event, category, None, score, price_histories
             )
             if processed:
-                category_events[category][subcategory].append(processed)
+                category_events[category].append(processed)
                 total_markets += len(processed.markets)
         
-        # Build category groups
+        # Build category groups, sorted by total volume
         category_groups: List[CategoryGroup] = []
         
-        # Sort categories by priority
-        category_order = {
-            cat.name: cat.priority
-            for cat in DEFAULT_CATEGORIES.values()
-        }
-        category_order["Other"] = 999
-        
         sorted_categories = sorted(
-            category_events.keys(),
-            key=lambda c: category_order.get(c, 100)
+            category_events.items(),
+            key=lambda x: sum(e.total_volume or 0 for e in x[1]),
+            reverse=True
         )
         
-        for category_name in sorted_categories:
-            subcats = category_events[category_name]
+        for category_name, events_list in sorted_categories:
+            if not events_list:
+                continue
             
-            for subcategory_name, events_list in subcats.items():
-                if not events_list:
-                    continue
-                
-                display_name = category_name
-                if subcategory_name:
-                    display_name = f"{category_name} - {subcategory_name}"
-                
-                total_volume = sum(
-                    e.total_volume or 0 for e in events_list
-                )
-                
-                category_groups.append(CategoryGroup(
-                    category=category_name,
-                    subcategory=subcategory_name,
-                    display_name=display_name,
-                    events=events_list,
-                    total_events=len(events_list),
-                    total_volume=total_volume,
-                ))
+            # Sort events by volume
+            events_list.sort(key=lambda e: e.total_volume or 0, reverse=True)
+            total_volume = sum(e.total_volume or 0 for e in events_list)
+            
+            category_groups.append(CategoryGroup(
+                category=category_name,
+                subcategory=None,
+                display_name=category_name,
+                events=events_list,
+                total_events=len(events_list),
+                total_volume=total_volume,
+            ))
         
         logger.info(
-            "events_processed",
-            total_events=len(classified),
+            "events_processed_v3",
+            total_events=len(events),
             total_markets=total_markets,
-            categories=len(category_groups)
+            categories=len(category_groups),
+            top_categories=[c.category for c in category_groups[:5]]
         )
         
         return PredictionMarketsResponse(
             categories=category_groups,
-            total_events=len(classified),
+            total_events=len(events),
             total_markets=total_markets,
         )

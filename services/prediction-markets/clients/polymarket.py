@@ -141,6 +141,56 @@ class PolymarketClient:
             logger.error("gamma_api_error", error=str(e))
             return []
     
+    async def get_events_by_tag(
+        self,
+        tag_slug: str,
+        active: bool = True,
+        closed: bool = False,
+        limit: int = 100,
+    ) -> List[PolymarketEvent]:
+        """
+        Fetch events filtered by a specific tag.
+        
+        Args:
+            tag_slug: Tag slug to filter by
+            active: Only active events
+            closed: Include closed events
+            limit: Max events to fetch
+        
+        Returns:
+            List of PolymarketEvent objects with this tag
+        """
+        try:
+            response = await self.client.get(
+                f"{self._gamma_url}/events",
+                params={
+                    "tag_slug": tag_slug,
+                    "active": str(active).lower(),
+                    "closed": str(closed).lower(),
+                    "limit": limit,
+                    "order": "volume",
+                    "ascending": "false"
+                }
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            events = []
+            
+            for event_data in data:
+                try:
+                    event = PolymarketEvent.model_validate(event_data)
+                    events.append(event)
+                except Exception as e:
+                    continue
+            
+            logger.debug("events_fetched_by_tag", tag=tag_slug, count=len(events))
+            return events
+            
+        except Exception as e:
+            logger.warning("events_by_tag_error", tag=tag_slug, error=str(e))
+            return []
+
     async def get_all_events(
         self,
         active: bool = True,
@@ -185,6 +235,87 @@ class PolymarketClient:
         logger.info(
             "gamma_all_events_fetched",
             total=len(all_events)
+        )
+        
+        return all_events[:max_events]
+    
+    async def fetch_events_by_categories(
+        self,
+        categories: List[str],
+        exclude_categories: List[str] = None,
+        active: bool = True,
+        closed: bool = False,
+        max_events: int = 1000,
+        events_per_category: int = 100,
+    ) -> List[PolymarketEvent]:
+        """
+        Fetch events by Polymarket's native categories.
+        
+        Simple approach: use Polymarket's own category slugs directly.
+        No LLM needed - categories come from Polymarket frontend.
+        
+        Args:
+            categories: List of Polymarket category slugs to fetch
+            exclude_categories: Categories to exclude from results
+            active: Only active events
+            closed: Include closed events
+            max_events: Maximum total events to return
+            events_per_category: Max events per category
+        
+        Returns:
+            Deduplicated list of events, sorted by volume
+        """
+        seen_ids = set()
+        all_events: List[PolymarketEvent] = []
+        exclude_set = set(exclude_categories or [])
+        
+        logger.info(
+            "fetch_by_categories_started",
+            categories=categories,
+            exclude=list(exclude_set)
+        )
+        
+        # Fetch from each category concurrently
+        semaphore = asyncio.Semaphore(10)
+        
+        async def fetch_category(category: str) -> tuple:
+            async with semaphore:
+                events = await self.get_events_by_tag(
+                    tag_slug=category,
+                    active=active,
+                    closed=closed,
+                    limit=events_per_category
+                )
+                return (category, events)
+        
+        tasks = [fetch_category(cat) for cat in categories]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results and deduplicate
+        category_counts = {}
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("category_fetch_error", error=str(result))
+                continue
+            
+            category, events = result
+            category_counts[category] = len(events)
+            
+            for event in events:
+                if event.id not in seen_ids:
+                    # Skip if event has excluded category tags
+                    event_tags = set(event.get_tag_slugs())
+                    if not (event_tags & exclude_set):
+                        seen_ids.add(event.id)
+                        all_events.append(event)
+        
+        # Sort by volume
+        all_events.sort(key=lambda e: e.volume or 0, reverse=True)
+        
+        logger.info(
+            "fetch_by_categories_completed",
+            total_events=len(all_events),
+            by_category=category_counts
         )
         
         return all_events[:max_events]

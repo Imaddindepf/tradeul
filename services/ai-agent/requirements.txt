@@ -1,0 +1,49 @@
+# TradeUL AI Agent Service
+# Python 3.11+
+
+# Web Framework
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+websockets>=13.0
+
+# LLM
+google-genai>=1.57.0  # Updated for ThinkingConfig support
+xai-sdk==1.5.0  # Grok for research
+
+# Data Processing
+pandas==2.2.0
+numpy==1.26.4
+plotly==5.18.0
+matplotlib==3.8.2
+
+# Async
+httpx>=0.28.1  # Required by google-genai 1.57+
+aiohttp==3.9.3
+
+# Redis
+redis[hiredis]==5.0.1
+
+# Database
+asyncpg==0.29.0
+
+# Utilities
+pydantic>=2.9.0  # Required by google-genai 1.57+
+pydantic-settings>=2.1.0
+structlog==24.1.0
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Sandbox (Docker-based code execution)
+# Versiones específicas probadas para compatibilidad con Docker socket
+docker==6.1.3
+urllib3==1.26.18
+requests==2.31.0
+pyarrow==14.0.2
+
+# Security (AST parsing)
+# No external deps needed - using Python's built-in ast module
+
+# Semantic Router (lightweight embeddings for intent classification)
+sentence-transformers==3.0.1
+torch==2.2.0  # CPU-only sufficient for small models
+

@@ -13,12 +13,6 @@ from .processed import (
     CategoryGroup,
     PredictionMarketsResponse,
 )
-from .categories import (
-    CategoryConfig,
-    SubcategoryConfig,
-    TagConfig,
-    RelevanceType,
-)
 
 __all__ = [
     "PolymarketTag",
@@ -30,8 +24,4 @@ __all__ = [
     "ProcessedEvent",
     "CategoryGroup",
     "PredictionMarketsResponse",
-    "CategoryConfig",
-    "SubcategoryConfig",
-    "TagConfig",
-    "RelevanceType",
 ]

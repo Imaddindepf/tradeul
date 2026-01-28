@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
 import type { Message } from './types';
 import { AgentSteps } from './AgentSteps';
 
@@ -9,6 +9,14 @@ interface ChatMessageProps {
   message: Message;
 }
 
+/**
+ * ChatMessage - Xynth-style
+ * 
+ * LEFT PANEL: Solo razonamiento y pasos
+ * - Usuario: burbuja con query
+ * - Asistente: SOLO steps de razonamiento, sin texto completo
+ * - El texto completo va al panel derecho (Results)
+ */
 export const ChatMessage = memo(function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
@@ -26,97 +34,66 @@ export const ChatMessage = memo(function ChatMessage({ message }: ChatMessagePro
   }, [message.status, message.thinkingStartTime]);
 
   return (
-    <div className={`py-5 px-4 ${isUser ? 'bg-white' : 'bg-gray-50/30'}`}>
-      <div className="max-w-3xl mx-auto">
-        {/* User message - clean bubble aligned right */}
-        {isUser && (
-          <div className="flex justify-end">
-            <div className="bg-gray-100 rounded-2xl rounded-tr-sm px-4 py-3 max-w-[80%] shadow-sm">
-              <p className="text-[14px] text-gray-800 leading-relaxed">{message.content}</p>
-              <div className="text-[10px] text-gray-400 mt-1.5 text-right">
-                {message.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-              </div>
+    <div className={`py-2.5 px-3 ${isUser ? '' : ''}`}>
+      {/* User message - simple, no colors */}
+      {isUser && (
+        <div className="border-l-2 border-slate-300 pl-3">
+          <p className="text-[13px] text-slate-800 leading-relaxed">{message.content}</p>
+          <span className="text-[9px] text-slate-400">
+            {message.timestamp.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+      )}
+
+      {/* Assistant message - ONLY reasoning steps, NO full text */}
+      {isAssistant && (
+        <div className="space-y-2">
+          {/* Thinking indicator when no steps yet */}
+          {message.status === 'thinking' && (!message.steps || message.steps.length === 0) && (
+            <ThinkingState seconds={thinkingSeconds} />
+          )}
+
+          {/* Steps display - the main content for assistant */}
+          {message.steps && message.steps.length > 0 && (
+            <AgentSteps
+              steps={message.steps}
+              thinkingTime={message.status === 'complete' ? thinkingSeconds : undefined}
+            />
+          )}
+
+          {/* Completion indicator - pointer to Results panel */}
+          {message.status === 'complete' && (
+            <div className="flex items-center gap-2 text-[11px] text-emerald-600 mt-2 pl-1">
+              <CheckCircle className="w-3.5 h-3.5" />
+              <span>Completado</span>
+              <ArrowRight className="w-3 h-3 text-slate-400" />
+              <span className="text-slate-400">Ver resultados</span>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Assistant message - agent style with steps */}
-        {isAssistant && (
-          <div className="space-y-4">
-            {/* Thinking indicator when no steps yet */}
-            {message.status === 'thinking' && (!message.steps || message.steps.length === 0) && (
-              <ThinkingState seconds={thinkingSeconds} />
-            )}
-
-            {/* Steps display */}
-            {message.steps && message.steps.length > 0 && (
-              <AgentSteps 
-                steps={message.steps} 
-                thinkingTime={message.status === 'complete' ? thinkingSeconds : undefined}
-              />
-            )}
-
-            {/* Main text content */}
-            {message.content && (
-              <div className="text-[14px] leading-relaxed text-gray-700 pt-1">
-                <MessageContent content={message.content} />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+          {/* Error state */}
+          {message.status === 'error' && !message.steps?.length && (
+            <div className="flex items-center gap-2 text-[11px] text-red-500 pl-1">
+              <AlertCircle className="w-3.5 h-3.5" />
+              <span>{message.content || 'Error al procesar'}</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 });
 
 const ThinkingState = memo(function ThinkingState({ seconds }: { seconds: number }) {
   return (
-    <div className="flex items-center gap-2.5 text-[13px] text-gray-500">
-      <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-      <span className="font-medium">
-        {seconds > 0 
-          ? `Reasoning for ${seconds} second${seconds !== 1 ? 's' : ''}...`
-          : 'Reasoning...'
+    <div className="flex items-center gap-2 text-[12px] text-slate-500 pl-1">
+      <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+      <span>
+        {seconds > 0
+          ? `Razonando ${seconds}s...`
+          : 'Razonando...'
         }
       </span>
-    </div>
-  );
-});
-
-const MessageContent = memo(function MessageContent({ content }: { content: string }) {
-  if (!content) {
-    return null;
-  }
-
-  const parts = content.split(/(```[\s\S]*?```)/g);
-
-  return (
-    <div className="space-y-2">
-      {parts.map((part, index) => {
-        if (part.startsWith('```')) {
-          const codeContent = part.replace(/```\w*\n?/g, '').replace(/```$/, '');
-          return (
-            <pre
-              key={index}
-              className="mt-2 mb-2 p-3 rounded-lg text-[12px] overflow-x-auto bg-gray-100 text-gray-800 font-mono border border-gray-200"
-            >
-              {codeContent.trim()}
-            </pre>
-          );
-        }
-
-        if (!part.trim()) return null;
-
-        const formatted = part
-          .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-          .replace(/\*(.*?)\*/g, '<em>$1</em>')
-          .replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 bg-gray-100 text-emerald-700 rounded text-[12px] font-mono">$1</code>')
-          .replace(/\n/g, '<br />');
-
-        return (
-          <span key={index} dangerouslySetInnerHTML={{ __html: formatted }} />
-        );
-      })}
     </div>
   );
 });

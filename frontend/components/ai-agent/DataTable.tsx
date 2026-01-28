@@ -16,19 +16,19 @@ function formatValue(value: unknown, column: string, onOpenChart?: (t: string) =
   if (value === null || value === undefined) return <span className="text-slate-300">-</span>;
   const str = String(value);
 
-  // Symbol clickeable
+  // Symbol clickeable - sin colores
   if (column === 'symbol' && onOpenChart) {
     return (
       <button
         onClick={() => onOpenChart(str)}
-        className="font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+        className="font-semibold text-slate-800 hover:underline cursor-pointer"
       >
         {str}
       </button>
     );
   }
 
-  if (column === 'symbol') return <span className="font-semibold text-blue-600">{str}</span>;
+  if (column === 'symbol') return <span className="font-semibold text-slate-800">{str}</span>;
 
   if (column.includes('percent') || column.includes('pct') || column.includes('change')) {
     const n = Number(value);
@@ -59,12 +59,11 @@ function formatValue(value: unknown, column: string, onOpenChart?: (t: string) =
   if (column === 'rvol' || column === 'rvol_slot') {
     const n = Number(value);
     if (isNaN(n) || n === 0) return <span className="text-slate-400">-</span>;
-    const c = n >= 5 ? 'text-purple-600 font-bold' : n >= 3 ? 'text-orange-500' : n >= 2 ? 'text-amber-600' : '';
-    return <span className={`font-[family-name:var(--font-mono-selected)] ${c}`}>{n.toFixed(1)}x</span>;
+    return <span className="font-[family-name:var(--font-mono-selected)]">{n.toFixed(1)}x</span>;
   }
 
   if (column === 'synthetic_sector' || column === 'synthetic_secto') {
-    return <span className="text-indigo-600 text-[10px]">{str}</span>;
+    return <span className="text-slate-600 text-[10px]">{str}</span>;
   }
 
   if (typeof value === 'number') {
@@ -82,8 +81,8 @@ const COL_LABELS: Record<string, string> = {
 
 const getLabel = (c: string) => COL_LABELS[c] || c.replace(/_/g, ' ').slice(0, 8);
 
-const PREVIEW = 30;
-const THRESHOLD = 50;
+const PREVIEW = 20;  // Show first 20 rows by default
+const THRESHOLD = 20; // Show "Show All" button if more than 20 rows
 
 export const DataTable = memo(function DataTable({ columns, rows, title, total }: DataTableProps) {
   const { openWindow } = useFloatingWindow();
@@ -138,16 +137,9 @@ export const DataTable = memo(function DataTable({ columns, rows, title, total }
   return (
     <div className="rounded border border-slate-200 bg-white overflow-hidden">
       {title && (
-        <div className="px-2 py-1 bg-slate-50 border-b border-slate-200 flex justify-between text-[11px]">
+        <div className="px-2 py-1.5 border-b border-slate-200 flex justify-between text-[11px]">
           <span className="font-medium text-slate-700">{title}</span>
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400">{count}</span>
-            {hasMore && (
-              <button onClick={handleOpenFullTable} className="text-blue-600 hover:underline">
-                ver todos
-              </button>
-            )}
-          </div>
+          <span className="text-slate-400">{count} rows</span>
         </div>
       )}
       <div className="overflow-x-auto max-h-[40vh] overflow-y-auto">
@@ -171,6 +163,18 @@ export const DataTable = memo(function DataTable({ columns, rows, title, total }
         </table>
       </div>
       {rows.length === 0 && <div className="py-3 text-center text-[11px] text-slate-400">Sin resultados</div>}
+      
+      {/* Show All button when there are more rows */}
+      {hasMore && (
+        <div className="px-3 py-2 border-t border-slate-200 bg-slate-50">
+          <button 
+            onClick={handleOpenFullTable}
+            className="w-full py-1.5 text-[11px] text-slate-600 hover:text-slate-800 border border-slate-300 rounded hover:bg-white transition-colors"
+          >
+            Show All ({count} rows)
+          </button>
+        </div>
+      )}
     </div>
   );
 });

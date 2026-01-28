@@ -147,13 +147,17 @@ Parameters:
     },
     {
         "name": "classify_synthetic_sectors",
-        "description": """Create thematic ETF portfolios.
-Themes: Nuclear, AI, EV, Cannabis, Space, Biotech, Quantum, Robotics, etc.
+        "description": """Create thematic ETF portfolios (synthetic ETFs).
+Themes: Nuclear, AI, EV, Cannabis, Space, Biotech, Quantum, Robotics, China Tech, etc.
 
 Parameters:
 - date: 'today' or 'YYYY-MM-DD'
 - themes: List of themes (optional, default all)
-- min_tickers_per_sector: Minimum stocks per theme
+- min_tickers_per_sector: Minimum stocks per ETF/theme (e.g., 5)
+- min_market_cap: Minimum market cap filter (e.g., 1000000000 for $1B)
+- min_volume: Minimum volume filter
+- min_price: Minimum price filter
+- max_price: Maximum price filter
 - generate_chart: Create visualization""",
         "parameters": {
             "type": "object",
@@ -161,6 +165,10 @@ Parameters:
                 "date": {"type": "string"},
                 "themes": {"type": "array", "items": {"type": "string"}},
                 "min_tickers_per_sector": {"type": "integer"},
+                "min_market_cap": {"type": "number", "description": "Minimum market cap (e.g., 1000000000 for $1B)"},
+                "min_volume": {"type": "integer"},
+                "min_price": {"type": "number"},
+                "max_price": {"type": "number"},
                 "generate_chart": {"type": "boolean"}
             }
         }

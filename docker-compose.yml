@@ -555,7 +555,8 @@ services:
       - LOG_LEVEL=INFO
       - EVENTS_CACHE_TTL=300
       - REFRESH_INTERVAL_SECONDS=300
-      - MAX_EVENTS_FETCH=200
+      - MAX_EVENTS_FETCH=800
+      - GOOGLE_API_KEY=${GEMINI_TRADEUL_AGENT}
       - PYTHONUNBUFFERED=1
     depends_on:
       redis:

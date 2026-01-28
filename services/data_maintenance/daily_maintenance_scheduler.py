@@ -742,23 +742,23 @@ class DailyMaintenanceScheduler:
             result = await generate_morning_news_call(current_date)
             
             if result.get("es") and result["es"].get("success"):
-                # Guardar versión en español
+                # Guardar versión en español (30 días para histórico)
                 result_es = result["es"]
                 await self.redis.set(
                     f"morning_news:{current_date.isoformat()}:es",
                     json.dumps(result_es, ensure_ascii=False),
-                    ttl=86400
+                    ttl=86400 * 30  # 30 días
                 )
                 await self.redis.set(
                     "morning_news:latest:es",
                     json.dumps(result_es, ensure_ascii=False),
-                    ttl=86400
+                    ttl=86400 * 30  # 30 días
                 )
                 # Default latest apunta a español
                 await self.redis.set(
                     "morning_news:latest",
                     json.dumps(result_es, ensure_ascii=False),
-                    ttl=86400
+                    ttl=86400 * 30  # 30 días
                 )
                 
                 # Guardar versión en inglés
@@ -767,12 +767,12 @@ class DailyMaintenanceScheduler:
                     await self.redis.set(
                         f"morning_news:{current_date.isoformat()}:en",
                         json.dumps(result_en, ensure_ascii=False),
-                        ttl=86400
+                        ttl=86400 * 30  # 30 días
                     )
                     await self.redis.set(
                         "morning_news:latest:en",
                         json.dumps(result_en, ensure_ascii=False),
-                        ttl=86400
+                        ttl=86400 * 30  # 30 días
                     )
                 
                 # Notificar via Pub/Sub a todos los usuarios conectados

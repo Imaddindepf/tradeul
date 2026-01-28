@@ -1,7 +1,6 @@
 'use client';
 
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
-import { Send, RotateCcw } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import type { Message, MarketContext } from './types';
 
@@ -14,13 +13,6 @@ interface ChatPanelProps {
   onSendMessage: (content: string) => void;
   onClearHistory: () => void;
 }
-
-const SUGGESTIONS = [
-  'Top gainers hoy',
-  'Analisis sectorial',
-  'Alto volumen',
-  'Top losers',
-];
 
 export const ChatPanel = memo(function ChatPanel({
   messages,
@@ -41,7 +33,7 @@ export const ChatPanel = memo(function ChatPanel({
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
-      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 100)}px`;
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 80)}px`;
     }
   }, [input]);
 
@@ -63,17 +55,15 @@ export const ChatPanel = memo(function ChatPanel({
   return (
     <div className="flex flex-col h-full bg-white">
       {/* Header */}
-      <div className="flex-shrink-0 px-3 py-2 border-b border-gray-200">
+      <div className="flex-shrink-0 px-3 py-2 border-b border-slate-200">
         <div className="flex items-center justify-between">
-          <span className="text-[13px] font-medium text-gray-700">Chat</span>
+          <span className="text-[12px] font-medium text-slate-700">Chat</span>
           {messages.length > 0 && (
             <button
               onClick={onClearHistory}
-              className="flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
-              title="Nueva conversacion"
+              className="text-[10px] text-slate-400 hover:text-slate-600"
             >
-              <RotateCcw className="w-3 h-3" />
-              <span>Nueva</span>
+              Nueva
             </button>
           )}
         </div>
@@ -82,29 +72,18 @@ export const ChatPanel = memo(function ChatPanel({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center p-6">
-            <p className="text-[12px] text-gray-500 mb-3">Sugerencias:</p>
-            <div className="flex flex-wrap gap-2 justify-center">
-              {SUGGESTIONS.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => onSendMessage(s)}
-                  disabled={!isConnected || isLoading}
-                  className="px-3 py-1.5 text-[12px] bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-lg border border-gray-200 disabled:opacity-50"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+          <div className="h-full flex flex-col items-center justify-center p-4">
+            <p className="text-[12px] text-slate-500 mb-3">Escribe una consulta</p>
+            <p className="text-[10px] text-slate-400">Ejemplos: top 50 gainers today, gappers this week</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div>
             {messages.map((m) => <ChatMessage key={m.id} message={m} />)}
           </div>
         )}
 
         {error && (
-          <div className="mx-3 my-2 p-2 rounded bg-red-50 text-red-600 text-[12px] border border-red-100">
+          <div className="mx-3 my-2 p-2 text-[11px] text-slate-600 border border-slate-200 rounded">
             {error}
           </div>
         )}
@@ -112,8 +91,8 @@ export const ChatPanel = memo(function ChatPanel({
       </div>
 
       {/* Input */}
-      <div className="flex-shrink-0 p-3 border-t border-gray-200">
-        <form onSubmit={handleSubmit} className="flex gap-2">
+      <div className="flex-shrink-0 p-2 border-t border-slate-200">
+        <form onSubmit={handleSubmit} className="flex gap-1.5">
           <textarea
             ref={inputRef}
             value={input}
@@ -122,15 +101,15 @@ export const ChatPanel = memo(function ChatPanel({
             placeholder={isConnected ? "Escribe tu consulta..." : "Conectando..."}
             disabled={!isConnected || isLoading}
             rows={1}
-            className="flex-1 px-3 py-2 text-[13px] bg-gray-50 border border-gray-200 rounded-lg text-gray-800 placeholder-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 disabled:opacity-50"
-            style={{ maxHeight: '100px' }}
+            className="flex-1 px-3 py-2 text-[12px] border border-slate-200 rounded text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:border-slate-400 disabled:opacity-50"
+            style={{ maxHeight: '80px' }}
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading || !isConnected}
-            className="flex-shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white rounded-lg"
+            className="flex-shrink-0 px-3 py-2 text-[11px] border border-slate-300 rounded text-slate-600 hover:bg-slate-50 disabled:opacity-30"
           >
-            <Send className="w-4 h-4" />
+            Enviar
           </button>
         </form>
       </div>

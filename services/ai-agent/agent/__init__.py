@@ -20,10 +20,13 @@ from typing import Optional, Dict, Any
 
 @dataclass
 class AgentStep:
-    step_type: str
-    content: str
-    data: Optional[Dict[str, Any]] = None
-    tool_name: Optional[str] = None
+    """A step in agent execution (for UI feedback)."""
+    id: str
+    type: str  # 'routing', 'tool', 'response'
+    title: str
+    description: str = ""
+    status: str = "pending"  # 'pending', 'running', 'complete', 'error'
+    details: Optional[str] = None
 
 __all__ = [
     "MarketAgent",

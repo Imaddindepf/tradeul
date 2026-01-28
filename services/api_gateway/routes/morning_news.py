@@ -192,18 +192,18 @@ async def generate_morning_news_now(
         result = await generate_morning_news_call(today)
         
         if result.get("success"):
-            # Guardar en Redis
+            # Guardar en Redis (30 días para histórico)
             report_key = f"morning_news:{today.isoformat()}"
             await _redis_client.set(
                 report_key,
                 json.dumps(result, ensure_ascii=False),
-                ex=86400  # 24 horas
+                ex=86400 * 30  # 30 días
             )
             
             await _redis_client.set(
                 "morning_news:latest",
                 json.dumps(result, ensure_ascii=False),
-                ex=86400
+                ex=86400 * 30  # 30 días
             )
             
             # Notificar via Pub/Sub

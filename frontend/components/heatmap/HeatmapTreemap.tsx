@@ -15,7 +15,7 @@ import { useHeatmapWorker } from './useHeatmapWorker';
 // Dynamic import for Plotly (SSR-incompatible)
 const Plot = dynamic(
   () => import('react-plotly.js').then((mod) => mod.default),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="flex items-center justify-center h-full text-slate-400 text-sm">
@@ -60,9 +60,9 @@ function HeatmapTreemap({
   // Handle click events
   const handleClick = useCallback((event: any) => {
     if (!event.points?.[0]?.customdata) return;
-    
+
     const customData = event.points[0].customdata;
-    
+
     if (customData.type === 'ticker' && onTickerClick) {
       onTickerClick(customData.symbol);
     } else if (customData.type === 'sector' && onSectorClick) {
@@ -73,7 +73,7 @@ function HeatmapTreemap({
   // Memoize Plotly data
   const plotlyData = useMemo(() => {
     if (!treemapData) return null;
-    
+
     return [{
       type: 'treemap' as const,
       ids: treemapData.ids,
@@ -90,19 +90,19 @@ function HeatmapTreemap({
       textfont: { family: 'Inter, system-ui, sans-serif', size: 12, color: '#ffffff' },
       insidetextfont: { family: 'Inter, system-ui, sans-serif', size: 11, color: '#ffffff' },
       outsidetextfont: { family: 'Inter, system-ui, sans-serif', size: 10, color: '#64748b' },
-      hovertemplate: 
+      hovertemplate:
         '<b>%{label}</b> - %{customdata.name}<br>' +
         'Price: $%{customdata.price:.2f}<br>' +
         'Change: %{customdata.change:.2f}%<br>' +
         'Mkt Cap: $%{customdata.market_cap:,.0f}<br>' +
         'RVOL: %{customdata.rvol:.1f}x<br>' +
         '<extra>%{customdata.sector}</extra>',
-      pathbar: { 
-        visible: true, 
-        side: 'top', 
-        thickness: 24, 
-        textfont: { size: 12, color: '#334155' }, 
-        edgeshape: '>' 
+      pathbar: {
+        visible: true,
+        side: 'top',
+        thickness: 24,
+        textfont: { size: 12, color: '#334155' },
+        edgeshape: '>'
       },
       tiling: { packing: 'squarify', pad: 3 },
       maxdepth: 2,
@@ -112,7 +112,7 @@ function HeatmapTreemap({
 
   // Memoize layout
   const plotlyLayout = useMemo(() => ({
-    margin: { t: 0, l: 0, r: 0, b: 0 },
+    margin: { t: 30, l: 0, r: 0, b: 0 },
     paper_bgcolor: '#ffffff',
     plot_bgcolor: '#ffffff',
     font: { family: 'Inter, system-ui, sans-serif', color: '#334155' },
@@ -132,7 +132,7 @@ function HeatmapTreemap({
   // No data state
   if (!treemapData || !plotlyData) {
     return (
-      <div 
+      <div
         className="flex items-center justify-center bg-white text-slate-400"
         style={{ height, width: width || '100%' }}
       >
@@ -142,7 +142,7 @@ function HeatmapTreemap({
   }
 
   return (
-    <div 
+    <div
       className="w-full h-full bg-white"
       style={{ width: width || '100%', height }}
     >

@@ -323,12 +323,12 @@ async def generate_insight_now(
                     await _redis_client.set(
                         f"morning_news:{today.isoformat()}:{lang}",
                         json.dumps(report_data, ensure_ascii=False),
-                        ex=86400
+                        ex=86400 * 30  # 30 días
                     )
                     await _redis_client.set(
                         f"morning_news:latest:{lang}",
                         json.dumps(report_data, ensure_ascii=False),
-                        ex=86400
+                        ex=86400 * 30  # 30 días
                     )
                 
                 return {
