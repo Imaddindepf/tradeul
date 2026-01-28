@@ -37,6 +37,23 @@ from scanner_categories import ScannerCategorizer, ScannerCategory
 from http_clients import http_clients
 from postmarket_capture import PostMarketVolumeCapture
 
+# Calculadores de metricas (refactorizacion)
+from calculators import (
+    PriceMetricsCalculator,
+    VolumeMetricsCalculator,
+    SpreadMetricsCalculator,
+    EnrichedDataExtractor
+)
+
+# Motor de filtros (refactorizacion)
+from filters import FilterEngine, apply_filter
+
+# Gestor de suscripciones (refactorizacion)
+from subscriptions import SubscriptionManager
+
+# Calculador de deltas (refactorizacion)
+from ranking import calculate_ranking_deltas, ticker_data_changed
+
 logger = get_logger(__name__)
 
 
@@ -92,8 +109,8 @@ class ScannerEngine:
         self.last_rankings: Dict[str, List[ScannerTicker]] = {}  # Por categoría
         self.sequence_numbers: Dict[str, int] = {}  # Sequence number por categoría
         
-        # Auto-subscription tracking (para Polygon WS)
-        self._previous_filtered_symbols: Set[str] = set()  # Track símbolos previos
+        # Auto-subscription manager (para Polygon WS)
+        self._subscription_manager = SubscriptionManager(redis_client)
         
         # RVOL viene directamente en las tuplas (snapshot, rvol) - no necesita dict
         
@@ -460,47 +477,24 @@ class ScannerEngine:
         logger.info(f"🎯 _process_snapshots_optimized called with {len(enriched_snapshots)} snapshots")
         
         for snapshot, rvol, atr_data in enriched_snapshots:
-            # DEBUG: Log para MNDR al inicio del bucle
-            if snapshot.ticker == "MNDR":
-                logger.info(f"🚀 MNDR entered processing loop, snapshot={snapshot.ticker}, price={snapshot.current_price}")
-
             # Validaciones tempranas (evita MGET innecesarios)
             cp = snapshot.current_price
             cv = snapshot.current_volume
             
-            # DEBUG logging para tickers específicos o primeros 5
-            if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA'] or len(valid_snapshots) < 5:
-                logger.info(f"early_filter_check symbol={snapshot.ticker} price={cp} volume={cv} min.av={snapshot.min.av if snapshot.min else 'NO MIN'}")
-            
             # Skip: precio inválido o muy bajo
-            if snapshot.ticker == "MNDR":
-                logger.info(f"🔍 MNDR price check: cp={cp}, type={type(cp)}, bool(cp)={bool(cp)}, cp < 0.5 = {cp < 0.5 if cp else 'N/A'}")
             if not cp or cp < 0.5:
-                if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA']:
-                    logger.warning(f"rejected_by_price symbol={snapshot.ticker} price={cp}")
                 continue
             
             # Skip: volumen inválido
-            if snapshot.ticker == "MNDR":
-                logger.info(f"🔍 MNDR volume check: cv={cv}, type={type(cv)}, bool(cv)={bool(cv)}, cv <= 0 = {cv <= 0 if cv else 'N/A'}")
             if not cv or cv <= 0:
-                if snapshot.ticker in ['NVDA', 'MNDR', 'SHPH', 'AAPL', 'TSLA'] or len(valid_snapshots) < 5:
-                    logger.warning(f"rejected_by_volume symbol={snapshot.ticker} cv={cv}")
                 continue
             
-            # DEBUG: MNDR llegó hasta aquí
-            if snapshot.ticker == "MNDR":
-                logger.info(f"🎯 MNDR passed volume check, going to deduplication")
 
             # Deduplicar símbolos
             symbol = snapshot.ticker
             if symbol not in seen_symbols:
                 seen_symbols.add(symbol)
                 valid_snapshots.append((snapshot, rvol, atr_data))
-                if symbol == "MNDR":
-                    logger.info(f"✅ MNDR added to valid_snapshots, total_valid={len(valid_snapshots)}")
-            elif symbol == "MNDR":
-                logger.warning(f"⚠️ MNDR already in seen_symbols, skipping duplicate")
         
         # 2. MGET de metadata solo para símbolos válidos
         metadatas = await self._get_metadata_batch_cached(list(seen_symbols))
@@ -534,8 +528,6 @@ class ScannerEngine:
                 # Get metadata (ya fetched con MGET batch)
                 metadata = metadatas.get(symbol)
                 if not metadata:
-                    if symbol == "MNDR":
-                        logger.error(f"❌ MNDR missing metadata, available_symbols={list(metadatas.keys())[:10]}")
                     continue  # Sin metadata, skip
                 
                 # Build ticker completo (incluye cálculos de change_percent, etc)
@@ -544,53 +536,23 @@ class ScannerEngine:
                 avg_vols = avg_volumes_map.get(symbol, {})
                 ticker = self._build_scanner_ticker_inline(snapshot, metadata, rvol, atr_data, avg_vols)
                 if not ticker:
-                    if symbol == "MNDR":
-                        logger.error(f"❌ MNDR _build_scanner_ticker_inline returned None")
                     continue
                 
-                if symbol == "MNDR":
-                    logger.info(f"✅ MNDR ticker built successfully, price={ticker.price}, rvol={ticker.rvol}")
 
                 # Enriquecer con gaps (usa prev_close y open del snapshot)
                 ticker = self.enhance_ticker_with_gaps(ticker, snapshot)
-
-                if symbol == "MNDR":
-                    logger.info(f"🚀 MNDR after gap enhancement: ticker={ticker is not None}, going to filters")
-                
-                # intraday_high/low ya vienen de Analytics, no necesitamos tracker adicional
-                
-                # DEBUG: Log antes de filtros para IVVD
-                if snapshot.ticker == "IVVD":
-                    logger.info(f"🔍 DEBUG IVVD: Antes de filtros", 
-                               ticker_created=ticker is not None,
-                               rvol=ticker.rvol if ticker else None,
-                               price=ticker.price if ticker else None,
-                               change_percent=ticker.change_percent if ticker else None)
                 
                 # Aplicar filtros configurables
                 # Filtros que requieren metadata: market_cap, sector, industry, exchange
                 # Filtros que NO requieren metadata: RVOL (ya calculado), price, volume, change_percent
-                if symbol == "MNDR":
-                    logger.info(f"🎯 MNDR checking filters: market_cap={ticker.market_cap}, sector={ticker.sector}, rvol={ticker.rvol}")
 
-                if symbol == "MNDR":
-                    logger.info(f"🚨 MNDR about to call _passes_all_filters")
 
                 if not self._passes_all_filters(ticker):
-                    if symbol == "MNDR":
-                        logger.warning(f"❌ MNDR failed filters")
                     continue  # No cumple filtros, skip
                 
-                if symbol == "MNDR":
-                    logger.info(f"✅ MNDR passed all filters, calculating score")
 
-                # Calcular score (solo si pasó TODOS los filtros)
+                # Calcular score (solo si paso TODOS los filtros)
                 ticker.score = self._calculate_score_inline(ticker)
-                
-                # DEBUG: Log para IVVD después de score
-                if snapshot.ticker == "IVVD":
-                    logger.info(f"🔍 DEBUG IVVD: Pasó filtros, score calculado", 
-                               score=ticker.score, rank=ticker.rank)
                 
                 filtered_and_scored.append(ticker)
             
@@ -883,205 +845,92 @@ class ScannerEngine:
         atr_data: Optional[Dict] = None,
         avg_volumes: Optional[Dict[str, int]] = None
     ) -> Optional[ScannerTicker]:
-        """Build scanner ticker inline (sin awaits innecesarios)"""
+        """Build scanner ticker inline usando calculadores."""
         try:
-            # DEBUG: Log para IVVD
-            if snapshot.ticker == "IVVD":
-                logger.info(f"🔍 DEBUG IVVD: Construyendo ScannerTicker", 
-                           current_price=snapshot.current_price,
-                           current_volume=snapshot.current_volume,
-                           rvol=rvol,
-                           has_metadata=metadata is not None)
-            
             price = snapshot.current_price
             volume_today = snapshot.current_volume
-            
-            # Calcular métricas
             day_data = snapshot.day
             prev_day = snapshot.prevDay
             
-            price_from_high = None
-            price_from_low = None
-            change_percent = None
-            gap_percent = None
-            change_from_open = None
+            # === USAR CALCULADORES ===
             
-            if day_data:
-                if day_data.h and day_data.h > 0:
-                    price_from_high = ((price - day_data.h) / day_data.h) * 100
-                if day_data.l and day_data.l > 0:
-                    price_from_low = ((price - day_data.l) / day_data.l) * 100
-                # change_from_open: cambio desde la apertura
-                if day_data.o and day_data.o > 0:
-                    change_from_open = ((price - day_data.o) / day_data.o) * 100
+            # 1. Extraer datos enriquecidos (de Analytics)
+            enriched = EnrichedDataExtractor.extract(atr_data)
             
-            if prev_day and prev_day.c and prev_day.c > 0:
-                change_percent = ((price - prev_day.c) / prev_day.c) * 100
-                # gap_percent: Como TradeIdeas
-                # - Market abierto: GAP REAL = (open - prev_close) / prev_close
-                # - Pre-market: GAP ESPERADO = (price - prev_close) / prev_close
-                if day_data and day_data.o and day_data.o > 0:
-                    gap_percent = ((day_data.o - prev_day.c) / prev_day.c) * 100
-                else:
-                    gap_percent = change_percent
+            # 2. Calcular metricas de precio
+            price_metrics = PriceMetricsCalculator.calculate(
+                price=price,
+                open_price=day_data.o if day_data else None,
+                high=day_data.h if day_data else None,
+                low=day_data.l if day_data else None,
+                prev_close=prev_day.c if prev_day else None,
+                intraday_high=enriched.intraday_high,
+                intraday_low=enriched.intraday_low
+            )
             
-            # Extract ATR data
-            atr = None
-            atr_percent = None
-            if atr_data:
-                atr = atr_data.get('atr')
-                atr_percent = atr_data.get('atr_percent')
+            # 3. Calcular metricas de volumen
+            avg_vol_10d = avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d
+            volume_metrics = VolumeMetricsCalculator.calculate(
+                volume_today=volume_today,
+                prev_volume=prev_day.v if prev_day else None,
+                avg_volume_10d=avg_vol_10d,
+                free_float=metadata.free_float,
+                price=price
+            )
             
-            # Extract intraday high/low (from enriched snapshot)
-            intraday_high = atr_data.get('intraday_high') if atr_data else None
-            intraday_low = atr_data.get('intraday_low') if atr_data else None
+            # 4. Calcular metricas de spread
+            bid_lots = snapshot.lastQuote.s if snapshot.lastQuote else None
+            ask_lots = snapshot.lastQuote.S if snapshot.lastQuote else None
+            spread_metrics = SpreadMetricsCalculator.calculate(
+                price=price,
+                bid=snapshot.lastQuote.p if snapshot.lastQuote else None,
+                ask=snapshot.lastQuote.P if snapshot.lastQuote else None,
+                bid_size_lots=bid_lots,
+                ask_size_lots=ask_lots
+            )
             
-            # Extract volume window metrics (from enriched snapshot)
-            vol_1min = atr_data.get('vol_1min') if atr_data else None
-            vol_5min = atr_data.get('vol_5min') if atr_data else None
-            vol_10min = atr_data.get('vol_10min') if atr_data else None
-            vol_15min = atr_data.get('vol_15min') if atr_data else None
-            vol_30min = atr_data.get('vol_30min') if atr_data else None
+            # 5. VWAP con fallback (enriched > day.vw)
+            day_vwap = day_data.vw if day_data and day_data.vw else None
+            vwap = enriched.vwap if enriched.vwap and enriched.vwap > 0 else (day_vwap if day_vwap and day_vwap > 0 else None)
+            price_vs_vwap = PriceMetricsCalculator.calculate_price_vs_vwap(price, vwap)
             
-            # Extract price change window metrics (from enriched snapshot - PriceWindowTracker)
-            chg_1min = atr_data.get('chg_1min') if atr_data else None
-            chg_5min = atr_data.get('chg_5min') if atr_data else None
-            chg_10min = atr_data.get('chg_10min') if atr_data else None
-            chg_15min = atr_data.get('chg_15min') if atr_data else None
-            chg_30min = atr_data.get('chg_30min') if atr_data else None
-            
-            # Extract trades anomaly data (from enriched snapshot - TradesAnomalyDetector)
-            trades_today = atr_data.get('trades_today') if atr_data else None
-            avg_trades_5d = atr_data.get('avg_trades_5d') if atr_data else None
-            trades_z_score = atr_data.get('trades_z_score') if atr_data else None
-            is_trade_anomaly = atr_data.get('is_trade_anomaly') if atr_data else False
-            
-            # Calculate price distance from intraday high/low (includes pre/post market)
-            price_from_intraday_high = None
-            price_from_intraday_low = None
-            if intraday_high and intraday_high > 0:
-                price_from_intraday_high = ((price - intraday_high) / intraday_high) * 100
-            if intraday_low and intraday_low > 0:
-                price_from_intraday_low = ((price - intraday_low) / intraday_low) * 100
-            
-            # Extract minute volume
+            # 6. Campos adicionales del snapshot
             minute_volume = snapshot.min.v if snapshot.min else None
-            
-            # Extract last trade timestamp (for freshness filtering)
             last_trade_timestamp = snapshot.lastTrade.t if snapshot.lastTrade else None
             
-            # Extract VWAP (prioridad: snapshot enriquecido > day.vw original)
-            # El snapshot enriquecido tiene VWAP actualizado por analytics desde WebSocket
-            enriched_vwap = atr_data.get('vwap') if atr_data else None
-            day_vwap = day_data.vw if day_data and day_data.vw else None
-            
-            # Usar el VWAP enriquecido primero, luego day.vw como fallback
-            vwap = enriched_vwap if enriched_vwap and enriched_vwap > 0 else (day_vwap if day_vwap and day_vwap > 0 else None)
-            
-            # Calculate price vs VWAP (% distance)
-            price_vs_vwap = None
-            if vwap and vwap > 0:
-                price_vs_vwap = ((price - vwap) / vwap) * 100
-            
-            # Calculate spread (in CENTS)
-            bid = snapshot.lastQuote.p if snapshot.lastQuote else None
-            ask = snapshot.lastQuote.P if snapshot.lastQuote else None
-            bid_size = (snapshot.lastQuote.s * 100) if snapshot.lastQuote and snapshot.lastQuote.s else None  # lots to shares
-            ask_size = (snapshot.lastQuote.S * 100) if snapshot.lastQuote and snapshot.lastQuote.S else None  # lots to shares
-            spread = None
-            spread_percent = None
-            bid_ask_ratio = None
-            if bid and ask and bid > 0 and ask > 0:
-                spread = (ask - bid) * 100  # Convert to cents
-                mid_price = (bid + ask) / 2
-                spread_percent = ((ask - bid) / mid_price) * 100
-            if bid_size and ask_size and ask_size > 0:
-                bid_ask_ratio = bid_size / ask_size
-            
-            # Distance from Inside Market (NBBO) -
-            # 0 = price is at or between bid/ask (tradeable)
-            # >0 = price is outside the NBBO (potential bad print)
-            distance_from_nbbo = None
-            if price and bid and ask and bid > 0 and ask > 0:
-                if price >= bid and price <= ask:
-                    distance_from_nbbo = 0.0
-                elif price < bid:
-                    distance_from_nbbo = ((bid - price) / bid) * 100
-                else:  # price > ask
-                    distance_from_nbbo = ((price - ask) / ask) * 100
-            
-            # Calculate Volume Today/Yesterday % 
-            avg_vol_10d = avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d
-            volume_today_pct = round((volume_today / avg_vol_10d) * 100, 1) if volume_today and avg_vol_10d else None
-            volume_yesterday_pct = round((prev_day.v / avg_vol_10d) * 100, 1) if prev_day and prev_day.v and avg_vol_10d else None
-            
-            # =============================================
-            # POST-MARKET METRICS (solo durante POST_MARKET session)
-            # =============================================
-            # Durante post-market (16:00-20:00 ET):
-            # - day.c = precio de cierre congelado a las 16:00
-            # - regular_volume = volumen de sesión regular (09:30-16:00 ET) obtenido via Aggregates API
-            # - min.av (volume_today) = volumen acumulado (sigue sumando en post-market)
-            # - current_price = precio actual (de lastTrade)
-            #
-            # SOLUCIÓN IMPLEMENTADA:
-            # Como Polygon NO congela day.v a las 16:00, usamos la API de Aggregates para
-            # obtener el volumen exacto de la sesión regular sumando velas de minuto.
-            # Ver: postmarket_capture.py
+            # === PRE/POST MARKET METRICS ===
             postmarket_change_percent = None
             postmarket_volume = None
-            
-            # =============================================
-            # PRE-MARKET CHANGE (gap desde prev_close)
-            # =============================================
-            # PRE_MARKET: precio actual vs prev_close (en vivo)
-            # MARKET_OPEN+: day.o vs prev_close (congelado, precio oficial de apertura)
             premarket_change_percent = None
             prev_close = prev_day.c if prev_day and prev_day.c and prev_day.c > 0 else None
             
             if prev_close:
                 if self.current_session == MarketSession.PRE_MARKET:
-                    # Durante premarket: cambio en vivo
-                    premarket_change_percent = change_percent
+                    premarket_change_percent = price_metrics.change_percent
                 elif day_data and day_data.o and day_data.o > 0:
-                    # Durante market hours: usar day.o (precio oficial de apertura a las 9:30)
                     premarket_change_percent = ((day_data.o - prev_close) / prev_close) * 100
             
             if self.current_session == MarketSession.POST_MARKET:
-                # Precio de cierre del día regular (congelado a las 16:00 ET)
-                # NOTA: Verificado contra Polygon API - day.c SÍ se congela a las 16:00
                 regular_close = day_data.c if day_data and day_data.c and day_data.c > 0 else None
-                
                 if regular_close and price:
-                    # Post-market change % = ((precio_actual - cierre_regular) / cierre_regular) * 100
                     postmarket_change_percent = ((price - regular_close) / regular_close) * 100
-                
-                # 🌙 POST-MARKET VOLUME (usando volumen regular capturado via Aggregates API)
-                # El volumen regular se obtiene de:
-                # 1. _regular_volumes_cache (local, síncrono)
-                # 2. Lazy fetch via postmarket_capture (async, en background)
                 regular_volume = self._regular_volumes_cache.get(snapshot.ticker)
-                
                 if regular_volume is not None and volume_today is not None:
-                    # Post-market volume = volumen actual total - volumen de sesión regular
                     postmarket_volume = max(0, volume_today - regular_volume)
-                else:
-                    # Si no tenemos volumen regular, dejamos None
-                    # El lazy fetch poblará el cache para la próxima iteración
-                    postmarket_volume = None
             
+            # === BUILD TICKER ===
             return ScannerTicker(
                 symbol=snapshot.ticker,
                 timestamp=datetime.now(),
                 price=price,
-                bid=bid,
-                ask=ask,
-                bid_size=bid_size,
-                ask_size=ask_size,
-                spread=spread,
-                spread_percent=spread_percent,
-                bid_ask_ratio=bid_ask_ratio,
-                distance_from_nbbo=distance_from_nbbo,
+                bid=spread_metrics.bid,
+                ask=spread_metrics.ask,
+                bid_size=spread_metrics.bid_size,
+                ask_size=spread_metrics.ask_size,
+                spread=spread_metrics.spread,
+                spread_percent=spread_metrics.spread_percent,
+                bid_ask_ratio=spread_metrics.bid_ask_ratio,
+                distance_from_nbbo=spread_metrics.distance_from_nbbo,
                 volume=volume_today,
                 volume_today=volume_today,
                 minute_volume=minute_volume,
@@ -1089,44 +938,37 @@ class ScannerEngine:
                 open=day_data.o if day_data else None,
                 high=day_data.h if day_data else None,
                 low=day_data.l if day_data else None,
-                intraday_high=intraday_high,
-                intraday_low=intraday_low,
-                # Volume window metrics
-                vol_1min=vol_1min,
-                vol_5min=vol_5min,
-                vol_10min=vol_10min,
-                vol_15min=vol_15min,
-                vol_30min=vol_30min,
-                # Price change window metrics (per-second precision)
-                chg_1min=chg_1min,
-                chg_5min=chg_5min,
-                chg_10min=chg_10min,
-                chg_15min=chg_15min,
-                chg_30min=chg_30min,
-                # Trades anomaly detection (Z-Score based)
-                trades_today=trades_today,
-                avg_trades_5d=avg_trades_5d,
-                trades_z_score=trades_z_score,
-                is_trade_anomaly=is_trade_anomaly,
+                intraday_high=enriched.intraday_high,
+                intraday_low=enriched.intraday_low,
+                vol_1min=enriched.vol_1min,
+                vol_5min=enriched.vol_5min,
+                vol_10min=enriched.vol_10min,
+                vol_15min=enriched.vol_15min,
+                vol_30min=enriched.vol_30min,
+                chg_1min=enriched.chg_1min,
+                chg_5min=enriched.chg_5min,
+                chg_10min=enriched.chg_10min,
+                chg_15min=enriched.chg_15min,
+                chg_30min=enriched.chg_30min,
+                trades_today=enriched.trades_today,
+                avg_trades_5d=enriched.avg_trades_5d,
+                trades_z_score=enriched.trades_z_score,
+                is_trade_anomaly=enriched.is_trade_anomaly,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
-                change_percent=change_percent,
-                # Gap metrics (NUEVOS)
-                gap_percent=gap_percent,
-                change_from_open=change_from_open,
+                change_percent=price_metrics.change_percent,
+                gap_percent=price_metrics.gap_percent,
+                change_from_open=price_metrics.change_from_open,
                 avg_volume_5d=avg_volumes.get('avg_volume_5d') if avg_volumes else None,
-                avg_volume_10d=avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d,
+                avg_volume_10d=avg_vol_10d,
                 avg_volume_3m=avg_volumes.get('avg_volume_3m') if avg_volumes else None,
                 avg_volume_30d=metadata.avg_volume_30d,
-                # Dollar Volume = price × avg_volume_10d (liquidity metric)
-                dollar_volume=(price * (avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d)) if price and (avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d) else None,
-                # Volume Today/Yesterday %
-                volume_today_pct=volume_today_pct,
-                volume_yesterday_pct=volume_yesterday_pct,
+                dollar_volume=volume_metrics.dollar_volume,
+                volume_today_pct=volume_metrics.volume_today_pct,
+                volume_yesterday_pct=volume_metrics.volume_yesterday_pct,
+                float_rotation=volume_metrics.float_rotation,
                 free_float=metadata.free_float,
                 free_float_percent=metadata.free_float_percent,
-                # Float rotation = (volume_today / free_float) * 100
-                float_rotation=round((volume_today / metadata.free_float) * 100, 2) if volume_today and metadata.free_float and metadata.free_float > 0 else None,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
                 sector=metadata.sector,
@@ -1134,17 +976,15 @@ class ScannerEngine:
                 exchange=metadata.exchange,
                 rvol=rvol,
                 rvol_slot=rvol,
-                atr=atr,
-                atr_percent=atr_percent,
-                price_from_high=price_from_high,
-                price_from_low=price_from_low,
-                price_from_intraday_high=price_from_intraday_high,
-                price_from_intraday_low=price_from_intraday_low,
+                atr=enriched.atr,
+                atr_percent=enriched.atr_percent,
                 vwap=vwap,
                 price_vs_vwap=price_vs_vwap,
-                # Pre-market metrics (congelado a las 09:30 ET)
+                price_from_high=price_metrics.price_from_high,
+                price_from_low=price_metrics.price_from_low,
+                price_from_intraday_high=price_metrics.price_from_intraday_high,
+                price_from_intraday_low=price_metrics.price_from_intraday_low,
                 premarket_change_percent=premarket_change_percent,
-                # Post-market metrics
                 postmarket_change_percent=postmarket_change_percent,
                 postmarket_volume=postmarket_volume,
                 session=self.current_session,
@@ -1157,9 +997,6 @@ class ScannerEngine:
     
     def _passes_all_filters(self, ticker: ScannerTicker) -> bool:
         """Verifica si ticker pasa TODOS los filtros (sin await)"""
-        if ticker.symbol == "MNDR":
-            logger.info(f"🔍 MNDR _passes_all_filters called, filters_count={len(self.filters)}")
-
         for filter_config in self.filters:
             if not filter_config.enabled:
                 continue
@@ -1167,15 +1004,10 @@ class ScannerEngine:
             if not filter_config.applies_to_session(self.current_session):
                 continue
             
-            if ticker.symbol == "MNDR":
-                logger.info(f"🔍 MNDR testing filter: {filter_config.name} (enabled={filter_config.enabled})")
-
             if not self._apply_single_filter(ticker, filter_config):
-                if ticker.symbol == "MNDR":
-                    logger.warning(f"❌ MNDR failed filter: {filter_config.name}")
                 return False  # Falla un filtro
         
-        return True  # Pasó todos
+        return True  # Paso todos
     
     def _calculate_score_inline(self, ticker: ScannerTicker) -> float:
         """Calcula score inline (sin await)"""
@@ -1524,173 +1356,8 @@ class ScannerEngine:
         self, 
         tickers: List[ScannerTicker]
     ) -> None:
-        """
-        SISTEMA AUTOMÁTICO DE SUSCRIPCIONES (PROFESIONAL)
-        
-        Publica símbolos filtrados para que Polygon WS se suscriba automáticamente.
-        Gestiona suscripciones/desuscripciones dinámicas basadas en rankings.
-        
-        Ventajas:
-        - Frontend NO gestiona suscripciones manualmente
-        - Scanner decide QUÉ es relevante → Polygon WS se suscribe
-        - Tickers que salen del ranking → auto-desuscripción
-        - Centralizado: 1 suscripción por ticker (no por cliente)
-        - Eficiente: max 1000 suscripciones a Polygon (límite del plan)
-        
-        Args:
-            tickers: Lista de tickers filtrados (top 500-1000)
-        """
-        try:
-            # 1. Obtener símbolos SOLO de los que están en categorías (no todos los filtrados)
-            # Esto evita suscribir a 1,000 tickers cuando solo 400 están en rankings
-            all_category_names = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 
-                                 'winners', 'losers', 'high_volume', 'new_highs', 'new_lows', 
-                                 'anomalies', 'reversals']
-            
-            category_symbols = set()
-            categories_read = {}
-            
-            for category_name in all_category_names:
-                category_key = f"scanner:category:{category_name}"
-                try:
-                    category_data = await self.redis.get(category_key, deserialize=True)
-                    if category_data and isinstance(category_data, list):
-                        cat_tickers = []
-                        for ticker in category_data:
-                            if ticker.get('symbol'):
-                                category_symbols.add(ticker['symbol'])
-                                cat_tickers.append(ticker['symbol'])
-                        categories_read[category_name] = len(cat_tickers)
-                except Exception as cat_error:
-                    logger.error(
-                        "error_reading_category_for_subscription",
-                        category=category_name,
-                        error=str(cat_error),
-                        error_type=type(cat_error).__name__
-                    )
-            
-            # Log detalle de lo que se leyó
-            logger.info(
-                "categories_read_for_subscription",
-                categories_with_data=list(categories_read.keys()),
-                category_counts=categories_read,
-                unique_symbols=len(category_symbols)
-            )
-            
-            current_symbols = category_symbols if category_symbols else {t.symbol for t in tickers[:500]}
-            
-            # Log para debug
-            if not category_symbols:
-                logger.warning(
-                    "category_symbols_empty_using_fallback",
-                    fallback_count=len(current_symbols)
-                )
-            
-            # 2. Detectar NUEVOS símbolos (entraron al ranking)
-            new_symbols = current_symbols - self._previous_filtered_symbols
-            
-            # 3. Detectar símbolos REMOVIDOS (salieron del ranking)
-            removed_symbols = self._previous_filtered_symbols - current_symbols
-            
-            # Debug: Log si hay removed symbols que todavía están en las categorías
-            if removed_symbols:
-                false_removals = []
-                for sym in removed_symbols:
-                    if sym in category_symbols:
-                        false_removals.append(sym)
-                
-                if false_removals:
-                    logger.error(
-                        "false_removal_detected",
-                        symbols=false_removals,
-                        message="Estos tickers están en categorías pero se marcaron como removed"
-                    )
-            
-            # 4. Publicar SUSCRIPCIONES para nuevos símbolos
-            if new_symbols:
-                stream_manager = get_stream_manager()
-                for symbol in new_symbols:
-                    await stream_manager.xadd(
-                        settings.key_polygon_subscriptions,  # "polygon_ws:subscriptions"
-                        {
-                            "symbol": symbol,
-                            "action": "subscribe",
-                            "source": "scanner_auto",
-                            "session": self.current_session.value,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                        # MAXLEN automático según config
-                    )
-                
-                logger.info(
-                    "🔔 Auto-subscribe nuevos tickers",
-                    count=len(new_symbols),
-                    examples=list(new_symbols)[:10]
-                )
-            
-            # 5. Publicar DESUSCRIPCIONES para símbolos removidos
-            if removed_symbols:
-                stream_manager = get_stream_manager()
-                for symbol in removed_symbols:
-                    await stream_manager.xadd(
-                        settings.key_polygon_subscriptions,
-                        {
-                            "symbol": symbol,
-                            "action": "unsubscribe",
-                            "source": "scanner_auto",
-                            "session": self.current_session.value,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                        # MAXLEN automático según config
-                    )
-                
-                logger.info(
-                    "🔕 Auto-unsubscribe tickers removidos",
-                    count=len(removed_symbols),
-                    examples=list(removed_symbols)[:10]
-                )
-            
-            # 6. Actualizar tracking para próximo ciclo
-            self._previous_filtered_symbols = current_symbols
-            
-            # 7. Guardar snapshot de tickers activos en Redis SET (para inicialización rápida de Polygon WS)
-            try:
-                logger.info(
-                    "Intentando guardar snapshot",
-                    current_symbols_count=len(current_symbols),
-                    has_symbols=bool(current_symbols)
-                )
-                await self.redis.client.delete("polygon_ws:active_tickers")
-                if current_symbols:
-                    result = await self.redis.client.sadd("polygon_ws:active_tickers", *current_symbols)
-                    await self.redis.client.expire("polygon_ws:active_tickers", 3600)  # 1 hora
-                    logger.info(
-                        "✅ Snapshot de tickers activos guardado",
-                        key="polygon_ws:active_tickers",
-                        count=len(current_symbols),
-                        sadd_result=result
-                    )
-                else:
-                    logger.warning("current_symbols está vacío, no se guardará snapshot")
-            except Exception as snapshot_error:
-                logger.error(
-                    "Error guardando snapshot de tickers",
-                    error=str(snapshot_error),
-                    error_type=type(snapshot_error).__name__,
-                    traceback=traceback.format_exc()
-                )
-            
-            # 8. Log resumen
-            logger.info(
-                "✅ Auto-subscription actualizada",
-                total_active=len(current_symbols),
-                new=len(new_symbols),
-                removed=len(removed_symbols),
-                session=self.current_session.value
-            )
-        
-        except Exception as e:
-            logger.error("Error en auto-subscription", error=str(e))
+        """Sistema automatico de suscripciones - delegado a SubscriptionManager."""
+        await self._subscription_manager.update_subscriptions(tickers, self.current_session)
     
     # =============================================
     # FILTER MANAGEMENT
@@ -2122,110 +1789,18 @@ class ScannerEngine:
         new_ranking: List[ScannerTicker],
         list_name: str
     ) -> List[Dict]:
-        """
-        Calcula cambios incrementales entre dos rankings
-        
-        Args:
-            old_ranking: Ranking anterior
-            new_ranking: Ranking nuevo
-            list_name: Nombre de la categoría (gappers_up, etc.)
-        
-        Returns:
-            Lista de deltas en formato:
-            [
-                {"action": "add", "rank": 1, "symbol": "TSLA", "data": {...}},
-                {"action": "remove", "symbol": "NVDA"},
-                {"action": "update", "rank": 2, "symbol": "AAPL", "data": {...}},
-                {"action": "rerank", "symbol": "GOOGL", "old_rank": 5, "new_rank": 3}
-            ]
-        """
-        deltas = []
-        
-        # Convertir a dicts para comparación rápida
-        old_dict = {t.symbol: (i, t) for i, t in enumerate(old_ranking)}
-        new_dict = {t.symbol: (i, t) for i, t in enumerate(new_ranking)}
-        
-        # 1. Detectar tickers NUEVOS (añadidos al ranking)
-        for symbol in new_dict:
-            if symbol not in old_dict:
-                rank, ticker = new_dict[symbol]
-                deltas.append({
-                    "action": "add",
-                    "rank": rank,
-                    "symbol": symbol,
-                    "data": ticker.model_dump(mode='json')
-                })
-        
-        # 2. Detectar tickers REMOVIDOS (salieron del ranking)
-        for symbol in old_dict:
-            if symbol not in new_dict:
-                deltas.append({
-                    "action": "remove",
-                    "symbol": symbol
-                })
-        
-        # 3. Detectar CAMBIOS en tickers existentes
-        for symbol in new_dict:
-            if symbol in old_dict:
-                old_rank, old_ticker = old_dict[symbol]
-                new_rank, new_ticker = new_dict[symbol]
-                
-                # 3a. Cambio de RANK (posición)
-                if old_rank != new_rank:
-                    deltas.append({
-                        "action": "rerank",
-                        "symbol": symbol,
-                        "old_rank": old_rank,
-                        "new_rank": new_rank
-                    })
-                
-                # 3b. Cambio de DATOS (precio, gap, volumen, rvol, etc.)
-                if self._ticker_data_changed(old_ticker, new_ticker):
-                    deltas.append({
-                        "action": "update",
-                        "rank": new_rank,
-                        "symbol": symbol,
-                        "data": new_ticker.model_dump(mode='json')
-                    })
-        
-        return deltas
+        """Calcula deltas - delegado a ranking module."""
+        return calculate_ranking_deltas(old_ranking, new_ranking, list_name)
+    
     
     def _ticker_data_changed(
         self,
         old_ticker: ScannerTicker,
         new_ticker: ScannerTicker
     ) -> bool:
-        """
-        Verifica si los datos relevantes de un ticker cambiaron
-        
-        Compara campos importantes: precio, volumen, gap, rvol
-        """
-        # Umbral mínimo para considerar cambio (evitar ruido)
-        PRICE_THRESHOLD = 0.01  # 1 centavo
-        VOLUME_THRESHOLD = 1000  # 1k shares
-        PERCENT_THRESHOLD = 0.01  # 0.01%
-        
-        # Precio cambió significativamente
-        if old_ticker.price and new_ticker.price:
-            if abs(new_ticker.price - old_ticker.price) > PRICE_THRESHOLD:
-                return True
-        
-        # Volumen cambió significativamente
-        if old_ticker.volume_today and new_ticker.volume_today:
-            if abs(new_ticker.volume_today - old_ticker.volume_today) > VOLUME_THRESHOLD:
-                return True
-        
-        # Gap% cambió
-        if old_ticker.change_percent and new_ticker.change_percent:
-            if abs(new_ticker.change_percent - old_ticker.change_percent) > PERCENT_THRESHOLD:
-                return True
-        
-        # RVOL cambió
-        if old_ticker.rvol and new_ticker.rvol:
-            if abs(new_ticker.rvol - old_ticker.rvol) > 0.05:
-                return True
-        
-        return False
+        """Verifica cambios - delegado a ranking module."""
+        return ticker_data_changed(old_ticker, new_ticker)
+    
     
     async def emit_ranking_deltas(
         self,

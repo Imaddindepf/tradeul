@@ -762,7 +762,7 @@ async def call_gemini_with_retry(prompt: str, ticker: str) -> Dict[str, Any]:
             logger.info(f"[{ticker}] Attempt {attempt + 1}/{MAX_RETRIES}")
             
             response = client.models.generate_content(
-                model="gemini-2.0-flash-exp",
+                model="gemini-2.0-flash",
                 contents=prompt,
                 config={
                     "tools": [google_search_tool],
