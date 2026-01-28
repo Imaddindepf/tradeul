@@ -54,6 +54,10 @@ class ScannerTicker(BaseModel):
     change: Optional[float] = Field(None, description="Price change from prev close")
     change_percent: Optional[float] = Field(None, description="Percentage change")
     
+    # Gap metrics (NUEVOS - para categorías GAPPERS correctas)
+    gap_percent: Optional[float] = Field(None, description="True gap % = (open - prev_close) / prev_close")
+    change_from_open: Optional[float] = Field(None, description="Change from open % = (price - open) / open")
+    
     # Historical/Reference data - Average Daily Volume
     avg_volume_5d: Optional[int] = Field(None, description="5-day average daily volume")
     avg_volume_10d: Optional[int] = Field(None, description="10-day average daily volume")
@@ -83,6 +87,7 @@ class ScannerTicker(BaseModel):
     
     free_float: Optional[int] = Field(None, description="Free float (shares available for public trading)")
     free_float_percent: Optional[float] = Field(None, description="Free float percentage from Polygon")
+    float_rotation: Optional[float] = Field(None, description="Float rotation % = (volume_today / free_float) * 100")
     shares_outstanding: Optional[int] = Field(None, description="Shares outstanding")
     market_cap: Optional[int] = Field(None, description="Market capitalization")
     

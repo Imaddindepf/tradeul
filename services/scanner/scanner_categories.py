@@ -108,17 +108,30 @@ class ScannerCategorizer:
         """
         categories = []
         
-        # 1. GAPPERS
-        gap = ticker.change_percent
+        # MÉTRICAS (como TradeIdeas):
+        # - gap_percent: Siempre tiene valor (expected gap en pre-market, real gap después)
+        # - change_percent: Cambio total del día (price vs prev_close) - para WINNERS/LOSERS
+        # - change_from_open: Cambio desde apertura (price vs open) - para "running stocks"
+        
+        gap_percent = ticker.gap_percent  # Gap % (siempre disponible)
+        change_total = ticker.change_percent  # Cambio total del día
+        change_from_open = ticker.change_from_open  # Desde apertura
         
         # DEBUG: Log inicio para MNOV
         if ticker.symbol == "MNOV":
-            logger.info("DEBUG: MNOV categorization START", gap=gap, rvol=ticker.rvol, price=ticker.price)
+            logger.info("DEBUG: MNOV categorization START", 
+                       session=ticker.session.value if ticker.session else None,
+                       gap_percent=gap_percent, 
+                       change_total=change_total,
+                       change_from_open=change_from_open,
+                       rvol=ticker.rvol, 
+                       price=ticker.price)
         
-        if gap is not None:
-            if gap >= self.criteria.GAP_UP_MIN:
+        # 1. GAPPERS - Usa gap_percent directamente (ya adaptado por sesión)
+        if gap_percent is not None:
+            if gap_percent >= self.criteria.GAP_UP_MIN:
                 categories.append(ScannerCategory.GAPPERS_UP)
-            elif gap <= self.criteria.GAP_DOWN_MAX:
+            elif gap_percent <= self.criteria.GAP_DOWN_MAX:
                 categories.append(ScannerCategory.GAPPERS_DOWN)
         
         # 2. MOMENTUM_UP (Professional Ignition Criteria)
@@ -144,14 +157,15 @@ class ScannerCategorizer:
             categories.append(ScannerCategory.MOMENTUM_UP)
         
         # MOMENTUM_DOWN (criterio simple por ahora - cambio fuerte negativo)
-        if gap is not None and gap <= -self.criteria.MOMENTUM_STRONG:
+        # Usa change_total porque es el cambio del día, no el gap
+        if change_total is not None and change_total <= -self.criteria.MOMENTUM_STRONG:
             categories.append(ScannerCategory.MOMENTUM_DOWN)
         
-        # 3. WINNERS / LOSERS
-        if gap is not None:
-            if gap >= self.criteria.MOMENTUM_EXTREME:
+        # 3. WINNERS / LOSERS - Usa change_total (cambio total del día)
+        if change_total is not None:
+            if change_total >= self.criteria.MOMENTUM_EXTREME:
                 categories.append(ScannerCategory.WINNERS)
-            elif gap <= -self.criteria.MOMENTUM_EXTREME:
+            elif change_total <= -self.criteria.MOMENTUM_EXTREME:
                 categories.append(ScannerCategory.LOSERS)
         
         # 4. ANOMALIES (Z-Score de trades - detección estadística ÚNICAMENTE)
@@ -199,15 +213,14 @@ class ScannerCategorizer:
         
         # 7. REVERSALS (cambio de dirección)
         # Si gap up pero ahora está cayendo, o gap down pero ahora está subiendo
-        if gap and ticker.open:
-            gap_from_open = ((ticker.price - ticker.open) / ticker.open) * 100 if ticker.open > 0 else 0
-            
-            # Gap up pero precio cayendo
-            if gap >= 2.0 and gap_from_open <= -1.0:
+        # Usa gap_percent y change_from_open
+        if gap_percent is not None and change_from_open is not None:
+            # Gap up pero precio cayendo desde apertura
+            if gap_percent >= 2.0 and change_from_open <= -1.0:
                 categories.append(ScannerCategory.REVERSALS)
             
-            # Gap down pero precio subiendo
-            elif gap <= -2.0 and gap_from_open >= 1.0:
+            # Gap down pero precio subiendo desde apertura
+            elif gap_percent <= -2.0 and change_from_open >= 1.0:
                 categories.append(ScannerCategory.REVERSALS)
         
         # 8. POST_MARKET (activos en sesión post-market 16:00-20:00 ET)
@@ -264,16 +277,15 @@ class ScannerCategorizer:
             logger.info("DEBUG: gappers_up before sort", 
                        total=len(categorized),
                        mnov_present=len(mnov_in_list) > 0,
-                       mnov_data=mnov_in_list[0].change_percent if mnov_in_list else None)
+                       mnov_gap_percent=mnov_in_list[0].gap_percent if mnov_in_list else None)
         
         # Ordenar según la categoría
         if category == ScannerCategory.GAPPERS_UP:
-            # Ordenar por gap descendente (mayor gap primero)
-            categorized.sort(key=lambda t: t.change_percent or 0, reverse=True)
+            # gap_percent siempre tiene valor (expected o real)
+            categorized.sort(key=lambda t: t.gap_percent or 0, reverse=True)
         
         elif category == ScannerCategory.GAPPERS_DOWN:
-            # Ordenar por gap ascendente (más negativo primero)
-            categorized.sort(key=lambda t: t.change_percent or 0)
+            categorized.sort(key=lambda t: t.gap_percent or 0)
         
         elif category == ScannerCategory.MOMENTUM_UP:
             # Ordenar por chg_5min (cambio en 5 minutos) - captura el momentum actual
@@ -360,9 +372,9 @@ class ScannerCategorizer:
             
             # Ordenar según la categoría
             if category == ScannerCategory.GAPPERS_UP:
-                categorized.sort(key=lambda t: t.change_percent or 0, reverse=True)
+                categorized.sort(key=lambda t: t.gap_percent or 0, reverse=True)
             elif category == ScannerCategory.GAPPERS_DOWN:
-                categorized.sort(key=lambda t: t.change_percent or 0)
+                categorized.sort(key=lambda t: t.gap_percent or 0)
             elif category == ScannerCategory.MOMENTUM_UP:
                 categorized.sort(key=lambda t: t.chg_5min or 0, reverse=True)
             elif category == ScannerCategory.WINNERS:

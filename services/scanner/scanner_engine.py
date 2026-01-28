@@ -686,6 +686,8 @@ class ScannerEngine:
             price_from_high = None
             price_from_low = None
             change_percent = None
+            gap_percent = None
+            change_from_open = None
             
             if day_data:
                 if day_data.h and day_data.h > 0:
@@ -693,9 +695,22 @@ class ScannerEngine:
                 
                 if day_data.l and day_data.l > 0:
                     price_from_low = ((price - day_data.l) / day_data.l) * 100
+                
+                # change_from_open: cambio desde la apertura
+                if day_data.o and day_data.o > 0:
+                    change_from_open = ((price - day_data.o) / day_data.o) * 100
             
             if prev_day and prev_day.c and prev_day.c > 0:
                 change_percent = ((price - prev_day.c) / prev_day.c) * 100
+                
+                # gap_percent: 
+                # - Si hay open (market abierto): GAP REAL = (open - prev_close) / prev_close
+                # - Si no hay open (pre-market): GAP ESPERADO = (price - prev_close) / prev_close
+                if day_data and day_data.o and day_data.o > 0:
+                    gap_percent = ((day_data.o - prev_day.c) / prev_day.c) * 100
+                else:
+                    # Pre-market: usar precio actual como "expected open"
+                    gap_percent = change_percent
             
             # Extract ATR data
             atr = None
@@ -802,6 +817,9 @@ class ScannerEngine:
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
+                # Gap metrics (NUEVOS)
+                gap_percent=gap_percent,
+                change_from_open=change_from_open,
                 # Historical data
                 avg_volume_30d=metadata.avg_volume_30d,
                 avg_volume_10d=metadata.avg_volume_10d,
@@ -810,6 +828,8 @@ class ScannerEngine:
                 volume_yesterday_pct=round((prev_day.v / metadata.avg_volume_10d) * 100, 1) if prev_day and prev_day.v and metadata.avg_volume_10d else None,
                 free_float=metadata.free_float,
                 free_float_percent=metadata.free_float_percent,
+                # Float rotation = (volume_today / free_float) * 100
+                float_rotation=round((volume_today / metadata.free_float) * 100, 2) if volume_today and metadata.free_float and metadata.free_float > 0 else None,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
                 sector=metadata.sector,
@@ -883,15 +903,27 @@ class ScannerEngine:
             price_from_high = None
             price_from_low = None
             change_percent = None
+            gap_percent = None
+            change_from_open = None
             
             if day_data:
                 if day_data.h and day_data.h > 0:
                     price_from_high = ((price - day_data.h) / day_data.h) * 100
                 if day_data.l and day_data.l > 0:
                     price_from_low = ((price - day_data.l) / day_data.l) * 100
+                # change_from_open: cambio desde la apertura
+                if day_data.o and day_data.o > 0:
+                    change_from_open = ((price - day_data.o) / day_data.o) * 100
             
             if prev_day and prev_day.c and prev_day.c > 0:
                 change_percent = ((price - prev_day.c) / prev_day.c) * 100
+                # gap_percent: Como TradeIdeas
+                # - Market abierto: GAP REAL = (open - prev_close) / prev_close
+                # - Pre-market: GAP ESPERADO = (price - prev_close) / prev_close
+                if day_data and day_data.o and day_data.o > 0:
+                    gap_percent = ((day_data.o - prev_day.c) / prev_day.c) * 100
+                else:
+                    gap_percent = change_percent
             
             # Extract ATR data
             atr = None
@@ -1079,6 +1111,9 @@ class ScannerEngine:
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
                 change_percent=change_percent,
+                # Gap metrics (NUEVOS)
+                gap_percent=gap_percent,
+                change_from_open=change_from_open,
                 avg_volume_5d=avg_volumes.get('avg_volume_5d') if avg_volumes else None,
                 avg_volume_10d=avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d,
                 avg_volume_3m=avg_volumes.get('avg_volume_3m') if avg_volumes else None,
@@ -1090,6 +1125,8 @@ class ScannerEngine:
                 volume_yesterday_pct=volume_yesterday_pct,
                 free_float=metadata.free_float,
                 free_float_percent=metadata.free_float_percent,
+                # Float rotation = (volume_today / free_float) * 100
+                float_rotation=round((volume_today / metadata.free_float) * 100, 2) if volume_today and metadata.free_float and metadata.free_float > 0 else None,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
                 sector=metadata.sector,
