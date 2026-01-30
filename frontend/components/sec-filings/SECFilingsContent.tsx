@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React from 'react';
 import { useTranslation } from 'react-i18next';
+import { TableVirtuoso } from 'react-virtuoso';
 import {
     FileText,
     RefreshCw,
@@ -722,113 +724,101 @@ export function SECFilingsContent({ initialTicker }: SECFilingsContentProps = {}
                 </div>
             )}
 
-            {/* Table */}
-            <div className="flex-1 overflow-auto">
-                <table className="w-full text-[11px]">
-                    <thead className="sticky top-0 bg-slate-100 border-b border-slate-200">
-                        <tr>
-                            <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Ticker
-                            </th>
-                            <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Form
-                            </th>
-                            <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Description
-                            </th>
-                            <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Date
-                            </th>
-                            <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider">
-                                Time
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {loading ? (
-                            <tr>
-                                <td colSpan={5} className="px-3 py-8 text-center">
-                                    <RefreshCw className="w-5 h-5 mx-auto mb-2 text-blue-500 animate-spin" />
-                                    <p className="text-[10px] text-slate-500">Loading filings...</p>
-                                </td>
+            {/* Virtualized Table */}
+            <div className="flex-1">
+                {loading && displayedFilings.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                            <RefreshCw className="w-5 h-5 mx-auto mb-2 text-blue-500 animate-spin" />
+                            <p className="text-[10px] text-slate-500">Loading filings...</p>
+                        </div>
+                    </div>
+                ) : displayedFilings.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                        <div className="text-center">
+                            <FileText className="w-6 h-6 mx-auto mb-2 text-slate-300" />
+                            <p className="text-[10px] text-slate-500">No filings found</p>
+                            {hasActiveFilters && (
+                                <button 
+                                    onClick={clearAllFilters}
+                                    className="mt-2 text-[10px] text-blue-600 hover:text-blue-700"
+                                >
+                                    Clear filters
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <TableVirtuoso
+                        style={{ height: '100%' }}
+                        data={displayedFilings}
+                        overscan={20}
+                        fixedHeaderContent={() => (
+                            <tr className="bg-slate-100 border-b border-slate-200">
+                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-16">Ticker</th>
+                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-20">Form</th>
+                                <th className="px-3 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider">Description</th>
+                                <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-24">Date</th>
+                                <th className="px-3 py-1.5 text-right text-[9px] font-semibold text-slate-500 uppercase tracking-wider w-20">Time</th>
                             </tr>
-                        ) : displayedFilings.length === 0 ? (
-                            <tr>
-                                <td colSpan={5} className="px-3 py-8 text-center">
-                                    <FileText className="w-6 h-6 mx-auto mb-2 text-slate-300" />
-                                    <p className="text-[10px] text-slate-500">No filings found</p>
-                                    {hasActiveFilters && (
-                                        <button 
-                                            onClick={clearAllFilters}
-                                            className="mt-2 text-[10px] text-blue-600 hover:text-blue-700"
-                                        >
-                                            Clear filters
-                                        </button>
-                                    )}
-                                </td>
-                            </tr>
-                        ) : (
-                            displayedFilings.map((filing) => {
-                                const isRealtime = realtimeAccessions.current.has(filing.accessionNo);
-                                const isHighlighted = highlightedAccessions.has(filing.accessionNo);
-                                const { date, time } = formatDateTime(filing.filedAt);
-                                const formColor = getFormTypeColor(filing.formType);
-                                const formInfo = FORM_TYPE_INFO[filing.formType];
-                                const itemImportance = filing.formType.startsWith('8-K') ? get8KItemImportance(filing.items ?? null) : null;
-                                const itemsText = filing.formType.startsWith('8-K') ? format8KItems(filing.items ?? null) : '';
-                                
-                                return (
-                                    <tr
-                                        key={filing.accessionNo || filing.id}
-                                        onClick={() => handleFilingClick(filing)}
-                                        className={`hover:bg-blue-50 cursor-pointer ${
-                                            isHighlighted 
-                                                ? 'bg-emerald-100' 
-                                                : isRealtime 
-                                                    ? 'bg-emerald-50/30' 
-                                                    : ''
-                                        }`}
-                                    >
-                                        <td className="px-3 py-1 whitespace-nowrap">
-                                            <span className={`font-medium ${filing.ticker ? 'text-slate-900' : 'text-slate-400'}`}>
-                                                {filing.ticker || '--'}
-                                            </span>
-                                        </td>
-                                        <td className="px-3 py-1 whitespace-nowrap">
-                                            <span 
-                                                className={`inline-block px-1.5 py-0.5 text-[10px] rounded border ${colorClasses[formColor]}`}
-                                                title={formInfo?.description}
-                                            >
-                                                {filing.formType}
-                                            </span>
-                                        </td>
-                                        <td className="px-3 py-1">
-                                            <div className="flex items-center gap-1.5">
-                                                {itemImportance && itemImportance !== 'low' && (
-                                                    <span className={`flex-shrink-0 ${importanceColors[itemImportance]}`} title={`${itemImportance} importance`}>
-                                                        <Zap className="w-3 h-3" />
-                                                    </span>
-                                                )}
-                                                <span className="text-slate-600 truncate">
-                                                    {itemsText && (
-                                                        <span className="text-slate-400 mr-1">[{itemsText}]</span>
-                                                    )}
-                                                    {truncateDescription(filing.description, itemsText ? 50 : 80)}
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-1 whitespace-nowrap text-right text-slate-500 tabular-nums">
-                                            {date}
-                                        </td>
-                                        <td className="px-3 py-1 whitespace-nowrap text-right text-slate-400 tabular-nums">
-                                            {time}
-                                        </td>
-                                    </tr>
-                                );
-                            })
                         )}
-                    </tbody>
-                </table>
+                        itemContent={(index, filing) => {
+                            const isRealtime = realtimeAccessions.current.has(filing.accessionNo);
+                            const isHighlighted = highlightedAccessions.has(filing.accessionNo);
+                            const { date, time } = formatDateTime(filing.filedAt);
+                            const formColor = getFormTypeColor(filing.formType);
+                            const formInfo = FORM_TYPE_INFO[filing.formType];
+                            const itemImportance = filing.formType.startsWith('8-K') ? get8KItemImportance(filing.items ?? null) : null;
+                            const itemsText = filing.formType.startsWith('8-K') ? format8KItems(filing.items ?? null) : '';
+                            const bgClass = isHighlighted ? 'bg-emerald-100' : isRealtime ? 'bg-emerald-50/30' : '';
+                            
+                            return (
+                                <>
+                                    <td className={`px-3 py-1 whitespace-nowrap text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
+                                        <span className={`font-medium ${filing.ticker ? 'text-slate-900' : 'text-slate-400'}`}>
+                                            {filing.ticker || '--'}
+                                        </span>
+                                    </td>
+                                    <td className={`px-3 py-1 whitespace-nowrap text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
+                                        <span className={`inline-block px-1.5 py-0.5 text-[10px] rounded border ${colorClasses[formColor]}`} title={formInfo?.description}>
+                                            {filing.formType}
+                                        </span>
+                                    </td>
+                                    <td className={`px-3 py-1 text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
+                                        <div className="flex items-center gap-1.5">
+                                            {itemImportance && itemImportance !== 'low' && (
+                                                <span className={`flex-shrink-0 ${importanceColors[itemImportance]}`} title={`${itemImportance} importance`}>
+                                                    <Zap className="w-3 h-3" />
+                                                </span>
+                                            )}
+                                            <span className="text-slate-600 truncate">
+                                                {itemsText && <span className="text-slate-400 mr-1">[{itemsText}]</span>}
+                                                {truncateDescription(filing.description, itemsText ? 50 : 80)}
+                                            </span>
+                                        </div>
+                                    </td>
+                                    <td className={`px-3 py-1 whitespace-nowrap text-right text-slate-500 tabular-nums text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
+                                        {date}
+                                    </td>
+                                    <td className={`px-3 py-1 whitespace-nowrap text-right text-slate-400 tabular-nums text-[11px] cursor-pointer ${bgClass}`} onClick={() => handleFilingClick(filing)}>
+                                        {time}
+                                    </td>
+                                </>
+                            );
+                        }}
+                        components={{
+                            Table: ({ style, ...props }) => (
+                                <table {...props} style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} className="text-[11px]" />
+                            ),
+                            TableHead: React.forwardRef(({ style, ...props }, ref) => (
+                                <thead {...props} ref={ref} style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }} />
+                            )),
+                            TableRow: ({ style, ...props }) => (
+                                <tr {...props} style={{ ...style }} className="hover:bg-blue-50 border-b border-slate-100" />
+                            ),
+                        }}
+                    />
+                )}
             </div>
 
             {/* Footer */}

@@ -52,6 +52,56 @@ interface VirtualizedDataTableProps<T> {
 }
 
 // ============================================================================
+// COLUMN RESIZE HANDLE (movido fuera para evitar re-creación en cada render)
+// MEMORY LEAK FIX: Definir componentes fuera del render previene memory leaks
+// ============================================================================
+
+interface ColumnResizeHandleProps {
+  header: any;
+}
+
+function ColumnResizeHandle({ header }: ColumnResizeHandleProps) {
+  const [isHovered, setIsHovered] = useState(false);
+
+  return (
+    <div
+      onMouseDown={header.getResizeHandler()}
+      onTouchStart={header.getResizeHandler()}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className={`
+        absolute right-0 top-0 h-full cursor-col-resize
+        transition-all duration-200
+        ${isHovered || header.column.getIsResizing()
+          ? 'w-1 bg-blue-500'
+          : 'w-px bg-slate-200 hover:bg-blue-400'
+        }
+        ${header.column.getIsResizing() ? 'bg-blue-600' : ''}
+        group
+      `}
+      style={{
+        userSelect: 'none',
+        touchAction: 'none',
+      }}
+    >
+      <div
+        className={`
+        absolute top-1/2 -translate-y-1/2 -right-1 w-2 h-12 
+        flex items-center justify-center
+        transition-opacity duration-200
+        ${isHovered || header.column.getIsResizing()
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100'
+          }
+      `}
+      >
+        <div className="w-0.5 h-4 bg-blue-500 rounded-full"></div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -237,48 +287,6 @@ export function VirtualizedDataTable<T>({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  };
-
-  // Column resize handle component
-  const ColumnResizeHandle = ({ header }: { header: any }) => {
-    const [isHovered, setIsHovered] = useState(false);
-
-    return (
-      <div
-        onMouseDown={header.getResizeHandler()}
-        onTouchStart={header.getResizeHandler()}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        className={`
-          absolute right-0 top-0 h-full cursor-col-resize
-          transition-all duration-200
-          ${isHovered || header.column.getIsResizing()
-            ? 'w-1 bg-blue-500'
-            : 'w-px bg-slate-200 hover:bg-blue-400'
-          }
-          ${header.column.getIsResizing() ? 'bg-blue-600' : ''}
-          group
-        `}
-        style={{
-          userSelect: 'none',
-          touchAction: 'none',
-        }}
-      >
-        <div
-          className={`
-          absolute top-1/2 -translate-y-1/2 -right-1 w-2 h-12 
-          flex items-center justify-center
-          transition-opacity duration-200
-          ${isHovered || header.column.getIsResizing()
-              ? 'opacity-100'
-              : 'opacity-0 group-hover:opacity-100'
-            }
-        `}
-        >
-          <div className="w-0.5 h-4 bg-blue-500 rounded-full"></div>
-        </div>
-      </div>
-    );
   };
 
   // Auto-adjust grid span (same logic)

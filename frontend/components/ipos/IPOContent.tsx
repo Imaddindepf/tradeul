@@ -1,7 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+/**
+ * IPOContent - IPO Calendar with virtualized table
+ * Uses react-virtuoso for optimal performance with large datasets
+ */
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TableVirtuoso } from 'react-virtuoso';
 import { RefreshCw, AlertTriangle, TrendingUp, Clock, CheckCircle, XCircle, HelpCircle, Rocket, FileText, ExternalLink, Loader2, ArrowLeft, Users, Building2, Scale, ClipboardList } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
 
@@ -97,6 +103,9 @@ function formatDate(dateStr: string | undefined): string {
   }
 }
 
+// Row height for virtualization
+const ROW_HEIGHT = 22;
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -114,6 +123,9 @@ export function IPOContent() {
   // View state: 'list' or 'detail' (inline, no modal)
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [selectedIPO, setSelectedIPO] = useState<{ ticker: string; issuerName: string; ipoStatus: string } | null>(null);
+
+  // Virtuoso ref
+  const virtuosoRef = useRef<any>(null);
 
   // Fetch IPO prospectus (S-1, 424B4) structured data from SEC-API.io
   const openProspectus = useCallback(async (ticker: string, ipoStatus: string, issuerName: string) => {
@@ -459,86 +471,108 @@ export function IPOContent() {
         ))}
       </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full text-[10px] border-collapse">
-          <thead className="bg-slate-100 sticky top-0">
-            <tr className="text-left text-slate-500 uppercase tracking-wide">
-              <th className="px-1 py-0.5 font-medium w-12">{t('ipo.tableHeaders.ticker')}</th>
-              <th className="px-1 py-0.5 font-medium w-10 text-center">{t('ipo.tableHeaders.status')}</th>
-              <th className="px-1 py-0.5 font-medium">{t('ipo.tableHeaders.company')}</th>
-              <th className="px-1 py-0.5 font-medium w-14 text-center">{t('ipo.tableHeaders.exchange')}</th>
-              <th className="px-1 py-0.5 font-medium w-14 text-right">{t('ipo.tableHeaders.price')}</th>
-              <th className="px-1 py-0.5 font-medium w-16 text-right">{t('ipo.tableHeaders.size')}</th>
-              <th className="px-1 py-0.5 font-medium w-14 text-right">{t('ipo.tableHeaders.shares')}</th>
-              <th className="px-1 py-0.5 font-medium w-16 text-center">{t('ipo.tableHeaders.date')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {filteredIPOs.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-2 py-4 text-center text-slate-400">
-                  No IPOs found for this filter
-                </td>
+      {/* Virtualized Table */}
+      <div className="flex-1">
+        {filteredIPOs.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+            No IPOs found for this filter
+          </div>
+        ) : (
+          <TableVirtuoso
+            ref={virtuosoRef}
+            style={{ height: '100%' }}
+            data={filteredIPOs}
+            overscan={20}
+            fixedHeaderContent={() => (
+              <tr className="text-left text-slate-500 uppercase tracking-wide bg-slate-100">
+                <th className="px-1 py-0.5 font-medium w-12 text-[10px]">{t('ipo.tableHeaders.ticker')}</th>
+                <th className="px-1 py-0.5 font-medium w-10 text-center text-[10px]">{t('ipo.tableHeaders.status')}</th>
+                <th className="px-1 py-0.5 font-medium text-[10px]">{t('ipo.tableHeaders.company')}</th>
+                <th className="px-1 py-0.5 font-medium w-14 text-center text-[10px]">{t('ipo.tableHeaders.exchange')}</th>
+                <th className="px-1 py-0.5 font-medium w-14 text-right text-[10px]">{t('ipo.tableHeaders.price')}</th>
+                <th className="px-1 py-0.5 font-medium w-16 text-right text-[10px]">{t('ipo.tableHeaders.size')}</th>
+                <th className="px-1 py-0.5 font-medium w-14 text-right text-[10px]">{t('ipo.tableHeaders.shares')}</th>
+                <th className="px-1 py-0.5 font-medium w-16 text-center text-[10px]">{t('ipo.tableHeaders.date')}</th>
               </tr>
-            ) : (
-              filteredIPOs.map((ipo, idx) => {
-                const statusCfg = STATUS_CONFIG[ipo.ipo_status] || STATUS_CONFIG.pending;
-                const priceRange = ipo.lowest_offer_price && ipo.highest_offer_price && ipo.lowest_offer_price !== ipo.highest_offer_price
-                  ? `$${ipo.lowest_offer_price}-${ipo.highest_offer_price}`
-                  : ipo.final_issue_price
-                    ? formatPrice(ipo.final_issue_price)
-                    : ipo.lowest_offer_price
-                      ? formatPrice(ipo.lowest_offer_price)
-                      : '—';
-
-                return (
-                  <tr key={`${ipo.ticker}-${idx}`} className="hover:bg-blue-50/50 group">
-                    <td className="px-1 py-0.5">
-                      <button
-                        onClick={() => openProspectus(ipo.ticker, ipo.ipo_status, ipo.issuer_name)}
-                        disabled={loadingProspectus === ipo.ticker}
-                        className="flex items-center gap-0.5 font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer disabled:opacity-50"
-                        title="View SEC Prospectus (S-1/424B4)"
-                      >
-                        {loadingProspectus === ipo.ticker ? (
-                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                        ) : (
-                          <FileText className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        )}
-                        {ipo.ticker}
-                        <ExternalLink className="w-2 h-2 opacity-0 group-hover:opacity-60 transition-opacity" />
-                      </button>
-                    </td>
-                    <td className="px-1 py-0.5 text-center">
-                      <span className={`px-1 py-0 rounded text-[8px] font-medium ${statusCfg.color} ${statusCfg.bg}`}>
-                        {statusCfg.label}
-                      </span>
-                    </td>
-                    <td className="px-1 py-0.5 text-slate-700 truncate max-w-[200px]" title={ipo.issuer_name}>
-                      {ipo.issuer_name}
-                    </td>
-                    <td className="px-1 py-0.5 text-center text-slate-500 font-mono">
-                      {EXCHANGE_MAP[ipo.primary_exchange || ''] || ipo.primary_exchange || '—'}
-                    </td>
-                    <td className="px-1 py-0.5 text-right font-mono text-slate-700">
-                      {priceRange}
-                    </td>
-                    <td className="px-1 py-0.5 text-right font-mono text-slate-600">
-                      {formatSize(ipo.total_offer_size)}
-                    </td>
-                    <td className="px-1 py-0.5 text-right font-mono text-slate-500">
-                      {formatShares(ipo.max_shares_offered)}
-                    </td>
-                    <td className="px-1 py-0.5 text-center font-mono text-slate-500">
-                      {formatDate(ipo.listing_date || ipo.announced_date)}
-                    </td>
-                  </tr>
-                );
-              })
             )}
-          </tbody>
-        </table>
+            itemContent={(index, ipo) => {
+              const statusCfg = STATUS_CONFIG[ipo.ipo_status] || STATUS_CONFIG.pending;
+              const priceRange = ipo.lowest_offer_price && ipo.highest_offer_price && ipo.lowest_offer_price !== ipo.highest_offer_price
+                ? `$${ipo.lowest_offer_price}-${ipo.highest_offer_price}`
+                : ipo.final_issue_price
+                  ? formatPrice(ipo.final_issue_price)
+                  : ipo.lowest_offer_price
+                    ? formatPrice(ipo.lowest_offer_price)
+                    : '—';
+
+              return (
+                <>
+                  <td className="px-1 py-0.5 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                    <button
+                      onClick={() => openProspectus(ipo.ticker, ipo.ipo_status, ipo.issuer_name)}
+                      disabled={loadingProspectus === ipo.ticker}
+                      className="flex items-center gap-0.5 font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer disabled:opacity-50"
+                      title="View SEC Prospectus (S-1/424B4)"
+                    >
+                      {loadingProspectus === ipo.ticker ? (
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      ) : (
+                        <FileText className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                      {ipo.ticker}
+                    </button>
+                  </td>
+                  <td className="px-1 py-0.5 text-center text-[10px]" style={{ height: ROW_HEIGHT }}>
+                    <span className={`px-1 py-0 rounded text-[8px] font-medium ${statusCfg.color} ${statusCfg.bg}`}>
+                      {statusCfg.label}
+                    </span>
+                  </td>
+                  <td className="px-1 py-0.5 text-slate-700 truncate max-w-[200px] text-[10px]" style={{ height: ROW_HEIGHT }} title={ipo.issuer_name}>
+                    {ipo.issuer_name}
+                  </td>
+                  <td className="px-1 py-0.5 text-center text-slate-500 font-mono text-[10px]" style={{ height: ROW_HEIGHT }}>
+                    {EXCHANGE_MAP[ipo.primary_exchange || ''] || ipo.primary_exchange || '—'}
+                  </td>
+                  <td className="px-1 py-0.5 text-right font-mono text-slate-700 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                    {priceRange}
+                  </td>
+                  <td className="px-1 py-0.5 text-right font-mono text-slate-600 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                    {formatSize(ipo.total_offer_size)}
+                  </td>
+                  <td className="px-1 py-0.5 text-right font-mono text-slate-500 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                    {formatShares(ipo.max_shares_offered)}
+                  </td>
+                  <td className="px-1 py-0.5 text-center font-mono text-slate-500 text-[10px]" style={{ height: ROW_HEIGHT }}>
+                    {formatDate(ipo.listing_date || ipo.announced_date)}
+                  </td>
+                </>
+              );
+            }}
+            components={{
+              Table: ({ style, ...props }) => (
+                <table 
+                  {...props} 
+                  style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
+                  className="text-[10px]"
+                />
+              ),
+              TableHead: React.forwardRef(({ style, ...props }, ref) => (
+                <thead 
+                  {...props} 
+                  ref={ref}
+                  style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }}
+                />
+              )),
+              TableRow: ({ style, ...props }) => (
+                <tr 
+                  {...props} 
+                  style={{ ...style }}
+                  className="hover:bg-blue-50/50 group border-b border-slate-50"
+                />
+              ),
+            }}
+          />
+        )}
       </div>
 
       {/* Footer */}
@@ -549,4 +583,3 @@ export function IPOContent() {
     </div>
   );
 }
-

@@ -7,22 +7,25 @@
  * - SOLO consume del NewsStore global
  * - NO tiene lógica de ingesta (WebSocket, fetch, etc.)
  * - La ingesta se hace en NewsProvider (montado globalmente)
+ * - VIRTUALIZADO con react-virtuoso para rendimiento óptimo
  * 
  * Beneficios:
  * - Puede montarse/desmontarse sin perder noticias
  * - Filtros son solo vistas sobre los datos del store
  * - Mejor separación de responsabilidades
+ * - Escala a miles de noticias sin memory leaks
  */
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { TableVirtuoso } from 'react-virtuoso';
 import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected } from '@/stores/useNewsStore';
 import { useSquawk } from '@/contexts/SquawkContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
 import { useWindowState } from '@/contexts/FloatingWindowContext';
 
@@ -40,12 +43,28 @@ interface NewsWindowState {
 }
 
 // Decodifica entidades HTML como &#39; &amp; &quot; etc.
+// Memoizado para evitar crear elementos DOM innecesarios
+const htmlDecodeCache = new Map<string, string>();
 function decodeHtmlEntities(text: string): string {
   if (!text) return text;
   if (typeof window === 'undefined') return text;
+  
+  // Check cache first
+  const cached = htmlDecodeCache.get(text);
+  if (cached !== undefined) return cached;
+  
   const textarea = document.createElement('textarea');
   textarea.innerHTML = text;
-  return textarea.value;
+  const decoded = textarea.value;
+  
+  // Cache result (limit cache size to prevent memory issues)
+  if (htmlDecodeCache.size > 5000) {
+    // Clear oldest entries (simple approach: clear all when too big)
+    htmlDecodeCache.clear();
+  }
+  htmlDecodeCache.set(text, decoded);
+  
+  return decoded;
 }
 
 interface NewsContentProps {
@@ -53,7 +72,8 @@ interface NewsContentProps {
   highlightArticleId?: string;
 }
 
-const ITEMS_PER_PAGE = 200;
+// Row height for virtualization
+const ROW_HEIGHT = 24;
 
 export function NewsContent({ initialTicker, highlightArticleId }: NewsContentProps = {}) {
   const { t } = useTranslation();
@@ -88,19 +108,18 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
   const [tickerFilter, setTickerFilter] = useState<string>(savedTicker);
   const [tickerInputValue, setTickerInputValue] = useState<string>(savedTicker);
+  const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
+  
+  // Ref para virtuoso (para scroll programático)
+  const virtuosoRef = useRef<any>(null);
   
   // Persist ticker changes (including when cleared)
   useEffect(() => {
-    // Always persist the ticker value, even when empty
-    // This ensures clearing the search also clears the persisted state
     updateWindowState({ ticker: tickerFilter });
   }, [tickerFilter, updateWindowState]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
-  const highlightRowRef = useRef<HTMLTableRowElement | null>(null);
   
   // ================================================================
-  // FILTRADO Y PAGINACIÓN (memoizado)
+  // FILTRADO (memoizado) - Sin paginación, virtualización maneja todo
   // ================================================================
   const filteredNews = useMemo(() => {
     if (!tickerFilter) return articles;
@@ -109,14 +128,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
       article.tickers?.some(t => t.toUpperCase() === upperFilter)
     );
   }, [articles, tickerFilter]);
-
-  const totalPages = Math.ceil(filteredNews.length / ITEMS_PER_PAGE);
-  
-  const paginatedNews = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    return filteredNews.slice(start, end);
-  }, [filteredNews, currentPage]);
 
   const liveCount = useMemo(() => 
     articles.filter(a => a.isLive).length
@@ -128,19 +139,18 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   
   // Scroll al artículo destacado
   useEffect(() => {
-    if (highlightedId && highlightRowRef.current) {
-      highlightRowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (highlightedId && virtuosoRef.current) {
+      const index = filteredNews.findIndex(a => {
+        const articleId = String(a.benzinga_id || a.id || '');
+        return highlightedId.includes(articleId);
+      });
+      if (index >= 0) {
+        virtuosoRef.current.scrollToIndex({ index, align: 'center', behavior: 'smooth' });
+      }
       const timer = setTimeout(() => setHighlightedId(null), 5000);
       return () => clearTimeout(timer);
     }
-  }, [highlightedId, articles]);
-
-  // Reset página si excede total
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(1);
-    }
-  }, [currentPage, totalPages]);
+  }, [highlightedId, filteredNews]);
 
   // ================================================================
   // HANDLERS
@@ -157,7 +167,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const handleApplyFilter = useCallback(() => {
     const newFilter = tickerInputValue.toUpperCase().trim();
     setTickerFilter(newFilter);
-    setCurrentPage(1);
   }, [tickerInputValue]);
 
   // Format dates in Eastern Time (ET) - standard for US markets
@@ -281,7 +290,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   }
 
   // ================================================================
-  // MAIN VIEW - TABLE
+  // MAIN VIEW - VIRTUALIZED TABLE
   // ================================================================
   return (
     <div className="flex flex-col h-full bg-white" style={{ fontFamily }}>
@@ -326,13 +335,11 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 setTickerInputValue(value);
                 if (!value) {
                   setTickerFilter('');
-                  setCurrentPage(1);
                 }
               }}
               onSelect={(ticker) => {
                 setTickerInputValue(ticker.symbol);
                 setTickerFilter(ticker.symbol.toUpperCase());
-                setCurrentPage(1);
               }}
               placeholder={t('news.ticker')}
               className="w-20"
@@ -360,102 +367,137 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             </span>
             {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
           </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center gap-0.5 border-l border-slate-300 pl-2">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-[10px]"
-                style={{ fontFamily }}
-              >
-                ‹
-              </button>
-              <span className="text-[10px] text-slate-600 min-w-[40px] text-center" style={{ fontFamily }}>
-                {currentPage}/{totalPages}
-              </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="p-0.5 rounded hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-[10px]"
-                style={{ fontFamily }}
-              >
-                ›
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Table - Orden: Ticker, Headline, Date, Time, Source */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse text-[11px]" style={{ fontFamily }}>
-          <thead className="bg-slate-100 sticky top-0">
-            <tr className="text-left text-slate-600 uppercase tracking-wide">
-              <th className="px-1.5 py-1 font-medium w-14 text-center">{t('news.ticker')}</th>
-              <th className="px-1.5 py-1 font-medium">{t('news.headline')}</th>
-              <th className="px-1.5 py-1 font-medium w-20 text-center">{t('news.date')}</th>
-              <th className="px-1.5 py-1 font-medium w-16 text-center">{t('news.time')}</th>
-              <th className="px-1.5 py-1 font-medium w-28">{t('news.source')}</th>
+      {/* Virtualized Table */}
+      <div className="flex-1">
+        <TableVirtuoso
+          ref={virtuosoRef}
+          style={{ height: '100%' }}
+          data={filteredNews}
+          overscan={20}
+          fixedHeaderContent={() => (
+            <tr className="text-left text-slate-600 uppercase tracking-wide bg-slate-100">
+              <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>
+              <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
+              <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>
+              <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>
+              <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {paginatedNews.map((article, i) => {
-              const dt = formatDateTime(article.published);
-              const displayTicker = tickerFilter 
-                ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
-                : (article.tickers?.[0] || '—');
-              const hasMultipleTickers = (article.tickers?.length || 0) > 1;
-              const articleId = String(article.benzinga_id || article.id || '');
-              const isHighlighted = highlightedId && highlightedId.includes(articleId);
+          )}
+          itemContent={(index, article) => {
+            const dt = formatDateTime(article.published);
+            const displayTicker = tickerFilter 
+              ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
+              : (article.tickers?.[0] || '—');
+            const hasMultipleTickers = (article.tickers?.length || 0) > 1;
+            const articleId = String(article.benzinga_id || article.id || '');
+            const isHighlighted = highlightedId && highlightedId.includes(articleId);
 
-              return (
-                <tr
-                  key={article.benzinga_id || article.id || i}
-                  ref={isHighlighted ? highlightRowRef : null}
-                  className={`cursor-pointer hover:bg-slate-50 transition-colors ${
+            return (
+              <>
+                {/* Ticker - Primera columna */}
+                <td 
+                  className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${
                     isHighlighted 
-                      ? 'animate-highlight-pulse bg-rose-100' 
+                      ? 'bg-rose-100' 
                       : article.isLive ? 'bg-emerald-50/50' : ''
                   }`}
+                  style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
                 >
-                  {/* Ticker - Primera columna */}
-                  <td className="px-1.5 py-0.5 text-center">
-                    <span className="text-blue-600 font-semibold">
-                      {displayTicker}
-                      {hasMultipleTickers && (
-                        <span className="text-slate-400 text-[9px] ml-0.5">
-                          +{(article.tickers?.length || 1) - 1}
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  {/* Headline */}
-                  <td className="px-1.5 py-0.5">
-                    <div className="flex items-center gap-1">
-                      {article.isLive && (
-                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
-                      )}
-                      <span className="text-slate-800 truncate" style={{ maxWidth: '450px' }}>
-                        {decodeHtmlEntities(article.title)}
+                  <span className="text-blue-600 font-semibold">
+                    {displayTicker}
+                    {hasMultipleTickers && (
+                      <span className="text-slate-400 text-[9px] ml-0.5">
+                        +{(article.tickers?.length || 1) - 1}
                       </span>
-                    </div>
-                  </td>
-                  {/* Date */}
-                  <td className="px-1.5 py-0.5 text-center text-slate-500">{dt.date}</td>
-                  {/* Time */}
-                  <td className="px-1.5 py-0.5 text-center text-slate-500">{dt.time}</td>
-                  {/* Source */}
-                  <td className="px-1.5 py-0.5 text-slate-500 truncate" style={{ maxWidth: '110px' }}>
-                    {article.author}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    )}
+                  </span>
+                </td>
+                {/* Headline */}
+                <td 
+                  className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${
+                    isHighlighted 
+                      ? 'bg-rose-100' 
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                  }`}
+                  style={{ fontFamily, height: ROW_HEIGHT }}
+                  onClick={() => setSelectedArticle(article)}
+                >
+                  <div className="flex items-center gap-1">
+                    {article.isLive && (
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
+                    )}
+                    <span className="text-slate-800 truncate" style={{ maxWidth: '450px' }}>
+                      {decodeHtmlEntities(article.title)}
+                    </span>
+                  </div>
+                </td>
+                {/* Date */}
+                <td 
+                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${
+                    isHighlighted 
+                      ? 'bg-rose-100' 
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                  }`}
+                  style={{ fontFamily, height: ROW_HEIGHT }}
+                  onClick={() => setSelectedArticle(article)}
+                >
+                  {dt.date}
+                </td>
+                {/* Time */}
+                <td 
+                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${
+                    isHighlighted 
+                      ? 'bg-rose-100' 
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                  }`}
+                  style={{ fontFamily, height: ROW_HEIGHT }}
+                  onClick={() => setSelectedArticle(article)}
+                >
+                  {dt.time}
+                </td>
+                {/* Source */}
+                <td 
+                  className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${
+                    isHighlighted 
+                      ? 'bg-rose-100' 
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                  }`}
+                  style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }}
+                  onClick={() => setSelectedArticle(article)}
+                >
+                  {article.author}
+                </td>
+              </>
+            );
+          }}
+          components={{
+            Table: ({ style, ...props }) => (
+              <table 
+                {...props} 
+                style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
+                className="text-[11px]"
+              />
+            ),
+            TableHead: React.forwardRef(({ style, ...props }, ref) => (
+              <thead 
+                {...props} 
+                ref={ref}
+                style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }}
+              />
+            )),
+            TableRow: ({ style, ...props }) => (
+              <tr 
+                {...props} 
+                style={{ ...style }}
+                className="hover:bg-slate-50 transition-colors border-b border-slate-100"
+              />
+            ),
+          }}
+        />
       </div>
     </div>
   );

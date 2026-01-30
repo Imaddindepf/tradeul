@@ -15,7 +15,7 @@
 
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useReactTable,
@@ -56,9 +56,9 @@ const columnHelper = createColumnHelper<Ticker>();
 // Columnas no listadas = ocultas por defecto (excepto row_number y symbol que no se ocultan)
 
 const DEFAULT_VISIBLE_COLUMNS: Record<string, string[]> = {
-  // Gappers: enfocado en gap % (premarket) y volumen relativo
-  gappers_up: ['price', 'change_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
-  gappers_down: ['price', 'change_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+  // Gappers: enfocado en gap % (FIJO) y change % (tiempo real)
+  gappers_up: ['price', 'change_percent', 'gap_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+  gappers_down: ['price', 'change_percent', 'gap_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
 
   // Momentum: cambio % + chg_5min (vela de ignición) + RVOL alto
   momentum_up: ['price', 'change_percent', 'premarket_change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
@@ -93,7 +93,7 @@ const DEFAULT_BASE_COLUMNS = ['price', 'change_percent', 'volume_today', 'rvol',
 
 // Genera el objeto de visibilidad de columnas (todas las columnas excepto las visibles = false)
 const ALL_HIDEABLE_COLUMNS = [
-  'price', 'change_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float',
+  'price', 'change_percent', 'gap_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float',
   'shares_outstanding', 'minute_volume', 'avg_volume_5d', 'avg_volume_10d', 'avg_volume_3m',
   'dollar_volume', 'volume_today_pct', 'volume_yesterday_pct', 'vol_1min', 'vol_5min',
   'vol_10min', 'vol_15min', 'vol_30min', 'chg_1min', 'chg_5min', 'chg_10min', 'chg_15min', 'chg_30min',
@@ -279,6 +279,20 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const [newTickers, setNewTickers] = useState<Set<string>>(new Set());
   const [rowChanges, setRowChanges] = useState<Map<string, 'up' | 'down'>>(new Map());
 
+  // Ref para trackear timeouts de animaciones (MEMORY LEAK FIX)
+  // Esto permite limpiar todos los timeouts cuando el componente se desmonta
+  const animationTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // Cleanup de timeouts al desmontar componente (CRITICAL: previene memory leaks)
+  useEffect(() => {
+    const timers = animationTimersRef.current;
+    return () => {
+      // Limpiar TODOS los timeouts pendientes
+      timers.forEach((timerId) => clearTimeout(timerId));
+      timers.clear();
+    };
+  }, []);
+
   // Command executor para abrir Description
   const { executeTickerCommand } = useCommandExecutor();
 
@@ -326,26 +340,35 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
 
       // Trigger animations for added/reranked tickers
       // Tiempos optimizados: ligeramente > duración CSS
+      // MEMORY LEAK FIX: Todos los timeouts se trackean y limpian al desmontar
       delta.deltas.forEach((d: any) => {
         if (d.action === 'add') {
           setNewTickers((prev) => new Set(prev).add(d.symbol));
-          setTimeout(() => {
+          const timerId = setTimeout(() => {
             setNewTickers((prev) => {
               const updated = new Set(prev);
               updated.delete(d.symbol);
               return updated;
             });
+            // Auto-remove del set de timers cuando completa
+            animationTimersRef.current.delete(timerId);
           }, 850); // CSS: 800ms
+          // Trackear el timeout para limpieza
+          animationTimersRef.current.add(timerId);
         } else if (d.action === 'rerank') {
           const direction = d.new_rank < d.old_rank ? 'up' : 'down';
           setRowChanges((prev) => new Map(prev).set(d.symbol, direction));
-          setTimeout(() => {
+          const timerId = setTimeout(() => {
             setRowChanges((prev) => {
               const updated = new Map(prev);
               updated.delete(d.symbol);
               return updated;
             });
+            // Auto-remove del set de timers cuando completa
+            animationTimersRef.current.delete(timerId);
           }, 450); // CSS: 400ms
+          // Trackear el timeout para limpieza
+          animationTimersRef.current.add(timerId);
         }
       });
     },
@@ -503,7 +526,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         },
       }),
       columnHelper.accessor('change_percent', {
-        header: t('scanner.tableHeaders.gapPercent'),
+        header: 'Chg %',
         size: 85,
         minSize: 70,
         maxSize: 130,
@@ -518,6 +541,25 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'
                 }`}
             >
+              {formatPercent(value)}
+            </div>
+          );
+        },
+      }),
+      columnHelper.accessor('gap_percent', {
+        header: 'Gap %',
+        size: 85,
+        minSize: 70,
+        maxSize: 130,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          return (
+            <div className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
               {formatPercent(value)}
             </div>
           );
