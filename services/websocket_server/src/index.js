@@ -100,6 +100,14 @@ const redisSECFilings = new Redis({
   maxRetriesPerRequest: null,
 });
 
+// Cliente Redis para escuchar cambios en user scans (Pub/Sub)
+const redisUserScans = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  enableReadyCheck: false,
+  lazyConnect: false,
+});
+
 redis.on("connect", () => {
   logger.info("📡 Connected to Redis");
 });
@@ -127,6 +135,14 @@ redisAggregates.on("error", (err) => {
 
 redisSECFilings.on("error", (err) => {
   logger.error({ err }, "Redis SEC Filings error");
+});
+
+redisUserScans.on("error", (err) => {
+  // Ignorar errores de "subscriber mode" ya que son esperados
+  if (err.message && err.message.includes("subscriber mode")) {
+    return;
+  }
+  logger.error({ err }, "Redis User Scans error");
 });
 
 redisBenzingaNews.on("connect", () => {
@@ -185,6 +201,18 @@ const symbolToLists = new Map();
 
 // Últimos snapshots por lista (cache): listName -> { sequence, rows, timestamp }
 const lastSnapshots = new Map();
+
+// =============================================
+// USER SCANS: Estructuras para scans personalizados
+// =============================================
+
+// Ownership de user scans: scanId -> userId
+// Se usa para validar que solo el owner puede suscribirse
+const userScanOwners = new Map();
+
+// Símbolos en cada user scan: listName (uscan_X) -> Set<symbol>
+// Se usa para mantener suscripciones a Polygon cuando un ticker entra/sale
+const userScanSymbols = new Map();
 
 // =============================================
 // AGGREGATE SAMPLING & THROTTLING
@@ -942,7 +970,62 @@ function broadcastToListSubscribers(listName, message) {
 // =============================================
 
 /**
+ * Validar ownership de user scan
+ * @returns {Promise<{valid: boolean, error?: string}>}
+ */
+async function validateUserScanOwnership(connectionId, listName) {
+  // Solo validar si es un user scan (uscan_X)
+  if (!listName.startsWith("uscan_")) {
+    return { valid: true };
+  }
+  
+  const conn = connections.get(connectionId);
+  if (!conn) {
+    return { valid: false, error: "Connection not found" };
+  }
+  
+  const scanId = listName.replace("uscan_", "");
+  const userId = conn.user?.sub;
+  
+  if (!userId) {
+    return { valid: false, error: "User not authenticated" };
+  }
+  
+  // Verificar en cache local primero
+  if (userScanOwners.has(scanId)) {
+    const owner = userScanOwners.get(scanId);
+    if (owner === userId) {
+      return { valid: true };
+    }
+    return { valid: false, error: "Not authorized to view this scan" };
+  }
+  
+  // Verificar en Redis
+  try {
+    const owner = await redisCommands.get(`user_scan:owner:${scanId}`);
+    
+    if (!owner) {
+      // Scan no existe o expiró
+      return { valid: false, error: "Scan not found" };
+    }
+    
+    // Guardar en cache local
+    userScanOwners.set(scanId, owner);
+    
+    if (owner === userId) {
+      return { valid: true };
+    }
+    
+    return { valid: false, error: "Not authorized to view this scan" };
+  } catch (err) {
+    logger.error({ err, scanId, userId }, "Error validating scan ownership");
+    return { valid: false, error: "Error validating ownership" };
+  }
+}
+
+/**
  * Suscribir cliente a lista
+ * NOTA: Para user scans, se debe validar ownership antes de llamar esta función
  */
 function subscribeClientToList(connectionId, listName) {
   const conn = connections.get(connectionId);
@@ -962,6 +1045,7 @@ function subscribeClientToList(connectionId, listName) {
       connectionId,
       listName,
       totalSubscribers: listSubscribers.get(listName).size,
+      isUserScan: listName.startsWith("uscan_"),
     },
     "📋 Client subscribed to list"
   );
@@ -2153,6 +2237,22 @@ wss.on("connection", async (ws, req) => {
           return;
         }
 
+        // Validar ownership para user scans
+        if (listName.startsWith("uscan_")) {
+          const validation = await validateUserScanOwnership(connectionId, listName);
+          if (!validation.valid) {
+            logger.warn(
+              { connectionId, listName, error: validation.error },
+              "User scan access denied"
+            );
+            sendMessage(connectionId, {
+              type: "error",
+              message: validation.error || "Access denied",
+            });
+            return;
+          }
+        }
+
         // Suscribir cliente
         subscribeClientToList(connectionId, listName);
 
@@ -2436,8 +2536,162 @@ wss.on("connection", async (ws, req) => {
 });
 
 // =============================================
+// USER SCANS CHANGE LISTENER
+// =============================================
+
+/**
+ * Procesar cambios en user scans via Pub/Sub
+ * Escucha canal ws:user_scans:changed
+ * 
+ * Actions:
+ * - created: Nuevo scan disponible (cache owner)
+ * - updated: Scan modificado (invalidar cache)
+ * - deleted: Scan eliminado (desuscribir clientes, limpiar índices)
+ */
+async function processUserScanChanges() {
+  logger.info("🔧 Starting User Scans change listener");
+  
+  try {
+    await redisUserScans.subscribe("ws:user_scans:changed");
+    
+    redisUserScans.on("message", async (channel, message) => {
+      if (channel !== "ws:user_scans:changed") return;
+      
+      try {
+        const data = JSON.parse(message);
+        const { action, scan_id, user_id, category, name } = data;
+        
+        logger.info(
+          { action, scan_id, user_id, category },
+          "📥 Received user scan change event"
+        );
+        
+        if (action === "created") {
+          // Cachear ownership
+          userScanOwners.set(String(scan_id), user_id);
+          logger.info({ scan_id, user_id }, "✅ Cached user scan owner");
+        }
+        else if (action === "updated") {
+          // Actualizar ownership cache y invalidar snapshot cache
+          userScanOwners.set(String(scan_id), user_id);
+          lastSnapshots.delete(category);
+          logger.info({ scan_id, category }, "🔄 Invalidated user scan cache");
+        }
+        else if (action === "deleted") {
+          // 1. Obtener suscriptores de esta lista
+          const listName = category || `uscan_${scan_id}`;
+          const subscribers = listSubscribers.get(listName);
+          
+          if (subscribers && subscribers.size > 0) {
+            // 2. Notificar a todos los clientes que el scan fue eliminado
+            const notification = {
+              type: "scan_deleted",
+              list: listName,
+              message: "This scan has been deleted by the owner",
+              timestamp: new Date().toISOString()
+            };
+            
+            subscribers.forEach((connectionId) => {
+              sendMessage(connectionId, notification);
+              // Desuscribir cliente
+              const conn = connections.get(connectionId);
+              if (conn) {
+                conn.subscriptions.delete(listName);
+                conn.sequence_numbers.delete(listName);
+              }
+            });
+            
+            logger.info(
+              { listName, subscribersCount: subscribers.size },
+              "📤 Notified clients of deleted scan"
+            );
+          }
+          
+          // 3. Limpiar índices de suscriptores y ownership
+          listSubscribers.delete(listName);
+          userScanOwners.delete(String(scan_id));
+          lastSnapshots.delete(listName);
+          
+          // 4. Limpiar símbolos asociados de symbolToLists
+          // IMPORTANTE: Iterar symbolToLists y eliminar este listName de cada symbol
+          // Esto asegura que si XYZ está en uscan_A y uscan_B, al eliminar uscan_B
+          // XYZ sigue en symbolToLists porque uscan_A todavía lo tiene
+          let symbolsRemoved = 0;
+          symbolToLists.forEach((lists, symbol) => {
+            if (lists.has(listName)) {
+              lists.delete(listName);
+              symbolsRemoved++;
+              // Solo eliminar el symbol si no está en ninguna otra lista
+              if (lists.size === 0) {
+                symbolToLists.delete(symbol);
+                logger.debug({ symbol }, "Symbol removed from all lists");
+              }
+            }
+          });
+          
+          // También limpiar userScanSymbols si existe
+          userScanSymbols.delete(listName);
+          
+          logger.info(
+            { scan_id, listName, symbolsRemoved },
+            "🗑️ Cleaned up deleted user scan"
+          );
+        }
+      } catch (parseErr) {
+        logger.error({ parseErr, message }, "Error parsing user scan change message");
+      }
+    });
+    
+    logger.info("✅ User Scans change listener started");
+  } catch (err) {
+    logger.error({ err }, "Error starting user scans change listener");
+  }
+}
+
+/**
+ * Actualizar índice de símbolos para un user scan
+ * Se llama cuando llega un delta o snapshot de un user scan
+ */
+function updateUserScanSymbols(listName, symbols) {
+  if (!listName.startsWith("uscan_")) return;
+  
+  const oldSymbols = userScanSymbols.get(listName) || new Set();
+  const newSymbols = new Set(symbols);
+  
+  // Símbolos añadidos
+  newSymbols.forEach((symbol) => {
+    if (!oldSymbols.has(symbol)) {
+      if (!symbolToLists.has(symbol)) {
+        symbolToLists.set(symbol, new Set());
+      }
+      symbolToLists.get(symbol).add(listName);
+    }
+  });
+  
+  // Símbolos removidos
+  oldSymbols.forEach((symbol) => {
+    if (!newSymbols.has(symbol)) {
+      const lists = symbolToLists.get(symbol);
+      if (lists) {
+        lists.delete(listName);
+        if (lists.size === 0) {
+          symbolToLists.delete(symbol);
+        }
+      }
+    }
+  });
+  
+  userScanSymbols.set(listName, newSymbols);
+}
+
+// =============================================
 // STARTUP
 // =============================================
+
+// Iniciar listener de cambios en user scans
+processUserScanChanges().catch((err) => {
+  logger.error({ err }, "User Scans change listener failed to start");
+});
 
 // Iniciar procesadores de streams
 processRankingDeltasStream().catch((err) => {

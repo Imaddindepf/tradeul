@@ -532,10 +532,12 @@ Respond in the same language as the user."""
             description = tool["description"]
             
             if tool["name"] == "get_market_snapshot":
-                description = """Get REAL-TIME market data from Redis snapshot.
-Use for: current prices, today's gainers/losers, live rankings, "top stocks today/now/tdy"
-Returns: ~11,000 tickers with price, change%, volume, vwap
-THIS IS THE CORRECT TOOL FOR "TODAY" QUESTIONS ABOUT RANKINGS/PRICES."""
+                description = """Get REAL-TIME market data from scanner.
+USE FOR:
+- Check if specific ticker is in scanner: symbols=["AAOI"] 
+- Today's gainers/losers, live rankings, current prices
+Returns: price, change%, volume, vwap, sector
+IMPORTANT: To check if a ticker is in scanner, use symbols parameter."""
             
             elif tool["name"] == "execute_analysis":
                 description = """Execute Python/DuckDB code for HISTORICAL analysis.

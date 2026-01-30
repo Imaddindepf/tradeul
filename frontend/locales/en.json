@@ -177,6 +177,10 @@
       "name": "Scanner Filters",
       "description": "Customize scanner"
     },
+    "sb": {
+      "name": "Scan Builder",
+      "description": "Custom scans"
+    },
     "chat": {
       "name": "Community Chat",
       "description": "Trader chat"
@@ -602,6 +606,9 @@
       },
       "HM": {
         "description": "Market heatmap"
+      },
+      "SB": {
+        "description": "Custom scans"
       }
     }
   },

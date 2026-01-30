@@ -232,13 +232,17 @@ class VolumeWindowTracker:
         Uses the tracker's latest timestamp as reference (not datetime.now()).
         Calculates: current_accumulated_volume - volume_N_minutes_ago
         
+        IMPORTANTE: Valida que el dato encontrado este realmente dentro de la
+        ventana de tiempo esperada. En After Hours con bajo volumen, puede haber
+        gaps largos entre datos que darian resultados incorrectos.
+        
         Args:
             symbol: Ticker symbol
             minutes: Window size (1, 5, 10, 15, 30)
             current_timestamp: Ignored - uses tracker's latest timestamp
             
         Returns:
-            Volume traded in window, or None if insufficient data
+            Volume traded in window, or None if insufficient data or data gap too large
         """
         if symbol not in self.symbol_index:
             return None
@@ -256,10 +260,16 @@ class VolumeWindowTracker:
         ts_now = self.timestamps[idx, head]  # This is our reference point
         
         # Target is N minutes before ts_now (our latest data point)
-        target_timestamp = ts_now - (minutes * 60)
+        window_seconds = minutes * 60
+        target_timestamp = ts_now - window_seconds
+        
+        # Tolerancia maxima: ventana + 15 segundos (para cubrir delays de red/procesamiento)
+        # NO usamos 2x porque eso daría números inflados
+        max_acceptable_gap = window_seconds + 15
         
         # Search backwards for timestamp closest to target
         vol_past = None
+        ts_past_found = None
         
         for i in range(1, count):
             # Circular index going backwards
@@ -268,10 +278,18 @@ class VolumeWindowTracker:
             
             if ts_past <= target_timestamp:
                 vol_past = self.volumes[idx, past_idx]
+                ts_past_found = ts_past
                 break
         
-        if vol_past is None:
+        if vol_past is None or ts_past_found is None:
             # Not enough history
+            return None
+        
+        # VALIDACION: Verificar que el gap no sea demasiado grande
+        # Si el dato encontrado es de hace mas de 2x la ventana, el calculo no es valido
+        actual_gap = ts_now - ts_past_found
+        if actual_gap > max_acceptable_gap:
+            # Gap demasiado grande - datos no son confiables para esta ventana
             return None
         
         # Volume in window = current - past
@@ -291,6 +309,10 @@ class VolumeWindowTracker:
         
         Uses the MOST RECENT timestamp in the tracker as reference point,
         not datetime.now(). This ensures consistency regardless of processing delays.
+        
+        IMPORTANTE: Valida que cada dato encontrado este realmente dentro de una
+        ventana razonable (2x el tiempo de la ventana). En After Hours con bajo
+        volumen, puede haber gaps largos que darian resultados incorrectos.
         
         Args:
             symbol: Ticker symbol
@@ -315,15 +337,19 @@ class VolumeWindowTracker:
         # Use ts_now (latest data point) as reference, not datetime.now()
         # This makes calculations independent of processing delays
         
-        # Target timestamps for each window (in seconds from ts_now)
-        # vol_1min = volume from ts_now back to ts_now-60
-        targets = {
-            1: ts_now - 60,    # 1 min = 60 seconds before latest
-            5: ts_now - 300,   # 5 min = 300 seconds before latest
-            10: ts_now - 600,  # 10 min = 600 seconds before latest
-            15: ts_now - 900,  # 15 min = 900 seconds before latest
-            30: ts_now - 1800, # 30 min = 1800 seconds before latest
+        # Window sizes in seconds and their max acceptable gaps
+        # Tolerancia: ventana + 15 segundos (para cubrir delays de red/procesamiento)
+        # NO usamos 2x porque eso daría números inflados
+        windows_config = {
+            1: (60, 75),       # 1 min window, max 1:15 gap (15s tolerancia)
+            5: (300, 315),     # 5 min window, max 5:15 gap (15s tolerancia)
+            10: (600, 615),    # 10 min window, max 10:15 gap (15s tolerancia)
+            15: (900, 915),    # 15 min window, max 15:15 gap (15s tolerancia)
+            30: (1800, 1815),  # 30 min window, max 30:15 gap (15s tolerancia)
         }
+        
+        # Target timestamps for each window
+        targets = {mins: ts_now - window_secs for mins, (window_secs, _) in windows_config.items()}
         
         # Single pass through history to find all targets
         results = {1: None, 5: None, 10: None, 15: None, 30: None}
@@ -337,8 +363,15 @@ class VolumeWindowTracker:
             # Check each target we haven't found yet
             for mins, target_ts in targets.items():
                 if mins not in found_targets and ts_past <= target_ts:
-                    # Convert numpy.int64 to native Python int for JSON serialization
-                    results[mins] = int(max(0, vol_now - vol_past))
+                    # VALIDACION: Verificar que el gap no sea demasiado grande
+                    actual_gap = ts_now - ts_past
+                    _, max_gap = windows_config[mins]
+                    
+                    if actual_gap <= max_gap:
+                        # Gap aceptable - calcular volumen
+                        results[mins] = int(max(0, vol_now - vol_past))
+                    # else: Gap demasiado grande, dejar como None
+                    
                     found_targets.add(mins)
             
             # Early exit if all found

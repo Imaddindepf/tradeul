@@ -256,6 +256,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.HM.description',
         shortcut: 'Ctrl+H'
     },
+    SB: {
+        id: 'sb',
+        label: 'SB',
+        name: 'Scan Builder',
+        descriptionKey: 'terminalCommands.globalCommands.SB.description',
+        shortcut: null
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;

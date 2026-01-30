@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X, Loader2 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { parseTerminalCommand, TICKER_COMMANDS, GLOBAL_COMMANDS } from '@/lib/terminal-parser';
+import { useUserFilters } from '@/hooks/useUserFilters';
+import type { UserFilter } from '@/lib/types/scannerFilters';
 
 interface TerminalPaletteProps {
     open: boolean;
@@ -57,7 +59,17 @@ export function TerminalPalette({
     const [selectedTicker, setSelectedTicker] = useState<TickerResult | null>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
-    const { executeCommand, openScannerTable } = useCommandExecutor();
+    const { executeCommand, openScannerTable, openUserScanTable } = useCommandExecutor();
+
+    // User scans - refrescar cada vez que se abre el palette
+    const { filters: userScans, loading: userScansLoading, refreshFilters } = useUserFilters();
+
+    // Refrescar filtros cuando se abre el palette
+    useEffect(() => {
+        if (open) {
+            refreshFilters();
+        }
+    }, [open, refreshFilters]);
 
     const search = searchValue.trim();
     const setSearch = onSearchChange || (() => { });
@@ -143,7 +155,7 @@ export function TerminalPalette({
     }, [search]);
 
     // Generar items a mostrar
-    const items = getDisplayItems(parsed, hasScPrefix, search, tickerResults, selectedTicker, t);
+    const items = getDisplayItems(parsed, hasScPrefix, search, tickerResults, selectedTicker, t, userScans);
 
     // Scroll to selected
     useEffect(() => {
@@ -242,8 +254,17 @@ export function TerminalPalette({
                 setSelectedTicker(null);
                 onOpenChange(false);
                 break;
+
+            case 'user-scanner':
+                if (item.userFilter) {
+                    openUserScanTable(item.userFilter);
+                }
+                setSearch('');
+                setSelectedTicker(null);
+                onOpenChange(false);
+                break;
         }
-    }, [executeCommand, openScannerTable, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
+    }, [executeCommand, openScannerTable, openUserScanTable, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
 
     if (!open) return null;
 
@@ -350,6 +371,9 @@ export function TerminalPalette({
                                                 <span className="text-[10px] text-slate-500 flex-1 truncate">
                                                     {item.description}
                                                 </span>
+                                                {item.isUserScan && (
+                                                    <span className="text-[9px] text-slate-400 font-mono">(custom)</span>
+                                                )}
                                                 {item.shortcut && (
                                                     <span className="text-[9px] text-slate-400 font-mono">
                                                         {item.shortcut}
@@ -386,7 +410,7 @@ export function TerminalPalette({
 // Types
 interface DisplayItem {
     id: string;
-    type: 'instrument' | 'ticker-command' | 'global-command' | 'scanner';
+    type: 'instrument' | 'ticker-command' | 'global-command' | 'scanner' | 'user-scanner';
     label: string;
     description: string;
     shortcut?: string | null;
@@ -395,6 +419,8 @@ interface DisplayItem {
     commandId?: string;
     scannerId?: string;
     tickerData?: TickerResult;
+    userFilter?: UserFilter;
+    isUserScan?: boolean;
 }
 
 function getDisplayItems(
@@ -403,7 +429,8 @@ function getDisplayItems(
     search: string,
     tickerResults: TickerResult[],
     selectedTicker: TickerResult | null,
-    t: (key: string) => string
+    t: (key: string) => string,
+    userScans: UserFilter[] = []
 ): DisplayItem[] {
     // Si hay un ticker seleccionado, mostrar comandos para ese ticker
     if (selectedTicker) {
@@ -419,10 +446,12 @@ function getDisplayItems(
         }));
     }
 
-    // Si es prefijo SC, mostrar categorías del scanner
+    // Si es prefijo SC, mostrar categorías del scanner + user scans
     if (hasScPrefix) {
         const filter = search.toUpperCase().replace('SC', '').trim();
-        return SCANNER_COMMANDS
+
+        // System scanner commands
+        const systemItems: DisplayItem[] = SCANNER_COMMANDS
             .filter(cmd => !filter || cmd.label.toUpperCase().includes(filter))
             .map(cmd => ({
                 id: `scanner-${cmd.id}`,
@@ -432,6 +461,26 @@ function getDisplayItems(
                 scannerId: cmd.id,
                 autocomplete: `SC ${cmd.label}`,
             }));
+
+        // User scanner commands
+        const userItems: DisplayItem[] = userScans
+            .filter(scan => !filter || scan.name.toUpperCase().includes(filter))
+            .map(scan => {
+                // Contar solo filtros con valores no-null
+                const activeFilters = Object.values(scan.parameters || {}).filter(v => v != null).length;
+                return {
+                    id: `user-scanner-${scan.id}`,
+                    type: 'user-scanner' as const,
+                    label: scan.name,
+                    description: scan.enabled ? `${activeFilters} filters` : '(disabled)',
+                    userFilter: scan,
+                    isUserScan: true,
+                    autocomplete: `SC ${scan.name}`,
+                };
+            });
+
+        // Devolver system primero, luego user scans
+        return [...systemItems, ...userItems];
     }
 
     // Buscar comandos globales que coincidan

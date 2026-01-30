@@ -138,15 +138,28 @@ async def _fetch_polygon_top_movers(
 MARKET_TOOLS = [
     {
         "name": "get_market_snapshot",
-        "description": """Get real-time market data snapshot. Returns ~1000 most active tickers with current prices, 
-        changes, volume, and technical indicators. Use for: current gainers/losers, real-time rankings, 
-        sector analysis, volume leaders. Data includes: symbol, price, change_percent, volume_today, 
-        market_cap, sector, rvol, vwap, pre/post market data.
+        "description": """Get real-time market data from scanner. Returns active tickers with current prices, 
+        changes, volume, and technical indicators.
         
-        IMPORTANT: Set generate_chart=true when user asks for 'grafico', 'chart', 'visualizar', 'plot'.""",
+        USE FOR:
+        - Check if specific ticker(s) are in scanner: symbols=["AAOI", "TSLA"]
+        - Current gainers/losers: filter_type="gainers" or "losers"
+        - Volume leaders: filter_type="volume"
+        - Sector analysis: sector="Technology"
+        
+        Data includes: symbol, price, change_percent, volume_today, market_cap, sector, rvol, vwap.
+        
+        IMPORTANT: 
+        - To check if ticker is in scanner, use symbols parameter
+        - Set generate_chart=true when user asks for 'grafico', 'chart', 'visualizar'""",
         "parameters": {
             "type": "object",
             "properties": {
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by specific ticker symbols. Use to check if ticker(s) are in scanner."
+                },
                 "filter_type": {
                     "type": "string",
                     "enum": ["all", "gainers", "losers", "volume", "premarket", "postmarket"],
@@ -804,6 +817,24 @@ async def _get_market_snapshot(args: Dict, ctx: Dict) -> Dict:
             min_price = args.get("min_price")
             min_market_cap = args.get("min_market_cap")
             sector = args.get("sector")
+            symbols = args.get("symbols")  # Filter by specific symbols
+            
+            # If specific symbols requested, filter and report which are in scanner
+            if symbols:
+                symbols_upper = [s.upper() for s in symbols]
+                found_df = df[df["symbol"].isin(symbols_upper)]
+                found_symbols = set(found_df["symbol"].tolist())
+                missing_symbols = [s for s in symbols_upper if s not in found_symbols]
+                
+                return {
+                    "success": True,
+                    "data": found_df,
+                    "count": len(found_df),
+                    "requested_symbols": symbols_upper,
+                    "found_in_scanner": list(found_symbols),
+                    "not_in_scanner": missing_symbols,
+                    "message": f"Found {len(found_symbols)}/{len(symbols_upper)} symbols in scanner"
+                }
             
             if min_volume and "volume_today" in df.columns:
                 df = df[df["volume_today"] >= min_volume]

@@ -54,6 +54,9 @@ from subscriptions import SubscriptionManager
 # Calculador de deltas (refactorizacion)
 from ranking import calculate_ranking_deltas, ticker_data_changed
 
+# Motor RETE para reglas de usuario
+from rete import ReteManager, get_system_rules, compile_network, CATEGORY_TO_CHANNEL
+
 logger = get_logger(__name__)
 
 
@@ -106,11 +109,18 @@ class ScannerEngine:
         self.last_filtered_time: Optional[datetime] = None
         
         # NEW: Sistema de deltas (snapshot + incremental updates)
-        self.last_rankings: Dict[str, List[ScannerTicker]] = {}  # Por categoría
+        self.last_rankings: Dict[str, List[ScannerTicker]] = {}  # Por categoría sistema
         self.sequence_numbers: Dict[str, int] = {}  # Sequence number por categoría
+        
+        # User scans: Rankings anteriores para calcular deltas
+        self.last_user_scan_rankings: Dict[str, List[ScannerTicker]] = {}  # uscan_X → tickers
         
         # Auto-subscription manager (para Polygon WS)
         self._subscription_manager = SubscriptionManager(redis_client)
+        
+        # Motor RETE para reglas de usuario y sistema
+        self._rete_manager = ReteManager(redis_client, timescale_client)
+        self._rete_enabled = True  # Feature flag para activar/desactivar RETE
         
         # RVOL viene directamente en las tuplas (snapshot, rvol) - no necesita dict
         
@@ -133,11 +143,25 @@ class ScannerEngine:
         # Get current market session
         await self._update_market_session()
         
+        # Initialize RETE engine
+        if self._rete_enabled:
+            await self._initialize_rete()
+        
         logger.info(
             "ScannerEngine initialized",
             filters_loaded=len(self.filters),
             session=self.current_session
         )
+    
+    async def _initialize_rete(self) -> None:
+        """Initialize RETE rule engine"""
+        try:
+            await self._rete_manager.initialize()
+            stats = self._rete_manager.get_stats()
+            logger.info("rete_initialized", **stats.get("network", {}))
+        except Exception as e:
+            logger.error("rete_init_error", error=str(e))
+            self._rete_enabled = False
     
     # =============================================
     # MAIN SCAN LOGIC
@@ -1429,10 +1453,17 @@ class ScannerEngine:
         """
         try:
             # Obtener todas las categorías
-            categories = self.categorizer.get_all_categories(
-                tickers, 
-                limit_per_category=settings.default_category_limit
-            )
+            # Usar RETE si está habilitado, sino usar categorizador tradicional
+            if self._rete_enabled and self._rete_manager.network:
+                categories = self._categorize_with_rete(
+                    tickers,
+                    limit_per_category=settings.default_category_limit
+                )
+            else:
+                categories = self.categorizer.get_all_categories(
+                    tickers, 
+                    limit_per_category=settings.default_category_limit
+                )
             
             # NEW: Calcular y emitir deltas para cada categoría
             if emit_deltas:
@@ -1468,6 +1499,10 @@ class ScannerEngine:
             # Publicar tickers para auto-suscripción en Polygon WS
             await self._publish_filtered_tickers_for_subscription(tickers)
             
+            # Procesar scans de usuarios (RETE)
+            if self._rete_enabled:
+                await self._process_user_scans(tickers)
+            
             # Actualizar cache
             self.last_categories = categories
             self.last_categorization_time = datetime.now()
@@ -1483,6 +1518,218 @@ class ScannerEngine:
         except Exception as e:
             logger.error("Error categorizing tickers", error=str(e))
             return {}
+    
+    def _categorize_with_rete(
+        self,
+        tickers: List[ScannerTicker],
+        limit_per_category: int = 100
+    ) -> Dict[str, List[ScannerTicker]]:
+        """
+        Categoriza tickers usando motor RETE.
+        
+        RETE evalua cada ticker contra todas las reglas en una pasada,
+        compartiendo evaluaciones de condiciones identicas.
+        """
+        if not self._rete_manager.network:
+            return {}
+        
+        # Evaluar batch de tickers
+        batch_results = self._rete_manager.evaluate_batch(tickers)
+        
+        # Obtener solo resultados de sistema (categorias)
+        system_results = self._rete_manager.get_system_results(batch_results)
+        
+        # Convertir a formato esperado y ordenar
+        categories: Dict[str, List[ScannerTicker]] = {}
+        
+        for rule_id, matched_tickers in system_results.items():
+            # Extraer nombre de categoria (category:gappers_up -> gappers_up)
+            category_name = rule_id.replace("category:", "")
+            
+            # Obtener regla para saber como ordenar
+            terminal = self._rete_manager.network.terminal_nodes.get(f"terminal:{rule_id}")
+            if terminal and terminal.rule.sort_field:
+                sort_field = terminal.rule.sort_field
+                reverse = terminal.rule.sort_descending
+                matched_tickers.sort(
+                    key=lambda t: getattr(t, sort_field, 0) or 0,
+                    reverse=reverse
+                )
+            
+            categories[category_name] = matched_tickers[:limit_per_category]
+        
+        return categories
+    
+    async def _process_user_scans(self, tickers: List[ScannerTicker]) -> None:
+        """
+        Procesa y publica resultados de TODOS los user scans habilitados.
+        
+        ARQUITECTURA COMPLETA:
+        1. Evalúa tickers contra reglas RETE de usuario
+        2. Calcula deltas respecto al ranking anterior
+        3. Publica snapshot a scanner:category:uscan_{id}
+        4. Publica deltas a stream:ranking:deltas (mismo que categorías sistema)
+        5. Actualiza índice de símbolos por user scan
+        """
+        if not self._rete_enabled or not self._rete_manager.network:
+            return
+        
+        try:
+            # Evaluar todos los tickers contra todas las reglas
+            batch_results = self._rete_manager.evaluate_batch(tickers)
+            
+            # Publicar resultados de reglas de usuario
+            user_rules_processed = 0
+            total_deltas_emitted = 0
+            
+            for rule_id, matched in batch_results.items():
+                if rule_id.startswith("user:"):
+                    # Extraer filter_id del formato "user:xxx:scan:17"
+                    parts = rule_id.split(":")
+                    filter_id = parts[-1] if len(parts) >= 4 else rule_id
+                    category_name = f"uscan_{filter_id}"
+                    
+                    # Ordenar por change_percent descendente
+                    matched.sort(key=lambda t: t.change_percent or 0, reverse=True)
+                    new_ranking = matched[:100]
+                    
+                    # Obtener ranking anterior
+                    old_ranking = self.last_user_scan_rankings.get(category_name, [])
+                    
+                    # Calcular deltas
+                    deltas = self.calculate_ranking_deltas(old_ranking, new_ranking, category_name)
+                    
+                    # Guardar snapshot en Redis
+                    await self._save_user_scan_to_redis("all", filter_id, new_ranking)
+                    
+                    # Emitir deltas si hay cambios
+                    if deltas:
+                        await self._emit_user_scan_deltas(category_name, deltas)
+                        total_deltas_emitted += len(deltas)
+                    
+                    # Actualizar ranking anterior
+                    self.last_user_scan_rankings[category_name] = new_ranking
+                    
+                    user_rules_processed += 1
+                    
+            if user_rules_processed > 0:
+                logger.info(
+                    "user_scans_processed",
+                    rules_count=user_rules_processed,
+                    deltas_emitted=total_deltas_emitted
+                )
+        except Exception as e:
+            logger.error("error_processing_user_scans", error=str(e))
+    
+    async def _save_user_scan_to_redis(self, user_id: str, rule_id: str, tickers: List[ScannerTicker]) -> None:
+        """
+        Guarda resultados de scan de usuario en Redis.
+        Usa el mismo formato que las categorías del sistema para compatibilidad con WebSocket.
+        
+        Key format: scanner:category:uscan_{rule_id}
+        """
+        try:
+            # Usar mismo formato que categorías del sistema
+            category_name = f"uscan_{rule_id}"
+            ranking_data = [t.model_dump(mode='json') for t in tickers]
+            
+            # Guardar en key (snapshot) - mismo formato que _save_ranking_to_redis
+            await self.redis.set(
+                f"scanner:category:{category_name}",
+                json.dumps(ranking_data),
+                ttl=300  # 5 minutos (user scans se actualizan frecuentemente)
+            )
+            
+            # Guardar sequence number para sincronización
+            sequence_key = f"uscan_seq_{rule_id}"
+            current_sequence = self.sequence_numbers.get(sequence_key, 0) + 1
+            self.sequence_numbers[sequence_key] = current_sequence
+            
+            await self.redis.set(
+                f"scanner:sequence:{category_name}",
+                current_sequence,
+                ttl=300
+            )
+            
+            logger.debug(
+                "user_scan_saved_to_redis",
+                user_id=user_id,
+                rule_id=rule_id,
+                category=category_name,
+                count=len(tickers),
+                sequence=current_sequence
+            )
+        except Exception as e:
+            logger.error("error_saving_user_scan", user_id=user_id, rule_id=rule_id, error=str(e))
+    
+    async def _emit_user_scan_deltas(self, category_name: str, deltas: List[Dict]) -> None:
+        """
+        Emite deltas de user scan al stream de rankings.
+        
+        Usa el mismo stream que las categorías del sistema (stream:ranking:deltas)
+        para que el WebSocket Server los procese de forma unificada.
+        
+        Args:
+            category_name: Nombre de la categoría (uscan_X)
+            deltas: Lista de cambios incrementales
+        """
+        if not deltas:
+            return
+        
+        try:
+            # Usar sequence key específico para user scans
+            sequence_key = category_name
+            self.sequence_numbers[sequence_key] = self.sequence_numbers.get(sequence_key, 0) + 1
+            sequence = self.sequence_numbers[sequence_key]
+            
+            # Crear mensaje en mismo formato que categorías sistema
+            message = {
+                'type': 'delta',
+                'list': category_name,
+                'sequence': sequence,
+                'deltas': json.dumps(deltas),
+                'timestamp': datetime.now().isoformat(),
+                'change_count': len(deltas)
+            }
+            
+            # Publicar al stream compartido
+            stream_manager = get_stream_manager()
+            await stream_manager.xadd(
+                settings.stream_ranking_deltas,
+                message
+            )
+            
+            # Actualizar sequence en Redis
+            await self.redis.set(
+                f"scanner:sequence:{category_name}",
+                sequence,
+                ttl=300  # 5 min para user scans
+            )
+            
+            logger.debug(
+                "user_scan_deltas_emitted",
+                category=category_name,
+                sequence=sequence,
+                changes=len(deltas),
+                adds=sum(1 for d in deltas if d.get('action') == 'add'),
+                removes=sum(1 for d in deltas if d.get('action') == 'remove')
+            )
+            
+        except Exception as e:
+            logger.error("error_emitting_user_scan_deltas", category=category_name, error=str(e))
+    
+    def register_active_user(self, user_id: str) -> None:
+        """Registra usuario activo."""
+        self._rete_manager.add_active_user(user_id)
+    
+    def unregister_active_user(self, user_id: str) -> None:
+        """Desregistra usuario."""
+        self._rete_manager.remove_active_user(user_id)
+    
+    async def reload_user_rules(self) -> None:
+        """Recarga reglas de usuarios."""
+        if self._rete_enabled:
+            await self._rete_manager.reload_rules()
     
     async def get_category(
         self,

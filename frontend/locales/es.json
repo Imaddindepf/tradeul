@@ -177,6 +177,10 @@
       "name": "Scanner Filters",
       "description": "Personalizar scanner"
     },
+    "sb": {
+      "name": "Scan Builder",
+      "description": "Scans personalizados"
+    },
     "chat": {
       "name": "Community Chat",
       "description": "Chat de traders"
@@ -602,6 +606,9 @@
       },
       "HM": {
         "description": "Mapa de calor del mercado"
+      },
+      "SB": {
+        "description": "Scans personalizados"
       }
     }
   },

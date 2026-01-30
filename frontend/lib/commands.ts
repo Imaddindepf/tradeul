@@ -57,6 +57,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'profile', label: 'PROFILE', description: 'commands.profile.description', icon: User },
   { id: 'settings', label: 'SET', description: 'commands.settings.description', icon: Settings, shortcut: 'Ctrl+,' },
   { id: 'filters', label: 'FILTERS', description: 'commands.filters.description', icon: Filter, shortcut: 'Ctrl+Shift+F' },
+  { id: 'sb', label: 'SB', description: 'commands.sb.description', icon: ScanSearch, isNew: true },
   { id: 'chat', label: 'CHAT', description: 'commands.chat.description', icon: MessageCircle, shortcut: 'Ctrl+Shift+C' },
   { id: 'notes', label: 'NOTE', description: 'commands.notes.description', icon: StickyNote, shortcut: 'Ctrl+Shift+N' },
   { id: 'patterns', label: 'PM', description: 'commands.patterns.description', icon: Sparkles, shortcut: 'Ctrl+P' },

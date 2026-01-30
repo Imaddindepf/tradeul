@@ -21,11 +21,17 @@ logger = structlog.get_logger(__name__)
 MARKET_TOOLS = [
     {
         "name": "get_market_snapshot",
-        "description": """Get real-time market data snapshot.
-Returns ~1000 most active tickers with: symbol, price, change_percent, volume, market_cap, sector, rvol, vwap.
-Use for: current gainers/losers, real-time rankings, live prices.
+        "description": """Get real-time market data from scanner.
+
+USE FOR:
+- Check if specific ticker(s) are in scanner: symbols=["AAOI", "TSLA"]
+- Current gainers/losers: filter_type="gainers"/"losers"
+- Volume leaders: filter_type="volume"
+
+Returns: symbol, price, change_percent, volume, market_cap, sector, rvol, vwap.
 
 Parameters:
+- symbols: List of tickers to check if in scanner (e.g., ["AAOI"])
 - filter_type: "all", "gainers", "losers", "volume", "premarket", "postmarket"
 - limit: Max results (default 50)
 - min_volume, min_price, min_market_cap: Optional filters
@@ -33,6 +39,11 @@ Parameters:
         "parameters": {
             "type": "object",
             "properties": {
+                "symbols": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Check if specific ticker(s) are in scanner"
+                },
                 "filter_type": {
                     "type": "string",
                     "enum": ["all", "gainers", "losers", "volume", "premarket", "postmarket"]

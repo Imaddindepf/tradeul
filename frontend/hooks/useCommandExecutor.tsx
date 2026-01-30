@@ -31,6 +31,9 @@ import { FinancialAnalystContent } from '@/components/financial-analyst';
 import { AIAgentContent } from '@/components/ai-agent';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
+import { ScanBuilderContent } from '@/components/scan-builder';
+import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
+import type { UserFilter } from '@/lib/types/scannerFilters';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
 function TickerStripWrapper({ symbol, exchange }: { symbol: string; exchange: string }) {
@@ -181,6 +184,20 @@ export function useCommandExecutor() {
                     x: screenWidth / 2 - 250,
                     y: screenHeight / 2 - 300,
                     minWidth: 400,
+                    minHeight: 400,
+                });
+                return null;
+
+            case 'sb':
+            case 'scan-builder':
+                openWindow({
+                    title: 'Scan Builder',
+                    content: <ScanBuilderContent />,
+                    width: 450,
+                    height: 500,
+                    x: screenWidth / 2 - 225,
+                    y: screenHeight / 2 - 250,
+                    minWidth: 380,
                     minHeight: 400,
                 });
                 return null;
@@ -701,6 +718,36 @@ export function useCommandExecutor() {
         });
     }, [openWindow]);
 
+    /**
+     * Abrir tabla de resultados de un scan personalizado del usuario.
+     * Usa ScannerTableContent (igual que categorías del sistema) para WebSocket real-time.
+     * El categoryId es "uscan_{filterId}" que coincide con la key en Redis.
+     */
+    const openUserScanTable = useCallback((scan: UserFilter) => {
+        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
+        const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
+        
+        // categoryId debe coincidir con el backend: uscan_{filterId}
+        const categoryId = `uscan_${scan.id}`;
+
+        openWindow({
+            title: `Scanner: ${scan.name}`,
+            content: (
+                <ScannerTableContent
+                    categoryId={categoryId}
+                    categoryName={scan.name}
+                />
+            ),
+            width: 850,
+            height: 500,
+            x: Math.max(50, screenWidth / 2 - 425),
+            y: Math.max(80, screenHeight / 2 - 250),
+            minWidth: 500,
+            minHeight: 300,
+            hideHeader: true,
+        });
+    }, [openWindow]);
+
     return {
         executeCommand,
         executeTickerCommand,
@@ -709,5 +756,6 @@ export function useCommandExecutor() {
         closeScannerTable,
         isScannerTableOpen,
         getScannerCategory,
+        openUserScanTable,
     };
 }

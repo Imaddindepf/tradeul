@@ -32,7 +32,7 @@ from shared.models.description import (
 from shared.models.polygon import PolygonSingleTickerSnapshotResponse
 from ws_manager import ConnectionManager
 from routes.user_prefs import router as user_prefs_router, set_timescale_client
-from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client
+from routes.user_filters import router as user_filters_router, set_timescale_client as set_user_filters_timescale_client, set_redis_client as set_user_filters_redis
 from routes.screener_templates import router as screener_templates_router, set_timescale_client as set_screener_templates_timescale_client
 from routes.financials import router as financials_router
 from routes.proxy import router as proxy_router
@@ -42,6 +42,7 @@ from routes.morning_news import router as morning_news_router, set_redis_client 
 from routes.insights import router as insights_router, set_redis_client as set_insights_redis
 from routes.symbols import router as symbols_router, set_timescale_client as set_symbols_timescale_client
 from routes.heatmap import router as heatmap_router, set_redis_client as set_heatmap_redis
+from routes.scanner import router as scanner_router, set_redis_client as set_scanner_redis
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
@@ -83,6 +84,7 @@ async def lifespan(app: FastAPI):
     await timescale_client.connect()
     set_timescale_client(timescale_client)  # Para user_prefs
     set_user_filters_timescale_client(timescale_client)  # Para user_filters
+    set_user_filters_redis(redis_client)  # Para notificar al scanner cuando cambian filtros
     set_screener_templates_timescale_client(timescale_client)  # Para screener_templates
     set_symbols_timescale_client(timescale_client)  # Para symbols (indexed query ~150ms)
     logger.info("timescale_connected")
@@ -105,6 +107,10 @@ async def lifespan(app: FastAPI):
     # Configurar router de heatmap con Redis
     set_heatmap_redis(redis_client)
     logger.info("heatmap_router_configured")
+    
+    # Configurar router de scanner con Redis
+    set_scanner_redis(redis_client)
+    logger.info("scanner_router_configured")
     
     # Inicializar HTTP Clients con connection pooling
     # Esto evita crear conexiones por request - CRÍTICO para latencia
@@ -206,6 +212,7 @@ app.include_router(morning_news_router)  # Morning News Call diario
 app.include_router(insights_router)  # TradeUL Insights (Morning, Mid-Morning, etc.)
 app.include_router(symbols_router)  # Symbol lookups (market cap filtering for AI agent)
 app.include_router(heatmap_router)  # Market heatmap visualization
+app.include_router(scanner_router)  # Scanner filtered tickers
 
 
 # ============================================================================
