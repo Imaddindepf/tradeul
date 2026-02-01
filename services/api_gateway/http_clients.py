@@ -541,6 +541,128 @@ class SECAPIClient:
             'total_filings': data.get('total', {}).get('value', 0)
         }
     
+    # ========================================================================
+    # Form 13F - Institutional Holdings
+    # ========================================================================
+    
+    async def search_13f_holdings(
+        self,
+        ticker: Optional[str] = None,
+        cik: Optional[str] = None,
+        cusip: Optional[str] = None,
+        period_of_report: Optional[str] = None,
+        size: int = 50,
+        from_index: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Search Form 13F holdings using SEC-API.io
+        
+        Args:
+            ticker: Filter by ticker in holdings
+            cik: Filter by fund CIK
+            cusip: Filter by CUSIP
+            period_of_report: Filter by quarter (e.g., "2024-09-30")
+            size: Number of results (max 50)
+            from_index: Offset for pagination
+        """
+        query_parts = []
+        
+        if ticker:
+            query_parts.append(f'holdings.ticker:{ticker.upper()}')
+        if cik:
+            query_parts.append(f'cik:{cik}')
+        if cusip:
+            query_parts.append(f'holdings.cusip:{cusip}')
+        if period_of_report:
+            query_parts.append(f'periodOfReport:{period_of_report}')
+        
+        query = " AND ".join(query_parts) if query_parts else "*"
+        
+        response = await self._client.post(
+            f"/form-13f/holdings?token={self.api_key}",
+            json={
+                "query": query,
+                "from": str(from_index),
+                "size": str(min(size, 50)),
+                "sort": [{"filedAt": {"order": "desc"}}]
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def search_13f_cover_pages(
+        self,
+        cik: Optional[str] = None,
+        crd_number: Optional[str] = None,
+        fund_name: Optional[str] = None,
+        size: int = 50,
+        from_index: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Search Form 13F cover pages using SEC-API.io
+        
+        Args:
+            cik: Filter by fund CIK
+            crd_number: Filter by CRD number
+            fund_name: Search by fund name
+            size: Number of results (max 50)
+            from_index: Offset for pagination
+        """
+        query_parts = []
+        
+        if cik:
+            query_parts.append(f'cik:{cik}')
+        if crd_number:
+            query_parts.append(f'crdNumber:{crd_number}')
+        if fund_name:
+            query_parts.append(f'filingManager.name:*{fund_name}*')
+        
+        query = " AND ".join(query_parts) if query_parts else "*"
+        
+        response = await self._client.post(
+            f"/form-13f/cover-pages?token={self.api_key}",
+            json={
+                "query": query,
+                "from": str(from_index),
+                "size": str(min(size, 50)),
+                "sort": [{"filedAt": {"order": "desc"}}]
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    async def get_fund_holdings(self, cik: str) -> Dict[str, Any]:
+        """
+        Get the most recent 13F holdings for a specific fund
+        
+        Args:
+            cik: Fund's CIK number
+        """
+        return await self.search_13f_holdings(cik=cik, size=1)
+    
+    async def get_holders_by_ticker(
+        self,
+        ticker: str,
+        period_of_report: Optional[str] = None,
+        size: int = 50,
+        from_index: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Get all institutional holders for a specific ticker
+        
+        Args:
+            ticker: Stock ticker symbol
+            period_of_report: Filter by quarter (e.g., "2024-09-30")
+            size: Number of results
+            from_index: Offset for pagination
+        """
+        return await self.search_13f_holdings(
+            ticker=ticker,
+            period_of_report=period_of_report,
+            size=size,
+            from_index=from_index
+        )
+    
     async def close(self):
         """Cierra el cliente"""
         await self._client.aclose()

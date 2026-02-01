@@ -33,6 +33,7 @@ import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
 import { ScanBuilderContent } from '@/components/scan-builder';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
+import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
 import type { UserFilter } from '@/lib/types/scannerFilters';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
@@ -528,6 +529,20 @@ export function useCommandExecutor() {
                 });
                 return null;
 
+            case 'hds':
+            case 'holders':
+                openWindow({
+                    title: 'Institutional Holdings',
+                    content: <InstitutionalHoldingsContent />,
+                    width: 850,
+                    height: 550,
+                    x: Math.max(50, screenWidth / 2 - 425),
+                    y: Math.max(70, screenHeight / 2 - 275),
+                    minWidth: 650,
+                    minHeight: 400,
+                });
+                return null;
+
             default:
                 break;
         }
@@ -692,6 +707,21 @@ export function useCommandExecutor() {
                 });
                 break;
 
+            case 'hds':
+            case 'holders':
+                // Institutional Holdings con ticker específico
+                openWindow({
+                    title: 'Institutional Holdings',
+                    content: <InstitutionalHoldingsContent initialTicker={normalizedTicker} />,
+                    width: 850,
+                    height: 550,
+                    x: Math.max(50, screenWidth / 2 - 425),
+                    y: Math.max(70, screenHeight / 2 - 275),
+                    minWidth: 650,
+                    minHeight: 400,
+                });
+                break;
+
             default:
                 console.warn(`Unknown ticker command: ${commandId}`);
         }
@@ -726,7 +756,7 @@ export function useCommandExecutor() {
     const openUserScanTable = useCallback((scan: UserFilter) => {
         const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
         const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-        
+
         // categoryId debe coincidir con el backend: uscan_{filterId}
         const categoryId = `uscan_${scan.id}`;
 

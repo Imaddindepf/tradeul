@@ -43,6 +43,7 @@ from routes.insights import router as insights_router, set_redis_client as set_i
 from routes.symbols import router as symbols_router, set_timescale_client as set_symbols_timescale_client
 from routes.heatmap import router as heatmap_router, set_redis_client as set_heatmap_redis
 from routes.scanner import router as scanner_router, set_redis_client as set_scanner_redis
+from routes.institutional import router as institutional_router, set_sec_api_client as set_institutional_sec_client, warmup_sec_api_connection
 from routers.watchlist_router import router as watchlist_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
@@ -112,6 +113,9 @@ async def lifespan(app: FastAPI):
     set_scanner_redis(redis_client)
     logger.info("scanner_router_configured")
     
+    # Configurar router de institutional con SEC API client
+    # Nota: se configura después de http_clients.initialize()
+    
     # Inicializar HTTP Clients con connection pooling
     # Esto evita crear conexiones por request - CRÍTICO para latencia
     await http_clients.initialize(
@@ -121,6 +125,13 @@ async def lifespan(app: FastAPI):
         elevenlabs_api_key=os.getenv("ELEVEN_LABS_API_KEY"),
     )
     logger.info("http_clients_initialized_with_pooling")
+    
+    # Configurar router de institutional holdings con SEC API client
+    if http_clients.sec_api:
+        set_institutional_sec_client(http_clients.sec_api)
+        # Warmup connection in background to avoid slow first request
+        asyncio.create_task(warmup_sec_api_connection())
+        logger.info("institutional_router_configured")
     
     # Inicializar Clerk JWT Verifier (pre-carga JWKS para auth)
     if getattr(settings, 'auth_enabled', False):
@@ -213,6 +224,7 @@ app.include_router(insights_router)  # TradeUL Insights (Morning, Mid-Morning, e
 app.include_router(symbols_router)  # Symbol lookups (market cap filtering for AI agent)
 app.include_router(heatmap_router)  # Market heatmap visualization
 app.include_router(scanner_router)  # Scanner filtered tickers
+app.include_router(institutional_router)  # Form 13F institutional holdings
 
 
 # ============================================================================

@@ -70,6 +70,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'earnings', label: 'ERN', description: 'commands.earnings.description', icon: Calendar, shortcut: 'Ctrl+E', isNew: true },
   { id: 'predict', label: 'PREDICT', description: 'commands.predict.description', icon: Globe, isNew: true },
   { id: 'heatmap', label: 'HM', description: 'commands.heatmap.description', icon: Grid3X3, shortcut: 'Ctrl+H', isNew: true },
+  { id: 'hds', label: 'HDS', description: 'commands.hds.description', icon: Users, isNew: true },
 ];
 
 /**

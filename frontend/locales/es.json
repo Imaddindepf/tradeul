@@ -211,7 +211,7 @@
     },
     "fan": {
       "name": "Financial Analyst",
-      "description": "Reporte financiero con IA"
+      "description": "Perfil completo de la accion"
     },
     "ai": {
       "name": "AI Agent",
@@ -228,6 +228,10 @@
     "heatmap": {
       "name": "Market Heatmap",
       "description": "Mapa de calor del mercado"
+    },
+    "hds": {
+      "name": "Holders",
+      "description": "Holdings institucionales (13F)"
     },
     "help": {
       "name": "Help",
@@ -525,7 +529,10 @@
         "description": "Gráficos similares"
       },
       "FAN": {
-        "description": "Reporte IA"
+        "description": "Perfil de la accion"
+      },
+      "HDS": {
+        "description": "Holders institucionales"
       }
     },
     "globalCommands": {
@@ -593,7 +600,7 @@
         "description": "Transacciones de insiders"
       },
       "FAN": {
-        "description": "Reporte financiero con IA"
+        "description": "Perfil de la accion"
       },
       "AI": {
         "description": "Pregunta a la IA"
@@ -609,6 +616,9 @@
       },
       "SB": {
         "description": "Scans personalizados"
+      },
+      "HDS": {
+        "description": "Holders institucionales"
       }
     }
   },

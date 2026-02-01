@@ -48,22 +48,22 @@ const htmlDecodeCache = new Map<string, string>();
 function decodeHtmlEntities(text: string): string {
   if (!text) return text;
   if (typeof window === 'undefined') return text;
-  
+
   // Check cache first
   const cached = htmlDecodeCache.get(text);
   if (cached !== undefined) return cached;
-  
+
   const textarea = document.createElement('textarea');
   textarea.innerHTML = text;
   const decoded = textarea.value;
-  
+
   // Cache result (limit cache size to prevent memory issues)
   if (htmlDecodeCache.size > 5000) {
     // Clear oldest entries (simple approach: clear all when too big)
     htmlDecodeCache.clear();
   }
   htmlDecodeCache.set(text, decoded);
-  
+
   return decoded;
 }
 
@@ -78,14 +78,14 @@ const ROW_HEIGHT = 24;
 export function NewsContent({ initialTicker, highlightArticleId }: NewsContentProps = {}) {
   const { t } = useTranslation();
   const { state: windowState, updateState: updateWindowState } = useWindowState<NewsWindowState>();
-  
+
   // Fuente del usuario
   const userFont = useUserPreferencesStore((s) => s.theme.font);
   const fontFamily = FONT_FAMILIES[userFont] || FONT_FAMILIES['jetbrains-mono'];
-  
+
   // Use persisted ticker
   const savedTicker = windowState.ticker || initialTicker || '';
-  
+
   // ================================================================
   // CONSUMIR DEL STORE GLOBAL
   // ================================================================
@@ -94,14 +94,14 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const isConnected = useNewsStore(selectIsConnected);
   const pausedBuffer = useNewsStore((state) => state.pausedBuffer);
   const stats = useNewsStore((state) => state.stats);
-  
+
   // Acciones del store
   const setPaused = useNewsStore((state) => state.setPaused);
   const resumeWithBuffer = useNewsStore((state) => state.resumeWithBuffer);
-  
+
   // Squawk Service (para UI de botón, la lógica de speak está en NewsProvider)
   const squawk = useSquawk();
-  
+
   // ================================================================
   // ESTADO LOCAL (solo UI)
   // ================================================================
@@ -109,15 +109,15 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const [tickerFilter, setTickerFilter] = useState<string>(savedTicker);
   const [tickerInputValue, setTickerInputValue] = useState<string>(savedTicker);
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
-  
+
   // Ref para virtuoso (para scroll programático)
   const virtuosoRef = useRef<any>(null);
-  
+
   // Persist ticker changes (including when cleared)
   useEffect(() => {
     updateWindowState({ ticker: tickerFilter });
   }, [tickerFilter, updateWindowState]);
-  
+
   // ================================================================
   // FILTRADO (memoizado) - Sin paginación, virtualización maneja todo
   // ================================================================
@@ -129,14 +129,14 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     );
   }, [articles, tickerFilter]);
 
-  const liveCount = useMemo(() => 
+  const liveCount = useMemo(() =>
     articles.filter(a => a.isLive).length
-  , [articles]);
+    , [articles]);
 
   // ================================================================
   // EFECTOS
   // ================================================================
-  
+
   // Scroll al artículo destacado
   useEffect(() => {
     if (highlightedId && virtuosoRef.current) {
@@ -155,7 +155,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   // ================================================================
   // HANDLERS
   // ================================================================
-  
+
   const handleTogglePause = useCallback(() => {
     if (isPaused) {
       resumeWithBuffer();
@@ -388,7 +388,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           )}
           itemContent={(index, article) => {
             const dt = formatDateTime(article.published);
-            const displayTicker = tickerFilter 
+            const displayTicker = tickerFilter
               ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
               : (article.tickers?.[0] || '—');
             const hasMultipleTickers = (article.tickers?.length || 0) > 1;
@@ -398,12 +398,11 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             return (
               <>
                 {/* Ticker - Primera columna */}
-                <td 
-                  className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${
-                    isHighlighted 
-                      ? 'bg-rose-100' 
+                <td
+                  className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
                       : article.isLive ? 'bg-emerald-50/50' : ''
-                  }`}
+                    }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
                 >
@@ -417,12 +416,11 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                   </span>
                 </td>
                 {/* Headline */}
-                <td 
-                  className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${
-                    isHighlighted 
-                      ? 'bg-rose-100' 
+                <td
+                  className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
                       : article.isLive ? 'bg-emerald-50/50' : ''
-                  }`}
+                    }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
                 >
@@ -436,36 +434,33 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                   </div>
                 </td>
                 {/* Date */}
-                <td 
-                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${
-                    isHighlighted 
-                      ? 'bg-rose-100' 
+                <td
+                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
                       : article.isLive ? 'bg-emerald-50/50' : ''
-                  }`}
+                    }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
                 >
                   {dt.date}
                 </td>
                 {/* Time */}
-                <td 
-                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${
-                    isHighlighted 
-                      ? 'bg-rose-100' 
+                <td
+                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
                       : article.isLive ? 'bg-emerald-50/50' : ''
-                  }`}
+                    }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
                 >
                   {dt.time}
                 </td>
                 {/* Source */}
-                <td 
-                  className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${
-                    isHighlighted 
-                      ? 'bg-rose-100' 
+                <td
+                  className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
                       : article.isLive ? 'bg-emerald-50/50' : ''
-                  }`}
+                    }`}
                   style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
                 >
@@ -476,22 +471,22 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           }}
           components={{
             Table: ({ style, ...props }) => (
-              <table 
-                {...props} 
+              <table
+                {...props}
                 style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
                 className="text-[11px]"
               />
             ),
             TableHead: React.forwardRef(({ style, ...props }, ref) => (
-              <thead 
-                {...props} 
+              <thead
+                {...props}
                 ref={ref}
                 style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }}
               />
             )),
             TableRow: ({ style, ...props }) => (
-              <tr 
-                {...props} 
+              <tr
+                {...props}
                 style={{ ...style }}
                 className="hover:bg-slate-50 transition-colors border-b border-slate-100"
               />

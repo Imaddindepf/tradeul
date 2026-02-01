@@ -73,6 +73,13 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.FAN.description',
         shortcut: 'Ctrl+Shift+F'
     },
+    HDS: {
+        id: 'hds',
+        label: 'HDS',
+        name: 'Holders',
+        descriptionKey: 'terminalCommands.tickerCommands.HDS.description',
+        shortcut: null
+    },
 } as const;
 
 export type TickerCommandKey = keyof typeof TICKER_COMMANDS;
@@ -261,6 +268,13 @@ export const GLOBAL_COMMANDS = {
         label: 'SB',
         name: 'Scan Builder',
         descriptionKey: 'terminalCommands.globalCommands.SB.description',
+        shortcut: null
+    },
+    HDS: {
+        id: 'hds',
+        label: 'HDS',
+        name: 'Holders',
+        descriptionKey: 'terminalCommands.globalCommands.HDS.description',
         shortcut: null
     },
 } as const;
