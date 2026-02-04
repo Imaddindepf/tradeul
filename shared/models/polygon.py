@@ -4,7 +4,7 @@ Documentation: https://polygon.io/docs/stocks/getting-started
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, ClassVar
 from pydantic import BaseModel, Field, validator
 
 
@@ -365,6 +365,145 @@ class PolygonQuote(BaseModel):
         return tape_map.get(self.z, f"Unknown ({self.z})")
 
 
+class PolygonLuld(BaseModel):
+    """
+    Limit Up-Limit Down (LULD) message from WebSocket
+    Event type: LULD
+    
+    Provides price bands and halt/pause information for securities.
+    LULD is a regulatory mechanism to prevent extreme price volatility.
+    
+    Subscription: Use ticker symbol or * for all
+    Example: LULD.AAPL or LULD.*
+    
+    Volume: ~3-10 messages/second for entire market (very light)
+    Only sent during market hours (9:30 AM - 4:00 PM ET)
+    
+    Indicators:
+        1: NBB_NBO_Executable (normal trading)
+        2: NBB_Below_Lower_Band (bid at floor)
+        3: NBO_Above_Upper_Band (ask at ceiling)
+        14: Opening_Update (bands set at open)
+        15: Intraday_Update (bands recalculated)
+        17: Suspended_Halt_Pause (HALTED!)
+        18: Reopening_Update (RESUMING!)
+        23-28: Limit state entered/exited
+    """
+    ev: str = Field("LULD", description="Event type (always 'LULD')")
+    T: str = Field(..., alias="T", description="Ticker symbol")  # Polygon uses 'T' not 'sym'
+    h: float = Field(..., description="Upper price band (limit up)")
+    l: float = Field(..., description="Lower price band (limit down)")
+    i: Optional[List[int]] = Field(None, description="LULD indicators")
+    z: Optional[int] = Field(None, description="Tape (1=NYSE, 2=AMEX, 3=NASDAQ)")
+    t: int = Field(..., description="SIP timestamp (Unix MS)")
+    q: Optional[int] = Field(None, description="Sequence number")
+    
+    class Config:
+        populate_by_name = True  # Allow both 'T' and alias
+    
+    # Indicator constants (ClassVar so Pydantic doesn't treat them as fields)
+    INDICATOR_EXECUTABLE: ClassVar[int] = 1
+    INDICATOR_NBB_BELOW_LOWER: ClassVar[int] = 2
+    INDICATOR_NBO_ABOVE_UPPER: ClassVar[int] = 3
+    INDICATOR_OPENING_UPDATE: ClassVar[int] = 14
+    INDICATOR_INTRADAY_UPDATE: ClassVar[int] = 15
+    INDICATOR_HALTED: ClassVar[int] = 17
+    INDICATOR_REOPENING: ClassVar[int] = 18
+    INDICATOR_NBB_LIMIT_ENTERED: ClassVar[int] = 23
+    INDICATOR_NBB_LIMIT_EXITED: ClassVar[int] = 24
+    INDICATOR_NBO_LIMIT_ENTERED: ClassVar[int] = 25
+    INDICATOR_NBO_LIMIT_EXITED: ClassVar[int] = 26
+    
+    @property
+    def symbol(self) -> str:
+        """Get ticker symbol"""
+        return self.T
+    
+    # Alias for compatibility
+    @property
+    def sym(self) -> str:
+        """Alias for T (ticker symbol)"""
+        return self.T
+    
+    @property
+    def upper_band(self) -> float:
+        """Get upper price band (limit up)"""
+        return self.h
+    
+    @property
+    def lower_band(self) -> float:
+        """Get lower price band (limit down)"""
+        return self.l
+    
+    @property
+    def indicators(self) -> List[int]:
+        """Get indicators list"""
+        return self.i or []
+    
+    @property
+    def band_width(self) -> float:
+        """Calculate band width (upper - lower)"""
+        return self.h - self.l
+    
+    @property
+    def band_width_percent(self) -> float:
+        """Calculate band width as percentage of lower band"""
+        if self.l > 0:
+            return ((self.h - self.l) / self.l) * 100
+        return 0.0
+    
+    @property
+    def is_halted(self) -> bool:
+        """Check if security is halted/paused"""
+        return self.INDICATOR_HALTED in self.indicators
+    
+    @property
+    def is_resuming(self) -> bool:
+        """Check if security is resuming from halt"""
+        return self.INDICATOR_REOPENING in self.indicators
+    
+    @property
+    def is_in_limit_state(self) -> bool:
+        """Check if security is in a limit state (touching bands)"""
+        limit_indicators = {23, 24, 25, 26, 27, 28}
+        return bool(set(self.indicators) & limit_indicators)
+    
+    @property
+    def is_at_lower_band(self) -> bool:
+        """Check if bid is at or below lower band"""
+        return self.INDICATOR_NBB_BELOW_LOWER in self.indicators
+    
+    @property
+    def is_at_upper_band(self) -> bool:
+        """Check if ask is at or above upper band"""
+        return self.INDICATOR_NBO_ABOVE_UPPER in self.indicators
+    
+    def get_indicator_names(self) -> List[str]:
+        """Get human-readable indicator names"""
+        indicator_map = {
+            1: "NBB_NBO_Executable",
+            2: "NBB_Below_Lower_Band",
+            3: "NBO_Above_Upper_Band",
+            4: "NBB_Below_NBO_Above",
+            14: "Opening_Update",
+            15: "Intraday_Update",
+            16: "Restated_Value",
+            17: "Halted",
+            18: "Reopening",
+            19: "Outside_Band_Hours",
+            20: "Auction_Extension",
+            21: "Price_Band",
+            22: "Republished_LULD",
+            23: "NBB_Limit_State_Entered",
+            24: "NBB_Limit_State_Exited",
+            25: "NBO_Limit_State_Entered",
+            26: "NBO_Limit_State_Exited",
+            27: "NBB_NBO_Limit_State_Entered",
+            28: "NBB_NBO_Limit_State_Exited",
+        }
+        return [indicator_map.get(i, f"Unknown({i})") for i in self.indicators]
+
+
 class PolygonAgg(BaseModel):
     """
     Aggregate (Per Second) message from WebSocket
@@ -399,7 +538,7 @@ class PolygonAgg(BaseModel):
     op: Optional[float] = Field(None, description="Today's official opening price (None in pre-market)")
     
     # Additional metrics
-    z: int = Field(..., description="Average trade size for this window")
+    z: float = Field(..., description="Average trade size for this window")
     
     # Timestamps
     s: int = Field(..., description="Start timestamp (Unix MS)")

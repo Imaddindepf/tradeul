@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 from shared.config.settings import settings
 from shared.utils.redis_client import RedisClient
 from shared.utils.logger import configure_logging, get_logger
-from shared.models.polygon import PolygonTrade, PolygonQuote, PolygonAgg
+from shared.models.polygon import PolygonTrade, PolygonQuote, PolygonAgg, PolygonLuld
 from ws_client import PolygonWebSocketClient
 from subscription_reconciler import SubscriptionReconciler
 
@@ -40,6 +40,8 @@ ws_client: Optional[PolygonWebSocketClient] = None
 subscription_task: Optional[asyncio.Task] = None
 quote_subscription_task: Optional[asyncio.Task] = None  # Nueva tarea para quotes
 catalyst_subscription_task: Optional[asyncio.Task] = None  # Tarea para catalyst alerts
+luld_subscription_task: Optional[asyncio.Task] = None  # Tarea para LULD subscription
+luld_subscribed: bool = False  # Flag para LULD subscription
 reconciler: Optional[SubscriptionReconciler] = None
 reconciler_task: Optional[asyncio.Task] = None
 
@@ -57,7 +59,7 @@ catalyst_subscribed_tickers: Set[str] = set()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, ws_client, subscription_task, quote_subscription_task, catalyst_subscription_task, reconciler, reconciler_task
+    global redis_client, ws_client, subscription_task, quote_subscription_task, catalyst_subscription_task, luld_subscription_task, reconciler, reconciler_task
     
     logger.info("polygon_ws_service_starting")
     
@@ -66,12 +68,13 @@ async def lifespan(app: FastAPI):
     await redis_client.connect()
     
     # Inicializar WebSocket Client
-    # Ahora usamos Aggregates (Scanner) + Quotes (Tickers individuales/Watchlists)
+    # Ahora usamos Aggregates (Scanner) + Quotes (Tickers individuales/Watchlists) + LULD (todo mercado)
     ws_client = PolygonWebSocketClient(
         api_key=settings.POLYGON_API_KEY,
         on_trade=None,  # Desactivado - no necesario
         on_quote=handle_quote,  # ✅ ACTIVADO para tickers individuales
-        on_aggregate=handle_aggregate  # Para Scanner
+        on_aggregate=handle_aggregate,  # Para Scanner
+        on_luld=handle_luld  # ✅ LULD para halts/pauses de TODO el mercado
     )
     
     # 🔥 PATRÓN PROFESIONAL: Inicializar Reconciler (solo para Aggregates)
@@ -90,13 +93,15 @@ async def lifespan(app: FastAPI):
     subscription_task = asyncio.create_task(manage_subscriptions())
     quote_subscription_task = asyncio.create_task(manage_quote_subscriptions())
     catalyst_subscription_task = asyncio.create_task(manage_catalyst_subscriptions())
+    luld_subscription_task = asyncio.create_task(manage_luld_subscription())  # LULD para todo el mercado
     reconciler_task = asyncio.create_task(reconciler.start())
     
     logger.info(
         "polygon_ws_service_started",
         reconciler_enabled=True,
         quotes_enabled=True,
-        catalyst_enabled=True
+        catalyst_enabled=True,
+        luld_enabled=True
     )
     
     yield
@@ -132,6 +137,13 @@ async def lifespan(app: FastAPI):
         catalyst_subscription_task.cancel()
         try:
             await catalyst_subscription_task
+        except asyncio.CancelledError:
+            pass
+    
+    if luld_subscription_task:
+        luld_subscription_task.cancel()
+        try:
+            await luld_subscription_task
         except asyncio.CancelledError:
             pass
     
@@ -289,6 +301,81 @@ async def handle_aggregate(agg: PolygonAgg):
         logger.error(
             "aggregate_handler_error",
             symbol=agg.sym,
+            error=str(e)
+        )
+
+
+async def handle_luld(luld: PolygonLuld):
+    """
+    Procesa mensajes LULD (Limit Up-Limit Down) del WebSocket
+    
+    LULD proporciona:
+    - Price bands (upper/lower limits)
+    - Halt/Pause detection
+    - Resume notifications
+    - Limit state entries/exits
+    
+    Publicamos a Redis Stream para que otros servicios puedan:
+    - Mostrar tablas de halts/resumes en tiempo real
+    - Alertar sobre securities cerca de sus límites
+    - Detectar volatility pauses
+    
+    Args:
+        luld: LULD message de Polygon
+    """
+    try:
+        # Determinar el tipo de evento para logging
+        event_type = "normal"
+        if luld.is_halted:
+            event_type = "HALT"
+            logger.warning(
+                "luld_halt_detected",
+                symbol=luld.sym,
+                upper_band=luld.upper_band,
+                lower_band=luld.lower_band,
+                indicators=luld.get_indicator_names()
+            )
+        elif luld.is_resuming:
+            event_type = "RESUME"
+            logger.info(
+                "luld_resume_detected",
+                symbol=luld.sym,
+                upper_band=luld.upper_band,
+                lower_band=luld.lower_band,
+                indicators=luld.get_indicator_names()
+            )
+        elif luld.is_at_lower_band or luld.is_at_upper_band:
+            event_type = "LIMIT_STATE"
+            logger.info(
+                "luld_limit_state",
+                symbol=luld.sym,
+                at_lower=luld.is_at_lower_band,
+                at_upper=luld.is_at_upper_band
+            )
+        
+        # Publicar a Redis Stream
+        await redis_client.publish_to_stream(
+            "stream:realtime:luld",
+            {
+                'symbol': luld.sym,
+                'upper_band': str(luld.upper_band),
+                'lower_band': str(luld.lower_band),
+                'band_width_percent': str(round(luld.band_width_percent, 2)),
+                'indicators': ','.join(map(str, luld.indicators)),
+                'indicator_names': ','.join(luld.get_indicator_names()),
+                'is_halted': 'true' if luld.is_halted else 'false',
+                'is_resuming': 'true' if luld.is_resuming else 'false',
+                'is_at_lower_band': 'true' if luld.is_at_lower_band else 'false',
+                'is_at_upper_band': 'true' if luld.is_at_upper_band else 'false',
+                'event_type': event_type,
+                'timestamp': str(luld.t)
+            }
+        )
+        
+    except Exception as e:
+        logger.error(
+            "luld_handler_error",
+            symbol=luld.sym,
             error=str(e)
         )
 
@@ -778,6 +865,67 @@ async def manage_catalyst_subscriptions():
             await asyncio.sleep(2)
 
 
+async def manage_luld_subscription():
+    """
+    Gestiona la suscripción a LULD.* (Limit Up-Limit Down) para TODO el mercado.
+    
+    LULD es un stream muy ligero (~3-10 msg/s durante market hours) que proporciona:
+    - Price bands (upper/lower limits) de todas las acciones
+    - Detección de halts y pauses
+    - Notificaciones de resume
+    - Limit state entries/exits
+    
+    Esta tarea:
+    1. Espera a que el WebSocket esté autenticado
+    2. Se suscribe a LULD.*
+    3. Maneja reconexiones (re-suscribe automáticamente)
+    """
+    global luld_subscribed
+    
+    logger.info("luld_subscription_manager_started")
+    
+    while True:
+        try:
+            # Esperar a que estemos autenticados
+            if ws_client and ws_client.is_authenticated:
+                # Si no estamos suscritos, suscribirse
+                if not luld_subscribed:
+                    logger.info("subscribing_to_luld_all_market")
+                    success = await ws_client.subscribe_luld_all()
+                    
+                    if success:
+                        luld_subscribed = True
+                        logger.info(
+                            "luld_subscription_active",
+                            stream="LULD.*",
+                            description="Receiving halts, resumes, and price bands for entire market"
+                        )
+                    else:
+                        logger.warning("luld_subscription_failed_will_retry")
+            
+            else:
+                # No estamos autenticados, resetear el flag
+                if luld_subscribed:
+                    logger.info("luld_subscription_lost_due_to_disconnect")
+                    luld_subscribed = False
+            
+            # Check cada 2 segundos
+            await asyncio.sleep(2)
+            
+        except asyncio.CancelledError:
+            logger.info("luld_subscription_manager_cancelled")
+            raise
+        
+        except Exception as e:
+            logger.error(
+                "luld_subscription_manager_error",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            luld_subscribed = False
+            await asyncio.sleep(5)
+
+
 # ============================================================================
 # API Endpoints
 # ============================================================================
@@ -847,6 +995,30 @@ async def get_catalyst_subscriptions():
         "count": len(catalyst_subscribed_tickers),
         "is_authenticated": ws_client.is_authenticated,
         "type": "catalyst_aggregates"
+    }
+
+
+@app.get("/subscriptions/luld")
+async def get_luld_subscription():
+    """Obtiene el estado de la suscripción a LULD (Limit Up-Limit Down)"""
+    global luld_subscribed
+    
+    if not ws_client:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    
+    stats = ws_client.get_stats()
+    
+    return {
+        "subscribed": luld_subscribed,
+        "stream": "LULD.*" if luld_subscribed else None,
+        "is_authenticated": ws_client.is_authenticated,
+        "type": "luld_all_market",
+        "stats": {
+            "luld_received": stats.get("luld_received", 0),
+            "luld_halts": stats.get("luld_halts", 0),
+            "luld_resumes": stats.get("luld_resumes", 0)
+        },
+        "description": "Limit Up-Limit Down price bands, halts, and resumes for entire market"
     }
 
 

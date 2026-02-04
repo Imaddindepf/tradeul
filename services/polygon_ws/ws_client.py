@@ -17,7 +17,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from shared.config.settings import settings
-from shared.models.polygon import PolygonTrade, PolygonQuote, PolygonAgg
+from shared.models.polygon import PolygonTrade, PolygonQuote, PolygonAgg, PolygonLuld
 
 logger = structlog.get_logger(__name__)
 
@@ -36,6 +36,7 @@ class PolygonWebSocketClient:
     EVENT_TRADE = "T"
     EVENT_QUOTE = "Q"
     EVENT_AGGREGATE = "A"
+    EVENT_LULD = "LULD"  # Limit Up-Limit Down
     
     def __init__(
         self,
@@ -43,6 +44,7 @@ class PolygonWebSocketClient:
         on_trade: Optional[Callable] = None,
         on_quote: Optional[Callable] = None,
         on_aggregate: Optional[Callable] = None,
+        on_luld: Optional[Callable] = None,
         max_reconnect_attempts: int = 10,
         reconnect_delay: int = 5
     ):
@@ -54,6 +56,7 @@ class PolygonWebSocketClient:
             on_trade: Callback para trades
             on_quote: Callback para quotes
             on_aggregate: Callback para aggregates
+            on_luld: Callback para LULD (Limit Up-Limit Down)
             max_reconnect_attempts: Intentos máximos de reconexión
             reconnect_delay: Delay entre intentos (segundos)
         """
@@ -61,6 +64,7 @@ class PolygonWebSocketClient:
         self.on_trade = on_trade
         self.on_quote = on_quote
         self.on_aggregate = on_aggregate
+        self.on_luld = on_luld
         self.max_reconnect_attempts = max_reconnect_attempts
         self.reconnect_delay = reconnect_delay
         
@@ -81,6 +85,9 @@ class PolygonWebSocketClient:
             "trades_received": 0,
             "quotes_received": 0,
             "aggregates_received": 0,
+            "luld_received": 0,
+            "luld_halts": 0,
+            "luld_resumes": 0,
             "errors": 0,
             "reconnections": 0,
             "last_message_time": None
@@ -190,6 +197,9 @@ class PolygonWebSocketClient:
                     elif ev_type == self.EVENT_AGGREGATE:
                         await self._handle_aggregate(event)
                     
+                    elif ev_type == self.EVENT_LULD:
+                        await self._handle_luld(event)
+                    
                     elif ev_type == "status":
                         logger.debug("status_message", message=event.get("message"))
                     
@@ -245,6 +255,25 @@ class PolygonWebSocketClient:
                 
         except Exception as e:
             logger.error("aggregate_processing_error", error=str(e), data=data)
+            self.stats["errors"] += 1
+    
+    async def _handle_luld(self, data: Dict[str, Any]):
+        """Procesa un mensaje de LULD (Limit Up-Limit Down)"""
+        try:
+            luld = PolygonLuld(**data)
+            self.stats["luld_received"] += 1
+            
+            # Track halts y resumes
+            if luld.is_halted:
+                self.stats["luld_halts"] += 1
+            if luld.is_resuming:
+                self.stats["luld_resumes"] += 1
+            
+            if self.on_luld:
+                await self.on_luld(luld)
+                
+        except Exception as e:
+            logger.error("luld_processing_error", error=str(e), data=data)
             self.stats["errors"] += 1
     
     async def subscribe_to_tickers(self, tickers: Set[str], event_types: Set[str]):
@@ -409,6 +438,63 @@ class PolygonWebSocketClient:
         )
         
         await asyncio.sleep(delay)
+    
+    async def subscribe_luld_all(self) -> bool:
+        """
+        Suscribe a LULD para TODO el mercado (wildcard *)
+        
+        LULD (Limit Up-Limit Down) es muy ligero (~3-10 msg/s) y nos da:
+        - Price bands de todas las acciones
+        - Halts y pauses en tiempo real
+        - Resumes de trading
+        
+        Returns:
+            True si la suscripción fue exitosa
+        """
+        if not self.is_authenticated:
+            logger.warning("not_authenticated_cannot_subscribe_luld")
+            return False
+        
+        try:
+            subscribe_message = {
+                "action": "subscribe",
+                "params": "LULD.*"
+            }
+            
+            await self.ws.send(json.dumps(subscribe_message))
+            
+            logger.info("subscribed_to_luld_all_market")
+            return True
+            
+        except Exception as e:
+            logger.error("luld_subscription_failed", error=str(e))
+            return False
+    
+    async def unsubscribe_luld_all(self) -> bool:
+        """
+        Desuscribe de LULD para todo el mercado
+        
+        Returns:
+            True si la desuscripción fue exitosa
+        """
+        if not self.is_authenticated:
+            logger.warning("not_authenticated_cannot_unsubscribe_luld")
+            return False
+        
+        try:
+            unsubscribe_message = {
+                "action": "unsubscribe",
+                "params": "LULD.*"
+            }
+            
+            await self.ws.send(json.dumps(unsubscribe_message))
+            
+            logger.info("unsubscribed_from_luld_all_market")
+            return True
+            
+        except Exception as e:
+            logger.error("luld_unsubscription_failed", error=str(e))
+            return False
     
     async def close(self):
         """Cierra la conexión del WebSocket"""
