@@ -284,7 +284,7 @@ El schema se inyecta en el system prompt. Contiene:
 | Key | Tipo | Contenido |
 |-----|------|-----------|
 | `snapshot:polygon:latest` | JSON | Snapshot de mercado |
-| `snapshot:enriched:latest` | JSON | Snapshot enriquecido |
+| `snapshot:enriched:latest` | Redis Hash | Snapshot enriquecido (1 field por ticker) |
 | `market:session:status` | String | Estado del mercado |
 | `market:session:current` | JSON | Sesión actual |
 

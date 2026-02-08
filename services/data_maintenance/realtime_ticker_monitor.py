@@ -109,12 +109,12 @@ class RealtimeTickerMonitor:
     async def _count_missing_tickers(self) -> int:
         """Contar cuántos tickers del snapshot no están en universo"""
         try:
-            # Snapshot actual
-            snapshot = await self.redis.get("snapshot:enriched:latest")
-            if not snapshot:
+            # Snapshot actual (read keys only from Redis Hash)
+            all_keys = await self.redis.client.hkeys("snapshot:enriched:latest")
+            if not all_keys:
                 return 0
             
-            snapshot_tickers = {t.get('ticker') for t in snapshot.get('tickers', []) if t.get('ticker')}
+            snapshot_tickers = {k for k in all_keys if k != "__meta__"}
             
             # Universo desde tickers_unified
             rows = await self.db.fetch("SELECT symbol FROM tickers_unified WHERE is_actively_trading = true")

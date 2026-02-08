@@ -175,7 +175,7 @@ Usuario: "top gappers de la semana"
 │        ...                                                                   │
 │      ]                                                                       │
 │                                                                              │
-│  snapshot:enriched:latest (cálculos adicionales)                            │
+│  snapshot:enriched:latest (Redis Hash, 1 field por ticker)                      │
 │                                                                              │
 │  market:session:status ("OPEN" | "CLOSED" | "PREMARKET")                    │
 │  market:session:current                                                      │

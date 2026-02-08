@@ -217,7 +217,7 @@ TradeUL es una plataforma de trading en tiempo real que procesa +11,000 tickers 
 
 ### 5.4 Loop Principal (cada 10s)
 
-1. Leer `snapshot:enriched:latest` (~11,000 tickers)
+1. Leer `snapshot:enriched:latest` (Redis Hash, ~11,000 tickers)
 2. Filtrar (precio, volumen, etc.) -> ~1,200 tickers
 3. Evaluar con RETE -> categorizar
 4. Calcular deltas vs ranking anterior

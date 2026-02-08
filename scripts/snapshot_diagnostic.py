@@ -66,21 +66,29 @@ async def main():
     print("TEST 2: Snapshot Structure Analysis")
     print("=" * 80)
     
-    raw_enriched = await redis.get("snapshot:enriched:latest")
-    if not raw_enriched:
-        print("  ERROR: No enriched snapshot found!")
+    # Try new Hash format first (snapshot:enriched:latest)
+    all_data = await redis.hgetall("snapshot:enriched:latest")
+    if not all_data:
+        print("  ERROR: No enriched snapshot hash found!")
         await redis.close()
         return
     
+    meta_raw = all_data.pop("__meta__", None)
+    
     # Measure deserialization time with stdlib json
     t0 = time.perf_counter()
-    data = json.loads(raw_enriched)
+    tickers = []
+    for sym, ticker_json in all_data.items():
+        tickers.append(json.loads(ticker_json))
     t_json_loads = (time.perf_counter() - t0) * 1000
     
-    tickers = data.get("tickers", [])
-    print(f"  Timestamp: {data.get('timestamp')}")
-    print(f"  Ticker count: {data.get('count')} (actual: {len(tickers)})")
-    print(f"  JSON string size: {len(raw_enriched) / 1024 / 1024:.2f} MB")
+    meta = json.loads(meta_raw) if meta_raw else {}
+    raw_enriched = json.dumps({"tickers": tickers, "timestamp": meta.get("timestamp")})
+    data = {"tickers": tickers, "timestamp": meta.get("timestamp"), "count": len(tickers)}
+    print(f"  Format: Redis Hash (snapshot:enriched:latest)")
+    print(f"  Timestamp: {meta.get('timestamp')}")
+    print(f"  Ticker count: {len(all_data)} fields")
+    print(f"  Total data size: {sum(len(v) for v in all_data.values()) / 1024 / 1024:.2f} MB")
     print(f"  json.loads time: {t_json_loads:.1f} ms")
     
     # Measure serialization time with stdlib json

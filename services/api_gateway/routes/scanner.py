@@ -68,21 +68,24 @@ async def get_filtered_tickers(
         raise HTTPException(status_code=503, detail="Redis not available")
     
     try:
-        # Leer snapshot de Redis
-        data = await redis_client.get("snapshot:enriched:latest")
-        if not data:
-            logger.warning("No snapshot data found in Redis")
+        # Leer snapshot desde Redis Hash
+        import orjson as _orjson
+        
+        all_hash_data = await redis_client.client.hgetall("snapshot:enriched:latest")
+        if not all_hash_data:
+            logger.warning("No snapshot hash data found in Redis")
             return FilteredResponse(tickers=[], total=0, filtered=0)
         
-        # Parsear JSON si es string, o usar directamente si ya es dict
-        if isinstance(data, (str, bytes)):
-            snapshot = json.loads(data)
-        else:
-            snapshot = data
-        # El formato es {timestamp, count, tickers: [...]}
-        all_tickers = snapshot.get("tickers", [])
-        if isinstance(all_tickers, dict):
-            all_tickers = list(all_tickers.values())
+        # Remove metadata
+        all_hash_data.pop("__meta__", None)
+        
+        # Parse each ticker from hash fields
+        all_tickers = []
+        for sym, ticker_json in all_hash_data.items():
+            try:
+                all_tickers.append(_orjson.loads(ticker_json))
+            except Exception:
+                continue
         total = len(all_tickers)
         
         # Aplicar filtros

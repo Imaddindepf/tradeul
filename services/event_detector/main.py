@@ -626,17 +626,27 @@ class EventEngine:
             return None
 
     async def _refresh_enriched_cache(self):
-        """Refresh enriched data cache from Redis snapshot."""
+        """Refresh enriched data cache from Redis Hash (snapshot:enriched:latest)."""
         try:
-            enriched_json = await self.raw_redis.get("snapshot:enriched:latest")
-            if not enriched_json:
+            # Read all tickers from Redis Hash (replaces reading full JSON blob)
+            all_data = await self.raw_redis.hgetall("snapshot:enriched:latest")
+            if not all_data:
                 return
 
-            # Handle both str and bytes from raw Redis client
-            if isinstance(enriched_json, bytes):
-                enriched_json = enriched_json.decode('utf-8')
-            data = json.loads(enriched_json)
-            tickers = data.get("tickers", [])
+            # Remove metadata field
+            all_data.pop(b"__meta__", None)
+            all_data.pop("__meta__", None)
+
+            # Parse each ticker from hash fields
+            tickers = []
+            for sym_key, ticker_json in all_data.items():
+                try:
+                    if isinstance(ticker_json, bytes):
+                        ticker_json = ticker_json.decode('utf-8')
+                    t = json.loads(ticker_json)
+                    tickers.append(t)
+                except Exception:
+                    continue
 
             new_cache = {}
             for t in tickers:

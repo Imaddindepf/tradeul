@@ -1,7 +1,7 @@
 """
 Market Heatmap API
 Provides aggregated market data grouped by sector/industry for heatmap visualization.
-Combines snapshot:enriched:latest (prices) with metadata:ticker:* (sector/market_cap).
+Combines snapshot:enriched:latest (Redis Hash, prices) with metadata:ticker:* (sector/market_cap).
 """
 
 from fastapi import APIRouter, HTTPException, Query
@@ -336,7 +336,7 @@ async def get_heatmap_data(
     - Each level has aggregated metrics
     
     Data combines:
-    - snapshot:enriched:latest (prices, volume, rvol)
+    - snapshot:enriched:latest (Redis Hash: prices, volume, rvol)
     - metadata:ticker:* (sector, industry, market_cap)
     
     Response is cached for 3 seconds to reduce load.
@@ -355,20 +355,38 @@ async def get_heatmap_data(
         return _cache[cache_key]
     
     try:
-        # 1. Read snapshot from Redis (con fallback a last_close para mercado cerrado)
-        snapshot_data = await redis_client.get("snapshot:enriched:latest")
+        # 1. Read snapshot from Redis Hash (con fallback a last_close)
+        import orjson as _orjson
+        
+        all_hash_data = await redis_client.client.hgetall("snapshot:enriched:latest")
         is_realtime = True
         
-        if not snapshot_data:
-            # Fallback: usar último cierre si no hay datos en tiempo real
-            snapshot_data = await redis_client.get("snapshot:enriched:last_close")
+        if not all_hash_data:
+            # Fallback: usar último cierre hash
+            all_hash_data = await redis_client.client.hgetall("snapshot:enriched:last_close")
             is_realtime = False
             
-            if not snapshot_data:
+            if not all_hash_data:
                 raise HTTPException(status_code=404, detail="No market data available")
         
-        tickers_raw = snapshot_data.get("tickers", [])
-        snapshot_timestamp = snapshot_data.get("timestamp")
+        # Extract metadata
+        meta_raw = all_hash_data.pop("__meta__", None)
+        snapshot_timestamp = None
+        if meta_raw:
+            try:
+                meta = _orjson.loads(meta_raw)
+                snapshot_timestamp = meta.get("timestamp")
+            except Exception:
+                pass
+        
+        # Parse each ticker from hash fields
+        tickers_raw = []
+        for sym, ticker_json in all_hash_data.items():
+            try:
+                t = _orjson.loads(ticker_json)
+                tickers_raw.append(t)
+            except Exception:
+                continue
         
         if not tickers_raw:
             raise HTTPException(status_code=404, detail="No tickers in snapshot")

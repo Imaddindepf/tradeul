@@ -340,22 +340,21 @@ class BenzingaNewsStreamManager:
         """
         prices = {}
         try:
-            snapshot_data = await self.redis.get("snapshot:enriched:latest")
-            if snapshot_data:
-                snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
-                tickers_list = snapshot.get("tickers", [])
-                
-                # Build lookup set for O(1) matching
-                ticker_set = {t.upper() for t in tickers}
-                
-                for item in tickers_list:
-                    ticker = item.get("ticker", "").upper()
-                    if ticker in ticker_set:
+            import orjson
+            # Use HMGET to read only the tickers we need (~1-3 KB instead of ~7MB)
+            upper_tickers = [t.upper() for t in tickers]
+            results = await self.redis.client.hmget("snapshot:enriched:latest", *upper_tickers)
+            
+            for ticker_sym, raw_json in zip(upper_tickers, results):
+                if raw_json:
+                    try:
+                        item = orjson.loads(raw_json)
                         price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
                         if price:
-                            prices[ticker] = float(price)
+                            prices[ticker_sym] = float(price)
+                    except Exception:
+                        pass
         except Exception as e:
-            # Non-blocking: if we can't get prices, just continue without them
             logger.debug("get_prices_fast_error", error=str(e))
         
         return prices

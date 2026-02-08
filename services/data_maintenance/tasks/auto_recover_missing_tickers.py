@@ -155,14 +155,15 @@ class AutoRecoverMissingTickersTask:
             }
     
     async def _get_snapshot_tickers(self) -> Set[str]:
-        """Obtener tickers del snapshot actual"""
+        """Obtener tickers del snapshot actual (from Redis Hash keys)"""
         try:
-            snapshot = await self.redis.get("snapshot:enriched:latest")
-            if not snapshot:
+            # Read all field names from hash (just keys, not values)
+            all_keys = await self.redis.client.hkeys("snapshot:enriched:latest")
+            if not all_keys:
                 return set()
             
-            tickers_data = snapshot.get('tickers', [])
-            return {t.get('ticker') for t in tickers_data if t.get('ticker')}
+            # Remove metadata key, return symbol set
+            return {k for k in all_keys if k != "__meta__"}
         
         except Exception as e:
             logger.error("failed_to_get_snapshot", error=str(e))

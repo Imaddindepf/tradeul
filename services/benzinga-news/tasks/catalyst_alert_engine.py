@@ -328,23 +328,22 @@ class CatalystAlertEngine:
     async def _get_current_price(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Obtiene precio actual y RVOL del ticker"""
         try:
-            # 1. Intentar desde snapshot enriched
-            snapshot_data = await self.redis.get("snapshot:enriched:latest")
-            if snapshot_data:
-                snapshot = json.loads(snapshot_data if isinstance(snapshot_data, str) else snapshot_data.decode())
-                tickers_list = snapshot.get("tickers", [])
-                
-                ticker_upper = ticker.upper()
-                for item in tickers_list:
-                    if item.get("ticker", "").upper() == ticker_upper:
-                        price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
-                        rvol = item.get("rvol") or 1.0
-                        
-                        return {
-                            "price": float(price) if price else 0,
-                            "rvol": float(rvol),
-                            "source": "enriched_snapshot"
-                        }
+            # 1. Intentar desde snapshot enriched hash (HGET = ~500 bytes vs 7MB)
+            import orjson
+            ticker_json = await self.redis.client.hget("snapshot:enriched:latest", ticker.upper())
+            if ticker_json:
+                try:
+                    item = orjson.loads(ticker_json)
+                    price = item.get("current_price") or item.get("lastTrade", {}).get("p", 0)
+                    rvol = item.get("rvol") or 1.0
+                    
+                    return {
+                        "price": float(price) if price else 0,
+                        "rvol": float(rvol),
+                        "source": "enriched_snapshot"
+                    }
+                except Exception:
+                    pass
             
             # 2. Fallback: API de Polygon
             client = await self._get_http_client()

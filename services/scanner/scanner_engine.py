@@ -246,89 +246,80 @@ class ScannerEngine:
     
     async def _read_snapshots(self):
         """
-        NUEVO: Lee snapshot COMPLETO enriquecido desde cache
+        Lee snapshot enriquecido desde Redis Hash (snapshot:enriched:latest).
         
-        Esto asegura que:
-        - Todos los tickers son del MISMO momento
-        - No mezclamos datos de diferentes snapshots
-        - Procesamiento consistente y profesional
+        Cada ticker es un field del hash, serializado como JSON individual.
+        El scanner lee todo con HGETALL y parsea cada ticker.
         
         Returns:
-            Lista de tuplas (snapshot, rvol, atr_data) de UN SOLO snapshot completo
+            Lista de tuplas (snapshot, rvol, atr_data) del snapshot completo
         """
         try:
-            # Leer snapshot enriquecido completo
-            enriched_data = await self.redis.get("snapshot:enriched:latest")
-            
-            if not enriched_data:
-                logger.debug("No enriched snapshot available yet")
+            # Leer metadata para verificar si hay nuevo snapshot
+            meta_raw = await self.redis.client.hget("snapshot:enriched:latest", "__meta__")
+            if not meta_raw:
+                logger.debug("No enriched snapshot hash available yet")
                 return []
             
-            # Si ya es un dict, usarlo directamente
-            if isinstance(enriched_data, dict):
-                pass
-            # Si es string, parsearlo como JSON
-            elif isinstance(enriched_data, str):
-                try:
-                    enriched_data = json.loads(enriched_data)
-                except json.JSONDecodeError as e:
-                    logger.error("Failed to parse snapshot as JSON", error=str(e))
-                    return []
-            else:
-                logger.error("Unexpected data type for snapshot", 
-                           data_type=type(enriched_data).__name__)
-                return []
+            try:
+                import orjson
+                meta = orjson.loads(meta_raw)
+            except Exception:
+                meta = json.loads(meta_raw) if isinstance(meta_raw, str) else {}
             
-            # Verificar si ya procesamos este snapshot
-            snapshot_timestamp = enriched_data.get('timestamp')
+            snapshot_timestamp = meta.get('timestamp')
             
             if not hasattr(self, 'last_snapshot_timestamp'):
                 self.last_snapshot_timestamp = None
             
             if snapshot_timestamp == self.last_snapshot_timestamp:
-                # Ya procesado, esperar nuevo snapshot
                 return []
             
-            # Nuevo snapshot! Procesarlo
-            tickers_data = enriched_data.get('tickers', [])
+            # Nuevo snapshot - leer todos los tickers del hash
+            all_data = await self.redis.client.hgetall("snapshot:enriched:latest")
             
-            if not tickers_data:
+            if not all_data:
                 return []
             
-            logger.info(f"Reading complete enriched snapshot",
-                       tickers=len(tickers_data),
-                       timestamp=snapshot_timestamp)
+            # Remove metadata field
+            all_data.pop("__meta__", None)
             
-            # Convertir a lista de tuplas (snapshot, rvol, atr_data)
+            logger.info(
+                "reading_enriched_hash",
+                tickers=len(all_data),
+                timestamp=snapshot_timestamp
+            )
+            
+            # Parse each ticker from hash fields
             enriched_snapshots = []
-            
             parsed_count = 0
-            for ticker_data in tickers_data:
+            
+            for symbol, ticker_json in all_data.items():
                 try:
-                    # Parsear snapshot
+                    try:
+                        ticker_data = orjson.loads(ticker_json)
+                    except Exception:
+                        ticker_data = json.loads(ticker_json) if isinstance(ticker_json, str) else ticker_json
+                    
                     snapshot = PolygonSnapshot(**ticker_data)
                     rvol = ticker_data.get('rvol')
                     
-                    # Extraer ATR data, intraday high/low, VWAP y volume windows del snapshot enriquecido
                     atr_data = {
                         'atr': ticker_data.get('atr'),
                         'atr_percent': ticker_data.get('atr_percent'),
                         'intraday_high': ticker_data.get('intraday_high'),
                         'intraday_low': ticker_data.get('intraday_low'),
-                        'vwap': ticker_data.get('vwap'),  # VWAP enriquecido por analytics
-                        # Volume window metrics (volumen en los últimos N minutos)
+                        'vwap': ticker_data.get('vwap'),
                         'vol_1min': ticker_data.get('vol_1min'),
                         'vol_5min': ticker_data.get('vol_5min'),
                         'vol_10min': ticker_data.get('vol_10min'),
                         'vol_15min': ticker_data.get('vol_15min'),
                         'vol_30min': ticker_data.get('vol_30min'),
-                        # Price change window metrics (cambio % en los últimos N minutos - per-second precision)
                         'chg_1min': ticker_data.get('chg_1min'),
                         'chg_5min': ticker_data.get('chg_5min'),
                         'chg_10min': ticker_data.get('chg_10min'),
                         'chg_15min': ticker_data.get('chg_15min'),
                         'chg_30min': ticker_data.get('chg_30min'),
-                        # Trades Anomaly Detection (Z-Score based)
                         'trades_today': ticker_data.get('trades_today'),
                         'avg_trades_5d': ticker_data.get('avg_trades_5d'),
                         'trades_z_score': ticker_data.get('trades_z_score'),
@@ -339,20 +330,18 @@ class ScannerEngine:
                     parsed_count += 1
                 
                 except Exception as e:
-                    if parsed_count < 5:  # Log solo los primeros errores
-                        logger.error("Error parsing ticker", 
-                                    ticker=ticker_data.get('ticker'), 
-                                    error=str(e))
+                    if parsed_count < 5:
+                        logger.error("Error parsing ticker from hash",
+                                    ticker=symbol, error=str(e))
             
-            # Guardar timestamp para no reprocesar
             self.last_snapshot_timestamp = snapshot_timestamp
             
-            logger.info(f"parsed_snapshots total={len(enriched_snapshots)} from_raw={len(tickers_data)}")
+            logger.info(f"parsed_snapshots total={len(enriched_snapshots)} from_hash={len(all_data)}")
             
             return enriched_snapshots
         
         except Exception as e:
-            logger.error("Error reading enriched snapshot", error=str(e))
+            logger.error("Error reading enriched hash", error=str(e))
             return []
 
     # =============================================
