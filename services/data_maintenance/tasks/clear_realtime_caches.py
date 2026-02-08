@@ -196,6 +196,13 @@ class ClearRealtimeCachesTask:
                     error=str(e)
                 )
         
+        # Trim event detector stream (clear previous day events)
+        try:
+            await self.redis.client.xtrim("stream:events:market", maxlen=0)
+            logger.info("event_stream_trimmed", stream="stream:events:market")
+        except Exception as e:
+            logger.warning("event_stream_trim_failed", error=str(e))
+        
         return cleared
     
     async def _notify_websocket_server(self, target_date: date) -> bool:

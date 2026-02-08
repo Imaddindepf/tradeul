@@ -628,6 +628,13 @@ class DailyMaintenanceScheduler:
                 except Exception as e:
                     logger.warning(f"Failed to delete {pattern}: {e}")
             
+            # Trim event detector stream (clear yesterday's events)
+            try:
+                await self.redis.client.xtrim("stream:events:market", maxlen=0)
+                logger.info("event_stream_trimmed", stream="stream:events:market")
+            except Exception as e:
+                logger.warning(f"Failed to trim event stream: {e}")
+            
             # Notificar via Pub/Sub
             await self.redis.client.publish(
                 "trading:new_day",

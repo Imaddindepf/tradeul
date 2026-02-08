@@ -2026,6 +2026,27 @@ class ScannerEngine:
             "uptime_seconds": int(uptime)
         }
     
+    def get_cached_ticker(self, symbol: str) -> Optional[ScannerTicker]:
+        """
+        Obtiene un ticker del cache en memoria.
+        
+        Args:
+            symbol: Símbolo a buscar
+        
+        Returns:
+            ScannerTicker si está en cache, None si no
+        """
+        if not self.last_filtered_tickers:
+            return None
+        
+        # Búsqueda lineal O(n) - aceptable para ~500-1000 tickers
+        # Si se necesita más velocidad, se puede usar un dict auxiliar
+        for ticker in self.last_filtered_tickers:
+            if ticker.symbol == symbol:
+                return ticker
+        
+        return None
+    
     # =============================================
     # DELTA SYSTEM (Snapshot + Incremental Updates)
     # =============================================

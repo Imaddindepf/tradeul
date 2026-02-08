@@ -9,13 +9,19 @@
 'use client';
 
 import React, { useState, useCallback, useMemo, memo, useRef, useEffect } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Clock } from 'lucide-react';
 import { useHeatmapData } from './useHeatmapData';
 import HeatmapTreemap from './HeatmapTreemap';
 import HeatmapControls from './HeatmapControls';
 import HeatmapLegend from './HeatmapLegend';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
+import { 
+  useMarketSessionStore, 
+  selectIsClosed, 
+  selectSession,
+  getSessionLabel 
+} from '@/stores/useMarketSessionStore';
 
 // Custom hook for container dimensions with debounce
 // Only updates when user STOPS resizing (500ms delay) - prevents render spam
@@ -100,6 +106,18 @@ const formatMarketCap = (num: number): string => {
 function HeatmapContent({ onClose }: HeatmapContentProps) {
   const font = useUserPreferencesStore(selectFont);
   const fontClass = FONT_CLASSES[font] || 'font-jetbrains-mono';
+  
+  // Market session state
+  const isClosed = useMarketSessionStore(selectIsClosed);
+  const session = useMarketSessionStore(selectSession);
+  const startPolling = useMarketSessionStore(state => state.startPolling);
+  const stopPolling = useMarketSessionStore(state => state.stopPolling);
+  
+  // Start market session polling on mount
+  useEffect(() => {
+    startPolling(30000); // Poll every 30 seconds
+    return () => stopPolling();
+  }, [startPolling, stopPolling]);
   
   // Container ref for responsive sizing
   const containerRef = useRef<HTMLDivElement>(null);
@@ -201,12 +219,47 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
           {/* Legend */}
           <HeatmapLegend metric={filters.metric} />
           
-          {/* Status indicator */}
-          <div className="flex items-center gap-1.5 text-[10px]">
-            <div className={`w-1.5 h-1.5 rounded-full ${error ? 'bg-red-500' : 'bg-green-500'}`} />
-            <span className="text-slate-400">
-              {isLoading && !data ? 'Loading...' : formatTime(lastUpdate)}
-            </span>
+          {/* Market session & data status */}
+          <div className="flex items-center gap-2 text-[10px]">
+            {/* Market session badge */}
+            {session && (
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                session.current_session === 'MARKET_OPEN' 
+                  ? 'bg-green-100 text-green-700' 
+                  : session.current_session === 'PRE_MARKET'
+                  ? 'bg-blue-100 text-blue-700'
+                  : session.current_session === 'POST_MARKET'
+                  ? 'bg-orange-100 text-orange-700'
+                  : 'bg-slate-100 text-slate-600'
+              }`}>
+                {getSessionLabel(session)}
+              </span>
+            )}
+            
+            {/* Historical data indicator (when using last close) */}
+            {data && !data.is_realtime && (
+              <span 
+                className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px]"
+                title={`Data from: ${data.timestamp}`}
+              >
+                <Clock className="w-3 h-3" />
+                Last Close
+              </span>
+            )}
+            
+            {/* Live indicator */}
+            <div className="flex items-center gap-1">
+              <div className={`w-1.5 h-1.5 rounded-full ${
+                error 
+                  ? 'bg-red-500' 
+                  : data?.is_realtime 
+                  ? 'bg-green-500 animate-pulse' 
+                  : 'bg-amber-500'
+              }`} />
+              <span className="text-slate-400">
+                {isLoading && !data ? 'Loading...' : formatTime(lastUpdate)}
+              </span>
+            </div>
           </div>
           
           {/* Refresh button */}

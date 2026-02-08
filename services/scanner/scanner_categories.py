@@ -48,19 +48,35 @@ class CategoryCriteria:
     GAP_DOWN_MAX = -2.0           # Gap down máximo: -2%
     GAP_EXTREME = 10.0            # Gap extremo: 10%
     
-    # MOMENTUM (CRITERIA BASED ON PROFESSIONAL IGNITION DETECTION)
-    # MOMENTUM_UP requiere:
-    # 1. chg_5min >= 1.5%: Vela de ignición (cambio significativo en 5 min)
-    # 2. price_from_intraday_high >= -2.0%: Cerca del HOD (máx 2% debajo)
-    # 3. price_vs_vwap > 0: Precio sobre VWAP (compradores en control)
-    # 4. rvol >= 5.0: RVOL > 500% (volumen significativo)
-    MOMENTUM_5MIN_IGNITION = 1.5  # Cambio en 5 min mínimo: 1.5%
-    MOMENTUM_HOD_THRESHOLD = -2.0 # Máximo % debajo del HOD: -2%
-    MOMENTUM_RVOL_MIN = 5.0       # RVOL mínimo: 500%
+    # MOMENTUM_UP (HOD MOMENTUM - BALANCED CRITERIA)
+    # Basado en Trade Ideas / Warrior Trading - adaptado para ALL CAPS
+    # Stocks "running up" haciendo nuevos máximos con volumen
+    # CRITERIOS BALANCEADOS (incluye large caps como CMG, MCD):
+    # 1. price_from_intraday_high >= -1.0%: Haciendo máximos (máx 1% del HOD)
+    # 2. change_percent >= 1.0%: Mínimo 1% arriba del día (permite large caps)
+    # 3. price_vs_vwap > 0: Sobre VWAP (compradores dominan)
+    # 4. rvol >= 1.5: RVOL >= 150% (estándar "watchable" en industria)
+    # 5. volume_today >= 100K: Liquidez mínima para ser tradeable
+    MOMENTUM_HOD_THRESHOLD = -1.0   # Máximo 1% debajo del HOD (haciendo máximos)
+    MOMENTUM_CHANGE_MIN = 1.0       # Cambio mínimo del día: 1% (large cap friendly)
+    MOMENTUM_RVOL_MIN = 1.5         # RVOL mínimo: 150% (estándar "watchable")
+    MOMENTUM_MIN_VOLUME = 100000    # Volumen mínimo: 100K shares (liquidez)
     
-    # Fallback para MOMENTUM_DOWN (criterio simple hasta refinar)
-    MOMENTUM_STRONG = 3.0         # Cambio fuerte: 3%
-    MOMENTUM_EXTREME = 5.0        # Cambio extremo: 5%
+    # MOMENTUM_DOWN (LOD MOMENTUM - FALLING KNIFE)
+    # Espejo de MOMENTUM_UP pero para caídas
+    # Stocks "falling" haciendo nuevos mínimos con volumen
+    # CRITERIOS BALANCEADOS (incluye large caps):
+    # 1. price_from_intraday_low <= 1.0%: Haciendo mínimos (máx 1% del LOD)
+    # 2. change_percent <= -1.0%: Mínimo 1% abajo del día (permite large caps)
+    # 3. price_vs_vwap < 0: Bajo VWAP (vendedores dominan)
+    # 4. rvol >= 1.5: RVOL >= 150% (estándar "watchable")
+    # 5. volume_today >= 100K: Liquidez mínima para ser tradeable
+    MOMENTUM_LOD_THRESHOLD = 1.0    # Máximo 1% arriba del LOD (haciendo mínimos)
+    MOMENTUM_CHANGE_DOWN_MAX = -1.0 # Cambio máximo del día: -1% (large cap friendly)
+    
+    # WINNERS/LOSERS (con liquidez mínima)
+    WINNERS_LOSERS_CHANGE = 5.0   # Cambio mínimo: 5%
+    WINNERS_LOSERS_RVOL_MIN = 1.5 # RVOL mínimo para asegurar liquidez
     
     # ANOMALIES (Z-Score based on trades count)
     # Z-Score = (trades_today - avg_trades_5d) / std_trades_5d
@@ -134,38 +150,55 @@ class ScannerCategorizer:
             elif gap_percent <= self.criteria.GAP_DOWN_MAX:
                 categories.append(ScannerCategory.GAPPERS_DOWN)
         
-        # 2. MOMENTUM_UP (Professional Ignition Criteria)
-        # Detecta "vela de ignición" con volumen y momentum real
-        # CRITERIOS:
-        #   1. chg_5min >= 1.5%: Cambio en 5 minutos significativo
-        #   2. price_from_intraday_high >= -2%: Cerca del máximo del día (sin mechas)
-        #   3. price_vs_vwap > 0: Precio sobre VWAP (compradores dominan)
-        #   4. rvol >= 5.0: RVOL > 500% (volumen relativo alto)
+        # 2. MOMENTUM_UP (HOD MOMENTUM - BALANCED FOR ALL CAPS)
+        # Stocks "running up" - haciendo nuevos máximos con volumen
+        # Basado en Trade Ideas / Warrior Trading - adaptado para ALL CAPS
+        # CRITERIOS BALANCEADOS (incluye large caps como CMG, MCD):
+        #   1. price_from_intraday_high >= -1%: Haciendo máximos (máx 1% del HOD)
+        #   2. change_percent >= 1%: Mínimo 1% arriba del día (large cap friendly)
+        #   3. price_vs_vwap > 0: Sobre VWAP (compradores dominan)
+        #   4. rvol >= 1.5: RVOL >= 150% (estándar "watchable" en industria)
+        #   5. volume_today >= 100K: Liquidez mínima para ser tradeable
         is_momentum_up = False
         
         # Verificar todos los criterios de MOMENTUM_UP
-        chg_5min = ticker.chg_5min
         price_from_hod = ticker.price_from_intraday_high
         price_vs_vwap = ticker.price_vs_vwap
         rvol = ticker.rvol_slot or ticker.rvol
+        volume_today = ticker.volume_today or 0
         
-        if (chg_5min is not None and chg_5min >= self.criteria.MOMENTUM_5MIN_IGNITION and
-            price_from_hod is not None and price_from_hod >= self.criteria.MOMENTUM_HOD_THRESHOLD and
+        if (price_from_hod is not None and price_from_hod >= self.criteria.MOMENTUM_HOD_THRESHOLD and
+            change_total is not None and change_total >= self.criteria.MOMENTUM_CHANGE_MIN and
             price_vs_vwap is not None and price_vs_vwap > 0 and
-            rvol is not None and rvol >= self.criteria.MOMENTUM_RVOL_MIN):
+            rvol is not None and rvol >= self.criteria.MOMENTUM_RVOL_MIN and
+            volume_today >= self.criteria.MOMENTUM_MIN_VOLUME):
             is_momentum_up = True
             categories.append(ScannerCategory.MOMENTUM_UP)
         
-        # MOMENTUM_DOWN (criterio simple por ahora - cambio fuerte negativo)
-        # Usa change_total porque es el cambio del día, no el gap
-        if change_total is not None and change_total <= -self.criteria.MOMENTUM_STRONG:
+        # MOMENTUM_DOWN (LOD MOMENTUM - BALANCED FOR ALL CAPS)
+        # Stocks "falling" - haciendo nuevos mínimos con volumen
+        # Espejo de MOMENTUM_UP pero para caídas
+        # CRITERIOS BALANCEADOS (incluye large caps):
+        #   1. price_from_intraday_low <= 1%: Haciendo mínimos (máx 1% del LOD)
+        #   2. change_percent <= -1%: Mínimo 1% abajo del día (large cap friendly)
+        #   3. price_vs_vwap < 0: Bajo VWAP (vendedores dominan)
+        #   4. rvol >= 1.5: RVOL >= 150% (estándar "watchable")
+        #   5. volume_today >= 100K: Liquidez mínima para ser tradeable
+        price_from_lod = ticker.price_from_intraday_low
+        
+        if (price_from_lod is not None and price_from_lod <= self.criteria.MOMENTUM_LOD_THRESHOLD and
+            change_total is not None and change_total <= self.criteria.MOMENTUM_CHANGE_DOWN_MAX and
+            price_vs_vwap is not None and price_vs_vwap < 0 and
+            rvol is not None and rvol >= self.criteria.MOMENTUM_RVOL_MIN and
+            volume_today >= self.criteria.MOMENTUM_MIN_VOLUME):
             categories.append(ScannerCategory.MOMENTUM_DOWN)
         
-        # 3. WINNERS / LOSERS - Usa change_total (cambio total del día)
-        if change_total is not None:
-            if change_total >= self.criteria.MOMENTUM_EXTREME:
+        # 3. WINNERS / LOSERS - Cambio significativo + liquidez mínima
+        # Requiere RVOL >= 1.5 para asegurar que el stock es tradeable
+        if change_total is not None and rvol is not None and rvol >= self.criteria.WINNERS_LOSERS_RVOL_MIN:
+            if change_total >= self.criteria.WINNERS_LOSERS_CHANGE:
                 categories.append(ScannerCategory.WINNERS)
-            elif change_total <= -self.criteria.MOMENTUM_EXTREME:
+            elif change_total <= -self.criteria.WINNERS_LOSERS_CHANGE:
                 categories.append(ScannerCategory.LOSERS)
         
         # 4. ANOMALIES (Z-Score de trades - detección estadística ÚNICAMENTE)
@@ -189,27 +222,19 @@ class ScannerCategorizer:
         if rvol and rvol >= self.criteria.HIGH_VOLUME_MIN:
             categories.append(ScannerCategory.HIGH_VOLUME)
         
-        # 6. NEW HIGHS / LOWS - Comparación directa con intraday_high/low de Analytics
-        # intraday_high/low se mantiene correctamente en Analytics (incluye pre/post market)
-        # y se recupera desde Polygon al reiniciar
+        # 6. NEW HIGHS / LOWS - Usando price_from_intraday_high/low directamente
+        # price_from_intraday_high = ((price - high) / high) * 100
+        # Valor negativo = debajo del máximo, 0 = en el máximo
         
-        # NEW HIGHS: precio >= 99.9% del máximo intraday
-        if ticker.intraday_high and ticker.intraday_high > 0:
-            # Calcular % del máximo
-            percent_of_high = (ticker.price / ticker.intraday_high) * 100
-            
-            # Estar al 99.9% o más del máximo = está haciendo máximos
-            if percent_of_high >= 99.9:
-                categories.append(ScannerCategory.NEW_HIGHS)
+        # NEW HIGHS: dentro de 0.1% del máximo intraday
+        if price_from_hod is not None and price_from_hod >= -0.1:
+            categories.append(ScannerCategory.NEW_HIGHS)
         
-        # NEW LOWS: precio <= 100.1% del mínimo intraday
-        if ticker.intraday_low and ticker.intraday_low > 0:
-            # Calcular % del mínimo
-            percent_of_low = (ticker.price / ticker.intraday_low) * 100
-            
-            # Estar al 100.1% o menos del mínimo = está haciendo mínimos
-            if percent_of_low <= 100.1:
-                categories.append(ScannerCategory.NEW_LOWS)
+        # NEW LOWS: dentro de 0.1% del mínimo intraday
+        # price_from_intraday_low = ((price - low) / low) * 100
+        # Valor positivo = arriba del mínimo, 0 = en el mínimo
+        if price_from_lod is not None and price_from_lod <= 0.1:
+            categories.append(ScannerCategory.NEW_LOWS)
         
         # 7. REVERSALS (cambio de dirección)
         # Si gap up pero ahora está cayendo, o gap down pero ahora está subiendo
@@ -288,8 +313,9 @@ class ScannerCategorizer:
             categorized.sort(key=lambda t: t.gap_percent or 0)
         
         elif category == ScannerCategory.MOMENTUM_UP:
-            # Ordenar por chg_5min (cambio en 5 minutos) - captura el momentum actual
-            categorized.sort(key=lambda t: t.chg_5min or 0, reverse=True)
+            # Ordenar por change_percent (mayor ganancia del día primero)
+            # HOD Momentum prioriza stocks con mayor movimiento que están en máximos
+            categorized.sort(key=lambda t: t.change_percent or 0, reverse=True)
         
         elif category == ScannerCategory.WINNERS:
             # Ordenar por cambio % descendente
@@ -318,8 +344,9 @@ class ScannerCategorizer:
             categorized.sort(key=lambda t: abs(t.price_from_intraday_low if t.price_from_intraday_low is not None else (t.price_from_low if t.price_from_low is not None else 999)))
         
         elif category == ScannerCategory.REVERSALS:
-            # Ordenar por score (reversals más significativos)
-            categorized.sort(key=lambda t: t.score, reverse=True)
+            # Ordenar por magnitud del reversal: |gap_percent| + |change_from_open|
+            # Mayor magnitud = reversal más significativo
+            categorized.sort(key=lambda t: abs(t.gap_percent or 0) + abs(t.change_from_open or 0), reverse=True)
         
         elif category == ScannerCategory.POST_MARKET:
             # Ordenar por cambio % post-market (mayor movimiento primero, en valor absoluto)
@@ -376,7 +403,8 @@ class ScannerCategorizer:
             elif category == ScannerCategory.GAPPERS_DOWN:
                 categorized.sort(key=lambda t: t.gap_percent or 0)
             elif category == ScannerCategory.MOMENTUM_UP:
-                categorized.sort(key=lambda t: t.chg_5min or 0, reverse=True)
+                # Ordenar por change_percent (mayor ganancia del día primero)
+                categorized.sort(key=lambda t: t.change_percent or 0, reverse=True)
             elif category == ScannerCategory.WINNERS:
                 categorized.sort(key=lambda t: t.change_percent or 0, reverse=True)
             elif category in [ScannerCategory.MOMENTUM_DOWN, ScannerCategory.LOSERS]:
@@ -392,7 +420,8 @@ class ScannerCategorizer:
             elif category == ScannerCategory.NEW_LOWS:
                 categorized.sort(key=lambda t: abs(t.price_from_intraday_low if t.price_from_intraday_low is not None else (t.price_from_low if t.price_from_low is not None else 999)))
             elif category == ScannerCategory.REVERSALS:
-                categorized.sort(key=lambda t: t.score, reverse=True)
+                # Ordenar por magnitud del reversal
+                categorized.sort(key=lambda t: abs(t.gap_percent or 0) + abs(t.change_from_open or 0), reverse=True)
             elif category == ScannerCategory.POST_MARKET:
                 # Ordenar por cambio % post-market (mayor movimiento primero, en valor absoluto)
                 categorized.sort(key=lambda t: abs(t.postmarket_change_percent or 0), reverse=True)

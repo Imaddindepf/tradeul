@@ -11,8 +11,8 @@ from .grok_research import (
     search_financial_news,
     fetch_benzinga_news,
     format_research_for_display,
-    FINANCIAL_X_HANDLES,
-    WEB_PRIORITY_SOURCES
+    sanitize_research_response,
+    detect_language,
 )
 
 __all__ = [
@@ -21,7 +21,6 @@ __all__ = [
     'search_financial_news',
     'fetch_benzinga_news',
     'format_research_for_display',
-    'FINANCIAL_X_HANDLES',
-    'WEB_PRIORITY_SOURCES'
+    'sanitize_research_response',
+    'detect_language',
 ]
-

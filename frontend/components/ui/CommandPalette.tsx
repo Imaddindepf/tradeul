@@ -23,11 +23,18 @@ import {
     Newspaper,
     Moon,
     Star,
+    Activity,
+    CircleStop,
+    GitBranch,
+    Target,
+    Layers,
+    CheckCircle,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
-import { MAIN_COMMANDS as COMMANDS_BASE } from '@/lib/commands';
+import { MAIN_COMMANDS as COMMANDS_BASE, SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 import { useUserFilters } from '@/hooks/useUserFilters';
+import { useAlertStrategies } from '@/hooks/useAlertStrategies';
 
 interface CommandPaletteProps {
     open: boolean;
@@ -72,24 +79,47 @@ const SCANNER_COMMANDS: CommandItem[] = [
     { id: 'with_news', label: 'SC With News', description: 'scanner.withNewsDescription', icon: Newspaper, shortcut: 'Ctrl+0', group: 'scanner' },
 ];
 
+// Iconos para categorías de eventos
+const EVENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+    'evt_new_highs': TrendingUp,
+    'evt_new_lows': TrendingDown,
+    'evt_vwap_crosses': Zap,
+    'evt_open_crosses': ArrowUp,
+    'evt_close_crosses': ArrowDown,
+    'evt_volume': BarChart3,
+    'evt_momentum': Activity,
+    'evt_big_movers': DollarSign,
+    'evt_pullbacks': TrendingDown,
+    'evt_gap_reversals': ScanSearch,
+    'evt_halts': CircleStop,
+    'evt_ma_crosses': GitBranch,
+    'evt_bollinger': Target,
+    'evt_daily_levels': Layers,
+    'evt_confirmed': CheckCircle,
+    'evt_all': Activity,
+};
+
+// Comandos de eventos (prefijo EVN)
+const EVENT_COMMANDS: CommandItem[] = SYSTEM_EVENT_CATEGORIES.map(cat => ({
+    id: cat.id,
+    label: `EVN ${cat.label}`,
+    description: cat.description,
+    icon: EVENT_ICONS[cat.id] || Activity,
+    group: 'events',
+}));
+
 export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCategories = [], searchValue = '', onSearchChange }: CommandPaletteProps) {
     const { t } = useTranslation();
     const search = searchValue.toLowerCase().trim();
     const setSearch = onSearchChange || (() => { });
-    const { executeCommand, openUserScanTable } = useCommandExecutor();
+    const { executeCommand, openUserScanTable, openUserStrategyTable } = useCommandExecutor();
     const preventCloseRef = useRef(false);
 
     // Cargar user scans
     const { filters: userScans, loading: userScansLoading, error: userScansError } = useUserFilters();
 
-    // DEBUG - Log cada vez que cambia
-    useEffect(() => {
-        console.log('=== [CommandPalette] USER SCANS DEBUG ===');
-        console.log('Loading:', userScansLoading);
-        console.log('Error:', userScansError);
-        console.log('Filters count:', userScans.length);
-        console.log('Filters:', userScans);
-    }, [userScans, userScansLoading, userScansError]);
+    // Cargar user alert strategies
+    const { strategies: userStrategies, loading: userStrategiesLoading } = useAlertStrategies();
 
     // Crear comandos dinámicos para TODOS los user scans
     const userScanCommands: CommandItem[] = useMemo(() => {
@@ -103,23 +133,36 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         }));
     }, [userScans]);
 
+    // Crear comandos dinámicos para user strategies
+    const userStrategyCommands: CommandItem[] = useMemo(() => {
+        return userStrategies.map(s => ({
+            id: `user_strategy_${s.id}`,
+            label: `EVN ${s.name}`,
+            description: `${s.eventTypes.length} alerts · ${s.category || 'custom'}`,
+            icon: Star,
+            group: 'user_strategy',
+        }));
+    }, [userStrategies]);
+
     // Detectar qué comandos mostrar basado en el texto escrito
     const hasScPrefix = search.startsWith('sc');
     const hasDtPrefix = search.startsWith('dt');
+    const hasEvnPrefix = search.startsWith('evn');
     const isEmpty = search === '';
 
     // Determinar qué comandos mostrar
-    const showMainCommands = isEmpty || (!hasScPrefix && !hasDtPrefix);
+    const showMainCommands = isEmpty || (!hasScPrefix && !hasDtPrefix && !hasEvnPrefix);
     const showScannerCommands = hasScPrefix;
+    const showEventCommands = hasEvnPrefix;
     const shouldExecuteDT = hasDtPrefix && search === 'dt';
 
     // Handler para seleccionar comandos
     const handleSelect = useCallback((value: string) => {
-        const allCommands = [...MAIN_COMMANDS, ...SCANNER_COMMANDS, ...userScanCommands];
+        const allCommands = [...MAIN_COMMANDS, ...SCANNER_COMMANDS, ...EVENT_COMMANDS, ...userScanCommands, ...userStrategyCommands];
         const command = allCommands.find(c => c.id === value);
         if (command?.disabled) return;
 
-        // Comandos principales SC son solo indicadores - expande el menú
+        // SC expande el menú del scanner
         if (value === 'sc') {
             preventCloseRef.current = true;
             setSearch('SC ');
@@ -129,11 +172,46 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             return;
         }
 
+        // SB abre directamente el Scan Builder
+        if (value === 'sb') {
+            executeCommand('sb');
+            setSearch('');
+            onOpenChange(false);
+            return;
+        }
+
+        // Comando EVN expande el menú de eventos
+        if (value === 'evn') {
+            preventCloseRef.current = true;
+            setSearch('EVN ');
+            setTimeout(() => {
+                preventCloseRef.current = false;
+            }, 200);
+            return;
+        }
+
         // Comandos que abren ventanas flotantes (principales)
-        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'filters', 'sb', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider', 'earnings', 'heatmap', 'predict', 'ai', 'ins', 'fan', 'hds'].includes(value)) {
+        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider', 'earnings', 'heatmap', 'predict', 'ai', 'ins', 'fan', 'hds'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);
+            return;
+        }
+
+        // User alert strategies
+        if (value.startsWith('user_strategy_')) {
+            const strategyId = parseInt(value.replace('user_strategy_', ''));
+            const strategy = userStrategies.find(s => s.id === strategyId);
+            if (strategy) {
+                openUserStrategyTable({
+                    id: strategy.id,
+                    name: strategy.name,
+                    eventTypes: strategy.eventTypes,
+                    filters: strategy.filters as Record<string, any>,
+                });
+                setSearch('');
+                onOpenChange(false);
+            }
             return;
         }
 
@@ -157,8 +235,17 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             }
             setSearch('');
             onOpenChange(false);
+            return;
         }
-    }, [onSelectCategory, onOpenChange, executeCommand, setSearch, userScanCommands, userScans, openUserScanTable]);
+
+        // Todas las tablas de eventos (group === 'events')
+        if (command && command.group === 'events') {
+            executeCommand(value);
+            setSearch('');
+            onOpenChange(false);
+            return;
+        }
+    }, [onSelectCategory, onOpenChange, executeCommand, setSearch, userScanCommands, userScans, openUserScanTable, userStrategyCommands, userStrategies, openUserStrategyTable]);
 
     // Cerrar al hacer clic fuera
     useEffect(() => {
@@ -245,7 +332,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             >
                 <Command
                     className="border border-slate-300 bg-white shadow-lg overflow-hidden"
-                    shouldFilter={true}
+                    shouldFilter={!hasEvnPrefix && !hasScPrefix}
                 >
                     <Command.Input
                         value={search}
@@ -255,7 +342,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
 
                     <div className="flex items-center justify-between px-2 py-1 border-b border-slate-200 bg-slate-50">
                         <span className="text-[10px] text-slate-500 uppercase tracking-wide font-mono">
-                            {hasScPrefix ? t('commandPalette.scanner') : hasDtPrefix ? t('commandPalette.dilutionTracker') : t('commandPalette.commands')}
+                            {hasScPrefix ? t('commandPalette.scanner') : hasEvnPrefix ? t('commandPalette.events') : hasDtPrefix ? t('commandPalette.dilutionTracker') : t('commandPalette.commands')}
                         </span>
                         <button
                             onClick={() => {
@@ -341,6 +428,59 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                                             >
                                                 <Star className={`w-3 h-3 ${isDisabled ? 'text-slate-400' : 'text-amber-500'}`} />
                                                 <span className={`px-1 py-0.5 text-[10px] font-mono font-bold border ${isDisabled ? 'border-slate-300 text-slate-500 bg-slate-50' : 'border-amber-300 text-amber-700 bg-amber-50'}`}>
+                                                    {cmdName}
+                                                </span>
+                                                <span className="text-[10px] text-slate-500">{cmd.description}</span>
+                                            </Command.Item>
+                                        );
+                                    })}
+                                </Command.Group>
+                            </>
+                        )}
+
+                        {/* COMANDOS DE EVENTOS */}
+                        {showEventCommands && (
+                            <>
+                                {/* System Events */}
+                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">Event Tables</span>}>
+                                    {EVENT_COMMANDS.map((cmd) => {
+                                        const cmdName = cmd.label.replace('EVN ', '');
+                                        const IconComponent = cmd.icon;
+                                        return (
+                                            <Command.Item
+                                                key={cmd.id}
+                                                value={cmd.id}
+                                                keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
+                                                onSelect={() => handleSelect(cmd.id)}
+                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-slate-100 data-[selected=true]:bg-slate-100 transition-colors"
+                                            >
+                                                <IconComponent className="w-3 h-3 text-blue-500" />
+                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-blue-300 text-blue-700 bg-blue-50">
+                                                    {cmdName}
+                                                </span>
+                                                <span className="text-[10px] text-slate-500">{cmd.description}</span>
+                                            </Command.Item>
+                                        );
+                                    })}
+                                </Command.Group>
+
+                                {/* User Strategies */}
+                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">My Strategies {userStrategiesLoading && '(loading...)'}</span>}>
+                                    {userStrategyCommands.length === 0 && !userStrategiesLoading && (
+                                        <div className="px-2 py-1 text-[10px] text-slate-400">No strategies yet. Create one with BUILD command.</div>
+                                    )}
+                                    {userStrategyCommands.map((cmd) => {
+                                        const cmdName = cmd.label.replace('EVN ', '');
+                                        return (
+                                            <Command.Item
+                                                key={cmd.id}
+                                                value={cmd.id}
+                                                keywords={[cmd.label, cmdName, cmd.description, cmd.id]}
+                                                onSelect={() => handleSelect(cmd.id)}
+                                                className="flex items-center gap-1.5 px-1.5 py-1 cursor-pointer hover:bg-slate-100 data-[selected=true]:bg-slate-100 transition-colors"
+                                            >
+                                                <Star className="w-3 h-3 text-emerald-500" />
+                                                <span className="px-1 py-0.5 text-[10px] font-mono font-bold border border-emerald-300 text-emerald-700 bg-emerald-50">
                                                     {cmdName}
                                                 </span>
                                                 <span className="text-[10px] text-slate-500">{cmd.description}</span>

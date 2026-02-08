@@ -335,6 +335,109 @@ ONLY NYSE/NASDAQ US stocks. Include all specific numbers, names, percentages."""
         return ""
 
 
+async def validate_report(report: str, report_date: date) -> str:
+    """
+    Segunda capa de validación: verifica y corrige errores en el reporte.
+    
+    Usa Grok con búsqueda web para:
+    - Corregir horarios de eventos económicos (N/A → hora real o confirmar pospuesto)
+    - Verificar earnings times (BMO/AMC)
+    - Detectar información incorrecta
+    
+    Solo corrige donde hay errores, no reescribe el reporte.
+    """
+    api_key = os.getenv('GROK_API_KEY_2') or os.getenv('GROK_API_KEY')
+    if not api_key:
+        logger.warning("GROK_API_KEY not found, skipping validation")
+        return report
+    
+    os.environ['XAI_API_KEY'] = api_key
+    
+    fecha = report_date.strftime("%B %d, %Y")
+    
+    # Extraer solo la sección de eventos económicos para validar
+    econ_match = re.search(r'(ECONOMIC EVENTS.*?)(?=\n\nCOMPANIES|\n\n[A-Z]{3,}|\n={10,}|$)', report, re.DOTALL)
+    econ_section = econ_match.group(1).strip() if econ_match else ""
+    
+    if not econ_section:
+        logger.warning("validation_no_economic_section")
+        return report
+    
+    prompt = f"""Today is {fecha}. Validate this ECONOMIC EVENTS section.
+
+SECTION TO VALIDATE:
+{econ_section}
+
+SEARCH the web for today's US economic calendar to find:
+1. Exact release times in Eastern Time for each event
+2. Events postponed due to government shutdown  
+3. Prior values if shown as "Not Specified"
+
+RULES:
+- Use "POSTPONED:" prefix for delayed events
+- Use "HH:MM AM:" format for times
+- Keep actual values as-is
+
+Return ONLY a JSON object with corrections (no other text):
+Example: {{"corrections":[{{"original":"N/A: ISM...","corrected":"10:00 AM: ISM..."}}]}}
+If nothing to fix: {{"corrections":[]}}"""
+
+    try:
+        client = XAIClient(api_key=api_key)
+        
+        chat = client.chat.create(
+            model="grok-4-1-fast",
+            tools=[web_search()],
+            include=["inline_citations"]
+        )
+        
+        chat.append(user(prompt))
+        
+        logger.info("validation_starting", date=str(report_date))
+        
+        content = ""
+        for response, chunk in chat.stream():
+            if chunk.content:
+                content += chunk.content
+        
+        # Extraer JSON de la respuesta
+        import json as json_module
+        json_match = re.search(r'\{[\s\S]*\}', content)
+        if not json_match:
+            logger.warning("validation_no_json", content_preview=content[:200])
+            return report
+        
+        try:
+            corrections_data = json_module.loads(json_match.group(0))
+            corrections = corrections_data.get("corrections", [])
+        except json_module.JSONDecodeError as je:
+            logger.warning("validation_json_error", error=str(je))
+            return report
+        
+        if not corrections:
+            logger.info("validation_no_corrections_needed")
+            return report
+        
+        # Aplicar correcciones al reporte
+        validated_report = report
+        for corr in corrections:
+            original = corr.get("original", "")
+            corrected = corr.get("corrected", "")
+            if original and corrected:
+                validated_report = validated_report.replace(original, corrected)
+        
+        logger.info("validation_completed", 
+                   corrections_applied=len(corrections),
+                   original_len=len(report),
+                   validated_len=len(validated_report))
+        
+        return validated_report
+        
+    except Exception as e:
+        logger.error("validation_error", error=str(e))
+        return report  # En caso de error, devolver original
+
+
 async def synthesize_report(
     grok_data: str, 
     gemini_data: str, 
@@ -526,6 +629,9 @@ class MorningNewsCallGenerator:
                 grok_data, gemini_data, citations, report_date, market_data, lang
             )
             
+            # Fase 3: Validar y corregir el reporte
+            report = await validate_report(report, report_date)
+            
             elapsed = (datetime.now() - start_time).total_seconds()
             
             fecha_fmt = format_date_en(report_date) if lang == 'en' else format_date_es(report_date)
@@ -649,7 +755,10 @@ Report to translate:
                 grok_data, gemini_data, citations, report_date, market_data, 'en'
             )
             
-            # Fase 3: Traducir a español
+            # Fase 3: Validar y corregir el reporte
+            report_en = await validate_report(report_en, report_date)
+            
+            # Fase 4: Traducir a español
             report_es = await self.translate_to_spanish(report_en, report_date)
             
             elapsed = (datetime.now() - start_time).total_seconds()

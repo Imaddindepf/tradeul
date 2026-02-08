@@ -61,6 +61,18 @@ class RedisStreamManager:
             "trim_threshold": 2500,   # Trim cuando supere 2500
             "trim_interval": 60,      # Check cada 60s
             "approximate": True,      # Trim aproximado (más rápido)
+        },
+        "stream:halt:events": {
+            "maxlen": 500,            # Halt events del día (típicamente < 100/día)
+            "trim_threshold": 600,
+            "trim_interval": 120,     # Trim cada 2 min
+            "approximate": True,
+        },
+        "stream:events:market": {
+            "maxlen": 5000,           # Market events (new highs, VWAP crosses, etc.)
+            "trim_threshold": 6000,
+            "trim_interval": 60,      # Trim cada minuto
+            "approximate": True,
         }
     }
     

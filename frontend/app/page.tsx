@@ -98,7 +98,7 @@ function FloatingCard({
   });
 
   const progress = useSpring(scrollYProgress, { stiffness: 100, damping: 30 });
-  
+
   // Simplified animations - no position changes, only opacity and scale
   const opacity = useTransform(progress, [0, 0.5, 1], [0, 0.7, 1]);
   const scale = useTransform(progress, [0, 1], [0.95, 1]);
@@ -324,18 +324,18 @@ export default function Home() {
       </nav>
 
       {/* ========== HERO SECTION - Full Screen ========== */}
-      <section 
+      <section
         ref={heroRef}
         className="relative min-h-screen flex flex-col justify-center px-6 snap-start"
       >
-        <motion.div 
+        <motion.div
           style={{ opacity: heroOpacity, y: heroY, scale: heroScale }}
           className="max-w-7xl mx-auto w-full pt-20"
         >
           {/* Two column layout: Text left, Image right */}
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Left: Text content */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.2 }}
@@ -401,11 +401,11 @@ export default function Home() {
         </motion.div>
 
         {/* Scroll indicator */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.5 }}
-          className="absolute bottom-10 left-1/2 -translate-x-1/2"
+          className="absolute bottom-6 left-1/2 -translate-x-1/2"
         >
           <motion.div
             animate={{ y: [0, 10, 0] }}
@@ -610,6 +610,7 @@ export default function Home() {
                 </div>
               </div>
             </FloatingCard>
+
           </div>
         </div>
       </section>

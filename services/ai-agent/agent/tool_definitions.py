@@ -108,20 +108,20 @@ save_output(result, 'analysis_name')
     },
     {
         "name": "research_ticker",
-        "description": """Deep research on a ticker.
-Searches news, X.com, web for information.
-USE FOR: "Why is X up/down?", news, sentiment, analysis.
+        "description": """Deep research on a ticker using X.com, web search, and news.
+USE FOR: "Why is X up/down?", news, sentiment, breaking news, analysis.
+ALWAYS pass the user's full question in 'query' parameter.
 
 Parameters:
-- ticker: Stock symbol
-- query: What to research (optional)""",
+- ticker: Stock symbol (e.g., 'NVDA')
+- query: User's full question to research (REQUIRED)""",
         "parameters": {
             "type": "object",
             "properties": {
                 "ticker": {"type": "string"},
-                "query": {"type": "string"}
+                "query": {"type": "string", "description": "User's full question (e.g., 'Why is NVDA up today?')"}
             },
-            "required": ["ticker"]
+            "required": ["ticker", "query"]
         }
     },
     {

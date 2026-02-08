@@ -17,96 +17,102 @@ def get_system_rules() -> List[ScanRule]:
     - Campo y direccion de ordenamiento
     """
     return [
-        # GAPPERS_UP: Gap >= 2%, price >= 1, volume > 0
+        # GAPPERS_UP: Gap >= 2%, volume > 0 (sin filtro de precio - usuario configura)
         ScanRule(
             id="category:gappers_up",
             owner_type=RuleOwnerType.SYSTEM,
             name="Gappers Up",
             conditions=[
                 Condition("gap_percent", Operator.GTE, 2.0),
-                Condition("price", Operator.GTE, 1.0),
                 Condition("volume_today", Operator.GT, 0),
             ],
             sort_field="gap_percent",
             sort_descending=True,
         ),
         
-        # GAPPERS_DOWN: Gap <= -2%, price >= 1, volume > 0
+        # GAPPERS_DOWN: Gap <= -2%, volume > 0 (sin filtro de precio - usuario configura)
         ScanRule(
             id="category:gappers_down",
             owner_type=RuleOwnerType.SYSTEM,
             name="Gappers Down",
             conditions=[
                 Condition("gap_percent", Operator.LTE, -2.0),
-                Condition("price", Operator.GTE, 1.0),
                 Condition("volume_today", Operator.GT, 0),
             ],
             sort_field="gap_percent",
             sort_descending=False,
         ),
         
-        # MOMENTUM_UP: chg_5min >= 1.5%, near HOD, above VWAP, high RVOL
+        # MOMENTUM_UP (HOD MOMENTUM - BALANCED FOR ALL CAPS)
+        # Stocks "running up" haciendo máximos con volumen
+        # Basado en Trade Ideas / Warrior Trading - adaptado para ALL CAPS
+        # Criterios balanceados que incluyen large caps como CMG, MCD
         ScanRule(
             id="category:momentum_up",
             owner_type=RuleOwnerType.SYSTEM,
             name="Momentum Up",
             conditions=[
-                Condition("chg_5min", Operator.GTE, 1.5),
-                Condition("price_from_intraday_high", Operator.GTE, -2.0),
-                Condition("price_vs_vwap", Operator.GT, 0),
-                Condition("rvol", Operator.GTE, 5.0),
+                Condition("price_from_intraday_high", Operator.GTE, -1.0),  # Máx 1% del HOD
+                Condition("change_percent", Operator.GTE, 1.0),             # Mínimo 1% del día (large cap friendly)
+                Condition("price_vs_vwap", Operator.GT, 0),                 # Sobre VWAP
+                Condition("rvol", Operator.GTE, 1.5),                       # RVOL >= 150% (watchable)
+                Condition("volume_today", Operator.GTE, 100000),            # Mínimo 100K volumen (liquidez)
             ],
-            sort_field="chg_5min",
+            sort_field="change_percent",
             sort_descending=True,
         ),
         
-        # MOMENTUM_DOWN: change <= -3%
+        # MOMENTUM_DOWN (LOD MOMENTUM - BALANCED FOR ALL CAPS)
+        # Stocks "falling" haciendo mínimos con volumen
+        # Espejo de MOMENTUM_UP pero para caídas - adaptado para ALL CAPS
         ScanRule(
             id="category:momentum_down",
             owner_type=RuleOwnerType.SYSTEM,
             name="Momentum Down",
             conditions=[
-                Condition("change_percent", Operator.LTE, -3.0),
-                Condition("price", Operator.GTE, 1.0),
+                Condition("price_from_intraday_low", Operator.LTE, 1.0),  # Máx 1% del LOD
+                Condition("change_percent", Operator.LTE, -1.0),          # Mínimo -1% del día (large cap friendly)
+                Condition("price_vs_vwap", Operator.LT, 0),               # Bajo VWAP
+                Condition("rvol", Operator.GTE, 1.5),                     # RVOL >= 150% (watchable)
+                Condition("volume_today", Operator.GTE, 100000),          # Mínimo 100K volumen (liquidez)
             ],
             sort_field="change_percent",
             sort_descending=False,
         ),
         
-        # WINNERS: change >= 5%
+        # WINNERS: change >= 5% con liquidez mínima (RVOL >= 1.5)
         ScanRule(
             id="category:winners",
             owner_type=RuleOwnerType.SYSTEM,
             name="Winners",
             conditions=[
                 Condition("change_percent", Operator.GTE, 5.0),
-                Condition("price", Operator.GTE, 1.0),
+                Condition("rvol", Operator.GTE, 1.5),  # Liquidez mínima
             ],
             sort_field="change_percent",
             sort_descending=True,
         ),
         
-        # LOSERS: change <= -5%
+        # LOSERS: change <= -5% con liquidez mínima (RVOL >= 1.5)
         ScanRule(
             id="category:losers",
             owner_type=RuleOwnerType.SYSTEM,
             name="Losers",
             conditions=[
                 Condition("change_percent", Operator.LTE, -5.0),
-                Condition("price", Operator.GTE, 1.0),
+                Condition("rvol", Operator.GTE, 1.5),  # Liquidez mínima
             ],
             sort_field="change_percent",
             sort_descending=False,
         ),
         
-        # HIGH_VOLUME: RVOL >= 2.0
+        # HIGH_VOLUME: RVOL >= 2.0 (sin filtro de precio)
         ScanRule(
             id="category:high_volume",
             owner_type=RuleOwnerType.SYSTEM,
             name="High Volume",
             conditions=[
                 Condition("rvol", Operator.GTE, 2.0),
-                Condition("price", Operator.GTE, 1.0),
             ],
             sort_field="volume_today",
             sort_descending=True,
@@ -124,28 +130,26 @@ def get_system_rules() -> List[ScanRule]:
             sort_descending=True,
         ),
         
-        # NEW_HIGHS: precio dentro de 0.1% del maximo intraday
+        # NEW_HIGHS: precio dentro de 0.1% del máximo intraday (sin filtro de precio)
         ScanRule(
             id="category:new_highs",
             owner_type=RuleOwnerType.SYSTEM,
             name="New Highs",
             conditions=[
                 Condition("price_from_intraday_high", Operator.GTE, -0.1),
-                Condition("price", Operator.GTE, 1.0),
                 Condition("volume_today", Operator.GT, 0),
             ],
             sort_field="price_from_intraday_high",
             sort_descending=True,
         ),
         
-        # NEW_LOWS: precio dentro de 0.1% del minimo intraday
+        # NEW_LOWS: precio dentro de 0.1% del mínimo intraday (sin filtro de precio)
         ScanRule(
             id="category:new_lows",
             owner_type=RuleOwnerType.SYSTEM,
             name="New Lows",
             conditions=[
                 Condition("price_from_intraday_low", Operator.LTE, 0.1),
-                Condition("price", Operator.GTE, 1.0),
                 Condition("volume_today", Operator.GT, 0),
             ],
             sort_field="price_from_intraday_low",

@@ -400,8 +400,8 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 {/* Ticker - Primera columna */}
                 <td
                   className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
+                    ? 'bg-rose-100'
+                    : article.isLive ? 'bg-emerald-50/50' : ''
                     }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
@@ -418,8 +418,8 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 {/* Headline */}
                 <td
                   className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
+                    ? 'bg-rose-100'
+                    : article.isLive ? 'bg-emerald-50/50' : ''
                     }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
@@ -436,8 +436,8 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 {/* Date */}
                 <td
                   className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
+                    ? 'bg-rose-100'
+                    : article.isLive ? 'bg-emerald-50/50' : ''
                     }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
@@ -447,8 +447,8 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 {/* Time */}
                 <td
                   className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
+                    ? 'bg-rose-100'
+                    : article.isLive ? 'bg-emerald-50/50' : ''
                     }`}
                   style={{ fontFamily, height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}
@@ -458,8 +458,8 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 {/* Source */}
                 <td
                   className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
+                    ? 'bg-rose-100'
+                    : article.isLive ? 'bg-emerald-50/50' : ''
                     }`}
                   style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }}
                   onClick={() => setSelectedArticle(article)}

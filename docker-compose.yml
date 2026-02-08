@@ -310,6 +310,39 @@ services:
           cpus: "2"
           memory: 3G
 
+  # =============================================
+  # EVENT DETECTOR - Real-time market events
+  # =============================================
+  event_detector:
+    build:
+      context: .
+      dockerfile: services/event_detector/Dockerfile
+    container_name: tradeul_event_detector
+    env_file:
+      - .env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      analytics:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8040:8040"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          memory: 256M
+
   data_maintenance:
     build:
       context: .
@@ -527,6 +560,49 @@ services:
       - tradeul_network
     ports:
       - "127.0.0.1:8015:8015" # Solo interno - noticias pasan por API Gateway/WebSocket
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ============================================================================
+  # BENZINGA EARNINGS - Real-time earnings data streaming
+  # ============================================================================
+  benzinga-earnings:
+    build:
+      context: ./services/benzinga-earnings
+      dockerfile: Dockerfile
+    container_name: tradeul_benzinga_earnings
+    env_file:
+      - .env
+    environment:
+      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - TIMESCALE_HOST=tradeul_timescale
+      - TIMESCALE_PORT=5432
+      - TIMESCALE_USER=${POSTGRES_USER:-tradeul_user}
+      - TIMESCALE_PASSWORD=${POSTGRES_PASSWORD}
+      - TIMESCALE_DATABASE=${POSTGRES_DB:-tradeul}
+      - SERVICE_PORT=8022
+      - POLL_INTERVAL_SECONDS=30
+      - FULL_SYNC_INTERVAL_MINUTES=60
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8022:8022"
     deploy:
       resources:
         limits:

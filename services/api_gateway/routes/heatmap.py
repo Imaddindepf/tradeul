@@ -355,11 +355,17 @@ async def get_heatmap_data(
         return _cache[cache_key]
     
     try:
-        # 1. Read snapshot from Redis
+        # 1. Read snapshot from Redis (con fallback a last_close para mercado cerrado)
         snapshot_data = await redis_client.get("snapshot:enriched:latest")
+        is_realtime = True
         
         if not snapshot_data:
-            raise HTTPException(status_code=404, detail="No market data available")
+            # Fallback: usar último cierre si no hay datos en tiempo real
+            snapshot_data = await redis_client.get("snapshot:enriched:last_close")
+            is_realtime = False
+            
+            if not snapshot_data:
+                raise HTTPException(status_code=404, detail="No market data available")
         
         tickers_raw = snapshot_data.get("tickers", [])
         snapshot_timestamp = snapshot_data.get("timestamp")
@@ -600,6 +606,7 @@ async def get_heatmap_data(
             "metric": metric,
             "size_by": size_by,
             "sectors": result_sectors,
+            "is_realtime": is_realtime,  # False cuando usa datos del último cierre
         }
         
         # Update cache

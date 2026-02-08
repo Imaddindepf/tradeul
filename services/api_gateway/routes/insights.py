@@ -30,7 +30,7 @@ _redis_client: Optional[RedisClient] = None
 NY_TZ = ZoneInfo("America/New_York")
 
 # Tipos de insight disponibles
-InsightType = Literal["morning", "midmorning", "evening", "weekly"]
+InsightType = Literal["morning", "midmorning", "evening", "weekly", "any"]
 
 
 def set_redis_client(client: RedisClient):
@@ -119,13 +119,14 @@ def get_insight_title(insight_type: InsightType, lang: str) -> str:
 
 @router.get("/latest", response_model=InsightResponse)
 async def get_latest_insight(
-    type: InsightType = Query(default="morning", description="Tipo de insight"),
+    type: InsightType = Query(default="any", description="Tipo de insight"),
     lang: str = Query(default='es', description="Idioma: 'es' o 'en'")
 ):
     """
     Obtener el insight más reciente del tipo especificado.
     
     Tipos disponibles:
+    - any: El más reciente entre morning y midmorning (default)
     - morning: Morning News Call (7:30 AM ET)
     - midmorning: Mid-Morning Update (12:30 PM ET)
     - evening: Evening Report (4:30 PM ET) [próximamente]
@@ -138,28 +139,50 @@ async def get_latest_insight(
         lang = 'es'
     
     try:
-        # Buscar el insight más reciente
-        latest_key = f"{type}_news:latest:{lang}" if type == "morning" else f"{type}_update:latest:{lang}"
-        if type == "morning":
-            latest_key = f"morning_news:latest:{lang}"
-        elif type == "midmorning":
-            latest_key = f"midmorning_update:latest:{lang}"
-        
-        data = await _redis_client.get(latest_key)
-        
-        if not data:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"No hay {get_insight_title(type, lang)} disponible."
-            )
-        
-        if isinstance(data, str):
-            report = json.loads(data)
+        # Si type es "any", buscar el más reciente entre morning y midmorning
+        if type == "any":
+            morning_key = f"morning_news:latest:{lang}"
+            midmorning_key = f"midmorning_update:latest:{lang}"
+            
+            morning_data = await _redis_client.get(morning_key)
+            midmorning_data = await _redis_client.get(midmorning_key)
+            
+            reports = []
+            if morning_data:
+                r = json.loads(morning_data) if isinstance(morning_data, str) else morning_data
+                r['type'] = 'morning'
+                reports.append(r)
+            if midmorning_data:
+                r = json.loads(midmorning_data) if isinstance(midmorning_data, str) else midmorning_data
+                r['type'] = 'midmorning'
+                reports.append(r)
+            
+            if not reports:
+                raise HTTPException(status_code=404, detail="No hay reportes disponibles.")
+            
+            # Ordenar por generated_at (más reciente primero)
+            reports.sort(key=lambda x: x.get('generated_at', ''), reverse=True)
+            report = reports[0]
         else:
-            report = data
+            # Buscar el insight del tipo específico
+            if type == "morning":
+                latest_key = f"morning_news:latest:{lang}"
+            elif type == "midmorning":
+                latest_key = f"midmorning_update:latest:{lang}"
+            else:
+                latest_key = f"{type}_news:latest:{lang}"
+            
+            data = await _redis_client.get(latest_key)
+            
+            if not data:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"No hay {get_insight_title(type, lang)} disponible."
+                )
+            
+            report = json.loads(data) if isinstance(data, str) else data
+            report['type'] = type
         
-        # Asegurar campos requeridos
-        report['type'] = type
         if 'lang' not in report:
             report['lang'] = lang
         

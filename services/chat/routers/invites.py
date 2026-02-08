@@ -3,13 +3,14 @@ Invite endpoints - Group invitations
 """
 
 import json
+import secrets
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Body
 from pydantic import BaseModel
 import structlog
 
-from models.invite import InviteResponse
+from models.invite import InviteResponse, InviteLinkCreate, InviteLinkResponse, InviteLinkInfo
 from auth.dependencies import get_current_user
 from auth.models import AuthenticatedUser
 from http_clients import http_clients
@@ -123,7 +124,6 @@ async def accept_invite(
         raise HTTPException(status_code=400, detail="Invitation already responded to")
     
     # Check if expired
-    from datetime import datetime, timezone
     if invite["expires_at"] < datetime.now(timezone.utc):
         await db.execute("""
             UPDATE chat_invites SET status = 'expired' WHERE id = $1::uuid
@@ -352,3 +352,296 @@ async def cancel_invite(
     logger.info("invite_cancelled", group_id=group_id, invitee=invitee_id, by=user.user_id)
     
     return {"message": "Invitation cancelled"}
+
+
+# =============================================================================
+# INVITE LINKS - Shareable links to join groups
+# =============================================================================
+
+def generate_invite_code(length: int = 8) -> str:
+    """Generate a short, URL-safe invite code."""
+    alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
+@router.post("/invite-links/group/{group_id}", response_model=InviteLinkResponse)
+async def create_invite_link(
+    group_id: str,
+    data: InviteLinkCreate = Body(default=InviteLinkCreate()),
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Create a shareable invite link for a group.
+    Only owner/admin can create links.
+    """
+    db = http_clients.timescale
+    
+    # Check permission
+    role = await db.fetchval("""
+        SELECT role FROM chat_members 
+        WHERE group_id = $1::uuid AND user_id = $2
+    """, group_id, user.user_id)
+    
+    if role not in ('owner', 'admin'):
+        raise HTTPException(status_code=403, detail="Only owners and admins can create invite links")
+    
+    # Generate unique code
+    code = generate_invite_code()
+    
+    # Calculate expiration
+    expires_at = None
+    if data.expires_in_days:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=data.expires_in_days)
+    
+    # Create the invite link
+    link = await db.fetchrow("""
+        INSERT INTO chat_invite_links (group_id, code, name, created_by, max_uses, expires_at)
+        VALUES ($1::uuid, $2, $3, $4, $5, $6)
+        RETURNING 
+            id::text, group_id::text, code, name, created_by, 
+            max_uses, uses, expires_at, is_active, created_at
+    """, group_id, code, data.name, user.user_id, data.max_uses, expires_at)
+    
+    if not link:
+        raise HTTPException(status_code=500, detail="Failed to create invite link")
+    
+    # Get group name
+    group_name = await db.fetchval("""
+        SELECT name FROM chat_groups WHERE id = $1::uuid
+    """, group_id)
+    
+    logger.info("invite_link_created", group_id=group_id, code=code, by=user.user_id)
+    
+    return {
+        **dict(link),
+        "group_name": group_name,
+        "created_by_name": user.name or user.username
+    }
+
+
+@router.get("/invite-links/group/{group_id}", response_model=List[InviteLinkResponse])
+async def list_invite_links(
+    group_id: str,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    List all invite links for a group.
+    Only owner/admin can view.
+    """
+    db = http_clients.timescale
+    
+    # Check permission
+    role = await db.fetchval("""
+        SELECT role FROM chat_members 
+        WHERE group_id = $1::uuid AND user_id = $2
+    """, group_id, user.user_id)
+    
+    if role not in ('owner', 'admin'):
+        raise HTTPException(status_code=403, detail="Only owners and admins can view invite links")
+    
+    # Get links with group info
+    links = await db.fetch("""
+        SELECT 
+            l.id::text, l.group_id::text, l.code, l.name, l.created_by,
+            l.max_uses, l.uses, l.expires_at, l.is_active, l.created_at,
+            g.name as group_name
+        FROM chat_invite_links l
+        JOIN chat_groups g ON g.id = l.group_id
+        WHERE l.group_id = $1::uuid
+        ORDER BY l.created_at DESC
+    """, group_id)
+    
+    return [dict(link) for link in links]
+
+
+@router.delete("/invite-links/{code}")
+async def revoke_invite_link(
+    code: str,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Revoke (deactivate) an invite link.
+    Only owner/admin of the group can revoke.
+    """
+    db = http_clients.timescale
+    
+    # Get link and check permission
+    link = await db.fetchrow("""
+        SELECT l.group_id::text, m.role
+        FROM chat_invite_links l
+        JOIN chat_members m ON m.group_id = l.group_id AND m.user_id = $2
+        WHERE l.code = $1
+    """, code, user.user_id)
+    
+    if not link:
+        raise HTTPException(status_code=404, detail="Invite link not found or you're not a member")
+    
+    if link["role"] not in ('owner', 'admin'):
+        raise HTTPException(status_code=403, detail="Only owners and admins can revoke invite links")
+    
+    # Deactivate the link
+    await db.execute("""
+        UPDATE chat_invite_links SET is_active = FALSE WHERE code = $1
+    """, code)
+    
+    logger.info("invite_link_revoked", code=code, by=user.user_id)
+    
+    return {"message": "Invite link revoked"}
+
+
+@router.get("/invite-links/{code}/info", response_model=InviteLinkInfo)
+async def get_invite_link_info(code: str):
+    """
+    Get public info about an invite link.
+    Used by the join page to show group details.
+    No authentication required.
+    """
+    db = http_clients.timescale
+    
+    # Get link with group info
+    link = await db.fetchrow("""
+        SELECT 
+            l.code, l.is_active, l.max_uses, l.uses, l.expires_at,
+            g.name as group_name, g.icon as group_icon,
+            (SELECT COUNT(*) FROM chat_members WHERE group_id = g.id) as member_count
+        FROM chat_invite_links l
+        JOIN chat_groups g ON g.id = l.group_id
+        WHERE l.code = $1
+    """, code)
+    
+    if not link:
+        return InviteLinkInfo(
+            code=code,
+            group_name="",
+            member_count=0,
+            is_valid=False,
+            error="Enlace de invitación no encontrado"
+        )
+    
+    # Check if link is valid
+    if not link["is_active"]:
+        return InviteLinkInfo(
+            code=code,
+            group_name=link["group_name"],
+            group_icon=link["group_icon"],
+            member_count=link["member_count"],
+            is_valid=False,
+            error="Este enlace ha sido desactivado"
+        )
+    
+    # Check expiration
+    if link["expires_at"] and link["expires_at"] < datetime.now(timezone.utc):
+        return InviteLinkInfo(
+            code=code,
+            group_name=link["group_name"],
+            group_icon=link["group_icon"],
+            member_count=link["member_count"],
+            is_valid=False,
+            error="Este enlace ha expirado"
+        )
+    
+    # Check max uses
+    if link["max_uses"] and link["uses"] >= link["max_uses"]:
+        return InviteLinkInfo(
+            code=code,
+            group_name=link["group_name"],
+            group_icon=link["group_icon"],
+            member_count=link["member_count"],
+            is_valid=False,
+            error="Este enlace ha alcanzado el límite de usos"
+        )
+    
+    return InviteLinkInfo(
+        code=code,
+        group_name=link["group_name"],
+        group_icon=link["group_icon"],
+        member_count=link["member_count"],
+        is_valid=True
+    )
+
+
+@router.post("/invite-links/{code}/join")
+async def join_via_invite_link(
+    code: str,
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Join a group using an invite link.
+    Returns the group data on success.
+    """
+    db = http_clients.timescale
+    
+    # Get link with validation
+    link = await db.fetchrow("""
+        SELECT 
+            l.id::text, l.group_id::text, l.is_active, l.max_uses, l.uses, l.expires_at,
+            g.name as group_name
+        FROM chat_invite_links l
+        JOIN chat_groups g ON g.id = l.group_id
+        WHERE l.code = $1
+    """, code)
+    
+    if not link:
+        raise HTTPException(status_code=404, detail="Enlace de invitación no encontrado")
+    
+    # Validate link
+    if not link["is_active"]:
+        raise HTTPException(status_code=400, detail="Este enlace ha sido desactivado")
+    
+    if link["expires_at"] and link["expires_at"] < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Este enlace ha expirado")
+    
+    if link["max_uses"] and link["uses"] >= link["max_uses"]:
+        raise HTTPException(status_code=400, detail="Este enlace ha alcanzado el límite de usos")
+    
+    group_id = link["group_id"]
+    
+    # Check if already a member
+    is_member = await db.fetchval("""
+        SELECT EXISTS(
+            SELECT 1 FROM chat_members 
+            WHERE group_id = $1::uuid AND user_id = $2
+        )
+    """, group_id, user.user_id)
+    
+    if is_member:
+        # Return group data anyway
+        group = await db.fetchrow("""
+            SELECT 
+                g.id::text, g.name, g.description, g.icon, g.is_dm, g.owner_id, g.created_at,
+                (SELECT COUNT(*) FROM chat_members WHERE group_id = g.id) as member_count,
+                0 as unread_count
+            FROM chat_groups g
+            WHERE g.id = $1::uuid
+        """, group_id)
+        return {"message": "Ya eres miembro de este grupo", "group": dict(group), "already_member": True}
+    
+    # Add as member
+    display_name = user.name or user.username or "Usuario"
+    await db.execute("""
+        INSERT INTO chat_members (group_id, user_id, user_name, user_avatar, role)
+        VALUES ($1::uuid, $2, $3, $4, 'member')
+        ON CONFLICT (group_id, user_id) DO NOTHING
+    """, group_id, user.user_id, display_name, user.avatar)
+    
+    # Increment uses counter
+    await db.execute("""
+        UPDATE chat_invite_links SET uses = uses + 1 WHERE code = $1
+    """, code)
+    
+    # Create system message
+    await create_system_message(group_id, f"{display_name} se ha unido al grupo mediante enlace de invitación")
+    
+    # Get group data to return
+    group = await db.fetchrow("""
+        SELECT 
+            g.id::text, g.name, g.description, g.icon, g.is_dm, g.owner_id, g.created_at,
+            (SELECT COUNT(*) FROM chat_members WHERE group_id = g.id) as member_count,
+            0 as unread_count
+        FROM chat_groups g
+        WHERE g.id = $1::uuid
+    """, group_id)
+    
+    logger.info("user_joined_via_link", group_id=group_id, user_id=user.user_id, code=code)
+    
+    return {"message": "Te has unido al grupo", "group": dict(group), "already_member": False}

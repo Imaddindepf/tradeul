@@ -7,6 +7,8 @@ import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 import { parseTerminalCommand, TICKER_COMMANDS, GLOBAL_COMMANDS } from '@/lib/terminal-parser';
 import { useUserFilters } from '@/hooks/useUserFilters';
+import { useAlertStrategies, type AlertStrategy } from '@/hooks/useAlertStrategies';
+import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 import type { UserFilter } from '@/lib/types/scannerFilters';
 
 interface TerminalPaletteProps {
@@ -59,17 +61,21 @@ export function TerminalPalette({
     const [selectedTicker, setSelectedTicker] = useState<TickerResult | null>(null);
     const listRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
-    const { executeCommand, openScannerTable, openUserScanTable } = useCommandExecutor();
+    const { executeCommand, openScannerTable, openUserScanTable, openEventTable, openUserStrategyTable } = useCommandExecutor();
 
     // User scans - refrescar cada vez que se abre el palette
     const { filters: userScans, loading: userScansLoading, refreshFilters } = useUserFilters();
 
-    // Refrescar filtros cuando se abre el palette
+    // User alert strategies
+    const { strategies: userStrategies, loading: userStrategiesLoading, listStrategies: refreshStrategies } = useAlertStrategies();
+
+    // Refrescar filtros y estrategias cuando se abre el palette
     useEffect(() => {
         if (open) {
             refreshFilters();
+            refreshStrategies();
         }
-    }, [open, refreshFilters]);
+    }, [open, refreshFilters, refreshStrategies]);
 
     const search = searchValue.trim();
     const setSearch = onSearchChange || (() => { });
@@ -79,6 +85,9 @@ export function TerminalPalette({
 
     // Detectar prefijo SC para scanner
     const hasScPrefix = search.toUpperCase().startsWith('SC');
+
+    // Detectar prefijo EVN para eventos
+    const hasEvnPrefix = search.toUpperCase().startsWith('EVN');
 
     // Verificar si hay comandos globales que empiecen con la búsqueda
     const searchUpper = search.toUpperCase();
@@ -91,7 +100,8 @@ export function TerminalPalette({
     // No tratar como ticker si es un comando exacto
     const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper)
         && !hasScPrefix
-        && !['SC', 'IPO', 'SET', 'HELP', 'FILTERS', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT', 'HM', 'HDS', 'SB', 'AI', 'INS', 'FAN', 'WL', 'DT', 'FA', 'SEC'].includes(searchUpper)
+        && !hasEvnPrefix
+        && !['SC', 'EVN', 'IPO', 'SET', 'HELP', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT', 'HM', 'HDS', 'SB', 'AI', 'INS', 'FAN', 'WL', 'DT', 'FA', 'SEC'].includes(searchUpper)
         && !isExactCommand;
 
     // Buscar tickers cuando parece un ticker
@@ -155,7 +165,7 @@ export function TerminalPalette({
     }, [search]);
 
     // Generar items a mostrar
-    const items = getDisplayItems(parsed, hasScPrefix, search, tickerResults, selectedTicker, t, userScans);
+    const items = getDisplayItems(parsed, hasScPrefix, hasEvnPrefix, search, tickerResults, selectedTicker, t, userScans, userStrategies);
 
     // Scroll to selected
     useEffect(() => {
@@ -235,8 +245,12 @@ export function TerminalPalette({
                 if (item.commandId === 'help') {
                     onOpenHelp?.();
                 } else if (item.commandId === 'sc') {
-                    // SC es especial - muestra categorías del scanner
+                    // SC - muestra categorías del scanner
                     setSearch('SC ');
+                    return;
+                } else if (item.commandId === 'evn') {
+                    // EVN es especial - muestra categorías de eventos
+                    setSearch('EVN ');
                     return;
                 } else if (item.commandId) {
                     executeCommand(item.commandId);
@@ -263,8 +277,26 @@ export function TerminalPalette({
                 setSelectedTicker(null);
                 onOpenChange(false);
                 break;
+
+            case 'event':
+                if (item.eventId) {
+                    openEventTable(item.eventId, 0);
+                }
+                setSearch('');
+                setSelectedTicker(null);
+                onOpenChange(false);
+                break;
+
+            case 'user-strategy':
+                if (item.strategyData) {
+                    openUserStrategyTable(item.strategyData);
+                }
+                setSearch('');
+                setSelectedTicker(null);
+                onOpenChange(false);
+                break;
         }
-    }, [executeCommand, openScannerTable, openUserScanTable, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
+    }, [executeCommand, openScannerTable, openUserScanTable, openEventTable, openUserStrategyTable, onOpenChange, onOpenHelp, onExecuteTickerCommand, setSearch, selectedTicker]);
 
     if (!open) return null;
 
@@ -307,7 +339,7 @@ export function TerminalPalette({
                                 </>
                             ) : (
                                 <span className="text-[10px] text-slate-400 uppercase tracking-wide font-mono">
-                                    {hasScPrefix ? 'Scanner' : looksLikeTicker && tickerResults.length > 0 ? 'Instruments' : 'Commands'}
+                                    {hasScPrefix ? 'Scanner' : hasEvnPrefix ? 'Events' : looksLikeTicker && tickerResults.length > 0 ? 'Instruments' : 'Commands'}
                                 </span>
                             )}
                             {loadingTickers && <Loader2 className="w-3 h-3 text-slate-400 animate-spin" />}
@@ -365,14 +397,21 @@ export function TerminalPalette({
                                         {/* Command row */}
                                         {item.type !== 'instrument' && (
                                             <>
-                                                <span className="px-1.5 py-0.5 text-[10px] font-mono font-semibold border border-slate-200 text-slate-700 rounded min-w-[60px] text-center">
+                                                <span className={`px-1.5 py-0.5 text-[10px] font-mono font-semibold border rounded min-w-[60px] text-center ${
+                                                    item.type === 'user-strategy' ? 'border-emerald-300 text-emerald-700 bg-emerald-50' :
+                                                    item.isUserScan ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                                    'border-slate-200 text-slate-700'
+                                                }`}>
                                                     {item.label}
                                                 </span>
                                                 <span className="text-[10px] text-slate-500 flex-1 truncate">
                                                     {item.description}
                                                 </span>
                                                 {item.isUserScan && (
-                                                    <span className="text-[9px] text-slate-400 font-mono">(custom)</span>
+                                                    <span className="text-[9px] text-slate-400 font-mono">(scan)</span>
+                                                )}
+                                                {item.type === 'user-strategy' && (
+                                                    <span className="text-[9px] text-emerald-500 font-mono">(strategy)</span>
                                                 )}
                                                 {item.shortcut && (
                                                     <span className="text-[9px] text-slate-400 font-mono">
@@ -410,7 +449,7 @@ export function TerminalPalette({
 // Types
 interface DisplayItem {
     id: string;
-    type: 'instrument' | 'ticker-command' | 'global-command' | 'scanner' | 'user-scanner';
+    type: 'instrument' | 'ticker-command' | 'global-command' | 'scanner' | 'user-scanner' | 'event' | 'user-strategy';
     label: string;
     description: string;
     shortcut?: string | null;
@@ -418,19 +457,23 @@ interface DisplayItem {
     ticker?: string;
     commandId?: string;
     scannerId?: string;
+    eventId?: string;
     tickerData?: TickerResult;
     userFilter?: UserFilter;
     isUserScan?: boolean;
+    strategyData?: { id: number; name: string; eventTypes: string[]; filters: Record<string, any> };
 }
 
 function getDisplayItems(
     parsed: ReturnType<typeof parseTerminalCommand>,
     hasScPrefix: boolean,
+    hasEvnPrefix: boolean,
     search: string,
     tickerResults: TickerResult[],
     selectedTicker: TickerResult | null,
     t: (key: string) => string,
-    userScans: UserFilter[] = []
+    userScans: UserFilter[] = [],
+    userStrategies: AlertStrategy[] = []
 ): DisplayItem[] {
     // Si hay un ticker seleccionado, mostrar comandos para ese ticker
     if (selectedTicker) {
@@ -444,6 +487,37 @@ function getDisplayItems(
             commandId: cmd.id,
             autocomplete: `${selectedTicker.symbol} ${key}`,
         }));
+    }
+
+    // Si es prefijo EVN, mostrar categorías de eventos
+    if (hasEvnPrefix) {
+        const filter = search.toUpperCase().replace('EVN', '').trim();
+
+        // System event categories
+        const eventItems: DisplayItem[] = SYSTEM_EVENT_CATEGORIES
+            .filter(cat => !filter || cat.label.toUpperCase().includes(filter) || cat.id.toUpperCase().includes(filter))
+            .map(cat => ({
+                id: `event-${cat.id}`,
+                type: 'event' as const,
+                label: cat.label,
+                description: cat.description,
+                eventId: cat.id,
+                autocomplete: `EVN ${cat.label}`,
+            }));
+
+        // User alert strategies
+        const strategyItems: DisplayItem[] = userStrategies
+            .filter(s => !filter || s.name.toUpperCase().includes(filter))
+            .map(s => ({
+                id: `user-strategy-${s.id}`,
+                type: 'user-strategy' as const,
+                label: s.name,
+                description: `${s.eventTypes.length} alerts · ${s.category || 'custom'}`,
+                strategyData: { id: s.id, name: s.name, eventTypes: s.eventTypes, filters: s.filters as Record<string, any> },
+                autocomplete: `EVN ${s.name}`,
+            }));
+
+        return [...eventItems, ...strategyItems];
     }
 
     // Si es prefijo SC, mostrar categorías del scanner + user scans

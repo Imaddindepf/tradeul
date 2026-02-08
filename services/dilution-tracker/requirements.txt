@@ -44,3 +44,4 @@ arq==0.26.1
 # SSE Support
 sse-starlette==2.1.0
 
+orjson==3.9.10

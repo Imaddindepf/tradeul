@@ -55,6 +55,10 @@ export const metadata: Metadata = {
     ],
     apple: '/apple-icon',
   },
+  // Prevent Google Translate from breaking React DOM
+  other: {
+    'google': 'notranslate',
+  },
 };
 
 export default function RootLayout({
@@ -64,7 +68,7 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider>
-      <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable}`}>
+      <html lang="en" translate="no" className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
         <body className="font-sans antialiased">
           <I18nProvider>
             <ClientThemeProvider>

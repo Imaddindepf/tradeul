@@ -4,7 +4,6 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useFloatingWindow, useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
 import { SettingsContent } from '@/components/settings/SettingsContent';
-import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
 import { DilutionTrackerContent, UserProfileContent, USER_PROFILE_WINDOW_CONFIG, PredictionMarketsContent } from '@/components/floating-window';
 import { SECFilingsContent } from '@/components/sec-filings/SECFilingsContent';
 import { NewsContent } from '@/components/news/NewsContent';
@@ -34,6 +33,10 @@ import { HeatmapContent } from '@/components/heatmap';
 import { ScanBuilderContent } from '@/components/scan-builder';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
+import { EventTableContent } from '@/components/events/EventTableContent';
+import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
+import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
+import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 import type { UserFilter } from '@/lib/types/scannerFilters';
 
 // Wrapper para TickerStrip - usa useCloseCurrentWindow automáticamente
@@ -78,6 +81,57 @@ export function useCommandExecutor() {
         };
     }, [t]);
 
+    // Obtener categorías de eventos
+    const getEventCategory = useCallback((categoryId: string) => {
+        const category = SYSTEM_EVENT_CATEGORIES.find(c => c.id === categoryId);
+        if (!category) return null;
+
+        return {
+            id: category.id,
+            name: category.label,
+            description: category.description,
+            eventTypes: category.eventTypes,
+            icon: category.icon,
+        };
+    }, []);
+
+    /**
+     * Abrir una tabla de eventos como ventana flotante
+     */
+    const openEventTable = useCallback((categoryId: string, index: number = 0) => {
+        const category = getEventCategory(categoryId);
+        if (!category) {
+            console.warn(`Unknown event category: ${categoryId}`);
+            return null;
+        }
+
+        const title = `Events: ${category.name}`;
+
+        // Calcular posición escalonada
+        const baseX = 150;
+        const baseY = 120;
+        const offsetX = (index % 5) * 50;
+        const offsetY = (index % 5) * 40;
+
+        return openWindow({
+            title,
+            content: (
+                <EventTableContent
+                    categoryId={categoryId}
+                    categoryName={category.name}
+                    eventTypes={category.eventTypes}
+                />
+            ),
+            width: 750,
+            height: 450,
+            x: baseX + offsetX,
+            y: baseY + offsetY,
+            minWidth: 500,
+            minHeight: 300,
+            hideHeader: true,
+        });
+    }, [openWindow, getEventCategory]);
+
     /**
      * Abrir una tabla del scanner como ventana flotante
      */
@@ -110,6 +164,9 @@ export function useCommandExecutor() {
                 hideHeader: true,
             });
         }
+
+        // Halts ahora usa ScannerTableContent como las demás categorías
+        // con columnas enriquecidas (rvol, market_cap, free_float, etc.)
 
         return openWindow({
             title,
@@ -176,19 +233,6 @@ export function useCommandExecutor() {
                 });
                 return null;
 
-            case 'filters':
-                openWindow({
-                    title: 'Filter Manager',
-                    content: <FilterManagerContent />,
-                    width: 500,
-                    height: 600,
-                    x: screenWidth / 2 - 250,
-                    y: screenHeight / 2 - 300,
-                    minWidth: 400,
-                    minHeight: 400,
-                });
-                return null;
-
             case 'sb':
             case 'scan-builder':
                 openWindow({
@@ -200,6 +244,45 @@ export function useCommandExecutor() {
                     y: screenHeight / 2 - 250,
                     minWidth: 380,
                     minHeight: 400,
+                });
+                return null;
+
+            case 'build':
+            case 'new':
+            case 'create':
+                openWindow({
+                    title: 'Strategy Builder',
+                    content: (
+                        <ConfigWindow
+                            onCreateAlertWindow={(config: AlertWindowConfig) => {
+                                const categoryId = `evt_custom_${Date.now()}`;
+                                useEventFiltersStore.getState().setAllFilters(categoryId, config.filters);
+                                openWindow({
+                                    title: `Events: ${config.name}`,
+                                    content: (
+                                        <EventTableContent
+                                            categoryId={categoryId}
+                                            categoryName={config.name}
+                                            eventTypes={config.eventTypes}
+                                        />
+                                    ),
+                                    width: 800,
+                                    height: 500,
+                                    x: 220,
+                                    y: 170,
+                                    minWidth: 500,
+                                    minHeight: 300,
+                                    hideHeader: true,
+                                });
+                            }}
+                        />
+                    ),
+                    width: 700,
+                    height: 550,
+                    x: screenWidth / 2 - 350,
+                    y: screenHeight / 2 - 275,
+                    minWidth: 550,
+                    minHeight: 450,
                 });
                 return null;
 
@@ -552,15 +635,26 @@ export function useCommandExecutor() {
             return 'sc';
         }
 
+        // EVN es especial - abre el command palette con eventos
+        if (commandId === 'evn') {
+            return 'evn';
+        }
+
         // Verificar si es una categoría del scanner
         if (getScannerCategory(commandId)) {
             openScannerTable(commandId, 0);
             return null;
         }
 
+        // Verificar si es una categoría de eventos
+        if (getEventCategory(commandId)) {
+            openEventTable(commandId, 0);
+            return null;
+        }
+
         console.warn(`Unknown command: ${commandId}`);
         return null;
-    }, [openWindow, openScannerTable, getScannerCategory]);
+    }, [openWindow, openScannerTable, getScannerCategory, openEventTable, getEventCategory]);
 
     /**
      * Ejecutar un comando con ticker específico
@@ -778,6 +872,39 @@ export function useCommandExecutor() {
         });
     }, [openWindow]);
 
+    /**
+     * Abrir una tabla de eventos desde una estrategia guardada del usuario
+     */
+    const openUserStrategyTable = useCallback((strategy: { id: number; name: string; eventTypes: string[]; filters: Record<string, any> }, index: number = 0) => {
+        const categoryId = `user_strategy_${strategy.id}`;
+
+        // Pre-cargar filtros en el store
+        useEventFiltersStore.getState().setAllFilters(categoryId, strategy.filters);
+
+        const baseX = 150;
+        const baseY = 120;
+        const offsetX = (index % 5) * 50;
+        const offsetY = (index % 5) * 40;
+
+        return openWindow({
+            title: strategy.name,
+            content: (
+                <EventTableContent
+                    categoryId={categoryId}
+                    categoryName={strategy.name}
+                    eventTypes={strategy.eventTypes}
+                />
+            ),
+            width: 750,
+            height: 450,
+            x: baseX + offsetX,
+            y: baseY + offsetY,
+            minWidth: 500,
+            minHeight: 300,
+            hideHeader: true,
+        });
+    }, [openWindow]);
+
     return {
         executeCommand,
         executeTickerCommand,
@@ -787,5 +914,9 @@ export function useCommandExecutor() {
         isScannerTableOpen,
         getScannerCategory,
         openUserScanTable,
+        // Event functions
+        openEventTable,
+        getEventCategory,
+        openUserStrategyTable,
     };
 }

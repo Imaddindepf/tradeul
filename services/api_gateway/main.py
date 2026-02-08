@@ -44,7 +44,12 @@ from routes.symbols import router as symbols_router, set_timescale_client as set
 from routes.heatmap import router as heatmap_router, set_redis_client as set_heatmap_redis
 from routes.scanner import router as scanner_router, set_redis_client as set_scanner_redis
 from routes.institutional import router as institutional_router, set_sec_api_client as set_institutional_sec_client, warmup_sec_api_connection
+from routes.earnings import router as earnings_router
+from routes.halts import router as halts_router
+from routes.alerts import router as alerts_router
+from routes.alert_strategies import router as alert_strategies_router, set_timescale_client as set_alert_strategies_timescale_client
 from routers.watchlist_router import router as watchlist_router
+from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
 
@@ -88,6 +93,7 @@ async def lifespan(app: FastAPI):
     set_user_filters_redis(redis_client)  # Para notificar al scanner cuando cambian filtros
     set_screener_templates_timescale_client(timescale_client)  # Para screener_templates
     set_symbols_timescale_client(timescale_client)  # Para symbols (indexed query ~150ms)
+    set_alert_strategies_timescale_client(timescale_client)  # Para alert strategies
     logger.info("timescale_connected")
     
     # Router de financials ahora es un microservicio separado
@@ -225,6 +231,11 @@ app.include_router(symbols_router)  # Symbol lookups (market cap filtering for A
 app.include_router(heatmap_router)  # Market heatmap visualization
 app.include_router(scanner_router)  # Scanner filtered tickers
 app.include_router(institutional_router)  # Form 13F institutional holdings
+app.include_router(notes_router)  # User notes with TipTap content
+app.include_router(earnings_router)  # Benzinga Earnings calendar
+app.include_router(halts_router)  # Trading halts from LULD stream
+app.include_router(alerts_router)  # Alert catalog and categories
+app.include_router(alert_strategies_router)  # User alert strategies (CRUD)
 
 
 # ============================================================================
@@ -2170,10 +2181,17 @@ async def get_earnings_calendar(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format (default: today)"),
     status: Optional[str] = Query(None, description="Filter by status: scheduled, reported"),
     time_slot: Optional[str] = Query(None, description="Filter by time: BMO, AMC"),
+    min_importance: Optional[int] = Query(None, ge=0, le=5, description="Minimum importance (0-5)"),
+    date_status: Optional[str] = Query(None, description="Filter by date_status: confirmed, projected"),
 ):
     """
     Get earnings calendar for a specific date.
-    Returns both scheduled and reported earnings.
+    Returns both scheduled and reported earnings from Benzinga/Polygon API.
+    
+    Features:
+    - importance: 0-5 score (5 = most important companies)
+    - date_status: confirmed vs projected
+    - eps_method/revenue_method: GAAP vs adjusted
     """
     from datetime import datetime, date as date_type
     
@@ -2184,29 +2202,48 @@ async def get_earnings_calendar(
         else:
             target_date = datetime.now().date()
         
-        # Build query
+        # Try cache first
+        cache_key = f"earnings:calendar:{target_date.isoformat()}"
+        cached = await redis_client.get(cache_key)
+        
+        # Build query with all Benzinga fields
         query = """
             SELECT 
                 symbol, company_name, report_date, time_slot, fiscal_quarter,
                 eps_estimate, eps_actual, eps_surprise_pct, beat_eps,
                 revenue_estimate, revenue_actual, revenue_surprise_pct, beat_revenue,
                 guidance_direction, guidance_commentary, key_highlights,
-                market_cap, sector, status, source, created_at
+                market_cap, sector, status, source,
+                importance, date_status, eps_method, revenue_method,
+                previous_eps, previous_revenue, benzinga_id, notes,
+                created_at
             FROM earnings_calendar
             WHERE report_date = $1
         """
         params = [target_date]
+        param_num = 1
         
         if status:
-            query += " AND status = $2"
+            param_num += 1
+            query += f" AND status = ${param_num}"
             params.append(status)
         
         if time_slot:
-            param_num = len(params) + 1
+            param_num += 1
             query += f" AND time_slot = ${param_num}"
             params.append(time_slot.upper())
         
-        query += " ORDER BY time_slot, symbol"
+        if min_importance is not None:
+            param_num += 1
+            query += f" AND importance >= ${param_num}"
+            params.append(min_importance)
+        
+        if date_status:
+            param_num += 1
+            query += f" AND date_status = ${param_num}"
+            params.append(date_status.lower())
+        
+        query += " ORDER BY COALESCE(importance, 0) DESC, time_slot, symbol"
         
         rows = await timescale_client.fetch(query, *params)
         
@@ -2216,6 +2253,8 @@ async def get_earnings_calendar(
         total_amc = 0
         total_reported = 0
         total_scheduled = 0
+        total_confirmed = 0
+        total_projected = 0
         
         for row in rows:
             report = dict(row)
@@ -2237,14 +2276,22 @@ async def get_earnings_calendar(
                 total_reported += 1
             else:
                 total_scheduled += 1
+            
+            if report.get('date_status') == 'confirmed':
+                total_confirmed += 1
+            else:
+                total_projected += 1
         
         return {
             "date": str(target_date),
             "reports": reports,
+            "total_count": len(reports),
             "total_bmo": total_bmo,
             "total_amc": total_amc,
             "total_reported": total_reported,
-            "total_scheduled": total_scheduled
+            "total_scheduled": total_scheduled,
+            "total_confirmed": total_confirmed,
+            "total_projected": total_projected
         }
         
     except Exception as e:
@@ -2252,13 +2299,75 @@ async def get_earnings_calendar(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/earnings/upcoming")
+async def get_upcoming_earnings(
+    days: int = Query(14, ge=1, le=30, description="Days ahead to look"),
+    min_importance: Optional[int] = Query(None, ge=0, le=5, description="Minimum importance (0-5)"),
+    limit: int = Query(100, ge=1, le=500, description="Max results"),
+):
+    """
+    Get upcoming earnings for the next N days.
+    Sorted by date and importance.
+    """
+    from datetime import datetime, date as date_type, timedelta
+    
+    try:
+        today = datetime.now().date()
+        end_date = today + timedelta(days=days)
+        
+        query = """
+            SELECT 
+                symbol, company_name, report_date, time_slot, fiscal_quarter,
+                eps_estimate, revenue_estimate,
+                importance, date_status, sector,
+                status, source
+            FROM earnings_calendar
+            WHERE report_date >= $1 AND report_date <= $2
+        """
+        params = [today, end_date]
+        
+        if min_importance is not None:
+            query += " AND importance >= $3"
+            params.append(min_importance)
+        
+        query += " ORDER BY report_date ASC, COALESCE(importance, 0) DESC LIMIT $" + str(len(params) + 1)
+        params.append(limit)
+        
+        rows = await timescale_client.fetch(query, *params)
+        
+        # Group by date
+        by_date = {}
+        reports = []
+        
+        for row in rows:
+            report = dict(row)
+            if report.get('report_date'):
+                date_str = str(report['report_date'])
+                report['report_date'] = date_str
+                by_date[date_str] = by_date.get(date_str, 0) + 1
+            reports.append(report)
+        
+        return {
+            "start_date": str(today),
+            "end_date": str(end_date),
+            "earnings": reports,
+            "total_count": len(reports),
+            "by_date": by_date
+        }
+        
+    except Exception as e:
+        logger.error(f"upcoming_earnings_error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/earnings/ticker/{symbol}")
 async def get_earnings_by_ticker(
     symbol: str,
-    limit: int = Query(10, ge=1, le=50, description="Number of recent earnings"),
+    limit: int = Query(20, ge=1, le=100, description="Number of recent earnings"),
 ):
     """
     Get earnings history for a specific ticker.
+    Includes all Benzinga data fields.
     """
     try:
         query = """
@@ -2267,6 +2376,8 @@ async def get_earnings_by_ticker(
                 eps_estimate, eps_actual, eps_surprise_pct, beat_eps,
                 revenue_estimate, revenue_actual, revenue_surprise_pct, beat_revenue,
                 guidance_direction, guidance_commentary, key_highlights,
+                importance, date_status, eps_method, revenue_method,
+                previous_eps, previous_revenue,
                 status, source
             FROM earnings_calendar
             WHERE symbol = $1
@@ -2283,10 +2394,21 @@ async def get_earnings_by_ticker(
                 report['report_date'] = str(report['report_date'])
             reports.append(report)
         
+        # Calculate stats
+        beats = sum(1 for r in reports if r.get('beat_eps') == True)
+        misses = sum(1 for r in reports if r.get('beat_eps') == False)
+        beat_rate = (beats / (beats + misses) * 100) if (beats + misses) > 0 else None
+        
         return {
             "symbol": symbol.upper(),
             "earnings": reports,
-            "count": len(reports)
+            "count": len(reports),
+            "stats": {
+                "total_reported": beats + misses,
+                "beats": beats,
+                "misses": misses,
+                "beat_rate": round(beat_rate, 1) if beat_rate else None
+            }
         }
         
     except Exception as e:

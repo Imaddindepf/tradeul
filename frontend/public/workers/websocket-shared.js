@@ -68,6 +68,12 @@ function connectWebSocket(url) {
     return;
   }
 
+  // Limpiar WS anterior que no está OPEN (CONNECTING, CLOSING, CLOSED)
+  if (ws) {
+    try { ws.onclose = null; ws.onerror = null; ws.onopen = null; ws.onmessage = null; ws.close(); } catch(e) {}
+    ws = null;
+  }
+
   try {
     // Log silenciado - descomentar para debug
     // log('info', '🚀 SharedWorker connecting to: ' + url);
@@ -343,6 +349,24 @@ function handlePortMessage(port, data) {
   switch (data.action) {
     case 'connect':
       if (data.url) {
+        // Limpiar CUALQUIER estado de reconexión pendiente
+        if (connectionInfo.reconnectTimer) {
+          clearTimeout(connectionInfo.reconnectTimer);
+          connectionInfo.reconnectTimer = null;
+        }
+        if (connectionInfo.tokenTimeout) {
+          clearTimeout(connectionInfo.tokenTimeout);
+          connectionInfo.tokenTimeout = null;
+        }
+        connectionInfo.waitingForToken = false;
+        connectionInfo.reconnectAttempts = 0;
+
+        // Cerrar WS anterior roto (CONNECTING, CLOSING, etc.)
+        if (ws && ws.readyState !== WebSocket.OPEN) {
+          try { ws.onclose = null; ws.onerror = null; ws.close(); } catch(e) {}
+          ws = null;
+        }
+
         connectWebSocket(data.url);
       }
       break;

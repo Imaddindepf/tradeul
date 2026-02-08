@@ -165,6 +165,9 @@ class Settings(BaseSettings):
     analytics_host: str = Field(default="analytics", description="Analytics host")
     analytics_port: int = Field(default=8007, description="Analytics port")
     
+    event_detector_host: str = Field(default="event_detector", description="Event Detector host")
+    event_detector_port: int = Field(default=8040, description="Event Detector port")
+    
     api_gateway_host: str = Field(default="api_gateway", description="API Gateway host")
     api_gateway_port: int = Field(default=8000, description="API Gateway port")
     
@@ -175,7 +178,7 @@ class Settings(BaseSettings):
     # SCANNER CONFIGURATION
     # =============================================
     initial_universe_size: int = Field(default=11000, description="Initial universe size")
-    max_filtered_tickers: int = Field(default=1000, description="Max filtered tickers")
+    max_filtered_tickers: int = Field(default=5000, description="Max filtered tickers")
     snapshot_interval: int = Field(default=5, description="Snapshot interval in seconds")
     default_gappers_limit: int = Field(default=100, description="Default number of gappers to return")
     default_category_limit: int = Field(default=100, description="Default number of tickers per category")
@@ -269,6 +272,12 @@ class Settings(BaseSettings):
     # NEW: Ranking deltas stream (para arquitectura snapshot + deltas)
     stream_ranking_deltas: str = Field(default="stream:ranking:deltas", description="Incremental ranking changes (snapshot + deltas)")
     
+    # Halt events stream (polygon_ws → scanner)
+    stream_halt_events: str = Field(default="stream:halt:events", description="Trading halt/resume events from polygon_ws")
+    
+    # Market events stream (event_detector → websocket_server)
+    stream_events_market: str = Field(default="stream:events:market", description="Market events (new highs, VWAP crosses, halts, etc.)")
+    
     # Polygon WS subscription control
     key_polygon_subscriptions: str = Field(default="polygon_ws:subscriptions", description="Polygon WS subscription commands stream")
     
@@ -301,6 +310,7 @@ class Settings(BaseSettings):
             "scanner": f"http://{self.scanner_host}:{self.scanner_port}",
             "polygon_ws": f"http://{self.polygon_ws_host}:{self.polygon_ws_port}",
             "analytics": f"http://{self.analytics_host}:{self.analytics_port}",
+            "event_detector": f"http://{self.event_detector_host}:{self.event_detector_port}",
             "api_gateway": f"http://{self.api_gateway_host}:{self.api_gateway_port}",
             "admin_panel": f"http://{self.admin_panel_host}:{self.admin_panel_port}",
         }
@@ -311,6 +321,11 @@ class Settings(BaseSettings):
         if self.redis_password:
             return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
+    
+    @property
+    def REDIS_URL(self) -> str:
+        """Alias for get_redis_url()"""
+        return self.get_redis_url()
 
 
 # Global settings instance

@@ -8,6 +8,7 @@ from .scanner import *
 from .market import *
 from .description import *
 from .watchlist import *
+from .halt import *
 
 __all__ = [
     # Polygon models
@@ -65,5 +66,11 @@ __all__ = [
     "WatchlistReorder",
     "WatchlistWithQuotes",
     "QuoteMonitorState",
+    # Halt models
+    "HaltEvent",
+    "HaltHistory",
+    "ActiveHalts",
+    "HALT_REASON_CODES",
+    "get_halt_reason_description",
 ]
 

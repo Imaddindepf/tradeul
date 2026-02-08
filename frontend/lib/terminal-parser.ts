@@ -93,6 +93,12 @@ export const GLOBAL_COMMANDS = {
         name: 'Scanner',
         descriptionKey: 'terminalCommands.globalCommands.SC.description'
     },
+    EVN: {
+        id: 'evn',
+        label: 'EVN',
+        name: 'Events',
+        descriptionKey: 'terminalCommands.globalCommands.EVN.description'
+    },
     DT: {
         id: 'dt',
         label: 'DT',
@@ -157,13 +163,6 @@ export const GLOBAL_COMMANDS = {
         name: 'Settings',
         descriptionKey: 'terminalCommands.globalCommands.SET.description',
         shortcut: 'Ctrl+,'
-    },
-    FILTERS: {
-        id: 'filters',
-        label: 'FILTERS',
-        name: 'Scanner Filters',
-        descriptionKey: 'terminalCommands.globalCommands.FILTERS.description',
-        shortcut: 'Ctrl+Shift+F'
     },
     HELP: {
         id: 'help',
@@ -275,6 +274,13 @@ export const GLOBAL_COMMANDS = {
         label: 'HDS',
         name: 'Holders',
         descriptionKey: 'terminalCommands.globalCommands.HDS.description',
+        shortcut: null
+    },
+    BUILD: {
+        id: 'build',
+        label: 'BUILD',
+        name: 'Build Custom Window',
+        descriptionKey: 'terminalCommands.globalCommands.BUILD.description',
         shortcut: null
     },
 } as const;

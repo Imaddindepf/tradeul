@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     
     # Data paths
     data_path: Path = Path("/data/polygon")
-    daily_data_pattern: str = "day_aggs/*.csv.gz"
+    daily_data_pattern: str = "day_aggs/*.parquet"
     
     # DuckDB
     duckdb_memory_limit: str = "4GB"

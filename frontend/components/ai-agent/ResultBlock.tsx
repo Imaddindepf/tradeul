@@ -231,7 +231,7 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
             <div key={index} className="rounded border border-gray-200 bg-white p-3">
               <h3 className="text-[12px] font-medium text-gray-700 mb-2">{output.title}</h3>
               <div className="grid grid-cols-2 gap-3">
-1                {Object.entries(output.stats).map(([col, stats]) => (
+                1                {Object.entries(output.stats).map(([col, stats]) => (
                   <div key={col} className="bg-gray-50 rounded p-2">
                     <div className="text-[10px] text-gray-500 uppercase">{col}</div>
                     <div className="grid grid-cols-2 gap-1 text-[11px] mt-1">
@@ -319,14 +319,17 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
         const parseContent = (text: string) => {
           const sections: { title: string; content: string }[] = [];
 
-          // Section patterns with their titles
+          // Section patterns - support both English and Spanish headers
+          // Format: **Header**\n content or **Header**\ncontent
           const patterns = [
-            { regex: /\*?\*?TLDR\*?\*?[:\s]+([^\n]+(?:\n(?!\*?\*?[A-Z])[^\n]*)*)/i, title: 'Summary' },
-            { regex: /\*?\*?Breaking News\*?\*?[:\s]*\n?((?:[-•]?\s*[^\n]+\n?)+?)(?=\n\*?\*?[A-Z]|$)/i, title: 'Breaking News' },
-            { regex: /\*?\*?X\.?com Sentiment\*?\*?[:\s]+([^\n]+(?:\n(?!\*?\*?[A-Z])[^\n]*)*)/i, title: 'Social Sentiment' },
-            { regex: /\*?\*?Key (?:Numbers|Metrics)\*?\*?[:\s]*\n?((?:[-•]?\s*[^\n]+\n?)+?)(?=\n\*?\*?[A-Z]|$)/i, title: 'Key Metrics' },
-            { regex: /\*?\*?Analysis\*?\*?[:\s]+([^\n]+(?:\n(?!---|📰|\*?\*?[A-Z][a-z]+\*?\*?:)[^\n]*)*)/i, title: 'Analysis' },
-            { regex: /📰\s*Benzinga[^:]*:[^\n]*\n((?:[-•]\s*[^\n]+\n?)+)/i, title: 'Recent News' },
+            { regex: /\*\*(?:Summary|Resumen|TLDR)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|$)/i, title: 'Summary' },
+            { regex: /\*\*(?:Breaking News|Noticias[^\*]*)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|$)/i, title: 'Breaking News' },
+            { regex: /\*\*(?:Social Sentiment|Sentimiento[^\*]*)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|$)/i, title: 'Social Sentiment' },
+            { regex: /\*\*(?:Key Metrics|Métricas[^\*]*)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|$)/i, title: 'Key Metrics' },
+            { regex: /\*\*(?:Analysis|Análisis)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|---|$)/i, title: 'Analysis' },
+            { regex: /\*\*(?:Technical View|Vista Técnica)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|---|$)/i, title: 'Technical View' },
+            { regex: /\*\*(?:Fundamental View|Vista Fundamental)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|---|$)/i, title: 'Fundamental View' },
+            { regex: /\*\*(?:Recent News|Noticias Recientes)\*\*\s*\n([\s\S]*?)(?=\n\*\*[A-Z]|$)/i, title: 'Recent News' },
           ];
 
           for (const { regex, title } of patterns) {

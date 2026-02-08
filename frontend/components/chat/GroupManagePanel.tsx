@@ -1,12 +1,26 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Search, UserPlus, UserMinus, Shield, ShieldOff, Loader2, Crown, Users, Clock, XCircle } from 'lucide-react';
+import { X, Search, UserPlus, UserMinus, Shield, ShieldOff, Loader2, Crown, Users, Clock, XCircle, Link2, Copy, Check, Trash2, Plus } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { useChatStore, type ChatGroup } from '@/stores/useChatStore';
 import { cn } from '@/lib/utils';
 
 const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://chat.tradeul.com';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://tradeul.com';
+
+interface InviteLink {
+    id: string;
+    group_id: string;
+    code: string;
+    name?: string;
+    created_by: string;
+    max_uses?: number;
+    uses: number;
+    expires_at?: string;
+    is_active: boolean;
+    created_at: string;
+}
 
 interface Member {
     user_id: string;
@@ -44,8 +58,14 @@ export function GroupManagePanel({ group, onClose }: GroupManagePanelProps) {
 
     const [members, setMembers] = useState<Member[]>([]);
     const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
+    const [inviteLinks, setInviteLinks] = useState<InviteLink[]>([]);
     const [loadingMembers, setLoadingMembers] = useState(true);
-    const [activeTab, setActiveTab] = useState<'members' | 'invite'>('members');
+    const [loadingLinks, setLoadingLinks] = useState(false);
+    const [activeTab, setActiveTab] = useState<'members' | 'invite' | 'links'>('members');
+    const [copiedCode, setCopiedCode] = useState<string | null>(null);
+    const [creatingLink, setCreatingLink] = useState(false);
+    const [revokingLink, setRevokingLink] = useState<string | null>(null);
+    const [newlyCreatedLink, setNewlyCreatedLink] = useState<InviteLink | null>(null);
 
     // Invite state
     const [userSearch, setUserSearch] = useState('');
@@ -248,6 +268,94 @@ export function GroupManagePanel({ group, onClose }: GroupManagePanelProps) {
         return false;
     };
 
+    // Load invite links
+    const loadInviteLinks = useCallback(async () => {
+        setLoadingLinks(true);
+        try {
+            const token = await getToken();
+            const res = await fetch(`${CHAT_API_URL}/api/chat/invites/invite-links/group/${group.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+                setInviteLinks(await res.json());
+            }
+        } catch (error) {
+            console.error('Failed to load invite links:', error);
+        } finally {
+            setLoadingLinks(false);
+        }
+    }, [group.id, getToken]);
+
+    // Load links when tab changes to 'links'
+    useEffect(() => {
+        if (activeTab === 'links' && inviteLinks.length === 0) {
+            loadInviteLinks();
+        }
+    }, [activeTab, inviteLinks.length, loadInviteLinks]);
+
+    // Create invite link (single use by default)
+    const handleCreateLink = async () => {
+        setCreatingLink(true);
+        setNewlyCreatedLink(null);
+        try {
+            const token = await getToken();
+            const res = await fetch(`${CHAT_API_URL}/api/chat/invites/invite-links/group/${group.id}`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ max_uses: 1 }), // Single use
+            });
+            if (res.ok) {
+                const newLink = await res.json();
+                setInviteLinks(prev => [newLink, ...prev]);
+                setNewlyCreatedLink(newLink); // Show the new link prominently
+                // Auto-copy to clipboard
+                const url = `${APP_URL}/invite/${newLink.code}`;
+                await navigator.clipboard.writeText(url);
+                setCopiedCode(newLink.code);
+            }
+        } catch (error) {
+            console.error('Failed to create invite link:', error);
+        } finally {
+            setCreatingLink(false);
+        }
+    };
+
+    // Revoke invite link
+    const handleRevokeLink = async (code: string) => {
+        setRevokingLink(code);
+        try {
+            const token = await getToken();
+            const res = await fetch(`${CHAT_API_URL}/api/chat/invites/invite-links/${code}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+                setInviteLinks(prev => prev.map(l =>
+                    l.code === code ? { ...l, is_active: false } : l
+                ));
+            }
+        } catch (error) {
+            console.error('Failed to revoke invite link:', error);
+        } finally {
+            setRevokingLink(null);
+        }
+    };
+
+    // Copy invite link to clipboard
+    const copyInviteLink = async (code: string) => {
+        const url = `${APP_URL}/invite/${code}`;
+        try {
+            await navigator.clipboard.writeText(url);
+            setCopiedCode(code);
+            setTimeout(() => setCopiedCode(null), 2000);
+        } catch (error) {
+            console.error('Failed to copy:', error);
+        }
+    };
+
     // Cancel pending invite
     const handleCancelInvite = async (inviteeId: string) => {
         setCancellingInvite(inviteeId);
@@ -304,17 +412,31 @@ export function GroupManagePanel({ group, onClose }: GroupManagePanelProps) {
                     Miembros ({members.length})
                 </button>
                 {isAdmin && (
-                    <button
-                        onClick={() => setActiveTab('invite')}
-                        className={cn(
-                            "flex-1 px-3 py-1.5 text-xs transition-colors",
-                            activeTab === 'invite'
-                                ? "border-b-2 border-primary text-primary"
-                                : "text-muted-foreground hover:text-foreground"
-                        )}
-                    >
-                        Invitar
-                    </button>
+                    <>
+                        <button
+                            onClick={() => setActiveTab('invite')}
+                            className={cn(
+                                "flex-1 px-3 py-1.5 text-xs transition-colors",
+                                activeTab === 'invite'
+                                    ? "border-b-2 border-primary text-primary"
+                                    : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            Invitar
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('links')}
+                            className={cn(
+                                "flex-1 px-3 py-1.5 text-xs transition-colors",
+                                activeTab === 'links'
+                                    ? "border-b-2 border-primary text-primary"
+                                    : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <Link2 className="w-3 h-3 inline mr-1" />
+                            Enlace
+                        </button>
+                    </>
                 )}
             </div>
 
@@ -437,7 +559,7 @@ export function GroupManagePanel({ group, onClose }: GroupManagePanelProps) {
                             )}
                         </div>
                     )
-                ) : (
+                ) : activeTab === 'invite' ? (
                     <div className="space-y-3">
                         {/* Search input */}
                         <div className="relative">
@@ -491,7 +613,128 @@ export function GroupManagePanel({ group, onClose }: GroupManagePanelProps) {
                             </p>
                         )}
                     </div>
-                )}
+                ) : activeTab === 'links' ? (
+                    <div className="space-y-3">
+                        {/* Newly created link - shown prominently */}
+                        {newlyCreatedLink && (
+                            <div className="p-3 rounded-lg border-2 border-primary bg-primary/5 animate-in fade-in duration-300">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <Check className="w-4 h-4 text-primary" />
+                                    <span className="text-xs font-medium text-primary">Enlace creado (un solo uso)</span>
+                                </div>
+                                <div className="flex items-center gap-2 p-2 bg-background rounded border border-border">
+                                    <code className="flex-1 text-[11px] font-mono truncate select-all">
+                                        {APP_URL}/invite/{newlyCreatedLink.code}
+                                    </code>
+                                    <button
+                                        onClick={() => copyInviteLink(newlyCreatedLink.code)}
+                                        className="p-1.5 rounded bg-primary text-white hover:bg-primary/90 transition-colors"
+                                        title="Copiar enlace"
+                                    >
+                                        {copiedCode === newlyCreatedLink.code ? (
+                                            <Check className="w-3.5 h-3.5" />
+                                        ) : (
+                                            <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                    </button>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground mt-2">
+                                    {copiedCode === newlyCreatedLink.code ? 'Copiado al portapapeles' : 'Comparte este enlace para invitar a alguien'}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Create link button */}
+                        <button
+                            onClick={handleCreateLink}
+                            disabled={creatingLink}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded transition-colors text-xs"
+                        >
+                            {creatingLink ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                                <Plus className="w-3.5 h-3.5" />
+                            )}
+                            {newlyCreatedLink ? 'Crear otro enlace' : 'Crear enlace de invitacion'}
+                        </button>
+
+                        {/* Links list */}
+                        {loadingLinks ? (
+                            <div className="flex items-center justify-center py-4">
+                                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            </div>
+                        ) : inviteLinks.length > 0 ? (
+                            <div className="space-y-2">
+                                {inviteLinks.map((link) => (
+                                    <div
+                                        key={link.code}
+                                        className={cn(
+                                            "p-2 rounded border",
+                                            link.is_active
+                                                ? "border-border bg-muted/30"
+                                                : "border-danger/30 bg-danger/5 opacity-60"
+                                        )}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <Link2 className={cn(
+                                                "w-3.5 h-3.5",
+                                                link.is_active ? "text-primary" : "text-danger"
+                                            )} />
+                                            <code className="flex-1 text-[10px] font-mono truncate">
+                                                {APP_URL}/invite/{link.code}
+                                            </code>
+                                            {link.is_active && (
+                                                <button
+                                                    onClick={() => copyInviteLink(link.code)}
+                                                    className="p-1 rounded hover:bg-muted transition-colors"
+                                                    title="Copiar enlace"
+                                                >
+                                                    {copiedCode === link.code ? (
+                                                        <Check className="w-3 h-3 text-success" />
+                                                    ) : (
+                                                        <Copy className="w-3 h-3 text-muted-foreground" />
+                                                    )}
+                                                </button>
+                                            )}
+                                            {link.is_active && (
+                                                <button
+                                                    onClick={() => handleRevokeLink(link.code)}
+                                                    disabled={revokingLink === link.code}
+                                                    className="p-1 rounded hover:bg-danger/20 text-danger transition-colors"
+                                                    title="Desactivar enlace"
+                                                >
+                                                    {revokingLink === link.code ? (
+                                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                                    ) : (
+                                                        <Trash2 className="w-3 h-3" />
+                                                    )}
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-3 text-[9px] text-muted-foreground">
+                                            <span>Usos: {link.uses}{link.max_uses ? `/${link.max_uses}` : ''}</span>
+                                            {link.expires_at && (
+                                                <span>Expira: {new Date(link.expires_at).toLocaleDateString()}</span>
+                                            )}
+                                            {!link.is_active && (
+                                                <span className="text-danger">Desactivado</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-center text-xs text-muted-foreground py-4">
+                                No hay enlaces de invitacion.<br />
+                                <span className="text-[10px]">Crea uno para compartir con otros usuarios.</span>
+                            </p>
+                        )}
+
+                        <div className="text-[9px] text-muted-foreground/60 mt-2">
+                            Los enlaces permiten que cualquier usuario con el enlace se una al grupo.
+                        </div>
+                    </div>
+                ) : null}
             </div>
         </div>
     );

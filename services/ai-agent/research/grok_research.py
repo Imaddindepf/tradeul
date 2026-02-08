@@ -6,6 +6,7 @@ Combines multiple sources: X.com (breaking news), Benzinga, and web search.
 """
 
 import os
+import re
 import asyncio
 import httpx
 from datetime import datetime, date, timedelta
@@ -14,121 +15,187 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# X.COM HANDLES - BREAKING NEWS ACCOUNTS (Verified by Grok)
-# Focus: SPEED & NEWS - Not analysts or investors
-# Source: Grok research on fastest financial news accounts
-# ══════════════════════════════════════════════════════════════════════════════
 
-FINANCIAL_X_HANDLES = [
-    # ═══════════════════════════════════════════════════════════════════════════
-    # 🚨 ULTRA-FAST BREAKING NEWS (These break news in SECONDS)
-    # ═══════════════════════════════════════════════════════════════════════════
-    "DeItaOne",           # #1 FASTEST - Headlines before anyone
-    "FirstSquawk",        # Breaking market news - ESSENTIAL
-    "LiveSquawk",         # Live breaking headlines
-    "Newsquawk",          # Real-time market news
-    "financialjuice",     # Fast financial headlines
-    "StockMKTNewz",       # Stock market news aggregator
-    "thestalwart",        # Joe Weisenthal - Bloomberg fast news
-    "MarioNawfal",        # Breaking news aggregator
-    "WatcherGuru",        # Crypto + stocks breaking
-    "TreeNewsFeed",       # Breaking news feed
-    "Barchart",           # Real-time market data & news
-    "RanSquawk",          # Market news squawk
-    "SquawkCNBC",         # CNBC Squawk Box
-    "disclosetv",         # Breaking news
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # 🎯 SMALL CAP & PENNY STOCK NEWS (SEC filings, PRs, catalysts)
-    # ═══════════════════════════════════════════════════════════════════════════
-    "InvestorsLive",      # Small cap news & alerts
-    "Lycanbull",          # Small cap specialist
-    "smallcapvoice",      # Small cap news
-    "OTCInsider",         # OTC market news
-    "MicroCapDaily",      # Microcap daily news
-    "smallcapscan",       # Small cap scanner news
-    "otcfinder",          # OTC stock finder
-    "ValueTheMarkets",    # Small cap value news
-    "SmallCapAlts",       # Small cap alternatives
-    "otcquick",           # OTC quick news
-    "Banana3Stocks",      # Small cap alerts
-    "PennyStockGuru",     # Penny stock news
-    "pennystockla",       # Penny stock LA
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # 🌍 FED / MACRO / ECONOMIC DATA (Fed decisions, CPI, jobs)
-    # ═══════════════════════════════════════════════════════════════════════════
-    "ForexLive",          # Forex & macro news - FAST
-    "MacroMicroMe",       # Macro economic data
-    "truflation",         # Real-time inflation data
-    "ADMacroInsights",    # Macro insights
-    "StLouisFed",         # St. Louis Fed (FRED data)
-    "economics",          # Economics news
-    "zerohedge",          # Alternative macro news - FAST
-    "NickTimiraos",       # WSJ Fed reporter - ESSENTIAL
-    "FedGuy12",           # Fed analysis
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # 📈 OPTIONS FLOW & UNUSUAL ACTIVITY (Whale alerts)
-    # ═══════════════════════════════════════════════════════════════════════════
-    "unusual_whales",     # #1 Options flow tracker
-    "theoptionsflow",     # Options flow alerts
-    "WhaleStream",        # Whale activity
-    "OptionsFlowLLC",     # Options flow LLC
-    "BullflowIO",         # Bullflow options
-    "CheddarFlow",        # Cheddar flow alerts
-    "BlackBoxStocks",     # Dark pool & options
-    "OptionsFlowBoss",    # Options flow boss
-    "dreamoptions",       # Options alerts
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # 📊 EARNINGS & SEC FILINGS (8-K, 10-Q, earnings releases)
-    # ═══════════════════════════════════════════════════════════════════════════
-    "EarningsWhispers",   # Earnings calendar & surprises
-    "StockTitan",         # PR wire & SEC filings - USER REQUESTED
-    "marketalertsz",      # Market alerts
-    "Tijori1",            # SEC filings tracker
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # 📰 MAJOR OUTLETS (Credible, fast news)
-    # ═══════════════════════════════════════════════════════════════════════════
-    "Bloomberg",          # Bloomberg main
-    "BloombergTV",        # Bloomberg TV
-    "business",           # Bloomberg Business
-    "WSJmarkets",         # WSJ Markets (faster than main)
-    "WSJ",                # Wall Street Journal
-    "Reuters",            # Reuters main
-    "ReutersBiz",         # Reuters Business
-    "FT",                 # Financial Times
-    "CNBC",               # CNBC main
-    "CNBCFastMoney",      # CNBC Fast Money
-    "MarketWatch",        # MarketWatch
-    "YahooFinance",       # Yahoo Finance
-    "Benzinga",           # Benzinga - FAST news
-    
-    # ═══════════════════════════════════════════════════════════════════════════
-    # 🏛️ OFFICIAL SOURCES (Primary data)
-    # ═══════════════════════════════════════════════════════════════════════════
-    "SECGov",             # SEC official
-    "federalreserve",     # Federal Reserve
-    "NewYorkFed",         # NY Fed
-    "USTreasury",         # US Treasury
-    "WhiteHouse",         # White House
+# =============================================================================
+# RESPONSE SANITIZATION - Remove internal system information from output
+# =============================================================================
+
+# Patterns that should NEVER appear in user-facing responses
+INTERNAL_PATTERNS_TO_REMOVE = [
+    # X.com account names that reveal our search strategy
+    r'@?DeItaOne',
+    r'@?FirstSquawk',
+    r'@?LiveSquawk',
+    r'@?Newsquawk',
+    r'@?unusual_whales',
+    r'@?CheddarFlow',
+    r'@?theoptionsflow',
+    r'@?StockTitan',
+    r'@?InvestorsLive',
+    r'@?smallcapvoice',
+    r'@?zerohedge',
+    r'@?NickTimiraos',
+    r'@?ForexLive',
+    r'@?financialjuice',
+    r'@?WatcherGuru',
+    r'@?EarningsWhispers',
+    # Phrases that reveal internal workings
+    r'trusted accounts?',
+    r'prioritize these accounts?',
+    r'search(?:es|ed)?\s+returned\s+unrelated',
+    r'no\s+(?:significant\s+)?(?:notable\s+)?mentions?\s+(?:of\s+)?\$?\w+\s+(?:stock\s+)?from\s+traders',
+    r'(?:older|old)\s+threads?',
+    r'e\.?g\.?,?\s*@\w+',
+    r'Welsh\s+football',
+    r'Ghana.{0,20}GCB',
+    r'non-US\s+stocks?',
+    r'unrelated\s+posts?',
+    r'acronym\s+celebrations?',
 ]
 
-# Additional sources to search via web (Bloomberg, CNBC, FT, Yahoo, Reddit)
-WEB_PRIORITY_SOURCES = [
-    "bloomberg.com",
-    "cnbc.com",
-    "ft.com",           # Financial Times
-    "yahoo.com/finance",
-    "reddit.com/r/wallstreetbets",
-    "reddit.com/r/stocks",
-    "seekingalpha.com",
-    "benzinga.com"
-]
+# Compiled patterns for efficiency
+_SANITIZE_PATTERNS = None
 
+
+def _get_sanitize_patterns():
+    """Lazy compile sanitization patterns."""
+    global _SANITIZE_PATTERNS
+    if _SANITIZE_PATTERNS is None:
+        _SANITIZE_PATTERNS = [
+            re.compile(pattern, re.IGNORECASE) for pattern in INTERNAL_PATTERNS_TO_REMOVE
+        ]
+    return _SANITIZE_PATTERNS
+
+
+def sanitize_research_response(content: str) -> str:
+    """
+    Remove internal system information from research response.
+    This prevents exposing our search strategy, account lists, and debug info.
+    """
+    if not content:
+        return content
+    
+    sanitized = content
+    
+    # Remove patterns that expose internal workings
+    for pattern in _get_sanitize_patterns():
+        sanitized = pattern.sub('', sanitized)
+    
+    # Clean up sentences that became empty or nonsensical after removal
+    # e.g., "No mentions from  ,  , " -> clean
+    sanitized = re.sub(r'\(\s*e\.?g\.?,?\s*,?\s*\)', '', sanitized)
+    sanitized = re.sub(r'\(\s*,?\s*\)', '', sanitized)
+    sanitized = re.sub(r',\s*,', ',', sanitized)
+    sanitized = re.sub(r',\s*\)', ')', sanitized)
+    sanitized = re.sub(r'\(\s*,', '(', sanitized)
+    
+    # Clean up multiple spaces and empty lines
+    sanitized = re.sub(r' {2,}', ' ', sanitized)
+    sanitized = re.sub(r'\n{3,}', '\n\n', sanitized)
+    
+    # Remove sentences that are now empty or just "from" or similar
+    sanitized = re.sub(r'from\s*[,\.\s]*(?:\.|$)', '', sanitized, flags=re.IGNORECASE)
+    
+    # Fix broken markdown (** without closing)
+    # Count ** and ensure they're paired
+    sanitized = fix_markdown_formatting(sanitized)
+    
+    return sanitized.strip()
+
+
+def fix_markdown_formatting(content: str) -> str:
+    """Fix common markdown formatting issues."""
+    if not content:
+        return content
+    
+    fixed = content
+    
+    # ==========================================================================
+    # 1. REMOVE INLINE CITATION URLS - Keep only [1], [2], etc.
+    # The frontend already has buttons that open the URLs
+    # ==========================================================================
+    
+    # Remove [ 1](url) or [ [1]](url) -> [1]
+    fixed = re.sub(r'\[\s*\[?(\d+)\]?\]\([^)]+\)', r'[\1]', fixed)
+    
+    # ==========================================================================
+    # 2. FIX HEADERS - Ensure **Header** format is correct
+    # Process line by line for reliability
+    # ==========================================================================
+    
+    lines = fixed.split('\n')
+    result_lines = []
+    for line in lines:
+        stripped = line.rstrip()
+        # Check if line starts with ** and doesn't end with **
+        if stripped.startswith('**') and not stripped.endswith('**') and len(stripped) > 2:
+            header_text = stripped[2:]
+            # Only fix if it looks like a header (letters and spaces only)
+            if header_text and re.match(r'^[A-Za-z][A-Za-z ]*$', header_text):
+                line = f'**{header_text}**'
+        result_lines.append(line)
+    fixed = '\n'.join(result_lines)
+    
+    # ==========================================================================
+    # 3. CLEAN UP FORMATTING
+    # ==========================================================================
+    
+    # Fix :**: -> :**
+    fixed = re.sub(r':\*\*:', ':**', fixed)
+    
+    # Fix **** -> **
+    fixed = re.sub(r'\*{4,}', '**', fixed)
+    
+    # Fix citation numbers stuck to prices: $13.021 -> $13.02 [1]
+    fixed = re.sub(r'(\$\d+\.\d{2})(\d)(\s|$)', r'\1 [\2]\3', fixed)
+    
+    # Ensure spacing before citations: text[1] -> text [1]
+    fixed = re.sub(r'([a-zA-Z])(\[\d+\])', r'\1 \2', fixed)
+    
+    # Clean up multiple spaces
+    fixed = re.sub(r' {2,}', ' ', fixed)
+    
+    # Clean up space before punctuation
+    fixed = re.sub(r' ([.,;:])', r'\1', fixed)
+    
+    return fixed
+
+
+def detect_language(text: str) -> str:
+    """
+    Simple language detection based on common words.
+    Returns 'es' for Spanish, 'en' for English.
+    """
+    if not text:
+        return 'en'
+    
+    text_lower = text.lower()
+    
+    # Spanish indicators
+    spanish_words = [
+        'por qué', 'porque', 'cómo', 'qué', 'cuál', 'dónde', 'cuándo',
+        'está', 'están', 'tiene', 'tienen', 'hace', 'hacen',
+        'bolsa', 'acciones', 'acción', 'mercado', 'caen', 'sube', 'baja',
+        'precio', 'análisis', 'noticias', 'hoy', 'ayer', 'mañana'
+    ]
+    
+    spanish_count = sum(1 for word in spanish_words if word in text_lower)
+    
+    return 'es' if spanish_count >= 2 else 'en'
+
+
+def get_response_language_instruction(query: str) -> str:
+    """Get instruction for response language based on query language."""
+    lang = detect_language(query)
+    
+    if lang == 'es':
+        return "\n\n⚠️ IMPORTANTE: Responde COMPLETAMENTE en ESPAÑOL. Toda la respuesta debe estar en español."
+    return ""
+
+
+# =============================================================================
+# RESEARCH FUNCTIONS
+# =============================================================================
 
 async def research_ticker(
     ticker: str,
@@ -140,16 +207,6 @@ async def research_ticker(
     """
     Research a specific ticker using Grok with X.com and web search.
     Includes automatic retry on connection errors.
-    
-    Args:
-        ticker: Stock ticker symbol (e.g., 'RDDT', 'AAPL')
-        query: Optional specific query about the ticker
-        include_technicals: Whether to include technical analysis request
-        include_fundamentals: Whether to include fundamental data request
-        max_retries: Maximum number of retry attempts on failure
-    
-    Returns:
-        Dict with research results, citations, and analysis
     """
     api_key = os.getenv('GROK_API_KEY_2') or os.getenv('GROK_API_KEY')
     if not api_key:
@@ -164,11 +221,13 @@ async def research_ticker(
     os.environ['XAI_API_KEY'] = api_key
     last_error = None
     
+    # Detect query language for response
+    lang_instruction = get_response_language_instruction(query or "")
+    
     for attempt in range(max_retries):
         try:
-            # Wait before retry (exponential backoff)
             if attempt > 0:
-                wait_time = 2 ** attempt  # 2, 4, 8 seconds
+                wait_time = 2 ** attempt
                 logger.info("grok_research_retry", ticker=ticker, attempt=attempt + 1, wait_seconds=wait_time)
                 await asyncio.sleep(wait_time)
             
@@ -179,57 +238,63 @@ async def research_ticker(
             client = Client()
             today = datetime.now().strftime("%B %d, %Y")
             
-            # Build the research prompt - PRIORITIZE X.COM FOR BREAKING NEWS
+            # Build clean prompt - NO internal account names or search strategies
             prompt_parts = [
-                f"You are a senior financial analyst specializing in real-time market research. Today is {today}.",
-                f"\n\n## TASK: Research ${ticker} comprehensively",
+                f"You are a senior financial analyst. Today is {today}.",
+                f"\n\n## TASK: Research ${ticker}",
                 f"\nUser question: {query}" if query else "",
                 
-                "\n\n## SEARCH PRIORITY (follow this order):",
-                "\n1. **X.COM FIRST** - Search X/Twitter for breaking news. Prioritize these trusted accounts:",
-                "\n   - Breaking news: @DeItaOne, @FirstSquawk, @LiveSquawk, @Newsquawk",
-                "\n   - Options flow: @unusual_whales, @CheddarFlow, @theoptionsflow",
-                "\n   - Major outlets: @Bloomberg, @WSJmarkets, @Reuters, @CNBC, @Benzinga",
-                "\n   - Small caps: @StockTitan, @InvestorsLive, @smallcapvoice",
-                "\n   - Macro/Fed: @zerohedge, @NickTimiraos, @ForexLive",
-                "\n2. **Financial News Sites** - Bloomberg, WSJ, Reuters, FT, CNBC for verified news",
-                "\n3. **Reddit** - r/wallstreetbets and r/stocks for retail sentiment",
-                "\n4. **Yahoo Finance** - For quick metrics and earnings data",
+                "\n\n## RESEARCH REQUIREMENTS:",
+                "\n1. Search X.com (Twitter) for breaking news and trader sentiment",
+                "\n2. Search financial news sites (Bloomberg, Reuters, WSJ, CNBC) for verified news",
+                "\n3. Find key metrics: price, market cap, P/E, volume, recent earnings",
+                "\n4. Identify the CATALYST - why is it moving?",
                 
-                "\n\n## REQUIRED RESEARCH:",
-                "\n1. **Breaking News** - What happened TODAY or in the last 24-48 hours? (prioritize X.com sources)",
-                "\n2. **Social Sentiment** - What are traders saying on X? Bullish/bearish? Any notable accounts?",
-                "\n3. **Catalyst Analysis** - WHY is it moving? Earnings? News? Sector rotation?",
-                "\n4. **Key Metrics** - Price, market cap, P/E, recent earnings beat/miss",
+                "\n\n## OUTPUT FORMAT:",
+                "\n",
+                "\n**Summary**",
+                "\n[2-3 sentences directly answering the user's question]",
+                "\n",
+                "\n**Breaking News**",
+                "\n[Most recent developments in the last 24-48 hours. If no significant news, state 'No major news in the last 48 hours.' - do NOT mention search details or which accounts you checked]",
+                "\n",
+                "\n**Social Sentiment**",
+                "\n[Overall trader sentiment: bullish/bearish/neutral with brief explanation. If low activity, say 'Limited social activity' - do NOT list accounts checked]",
+                "\n",
+                "\n**Key Metrics**",
+                "\n- Current Price: $X.XX (change%)",
+                "\n- Market Cap: $X.XXB",
+                "\n- P/E Ratio: X.XX",
+                "\n- Volume: X.XXM (vs avg X.XXM)",
+                "\n- 52-Week Range: $X.XX - $X.XX",
+                "\n",
+                "\n**Analysis**",
+                "\n[Your professional assessment of the situation]",
             ]
             
             if include_technicals:
-                prompt_parts.append("\n5. **Technical View** - Key levels, trend, volume analysis")
+                prompt_parts.append("\n\n**Technical View**\n[Key support/resistance levels, trend analysis]")
             
             if include_fundamentals:
-                prompt_parts.append("\n6. **Fundamental View** - Growth, risks, competitive position")
+                prompt_parts.append("\n\n**Fundamental View**\n[Growth outlook, risks, competitive position]")
             
             prompt_parts.extend([
-                "\n\n## OUTPUT FORMAT:",
-                "\n**TLDR**: 2-3 sentences answering the user's question directly",
-                "\n\n**Breaking News**: Most recent developments with DATES and SOURCES",
-                "\n\n**X.com Sentiment**: What financial Twitter is saying (quote specific accounts if notable)",
-                "\n\n**Key Numbers**: Market cap, P/E, earnings, price action in a clean list",
-                "\n\n**Analysis**: Your professional assessment",
-                "\n\n⚠️ IMPORTANT: Cite your sources with inline citations. Prioritize X.com and Bloomberg/Reuters over Yahoo."
+                "\n\n## CRITICAL RULES:",
+                "\n- Cite sources with inline numbers like [1], [2]",
+                "\n- Use proper markdown: **bold** for headers",
+                "\n- Do NOT mention which accounts or sources you searched",
+                "\n- Do NOT say 'searches returned unrelated results'",
+                "\n- If you find nothing, just say 'No significant news found'",
+                "\n- Be professional and concise",
+                lang_instruction
             ])
             
             prompt = "".join(prompt_parts)
             
-            # Configure Grok with search tools - NO handle filter (search all of X freely)
-            # Grok is smart enough to find relevant sources without restrictions
             chat = client.chat.create(
                 model="grok-4-1-fast",
                 tools=[
-                    x_search(
-                        from_date=datetime.now().replace(day=1)
-                        # NO allowed_x_handles - let Grok search freely
-                    ),
+                    x_search(from_date=datetime.now().replace(day=1)),
                     web_search()
                 ],
                 include=["inline_citations", "verbose_streaming"]
@@ -246,7 +311,6 @@ async def research_ticker(
                 if chunk.content:
                     content += chunk.content
                 
-                # Log tool calls as they happen (verbose streaming)
                 for tc in chunk.tool_calls:
                     tool_calls.append({
                         "tool": tc.function.name,
@@ -254,10 +318,11 @@ async def research_ticker(
                     })
                     logger.debug("grok_tool_call", tool=tc.function.name)
             
-            # Get all citations (URLs)
+            # CRITICAL: Sanitize response before returning
+            content = sanitize_research_response(content)
+            
             all_citations = list(response.citations) if response.citations else []
             
-            # Get inline citations with structured data
             inline_citations = []
             if hasattr(response, 'inline_citations') and response.inline_citations:
                 for cite in response.inline_citations:
@@ -270,7 +335,6 @@ async def research_ticker(
                         cite_data["type"] = "x"
                     inline_citations.append(cite_data)
             
-            # Use all_citations if inline_citations is empty
             citations = all_citations if all_citations else [c.get("url", "") for c in inline_citations]
             
             logger.info("grok_ticker_research_completed",
@@ -284,15 +348,14 @@ async def research_ticker(
             return {
                 "success": True,
                 "ticker": ticker,
-                "content": content,  # Contains inline [[1]](url) format
-                "citations": citations,  # All source URLs
-                "inline_citations": inline_citations,  # Structured citation data
+                "content": content,
+                "citations": citations,
+                "inline_citations": inline_citations,
                 "tool_calls": tool_calls,
                 "timestamp": datetime.now().isoformat()
             }
             
         except ImportError:
-            # Don't retry import errors
             logger.error("xai_sdk_not_installed")
             return {
                 "success": False,
@@ -309,7 +372,6 @@ async def research_ticker(
                           error=last_error[:200])
             continue
     
-    # All retries exhausted
     logger.error("grok_ticker_research_failed_all_retries",
                 ticker=ticker,
                 attempts=max_retries,
@@ -327,14 +389,15 @@ async def search_financial_news(
     topic: str,
     days_back: int = 7
 ) -> Dict:
-    """
-    Search for general financial news on a topic using Grok.
-    """
+    """Search for general financial news on a topic using Grok."""
     api_key = os.getenv('GROK_API_KEY_2') or os.getenv('GROK_API_KEY')
     if not api_key:
         return {"success": False, "error": "Grok API key not configured"}
     
     os.environ['XAI_API_KEY'] = api_key
+    
+    # Detect language
+    lang_instruction = get_response_language_instruction(topic)
     
     try:
         from xai_sdk import Client
@@ -346,22 +409,36 @@ async def search_financial_news(
         
         prompt = f"""You are a financial news researcher. Today is {today.strftime("%B %d, %Y")}.
 
-Search for the latest news and developments about: {topic}
+Search for the latest news about: {topic}
 
-Provide:
-1. **Headlines**: Top 5 most important recent news items with dates
-2. **Market Impact**: How this affects markets/stocks
-3. **Social Buzz**: What financial Twitter is saying
-4. **Key Takeaways**: 3 bullet points summary
+Provide a clean, professional response:
 
-Be specific and cite sources."""
+**Headlines**
+[Top 5 most important recent news items with dates]
+
+**Market Impact**
+[How this affects markets/stocks]
+
+**Sentiment**
+[Overall market sentiment - bullish/bearish/neutral]
+
+**Key Takeaways**
+- [Point 1]
+- [Point 2]
+- [Point 3]
+
+Rules:
+- Cite sources with [1], [2], etc.
+- Do NOT mention which accounts or sources you searched
+- Be professional and factual
+{lang_instruction}"""
 
         from_date = today.replace(day=max(1, today.day - days_back))
         
         chat = client.chat.create(
             model="grok-4-1-fast",
             tools=[
-                x_search(from_date=from_date),  # No handle filter - search freely
+                x_search(from_date=from_date),
                 web_search()
             ],
             include=["inline_citations"]
@@ -374,12 +451,15 @@ Be specific and cite sources."""
             if chunk.content:
                 content += chunk.content
         
+        # Sanitize response
+        content = sanitize_research_response(content)
+        
         citations = list(response.citations) if response.citations else []
         
         return {
             "success": True,
             "topic": topic,
-            "content": content,  # Contains inline [[1]](url) format
+            "content": content,
             "citations": citations,
             "timestamp": datetime.now().isoformat()
         }
@@ -393,11 +473,7 @@ async def fetch_benzinga_news(ticker: str, limit: int = 10) -> List[Dict]:
     """
     Fetch recent news from our Benzinga service.
     Returns list of news articles with title, summary, url, published_at.
-    Uses LLM to extract ticker-specific content from multi-ticker articles.
     """
-    import re
-    import os
-    
     def clean_html(html: str) -> str:
         """Remove HTML tags and clean up text."""
         if not html:
@@ -428,7 +504,6 @@ Article:
 
 Response format: Just the extracted info about ${target_ticker}, nothing else. If no specific info found, say "No specific details for ${target_ticker}"."""
 
-            # Use async API for non-blocking execution
             response = await client.aio.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=[types.Content(role="user", parts=[types.Part(text=prompt)])],
@@ -453,19 +528,15 @@ Response format: Just the extracted info about ${target_ticker}, nothing else. I
                 
                 formatted = []
                 for art in articles:
-                    # Get full body content
                     body = art.get("body", "")
                     full_text = clean_html(body)
                     
-                    # Check if this is a multi-ticker article
                     tickers_in_article = art.get("tickers", [])
                     is_multi_ticker = len(tickers_in_article) > 3
                     
-                    # Extract ticker-specific info if multi-ticker article
                     if is_multi_ticker and full_text:
                         summary = await extract_ticker_info(full_text, ticker)
                     else:
-                        # Single ticker article - use teaser or full text
                         teaser = art.get("teaser") or ""
                         summary = teaser.strip() if isinstance(teaser, str) else ""
                         if not summary or summary == " ":
@@ -500,7 +571,6 @@ async def research_ticker_combined(
     Combined research using both Grok (X.com + web) and Benzinga news.
     Runs both in parallel for faster results.
     """
-    # Run Grok research and Benzinga fetch in parallel
     grok_task = research_ticker(
         ticker=ticker,
         query=query,
@@ -511,12 +581,10 @@ async def research_ticker_combined(
     
     grok_result, benzinga_news = await asyncio.gather(grok_task, benzinga_task)
     
-    # Integrate Benzinga news into the content
     if benzinga_news:
         grok_result["benzinga_news"] = benzinga_news
         
-        # Add Benzinga section to content
-        benzinga_section = "\n\n---\n**📰 Benzinga News (Real-time):**\n"
+        benzinga_section = "\n\n---\n**Recent News:**\n"
         for news in benzinga_news[:5]:
             title = news.get("title", "")
             summary = news.get("summary", "")[:150]
@@ -528,13 +596,11 @@ async def research_ticker_combined(
                 if published:
                     benzinga_section += f" ({published[:10]})"
         
-        # Insert Benzinga news after TLDR/Breaking News section
         content = grok_result.get("content", "")
-        if "Breaking News:" in content:
-            # Insert after Breaking News section
-            parts = content.split("X.com Sentiment:", 1)
+        if "Social Sentiment" in content or "Sentiment" in content:
+            parts = content.split("Key Metrics", 1)
             if len(parts) == 2:
-                content = parts[0] + benzinga_section + "\n\nX.com Sentiment:" + parts[1]
+                content = parts[0] + benzinga_section + "\n\n**Key Metrics**" + parts[1]
             else:
                 content = content + benzinga_section
         else:
@@ -542,7 +608,6 @@ async def research_ticker_combined(
         
         grok_result["content"] = content
         
-        # Add Benzinga URLs to citations
         existing_citations = grok_result.get("citations", [])
         for news in benzinga_news:
             if news.get("url") and news["url"] not in existing_citations:
@@ -553,25 +618,25 @@ async def research_ticker_combined(
 
 
 def format_research_for_display(research: Dict) -> str:
-    """
-    Format research results for display in the chat.
-    """
+    """Format research results for display in the chat."""
     if not research.get("success"):
         return f"Research failed: {research.get('error', 'Unknown error')}"
     
     output = []
-    output.append(research.get("content", ""))
+    content = research.get("content", "")
     
-    # Add Benzinga news section if available
+    # Final sanitization pass
+    content = sanitize_research_response(content)
+    output.append(content)
+    
     benzinga = research.get("benzinga_news", [])
     if benzinga:
-        output.append("\n\n---\n**📰 Additional News (Benzinga):**")
+        output.append("\n\n---\n**Additional News:**")
         for news in benzinga[:5]:
             title = news.get("title", "")
             if title:
                 output.append(f"\n• {title}")
     
-    # Add citations if available
     citations = research.get("citations", [])
     if citations:
         output.append("\n\n---\n**Sources:**")

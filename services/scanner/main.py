@@ -44,6 +44,7 @@ from scanner_categories import ScannerCategory
 from http_clients import http_clients
 from postmarket_capture import PostMarketVolumeCapture
 
+
 # Configure logging
 configure_logging(service_name="scanner")
 logger = get_logger(__name__)

@@ -962,7 +962,15 @@ async def run_analytics_processing():
             await redis_client.set(
                 "snapshot:enriched:latest",
                 enriched_snapshot,
-                ttl=600  # 10 minutos (suficiente para fin de semana)
+                ttl=600  # 10 minutos
+            )
+            
+            # Guardar copia persistente para cuando el mercado esté cerrado
+            # Esta copia se usa como fallback en heatmap/scanner cuando no hay datos en tiempo real
+            await redis_client.set(
+                "snapshot:enriched:last_close",
+                enriched_snapshot,
+                ttl=604800  # 7 días - suficiente para fines de semana largos
             )
             
             # Guardar RVOLs en hash

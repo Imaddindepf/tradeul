@@ -133,6 +133,10 @@
       "name": "Scanner",
       "description": "Market scanner"
     },
+    "evn": {
+      "name": "Events",
+      "description": "Real-time market events"
+    },
     "dt": {
       "name": "Dilution Tracker",
       "description": "Dilution risk analysis"
@@ -180,6 +184,10 @@
     "sb": {
       "name": "Scan Builder",
       "description": "Custom scans"
+    },
+    "build": {
+      "name": "Build",
+      "description": "Create custom Top List or Alert Window"
     },
     "chat": {
       "name": "Community Chat",
@@ -467,6 +475,7 @@
   "commandPalette": {
     "commands": "Commands",
     "scanner": "Scanner",
+    "events": "Events",
     "dilutionTracker": "Dilution Tracker",
     "mainCommands": "Main Commands"
   },
@@ -538,6 +547,9 @@
     "globalCommands": {
       "SC": {
         "description": "Market scanner"
+      },
+      "EVN": {
+        "description": "Real-time market events"
       },
       "DT": {
         "description": "Dilution risk analysis"
@@ -619,6 +631,9 @@
       },
       "HDS": {
         "description": "Institutional holders"
+      },
+      "BUILD": {
+        "description": "Create custom Top List or Alert Window"
       }
     }
   },

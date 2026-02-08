@@ -316,8 +316,9 @@ class WebSocketManager {
 
     // URL y nombre fijos para que todas las tabs/ventanas compartan el mismo worker
     // SharedWorkers se identifican por URL + nombre, ambos deben coincidir exactamente
-    this.sharedWorker = new SharedWorker('/workers/websocket-shared.js', {
-      name: 'tradeul-websocket'
+    // Cache-bust: forzar nueva versión del worker tras deploys
+    this.sharedWorker = new SharedWorker('/workers/websocket-shared.js?v=2', {
+      name: 'tradeul-websocket-v2'
     });
     this.workerPort = this.sharedWorker.port;
 

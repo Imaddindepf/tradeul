@@ -90,7 +90,7 @@ class ScreenerEngine:
                 low,
                 close,
                 CAST(volume AS BIGINT) as volume
-            FROM read_csv_auto('{data_pattern}', compression='gzip')
+            FROM read_parquet('{data_pattern}')
             WHERE to_timestamp(window_start / 1000000000) >= CURRENT_DATE - INTERVAL '{settings.default_lookback_days} days'
         """)
         
@@ -587,6 +587,43 @@ class ScreenerEngine:
             }
         except Exception as e:
             return {"error": str(e)}
+    
+    def export_daily_indicators(self) -> List[Dict[str, Any]]:
+        """
+        Export daily indicator values for all tickers.
+        
+        Used by the event_detector to detect SMA crosses, Bollinger breakouts, etc.
+        Only exports the latest values (most recent trading day per symbol).
+        
+        Returns:
+            List of dicts with symbol + indicator values
+        """
+        try:
+            result = self.conn.execute("""
+                SELECT
+                    symbol,
+                    close as last_close,
+                    sma_20,
+                    sma_50,
+                    sma_200,
+                    bb_upper,
+                    bb_lower,
+                    rsi,
+                    atr_14,
+                    high_52w,
+                    low_52w,
+                    market_cap,
+                    free_float
+                FROM screener_data
+                WHERE sma_20 IS NOT NULL
+            """).fetchdf()
+            
+            records = result.to_dict(orient="records")
+            logger.info("daily_indicators_exported", count=len(records))
+            return records
+        except Exception as e:
+            logger.error("export_daily_indicators_failed", error=str(e))
+            return []
     
     def close(self):
         """Close database connection"""

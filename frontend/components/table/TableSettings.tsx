@@ -38,8 +38,8 @@ export function TableSettings<T>({ table, onResetToDefaults }: TableSettingsProp
 
   const allColumns = table.getAllLeafColumns();
   const columnOrder = table.getState().columnOrder;
-  const currentOrder = columnOrder.length > 0 
-    ? columnOrder 
+  const currentOrder = columnOrder.length > 0
+    ? columnOrder
     : allColumns.map(c => c.id);
 
   // Cerrar al hacer click fuera
@@ -86,117 +86,114 @@ export function TableSettings<T>({ table, onResetToDefaults }: TableSettingsProp
     <div
       ref={panelRef}
       className="fixed w-72 bg-white shadow-xl rounded-lg border border-gray-200"
-      style={{ 
+      style={{
         top: `${panelPosition.top}px`,
         right: `${panelPosition.right}px`,
-        zIndex: Z_INDEX.TABLE_SETTINGS_POPOVER 
+        zIndex: Z_INDEX.TABLE_SETTINGS_POPOVER
       }}
     >
-          {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50">
-            <div className="flex items-center gap-1.5">
-              <Settings className="w-3.5 h-3.5 text-blue-600" />
-              <h3 className="text-xs font-bold text-gray-900">Configurar Tabla</h3>
-            </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="p-0.5 hover:bg-gray-200 rounded transition-colors"
-            >
-              <X className="w-3.5 h-3.5 text-gray-500" />
-            </button>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 bg-gray-50">
+        <div className="flex items-center gap-1.5">
+          <Settings className="w-3.5 h-3.5 text-blue-600" />
+          <h3 className="text-xs font-bold text-gray-900">Configurar Tabla</h3>
+        </div>
+        <button
+          onClick={() => setIsOpen(false)}
+          className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+        >
+          <X className="w-3.5 h-3.5 text-gray-500" />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 bg-white">
+        <button
+          onClick={() => setActiveTab('visibility')}
+          className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${activeTab === 'visibility'
+              ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+        >
+          <Eye className="w-3 h-3 inline mr-1" />
+          Columns
+        </button>
+        <button
+          onClick={() => setActiveTab('order')}
+          className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${activeTab === 'order'
+              ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+        >
+          <GripVertical className="w-3 h-3 inline mr-1" />
+          Orden
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="max-h-80 overflow-y-auto p-2">
+        {activeTab === 'visibility' && (
+          <div className="space-y-1">
+            {allColumns.map((column) => {
+              const canHide = column.getCanHide();
+              if (!canHide) return null;
+
+              return (
+                <label
+                  key={column.id}
+                  className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={column.getIsVisible()}
+                    onChange={column.getToggleVisibilityHandler()}
+                    className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-1 focus:ring-blue-500"
+                  />
+                  <span className="flex-1 text-xs font-medium text-gray-700">
+                    {typeof column.columnDef.header === 'string'
+                      ? column.columnDef.header
+                      : column.id}
+                  </span>
+                  {column.getIsVisible() ? (
+                    <Eye className="w-3 h-3 text-green-500" />
+                  ) : (
+                    <EyeOff className="w-3 h-3 text-gray-400" />
+                  )}
+                </label>
+              );
+            })}
           </div>
+        )}
 
-          {/* Tabs */}
-          <div className="flex border-b border-gray-200 bg-white">
-            <button
-              onClick={() => setActiveTab('visibility')}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-                activeTab === 'visibility'
-                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <Eye className="w-3 h-3 inline mr-1" />
-              Columns
-            </button>
-            <button
-              onClick={() => setActiveTab('order')}
-              className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
-                activeTab === 'order'
-                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              <GripVertical className="w-3 h-3 inline mr-1" />
-              Orden
-            </button>
+        {activeTab === 'order' && (
+          <div className="space-y-1">
+            {currentOrder.map((columnId, index) => {
+              const column = allColumns.find(c => c.id === columnId);
+              if (!column) return null;
+
+              return (
+                <div
+                  key={columnId}
+                  draggable
+                  onDragStart={() => handleDragStart(columnId)}
+                  onDragOver={handleDragOver}
+                  onDrop={() => handleDrop(columnId)}
+                  className={`flex items-center gap-2 p-2 bg-white border border-gray-200 rounded cursor-move transition-all ${draggedColumn === columnId ? 'opacity-50 scale-95' : 'hover:shadow-sm hover:border-blue-300'
+                    }`}
+                >
+                  <GripVertical className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                  <span className="flex-1 text-xs font-medium text-gray-700">
+                    {typeof column.columnDef.header === 'string'
+                      ? column.columnDef.header
+                      : column.id}
+                  </span>
+                  <span className="text-xs text-gray-400 font-mono">#{index + 1}</span>
+                </div>
+              );
+            })}
           </div>
-
-          {/* Content */}
-          <div className="max-h-80 overflow-y-auto p-2">
-            {activeTab === 'visibility' && (
-              <div className="space-y-1">
-                {allColumns.map((column) => {
-                  const canHide = column.getCanHide();
-                  if (!canHide) return null;
-
-                  return (
-                    <label
-                      key={column.id}
-                      className="flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={column.getIsVisible()}
-                        onChange={column.getToggleVisibilityHandler()}
-                        className="w-3.5 h-3.5 text-blue-600 rounded focus:ring-1 focus:ring-blue-500"
-                      />
-                      <span className="flex-1 text-xs font-medium text-gray-700">
-                        {typeof column.columnDef.header === 'string'
-                          ? column.columnDef.header
-                          : column.id}
-                      </span>
-                      {column.getIsVisible() ? (
-                        <Eye className="w-3 h-3 text-green-500" />
-                      ) : (
-                        <EyeOff className="w-3 h-3 text-gray-400" />
-                      )}
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-
-            {activeTab === 'order' && (
-              <div className="space-y-1">
-                {currentOrder.map((columnId, index) => {
-                  const column = allColumns.find(c => c.id === columnId);
-                  if (!column) return null;
-
-                  return (
-                    <div
-                      key={columnId}
-                      draggable
-                      onDragStart={() => handleDragStart(columnId)}
-                      onDragOver={handleDragOver}
-                      onDrop={() => handleDrop(columnId)}
-                      className={`flex items-center gap-2 p-2 bg-white border border-gray-200 rounded cursor-move transition-all ${
-                        draggedColumn === columnId ? 'opacity-50 scale-95' : 'hover:shadow-sm hover:border-blue-300'
-                      }`}
-                    >
-                      <GripVertical className="w-3 h-3 text-gray-400 flex-shrink-0" />
-                      <span className="flex-1 text-xs font-medium text-gray-700">
-                        {typeof column.columnDef.header === 'string'
-                          ? column.columnDef.header
-                          : column.id}
-                      </span>
-                      <span className="text-xs text-gray-400 font-mono">#{index + 1}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+        )}
+      </div>
 
       {/* Footer */}
       <div className="p-2 border-t border-gray-200 bg-gray-50">
@@ -232,7 +229,7 @@ export function TableSettings<T>({ table, onResetToDefaults }: TableSettingsProp
       </button>
 
       {/* Panel - Renderizado en portal */}
-      {mounted && typeof document !== 'undefined' && panelContent && 
+      {mounted && typeof document !== 'undefined' && panelContent &&
         createPortal(panelContent, document.getElementById('portal-root')!)}
     </>
   );

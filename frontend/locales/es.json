@@ -133,6 +133,10 @@
       "name": "Scanner",
       "description": "Scanner de mercado"
     },
+    "evn": {
+      "name": "Eventos",
+      "description": "Eventos de mercado en tiempo real"
+    },
     "dt": {
       "name": "Dilution Tracker",
       "description": "Análisis de dilución"
@@ -180,6 +184,10 @@
     "sb": {
       "name": "Scan Builder",
       "description": "Scans personalizados"
+    },
+    "build": {
+      "name": "Build",
+      "description": "Crear Top List o Alert Window personalizada"
     },
     "chat": {
       "name": "Community Chat",
@@ -467,6 +475,7 @@
   "commandPalette": {
     "commands": "Comandos",
     "scanner": "Scanner",
+    "events": "Eventos",
     "dilutionTracker": "Dilution Tracker",
     "mainCommands": "Comandos principales"
   },
@@ -538,6 +547,9 @@
     "globalCommands": {
       "SC": {
         "description": "Scanner de mercado"
+      },
+      "EVN": {
+        "description": "Eventos de mercado en tiempo real"
       },
       "DT": {
         "description": "Análisis de dilución"
@@ -619,6 +631,9 @@
       },
       "HDS": {
         "description": "Holders institucionales"
+      },
+      "BUILD": {
+        "description": "Crear Top List o Alert Window personalizada"
       }
     }
   },

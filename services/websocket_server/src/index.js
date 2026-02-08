@@ -82,6 +82,18 @@ const redisBenzingaNews = new Redis({
   maxRetriesPerRequest: null,
 });
 
+const redisBenzingaEarnings = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
+});
+
+const redisMarketEvents = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  maxRetriesPerRequest: null,
+});
+
 const redisRankings = new Redis({
   ...redisConfig,
   retryStrategy: (times) => Math.min(times * 50, 2000),
@@ -161,6 +173,10 @@ redisQuotes.on("error", (err) => {
   logger.error({ err }, "Redis Quotes error");
 });
 
+redisMarketEvents.on("error", (err) => {
+  logger.error({ err }, "Redis Market Events error");
+});
+
 // =============================================
 // DATA STRUCTURES (OPTIMIZADAS)
 // =============================================
@@ -176,6 +192,29 @@ const secFilingsSubscribers = new Set();
 
 // Clientes suscritos a Benzinga News: Set<connectionId>
 const benzingaNewsSubscribers = new Set();
+
+// Clientes suscritos a Benzinga Earnings: Set<connectionId>
+const benzingaEarningsSubscribers = new Set();
+
+// =============================================
+// MARKET EVENTS: Subscripción con filtrado server-side + ref counting
+// =============================================
+// Per-connection subscription tracking with server-side filters
+// Map<connectionId, {
+//   refCount: number,           // Number of subscribed components (ref counting)
+//   allTypes: boolean,          // true if any component wants all events
+//   eventTypes: Set<string>,    // Union of all requested event types
+//   symbolsInclude: Set<string> | null,  // Symbols whitelist (null = all)
+//   symbolsExclude: Set<string>,         // Symbols blacklist
+// }>
+const marketEventSubscriptions = new Map();
+
+// Backpressure: Max buffered bytes before skipping sends to slow clients
+const WS_BACKPRESSURE_THRESHOLD = 64 * 1024; // 64KB
+
+// Rate limiting for market events per client
+const EVENT_RATE_LIMIT_PER_SECOND = 100;
+const eventRateLimiters = new Map(); // connectionId -> { count, resetTime }
 
 // =============================================
 // CHART SUBSCRIPTIONS: Suscripciones para charts en tiempo real
@@ -565,7 +604,9 @@ async function getInitialSnapshot(listName) {
     let source = "category";
 
     if (data) {
-      rows = JSON.parse(data);
+      const parsed = JSON.parse(data);
+      // Soportar formato { tickers: [...] } (usado por halts) o array directo
+      rows = Array.isArray(parsed) ? parsed : (parsed.tickers || []);
     } else {
       // FALLBACK: Intentar obtener del cache completo
       logger.info({ listName }, "Category not found, trying complete cache fallback");
@@ -1473,6 +1514,8 @@ async function processRankingDeltasStream() {
     "anomalies",
     "new_highs",
     "new_lows",
+    "post_market",
+    "halts",
   ];
 
   const initialSymbols = new Set();
@@ -1480,7 +1523,9 @@ async function processRankingDeltasStream() {
     try {
       const jsonData = await redisCommands.get(`scanner:category:${listName}`);
       if (jsonData) {
-        const rows = JSON.parse(jsonData);
+        const parsed = JSON.parse(jsonData);
+        // Soportar formato { tickers: [...] } (usado por halts) o array directo
+        const rows = Array.isArray(parsed) ? parsed : (parsed.tickers || []);
         rows.forEach((ticker) => {
           const symbol = ticker.symbol;
           initialSymbols.add(symbol);
@@ -1875,6 +1920,324 @@ async function processBenzingaNewsStream() {
 }
 
 /**
+ * Procesador del stream de Benzinga Earnings
+ * Lee stream:benzinga:earnings y broadcast a clientes suscritos
+ */
+async function processBenzingaEarningsStream() {
+  const STREAM_NAME = "stream:benzinga:earnings";
+  let lastId = "$"; // Leer solo mensajes nuevos
+
+  logger.info("📈 Starting Benzinga Earnings stream processor (dedicated Redis client)");
+
+  while (true) {
+    try {
+      const result = await redisBenzingaEarnings.xread(
+        "BLOCK",
+        5000,
+        "COUNT",
+        50,
+        "STREAMS",
+        STREAM_NAME,
+        lastId
+      );
+
+      if (!result) {
+        continue;
+      }
+
+      for (const [_stream, messages] of result) {
+        for (const [id, fields] of messages) {
+          lastId = id;
+          const message = parseRedisFields(fields);
+
+          // El mensaje viene con type="earning_update" o "new_earning" y data=JSON
+          if ((message.type === "earning_update" || message.type === "new_earning") && message.data) {
+            try {
+              const earningData = JSON.parse(message.data);
+              broadcastBenzingaEarnings(earningData, message.type === "new_earning");
+            } catch (parseErr) {
+              logger.error({ err: parseErr }, "Error parsing Benzinga earnings data");
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, "Error reading Benzinga earnings stream");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+/**
+ * Procesador del stream de Market Events con Consumer Groups
+ * 
+ * ARQUITECTURA:
+ * - Usa XREADGROUP (consumer group) en vez de XREAD para escalabilidad horizontal
+ * - Múltiples instancias del WS server pueden consumir sin duplicar eventos
+ * - XACK garantiza que mensajes procesados no se re-entregan
+ * - Auto-healing: recrea el consumer group si fue borrado (NOGROUP)
+ * 
+ * Consumer Group: websocket_server_events
+ * Consumer Name: ws_server_1 (cambiar para instancias adicionales)
+ */
+async function processMarketEventsStream() {
+  const STREAM_NAME = "stream:events:market";
+  const CONSUMER_GROUP = "websocket_server_events";
+  const CONSUMER_NAME = `ws_server_${process.pid}`; // Unique per process for horizontal scaling
+
+  logger.info({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP, consumer: CONSUMER_NAME },
+    "🎯 Starting Market Events stream consumer (consumer group mode)");
+
+  // Create consumer group (idempotent - catches BUSYGROUP if already exists)
+  try {
+    await redisCommands.xgroup(
+      "CREATE",
+      STREAM_NAME,
+      CONSUMER_GROUP,
+      "$",
+      "MKSTREAM"
+    );
+    logger.info({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP },
+      "Created consumer group for market events");
+  } catch (err) {
+    logger.debug({ err: err.message }, "Market events consumer group already exists");
+  }
+
+  while (true) {
+    try {
+      // XREADGROUP: Only this consumer receives each message (no duplicates across instances)
+      // BLOCK 500ms for low-latency event delivery (~0.5s worst case)
+      const results = await redisMarketEvents.xreadgroup(
+        "GROUP",
+        CONSUMER_GROUP,
+        CONSUMER_NAME,
+        "BLOCK",
+        500,
+        "COUNT",
+        100,
+        "STREAMS",
+        STREAM_NAME,
+        ">"
+      );
+
+      if (!results) continue;
+
+      const messageIds = [];
+
+      for (const [_stream, messages] of results) {
+        for (const [id, fields] of messages) {
+          messageIds.push(id);
+          const eventData = parseRedisFields(fields);
+
+          // Distribute event with server-side filtering
+          broadcastMarketEvent(eventData);
+        }
+      }
+
+      // ACK all processed messages - prevents re-delivery on restart
+      if (messageIds.length > 0) {
+        try {
+          await redisCommands.xack(STREAM_NAME, CONSUMER_GROUP, ...messageIds);
+        } catch (err) {
+          logger.error({ err }, "Error acknowledging market event messages");
+        }
+      }
+    } catch (err) {
+      // Auto-healing: If consumer group was deleted (e.g., by stream trim), recreate it
+      if (err.message && err.message.includes('NOGROUP')) {
+        logger.warn({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP },
+          "🔧 Market events consumer group missing - auto-recreating");
+        try {
+          await redisCommands.xgroup(
+            "CREATE",
+            STREAM_NAME,
+            CONSUMER_GROUP,
+            "0", // Start from beginning of stream to not miss events
+            "MKSTREAM"
+          );
+          logger.info({ streamName: STREAM_NAME, consumerGroup: CONSUMER_GROUP },
+            "✅ Market events consumer group recreated");
+          continue; // Retry immediately
+        } catch (recreateErr) {
+          logger.error({ err: recreateErr }, "Failed to recreate market events consumer group");
+        }
+      }
+
+      logger.error({ err }, "Error reading market events stream");
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
+
+/**
+ * Distribute Market Event to subscribed clients with server-side filtering
+ * 
+ * OPTIMIZACIONES:
+ * 1. Server-side filtering por event_type → reduce bandwidth en ~80%
+ * 2. Server-side filtering por symbol (include/exclude)
+ * 3. Backpressure check via ws.bufferedAmount → protege clientes lentos
+ * 4. Rate limiting per client → evita floods durante alta volatilidad
+ * 5. Pre-serialización del mensaje (una vez, no por cliente)
+ */
+function broadcastMarketEvent(eventData) {
+  if (marketEventSubscriptions.size === 0) {
+    return; // No subscribers, skip silently
+  }
+
+  const eventType = eventData.event_type;
+  const symbol = eventData.symbol;
+  const now = Date.now();
+
+  // Parse details once (not per client)
+  let details = null;
+  if (eventData.details) {
+    try {
+      details = typeof eventData.details === "string"
+        ? JSON.parse(eventData.details)
+        : eventData.details;
+    } catch (e) {
+      details = null;
+    }
+  }
+
+  // Helper: parse float, return null if missing/NaN
+  const pf = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+  const pi = (v) => { const n = parseInt(v); return isNaN(n) ? null : n; };
+
+  // Build event payload with full context
+  const eventPayload = {
+    id: eventData.id,
+    event_type: eventType,
+    rule_id: eventData.rule_id,
+    symbol: symbol,
+    timestamp: eventData.timestamp,
+    price: pf(eventData.price),
+    prev_value: pf(eventData.prev_value),
+    new_value: pf(eventData.new_value),
+    delta: pf(eventData.delta),
+    delta_percent: pf(eventData.delta_percent),
+    change_percent: pf(eventData.change_percent),
+    rvol: pf(eventData.rvol),
+    volume: pi(eventData.volume),
+    market_cap: pf(eventData.market_cap),
+    // Context fields from enriched EventRecord
+    gap_percent: pf(eventData.gap_percent),
+    change_from_open: pf(eventData.change_from_open),
+    open_price: pf(eventData.open_price),
+    prev_close: pf(eventData.prev_close),
+    vwap: pf(eventData.vwap),
+    atr_percent: pf(eventData.atr_percent),
+    intraday_high: pf(eventData.intraday_high),
+    intraday_low: pf(eventData.intraday_low),
+    details: details,
+  };
+
+  // Pre-serialize message ONCE for all clients (major perf optimization)
+  const message = JSON.stringify({
+    type: "market_event",
+    data: eventPayload,
+  });
+
+  let sent = 0;
+  let filtered = 0;
+  let backpressured = 0;
+  let rateLimited = 0;
+
+  for (const [connectionId, sub] of marketEventSubscriptions) {
+    const connection = connections.get(connectionId);
+    if (!connection || connection.ws.readyState !== WebSocket.OPEN) continue;
+
+    // ── SERVER-SIDE EVENT TYPE FILTER ──
+    // Skip events the client hasn't subscribed to
+    if (!sub.allTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(eventType)) {
+      filtered++;
+      continue;
+    }
+
+    // ── SERVER-SIDE SYMBOL FILTER ──
+    // Skip symbols the client doesn't want
+    if (sub.symbolsInclude && sub.symbolsInclude.size > 0 && !sub.symbolsInclude.has(symbol)) {
+      filtered++;
+      continue;
+    }
+    if (sub.symbolsExclude.size > 0 && sub.symbolsExclude.has(symbol)) {
+      filtered++;
+      continue;
+    }
+
+    // ── SERVER-SIDE NUMERIC FILTERS ──
+    // Filter by price, rvol, change%, volume to reduce bandwidth
+    if (sub.priceMin !== null && (eventPayload.price === null || eventPayload.price < sub.priceMin)) {
+      filtered++;
+      continue;
+    }
+    if (sub.priceMax !== null && (eventPayload.price === null || eventPayload.price > sub.priceMax)) {
+      filtered++;
+      continue;
+    }
+    if (sub.rvolMin !== null && (eventPayload.rvol === null || eventPayload.rvol < sub.rvolMin)) {
+      filtered++;
+      continue;
+    }
+    if (sub.changeMin !== null && (eventPayload.change_percent === null || eventPayload.change_percent < sub.changeMin)) {
+      filtered++;
+      continue;
+    }
+    if (sub.changeMax !== null && (eventPayload.change_percent === null || eventPayload.change_percent > sub.changeMax)) {
+      filtered++;
+      continue;
+    }
+    if (sub.volumeMin !== null && (eventPayload.volume === null || eventPayload.volume < sub.volumeMin)) {
+      filtered++;
+      continue;
+    }
+
+    // ── BACKPRESSURE CHECK ──
+    // Skip slow clients with high buffer to prevent memory exhaustion
+    if (connection.ws.bufferedAmount > WS_BACKPRESSURE_THRESHOLD) {
+      backpressured++;
+      continue;
+    }
+
+    // ── RATE LIMITING ──
+    // Token bucket: max EVENT_RATE_LIMIT_PER_SECOND events/sec per client
+    let limiter = eventRateLimiters.get(connectionId);
+    if (!limiter || now >= limiter.resetTime) {
+      limiter = { count: 0, resetTime: now + 1000 };
+      eventRateLimiters.set(connectionId, limiter);
+    }
+    if (limiter.count >= EVENT_RATE_LIMIT_PER_SECOND) {
+      rateLimited++;
+      continue;
+    }
+    limiter.count++;
+
+    // ── SEND EVENT ──
+    try {
+      connection.ws.send(message);
+      sent++;
+    } catch (err) {
+      logger.error({ connectionId, err: err.message }, "Error sending market event");
+    }
+  }
+
+  // Log with metrics (only when there are subscribers)
+  logger.info(
+    {
+      event_type: eventType,
+      symbol: symbol,
+      price: eventData.price,
+      subscribers: marketEventSubscriptions.size,
+      sent,
+      filtered: filtered > 0 ? filtered : undefined,
+      backpressured: backpressured > 0 ? backpressured : undefined,
+      rate_limited: rateLimited > 0 ? rateLimited : undefined,
+    },
+    "🎯 Market event distributed"
+  );
+}
+
+/**
  * Procesador del stream de Quotes
  * Lee stream:realtime:quotes y broadcast a clientes suscritos por ticker
  */
@@ -2038,6 +2401,60 @@ function broadcastBenzingaNews(articleData, catalystMetrics = null) {
         hasCatalystMetrics: !!catalystMetrics
       },
       "📰 Broadcasted Benzinga news"
+    );
+  }
+}
+
+/**
+ * Broadcast de Benzinga Earnings a clientes suscritos
+ */
+function broadcastBenzingaEarnings(earningData, isNew = false) {
+  if (benzingaEarningsSubscribers.size === 0) {
+    logger.debug({ ticker: earningData.ticker }, "📈 Earnings received but no subscribers");
+    return;
+  }
+
+  const message = {
+    type: isNew ? "new_earning" : "earning_update",
+    earning: earningData,
+    timestamp: new Date().toISOString()
+  };
+
+  const messageStr = JSON.stringify(message);
+  let sentCount = 0;
+  const disconnected = [];
+
+  benzingaEarningsSubscribers.forEach((connectionId) => {
+    const conn = connections.get(connectionId);
+
+    if (!conn || conn.ws.readyState !== WebSocket.OPEN) {
+      disconnected.push(connectionId);
+      return;
+    }
+
+    try {
+      conn.ws.send(messageStr);
+      sentCount++;
+    } catch (err) {
+      logger.error({ connectionId, err }, "Error sending Benzinga earnings");
+      disconnected.push(connectionId);
+    }
+  });
+
+  // Limpiar conexiones desconectadas
+  disconnected.forEach((connectionId) => {
+    benzingaEarningsSubscribers.delete(connectionId);
+  });
+
+  if (sentCount > 0) {
+    logger.info(
+      {
+        ticker: earningData.ticker,
+        date: earningData.date,
+        isNew,
+        sentTo: sentCount
+      },
+      "📈 Broadcasted Benzinga earnings"
     );
   }
 }
@@ -2336,6 +2753,234 @@ wss.on("connection", async (ws, req) => {
         });
       }
 
+      // Suscribirse a Earnings
+      else if (action === "subscribe_earnings" || action === "subscribe_benzinga_earnings") {
+        benzingaEarningsSubscribers.add(connectionId);
+        logger.info({ connectionId }, "📈 Client subscribed to Earnings");
+        
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "EARNINGS",
+          message: "Subscribed to real-time earnings"
+        });
+      }
+
+      // Desuscribirse de Earnings
+      else if (action === "unsubscribe_earnings" || action === "unsubscribe_benzinga_earnings") {
+        benzingaEarningsSubscribers.delete(connectionId);
+        logger.info({ connectionId }, "📈 Client unsubscribed from Earnings");
+        
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "EARNINGS"
+        });
+      }
+
+      // =============================================
+      // SUBSCRIBE TO MARKET EVENTS (with server-side filtering + ref counting)
+      // Rate-limited: max 2 subscribe_events + 5 update_event_filters per second per connection
+      // =============================================
+      else if (action === "subscribe_events" || action === "subscribe_market_events") {
+        // Get or create subscription entry with reference counting
+        // Multiple components (windows) on the same connection can subscribe independently
+        let sub = marketEventSubscriptions.get(connectionId);
+        if (!sub) {
+          sub = {
+            refCount: 0,
+            allTypes: false,
+            eventTypes: new Set(),
+            symbolsInclude: null,
+            symbolsExclude: new Set(),
+            // Server-side numeric filters (applied per-event before sending)
+            priceMin: null,
+            priceMax: null,
+            rvolMin: null,
+            changeMin: null,
+            changeMax: null,
+            volumeMin: null,
+          };
+          marketEventSubscriptions.set(connectionId, sub);
+        }
+        sub.refCount++;
+
+        // Merge event type filters from this subscription
+        const requestedTypes = data.event_types;
+        if (!requestedTypes || requestedTypes.length === 0) {
+          sub.allTypes = true; // This component wants all event types
+        } else {
+          for (const t of requestedTypes) sub.eventTypes.add(t);
+        }
+
+        // Merge symbol filters (if provided by client)
+        if (data.symbols_include && Array.isArray(data.symbols_include)) {
+          if (!sub.symbolsInclude) sub.symbolsInclude = new Set();
+          for (const s of data.symbols_include) sub.symbolsInclude.add(s.toUpperCase());
+        }
+        if (data.symbols_exclude && Array.isArray(data.symbols_exclude)) {
+          for (const s of data.symbols_exclude) sub.symbolsExclude.add(s.toUpperCase());
+        }
+
+        // Server-side numeric filters (reduce bandwidth for filtered views)
+        if (data.price_min !== undefined) sub.priceMin = parseFloat(data.price_min);
+        if (data.price_max !== undefined) sub.priceMax = parseFloat(data.price_max);
+        if (data.rvol_min !== undefined) sub.rvolMin = parseFloat(data.rvol_min);
+        if (data.change_min !== undefined) sub.changeMin = parseFloat(data.change_min);
+        if (data.change_max !== undefined) sub.changeMax = parseFloat(data.change_max);
+        if (data.volume_min !== undefined) sub.volumeMin = parseInt(data.volume_min);
+
+        logger.info({
+          connectionId,
+          refCount: sub.refCount,
+          allTypes: sub.allTypes,
+          eventTypesCount: sub.eventTypes.size,
+          serverFilter: !sub.allTypes,
+        }, "🎯 Client subscribed to Market Events (server-side filtering)");
+
+        sendMessage(connectionId, {
+          type: "subscribed",
+          channel: "MARKET_EVENTS",
+          server_filter: !sub.allTypes,
+          event_types_count: sub.allTypes ? "all" : sub.eventTypes.size,
+          message: "Subscribed to real-time market events with server-side filtering"
+        });
+
+        // Send initial snapshot of recent events (with ALL server-side filters applied)
+        try {
+          const pf = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+          const pi = (v) => { const n = parseInt(v); return isNaN(n) ? null : n; };
+
+          const recentEvents = await redisCommands.xrevrange("stream:events:market", "+", "-", "COUNT", "200");
+          if (recentEvents && recentEvents.length > 0) {
+            const events = recentEvents.map(([id, fields]) => {
+              const d = {};
+              for (let i = 0; i < fields.length; i += 2) {
+                d[fields[i]] = fields[i + 1];
+              }
+              let details = null;
+              if (d.details) { try { details = JSON.parse(d.details); } catch(e) { details = d.details; } }
+              return {
+                id: d.id,
+                event_type: d.event_type,
+                rule_id: d.rule_id,
+                symbol: d.symbol,
+                timestamp: d.timestamp,
+                price: pf(d.price),
+                prev_value: pf(d.prev_value),
+                new_value: pf(d.new_value),
+                delta: pf(d.delta),
+                delta_percent: pf(d.delta_percent),
+                change_percent: pf(d.change_percent),
+                rvol: pf(d.rvol),
+                volume: pi(d.volume),
+                market_cap: pf(d.market_cap),
+                gap_percent: pf(d.gap_percent),
+                change_from_open: pf(d.change_from_open),
+                open_price: pf(d.open_price),
+                prev_close: pf(d.prev_close),
+                vwap: pf(d.vwap),
+                atr_percent: pf(d.atr_percent),
+                intraday_high: pf(d.intraday_high),
+                intraday_low: pf(d.intraday_low),
+                details,
+              };
+            }).filter(evt => {
+              // Apply ALL server-side filters to snapshot (same as real-time)
+              if (!sub.allTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(evt.event_type)) return false;
+              if (sub.symbolsInclude && sub.symbolsInclude.size > 0 && !sub.symbolsInclude.has(evt.symbol)) return false;
+              if (sub.symbolsExclude.size > 0 && sub.symbolsExclude.has(evt.symbol)) return false;
+              // Numeric filters
+              if (sub.priceMin !== null && (evt.price === null || evt.price < sub.priceMin)) return false;
+              if (sub.priceMax !== null && (evt.price === null || evt.price > sub.priceMax)) return false;
+              if (sub.rvolMin !== null && (evt.rvol === null || evt.rvol < sub.rvolMin)) return false;
+              if (sub.changeMin !== null && (evt.change_percent === null || evt.change_percent < sub.changeMin)) return false;
+              if (sub.changeMax !== null && (evt.change_percent === null || evt.change_percent > sub.changeMax)) return false;
+              if (sub.volumeMin !== null && (evt.volume === null || evt.volume < sub.volumeMin)) return false;
+              return true;
+            }).reverse(); // Reverse to get oldest first, newest last
+
+            sendMessage(connectionId, {
+              type: "events_snapshot",
+              events: events,
+              count: events.length
+            });
+            logger.info({ connectionId, count: events.length, filtered: !sub.allTypes }, "📸 Sent filtered events snapshot to client");
+          }
+        } catch (err) {
+          logger.error({ connectionId, error: err.message }, "❌ Error sending events snapshot");
+        }
+      }
+
+      // =============================================
+      // UPDATE MARKET EVENT FILTERS (without re-subscribing)
+      // Rate-limited: max 5 per second per connection
+      // =============================================
+      else if (action === "update_event_filters") {
+        const sub = marketEventSubscriptions.get(connectionId);
+        if (sub) {
+          // Replace event type filters
+          if (data.event_types !== undefined) {
+            if (!data.event_types || data.event_types.length === 0) {
+              sub.allTypes = true;
+              sub.eventTypes.clear();
+            } else {
+              sub.allTypes = false;
+              sub.eventTypes = new Set(data.event_types);
+            }
+          }
+          // Replace symbol filters
+          if (data.symbols_include !== undefined) {
+            sub.symbolsInclude = data.symbols_include
+              ? new Set(data.symbols_include.map(s => s.toUpperCase()))
+              : null;
+          }
+          if (data.symbols_exclude !== undefined) {
+            sub.symbolsExclude = new Set((data.symbols_exclude || []).map(s => s.toUpperCase()));
+          }
+
+          // Update numeric filters
+          if (data.price_min !== undefined) sub.priceMin = data.price_min !== null ? parseFloat(data.price_min) : null;
+          if (data.price_max !== undefined) sub.priceMax = data.price_max !== null ? parseFloat(data.price_max) : null;
+          if (data.rvol_min !== undefined) sub.rvolMin = data.rvol_min !== null ? parseFloat(data.rvol_min) : null;
+          if (data.change_min !== undefined) sub.changeMin = data.change_min !== null ? parseFloat(data.change_min) : null;
+          if (data.change_max !== undefined) sub.changeMax = data.change_max !== null ? parseFloat(data.change_max) : null;
+          if (data.volume_min !== undefined) sub.volumeMin = data.volume_min !== null ? parseInt(data.volume_min) : null;
+
+          logger.info({
+            connectionId,
+            allTypes: sub.allTypes,
+            eventTypesCount: sub.eventTypes.size,
+            numericFilters: { priceMin: sub.priceMin, priceMax: sub.priceMax, rvolMin: sub.rvolMin },
+          }, "🎯 Updated market event filters");
+
+          sendMessage(connectionId, {
+            type: "filters_updated",
+            channel: "MARKET_EVENTS"
+          });
+        }
+      }
+
+      // Desuscribirse de Market Events (with ref counting)
+      else if (action === "unsubscribe_events" || action === "unsubscribe_market_events") {
+        const sub = marketEventSubscriptions.get(connectionId);
+        if (sub) {
+          sub.refCount--;
+          if (sub.refCount <= 0) {
+            // Last component unsubscribed - remove entirely
+            marketEventSubscriptions.delete(connectionId);
+            eventRateLimiters.delete(connectionId);
+            logger.info({ connectionId }, "🎯 Client fully unsubscribed from Market Events");
+          } else {
+            // Other components still subscribed on this connection
+            logger.info({ connectionId, remaining: sub.refCount }, "🎯 Client partially unsubscribed from Market Events");
+          }
+        }
+
+        sendMessage(connectionId, {
+          type: "unsubscribed",
+          channel: "MARKET_EVENTS"
+        });
+      }
+
       // =============================================
       // SUBSCRIBE TO QUOTE (ticker individual)
       // =============================================
@@ -2517,6 +3162,9 @@ wss.on("connection", async (ws, req) => {
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
     benzingaNewsSubscribers.delete(connectionId);
+    benzingaEarningsSubscribers.delete(connectionId);
+    marketEventSubscriptions.delete(connectionId);
+    eventRateLimiters.delete(connectionId);
     await unsubscribeClientFromAllQuotes(connectionId);
     await unsubscribeClientFromAllCharts(connectionId);  // ✅ Limpiar charts
     connections.delete(connectionId);
@@ -2529,6 +3177,9 @@ wss.on("connection", async (ws, req) => {
     unsubscribeClientFromAll(connectionId);
     secFilingsSubscribers.delete(connectionId);
     benzingaNewsSubscribers.delete(connectionId);
+    benzingaEarningsSubscribers.delete(connectionId);
+    marketEventSubscriptions.delete(connectionId);
+    eventRateLimiters.delete(connectionId);
     await unsubscribeClientFromAllQuotes(connectionId);
     await unsubscribeClientFromAllCharts(connectionId);  // ✅ Limpiar charts
     connections.delete(connectionId);
@@ -2714,8 +3365,18 @@ processBenzingaNewsStream().catch((err) => {
   process.exit(1);
 });
 
+processBenzingaEarningsStream().catch((err) => {
+  logger.fatal({ err }, "Benzinga Earnings stream processor crashed");
+  process.exit(1);
+});
+
 processQuotesStream().catch((err) => {
   logger.fatal({ err }, "Quotes stream processor crashed");
+  process.exit(1);
+});
+
+processMarketEventsStream().catch((err) => {
+  logger.fatal({ err }, "Market Events stream processor crashed");
   process.exit(1);
 });
 

@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',         // Páginas de login
   '/sign-up(.*)',         // Páginas de registro
   '/tasks(.*)',           // Task pages (reset-password, etc.)
+  '/invite(.*)',          // Páginas de invitación a grupos (reset-password, etc.)
   '/api/public(.*)',      // APIs públicas (si las hay)
   '/icon',                // Favicon dinámico
   '/apple-icon',          // Apple touch icon

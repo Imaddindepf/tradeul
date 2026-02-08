@@ -47,3 +47,4 @@ pyarrow==14.0.2
 sentence-transformers==3.0.1
 torch==2.2.0  # CPU-only sufficient for small models
 
+orjson==3.9.10

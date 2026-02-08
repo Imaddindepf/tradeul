@@ -7,7 +7,7 @@ through the API Gateway instead of calling them directly.
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, Depends
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 import structlog
 
 from auth import get_current_user, AuthenticatedUser
@@ -15,6 +15,9 @@ from auth import get_current_user, AuthenticatedUser
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["proxy"])
+
+# In-memory cache for logos (simple TTL-less cache, resets on restart)
+_logo_cache: dict[str, bytes] = {}
 
 # Internal service URLs (only accessible within Docker network)
 MARKET_SESSION_URL = "http://market_session:8002"
@@ -188,4 +191,59 @@ async def proxy_dilution_sec_profile(
     except httpx.RequestError as e:
         logger.error("dilution_sec_profile_proxy_error", ticker=ticker, error=str(e))
         raise HTTPException(status_code=503, detail="Dilution tracker service unavailable")
+
+
+# ============================================================================
+# LOGO PROXY (for sharing/export features)
+# ============================================================================
+
+@router.get("/api/v1/logo/{symbol}")
+async def proxy_logo(symbol: str):
+    """
+    Proxy company logos for sharing features.
+    Tries multiple sources: FMP, parqet, iex.
+    Caches logos in memory.
+    """
+    symbol = symbol.upper()
+    
+    # Check cache first
+    if symbol in _logo_cache:
+        return Response(
+            content=_logo_cache[symbol],
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
+    
+    # Try multiple logo sources
+    sources = [
+        f"https://financialmodelingprep.com/image-stock/{symbol}.png",
+        f"https://storage.googleapis.com/iexcloud-hl37opg/api/logos/{symbol}.png",
+        f"https://assets.parqet.com/logos/symbol/{symbol}?format=png",
+    ]
+    
+    async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+        for url in sources:
+            try:
+                response = await client.get(url)
+                if response.status_code == 200 and len(response.content) > 500:
+                    content = response.content
+                    # Verify it's actually an image (starts with PNG magic bytes or JPEG)
+                    if content[:4] == b'\x89PNG' or content[:2] == b'\xff\xd8':
+                        # Cache if small enough (< 100KB)
+                        if len(content) < 100000:
+                            _logo_cache[symbol] = content
+                        return Response(
+                            content=content,
+                            media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"}
+                        )
+            except Exception:
+                continue
+    
+    # No logo found - return transparent 1x1 pixel
+    return Response(
+        content=b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82',
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"}
+    )
 

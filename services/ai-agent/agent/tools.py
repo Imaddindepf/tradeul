@@ -382,8 +382,9 @@ MARKET_TOOLS = [
     },
     {
         "name": "research_ticker",
-        "description": """DEEP research on a ticker using X.com, web search, and news (takes 60-90 seconds).
-        Use ONLY when user explicitly asks for "deep research", "full analysis", or wants more detail after quick_news.
+        "description": """DEEP research on a ticker using X.com, web search, and news.
+        Use for: "why is X up/down?", news, sentiment, analysis, breaking news.
+        IMPORTANT: Always pass the user's full question in the 'query' parameter.
         Returns: comprehensive analysis with citations from X.com, Bloomberg, Reuters, etc.""",
         "parameters": {
             "type": "object",
@@ -392,12 +393,16 @@ MARKET_TOOLS = [
                     "type": "string",
                     "description": "Ticker symbol (e.g., 'NVDA', 'AAPL')"
                 },
+                "query": {
+                    "type": "string",
+                    "description": "The user's full question to research (e.g., 'Why is NVDA up today?')"
+                },
                 "include_technicals": {
                     "type": "boolean",
-                    "description": "Include technical chart (default true)"
+                    "description": "Include technical analysis (default true)"
                 }
             },
-            "required": ["symbol"]
+            "required": ["symbol", "query"]
         }
     },
     {
@@ -1493,14 +1498,16 @@ async def _research_ticker(args: Dict, ctx: Dict) -> Dict:
     # Accept both 'symbol' and 'ticker' parameter names
     symbol = args.get("symbol") or args.get("ticker", "")
     symbol = symbol.upper() if symbol else ""
+    query = args.get("query", "")  # User's original question
     include_technicals = args.get("include_technicals", True)
     
     if not symbol:
         return {"success": False, "error": "Symbol required"}
     
-    # Usa research_ticker_combined que consulta Grok + Benzinga en paralelo
+    # Pass the user's query to Grok for context-aware research
     result = await research_ticker_combined(
         ticker=symbol,
+        query=query,  # CRITICAL: Pass user's question for relevant results
         include_technicals=include_technicals
     )
     

@@ -22,7 +22,13 @@ export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
       onOpenCommandPalette?.('SC ');
       return;
     }
-    
+
+    // EVN es especial - abre el CommandPalette con "EVN " pre-llenado
+    if (cmdId === 'evn') {
+      onOpenCommandPalette?.('EVN ');
+      return;
+    }
+
     // Los demás comandos se ejecutan directamente
     executeCommand(cmdId);
   };
@@ -57,7 +63,7 @@ export function PinnedCommands({ onOpenCommandPalette }: PinnedCommandsProps) {
               {getCommandLabel(cmdId)}
             </button>
           ))}
-          
+
           {pinnedCommands.length > 6 && (
             <span className="px-2 py-1 text-xs font-semibold text-slate-500 bg-slate-100 rounded-md">
               +{pinnedCommands.length - 6}

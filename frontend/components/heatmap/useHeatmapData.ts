@@ -64,6 +64,7 @@ export interface HeatmapData {
   metric: string;
   size_by: string;
   sectors: HeatmapSector[];
+  is_realtime: boolean;  // false cuando el mercado está cerrado y usa datos del último cierre
 }
 
 export interface HeatmapFilters {

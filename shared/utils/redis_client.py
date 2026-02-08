@@ -3,7 +3,7 @@ Redis client wrapper with async support
 Provides high-level operations for the scanner system
 """
 
-import json
+import orjson
 from typing import Optional, List, Dict, Any, AsyncIterator
 from datetime import timedelta
 import redis.asyncio as aioredis
@@ -90,7 +90,7 @@ class RedisClient:
                     # Si es bytes y serialize=True, no hacer nada (ya está serializado)
                     pass
                 elif not isinstance(value, str):
-                    value = json.dumps(value)
+                    value = orjson.dumps(value).decode()
             
             if ttl:
                 return await self.client.setex(key, ttl, value)
@@ -127,8 +127,8 @@ class RedisClient:
             # Intentar deserializar JSON si es string
             if isinstance(value, str):
                 try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
+                    return orjson.loads(value)
+                except orjson.JSONDecodeError:
                     return value
             
             # Si es bytes, intentar decodificar y deserializar
@@ -137,9 +137,8 @@ class RedisClient:
                 # Si llegamos aquí con deserialize=True, intentar decodificar
                 # Pero si falla, retornar bytes para que el caller decida qué hacer
                 try:
-                    decoded = value.decode('utf-8')
-                    return json.loads(decoded)
-                except (UnicodeDecodeError, json.JSONDecodeError):
+                    return orjson.loads(value)
+                except (orjson.JSONDecodeError, Exception):
                     # Puede ser datos binarios (comprimidos), retornar bytes
                     return value
             
@@ -170,7 +169,7 @@ class RedisClient:
         """Set hash field"""
         try:
             if serialize and not isinstance(value, str):
-                value = json.dumps(value)
+                value = orjson.dumps(value).decode()
             return await self.client.hset(name, key, value)
         except RedisError as e:
             logger.error("Redis HSET error", name=name, key=key, error=str(e))
@@ -187,8 +186,8 @@ class RedisClient:
             value = await self.client.hget(name, key)
             if value and deserialize:
                 try:
-                    return json.loads(value)
-                except json.JSONDecodeError:
+                    return orjson.loads(value)
+                except orjson.JSONDecodeError:
                     return value
             return value
         except RedisError as e:
@@ -209,8 +208,8 @@ class RedisClient:
                 for value in values:
                     if value:
                         try:
-                            result.append(json.loads(value))
-                        except json.JSONDecodeError:
+                            result.append(orjson.loads(value))
+                        except orjson.JSONDecodeError:
                             result.append(value)
                     else:
                         result.append(None)
@@ -230,7 +229,7 @@ class RedisClient:
             data = await self.client.hgetall(name)
             if deserialize:
                 return {
-                    k: json.loads(v) if v else None
+                    k: orjson.loads(v) if v else None
                     for k, v in data.items()
                 }
             return data
@@ -248,7 +247,7 @@ class RedisClient:
         try:
             if serialize:
                 mapping = {
-                    k: json.dumps(v) if not isinstance(v, str) else v
+                    k: orjson.dumps(v).decode() if not isinstance(v, str) else v
                     for k, v in mapping.items()
                 }
             return await self.client.hset(name, mapping=mapping)
@@ -361,7 +360,7 @@ class RedisClient:
         try:
             # Serialize complex values
             serialized_fields = {
-                k: json.dumps(v) if not isinstance(v, str) else v
+                k: orjson.dumps(v).decode() if not isinstance(v, str) else v
                 for k, v in fields.items()
             }
             
@@ -561,8 +560,8 @@ class RedisClient:
                         # Intentar deserializar JSON si es posible
                         if isinstance(value, bytes):
                             try:
-                                data[key] = json.loads(value.decode())
-                            except (json.JSONDecodeError, UnicodeDecodeError):
+                                data[key] = orjson.loads(value)
+                            except (orjson.JSONDecodeError, Exception):
                                 data[key] = value.decode()
                         else:
                             data[key] = value
@@ -636,7 +635,7 @@ class RedisClient:
         """Publish message to channel"""
         try:
             if not isinstance(message, str):
-                message = json.dumps(message)
+                message = orjson.dumps(message).decode()
             return await self.client.publish(channel, message)
         except RedisError as e:
             logger.error("Redis PUBLISH error", channel=channel, error=str(e))

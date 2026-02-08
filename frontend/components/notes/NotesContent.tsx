@@ -2,28 +2,16 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNotesStore, Note } from '@/stores/useNotesStore';
+import { useNotesStore, Note, TipTapContent } from '@/stores/useNotesStore';
+import { useUser } from '@clerk/nextjs';
 import { getUserTimezone } from '@/lib/date-utils';
-import {
-  Plus,
-  X,
-  Bold,
-  Italic,
-  Underline,
-  Heading1,
-  Heading2,
-  Heading3,
-  List,
-  ListOrdered,
-  Link2,
-  Save,
-  Trash2,
-  FileText,
-  Edit3,
-  Check,
-} from 'lucide-react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import Placeholder from '@tiptap/extension-placeholder';
+import { List, ListOrdered, Plus, Link2 } from 'lucide-react';
 
-// Toolbar button component
+// Toolbar button - minimal, no icons
 function ToolbarButton({
   onClick,
   active,
@@ -39,18 +27,17 @@ function ToolbarButton({
     <button
       onClick={onClick}
       title={title}
-      className={`p-1.5 rounded transition-all duration-150 ${
-        active
-          ? 'bg-blue-500 text-white shadow-sm'
+      className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all duration-150 ${active
+          ? 'bg-slate-700 text-white'
           : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-      }`}
+        }`}
     >
       {children}
     </button>
   );
 }
 
-// Note Tab component
+// Note Tab component - minimal
 function NoteTab({
   note,
   isActive,
@@ -96,15 +83,12 @@ function NoteTab({
 
   return (
     <div
-      className={`group flex items-center gap-1 px-2 py-1 rounded-t-md border-b-2 transition-all duration-150 cursor-pointer min-w-0 max-w-[140px] ${
-        isActive
-          ? 'bg-white border-blue-500 text-slate-800'
-          : 'bg-slate-50 border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'
-      }`}
+      className={`group flex items-center gap-1 px-2 py-1 rounded-t border-b-2 transition-all duration-150 cursor-pointer min-w-0 max-w-[120px] ${isActive
+          ? 'bg-white border-slate-700 text-slate-800'
+          : 'bg-slate-50 border-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+        }`}
       onClick={onSelect}
     >
-      <FileText className="w-3 h-3 flex-shrink-0" />
-      
       {isEditing ? (
         <input
           ref={inputRef}
@@ -127,156 +111,174 @@ function NoteTab({
           {note.title}
         </span>
       )}
-      
+
       <button
         onClick={(e) => {
           e.stopPropagation();
           onClose();
         }}
-        className="ml-auto opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-red-100 hover:text-red-600 transition-all duration-150"
+        className="ml-auto opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-red-500 transition-all duration-150"
       >
-        <X className="w-2.5 h-2.5" />
+        ×
       </button>
     </div>
   );
 }
 
-// Rich text editor using contentEditable
-function RichTextEditor({
+// TipTap Editor component
+function TipTapEditor({
   content,
   onChange,
   placeholder,
 }: {
-  content: string;
-  onChange: (content: string) => void;
+  content: TipTapContent;
+  onChange: (content: TipTapContent) => void;
   placeholder: string;
 }) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const [isEmpty, setIsEmpty] = useState(!content);
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: { levels: [1, 2, 3] },
+      }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: { class: 'text-blue-600 underline cursor-pointer' },
+      }),
+      Placeholder.configure({ placeholder }),
+    ],
+    content,
+    editorProps: {
+      attributes: {
+        class: 'h-full outline-none prose prose-sm max-w-none p-3 text-slate-800 ' +
+          '[&_h1]:text-base [&_h1]:font-bold [&_h1]:mb-2 [&_h1]:mt-2 ' +
+          '[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mb-1 [&_h2]:mt-2 ' +
+          '[&_h3]:text-xs [&_h3]:font-semibold [&_h3]:mb-1 [&_h3]:mt-1 ' +
+          '[&_ul]:list-disc [&_ul]:pl-4 [&_ul]:my-1 ' +
+          '[&_ol]:list-decimal [&_ol]:pl-4 [&_ol]:my-1 ' +
+          '[&_li]:my-0.5 [&_p]:my-1 ' +
+          '[&_.is-editor-empty:first-child::before]:text-slate-400 ' +
+          '[&_.is-editor-empty:first-child::before]:content-[attr(data-placeholder)] ' +
+          '[&_.is-editor-empty:first-child::before]:float-left [&_.is-editor-empty:first-child::before]:h-0 ' +
+          '[&_.is-editor-empty:first-child::before]:pointer-events-none',
+      },
+    },
+    onUpdate: ({ editor }) => {
+      onChange(editor.getJSON() as TipTapContent);
+    },
+  });
 
-  // Initialize content
+  // Update content when it changes externally
   useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== content) {
-      editorRef.current.innerHTML = content;
-      setIsEmpty(!content);
+    if (editor && content) {
+      const currentContent = JSON.stringify(editor.getJSON());
+      const newContent = JSON.stringify(content);
+      if (currentContent !== newContent) {
+        editor.commands.setContent(content);
+      }
     }
-  }, [content]);
+  }, [editor, content]);
 
-  const handleInput = () => {
-    if (editorRef.current) {
-      const newContent = editorRef.current.innerHTML;
-      const textContent = editorRef.current.textContent || '';
-      setIsEmpty(!textContent.trim());
-      onChange(newContent);
-    }
-  };
+  if (!editor) return null;
 
-  const execCommand = useCallback((command: string, value?: string) => {
-    document.execCommand(command, false, value);
-    editorRef.current?.focus();
-  }, []);
-
-  const formatBlock = useCallback((tag: string) => {
-    document.execCommand('formatBlock', false, tag);
-    editorRef.current?.focus();
-  }, []);
-
-  const insertLink = useCallback(() => {
+  const insertLink = () => {
     const url = prompt('Enter URL:');
     if (url) {
-      document.execCommand('createLink', false, url);
-      editorRef.current?.focus();
+      editor.chain().focus().setLink({ href: url }).run();
     }
-  }, []);
+  };
 
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-200 bg-slate-50/80">
-        <ToolbarButton onClick={() => execCommand('bold')} title="Bold (Ctrl+B)">
-          <Bold className="w-3.5 h-3.5" />
+      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-200 bg-slate-50/50">
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleBold().run()}
+          active={editor.isActive('bold')}
+          title="Bold"
+        >
+          B
         </ToolbarButton>
-        <ToolbarButton onClick={() => execCommand('italic')} title="Italic (Ctrl+I)">
-          <Italic className="w-3.5 h-3.5" />
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleItalic().run()}
+          active={editor.isActive('italic')}
+          title="Italic"
+        >
+          I
         </ToolbarButton>
-        <ToolbarButton onClick={() => execCommand('underline')} title="Underline (Ctrl+U)">
-          <Underline className="w-3.5 h-3.5" />
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleStrike().run()}
+          active={editor.isActive('strike')}
+          title="Strikethrough"
+        >
+          S̶
         </ToolbarButton>
-        
+
         <div className="w-px h-4 bg-slate-200 mx-1" />
-        
-        <ToolbarButton onClick={() => formatBlock('h1')} title="Heading 1">
-          <Heading1 className="w-3.5 h-3.5" />
+
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+          active={editor.isActive('heading', { level: 1 })}
+          title="Heading 1"
+        >
+          H1
         </ToolbarButton>
-        <ToolbarButton onClick={() => formatBlock('h2')} title="Heading 2">
-          <Heading2 className="w-3.5 h-3.5" />
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+          active={editor.isActive('heading', { level: 2 })}
+          title="Heading 2"
+        >
+          H2
         </ToolbarButton>
-        <ToolbarButton onClick={() => formatBlock('h3')} title="Heading 3">
-          <Heading3 className="w-3.5 h-3.5" />
-        </ToolbarButton>
-        
+
         <div className="w-px h-4 bg-slate-200 mx-1" />
-        
-        <ToolbarButton onClick={() => execCommand('insertUnorderedList')} title="Bullet List">
+
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleBulletList().run()}
+          active={editor.isActive('bulletList')}
+          title="Bullet List"
+        >
           <List className="w-3.5 h-3.5" />
         </ToolbarButton>
-        <ToolbarButton onClick={() => execCommand('insertOrderedList')} title="Numbered List">
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          active={editor.isActive('orderedList')}
+          title="Numbered List"
+        >
           <ListOrdered className="w-3.5 h-3.5" />
         </ToolbarButton>
-        
+
         <div className="w-px h-4 bg-slate-200 mx-1" />
-        
-        <ToolbarButton onClick={insertLink} title="Insert Link">
+
+        <ToolbarButton
+          onClick={insertLink}
+          active={editor.isActive('link')}
+          title="Insert Link"
+        >
           <Link2 className="w-3.5 h-3.5" />
         </ToolbarButton>
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 relative overflow-hidden">
-        {isEmpty && (
-          <div className="absolute inset-0 pointer-events-none p-3 text-slate-400 text-sm">
-            {placeholder}
-          </div>
-        )}
-        <div
-          ref={editorRef}
-          contentEditable
-          onInput={handleInput}
-          className="h-full overflow-y-auto p-3 text-sm text-slate-800 outline-none prose prose-sm max-w-none
-                     [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mb-2 [&_h1]:mt-3
-                     [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mb-2 [&_h2]:mt-2
-                     [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mb-1 [&_h3]:mt-2
-                     [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1
-                     [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1
-                     [&_li]:my-0.5
-                     [&_a]:text-blue-600 [&_a]:underline
-                     [&_p]:my-1"
-          suppressContentEditableWarning
-        />
+      {/* Editor area */}
+      <div className="flex-1 overflow-y-auto">
+        <EditorContent editor={editor} className="h-full" />
       </div>
     </div>
   );
 }
 
-// Empty state component
+// Empty state
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   const { t } = useTranslation();
-  
+
   return (
     <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3 p-6">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-        <FileText className="w-8 h-8 text-slate-400" />
-      </div>
-      <div className="text-center">
-        <p className="text-sm font-medium text-slate-600">{t('notes.noNotes')}</p>
-        <p className="text-xs text-slate-400 mt-1">{t('notes.createFirst')}</p>
-      </div>
+      <p className="text-xs text-slate-500">{t('notes.noNotes', 'No notes yet')}</p>
       <button
         onClick={onCreate}
-        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500 text-white rounded-md text-xs font-medium hover:bg-blue-600 transition-colors shadow-sm"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
-        {t('notes.newNote')}
+        {t('notes.newNote', 'New note')}
       </button>
     </div>
   );
@@ -285,58 +287,81 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 // Main Notes Content component
 export function NotesContent() {
   const { t } = useTranslation();
+  const { user, isLoaded } = useUser();
   const {
     notes,
     activeNoteId,
+    isLoading,
+    fetchNotes,
     createNote,
     updateNote,
     deleteNote,
     setActiveNote,
+    createLocalNote,
+    updateLocalNote,
+    deleteLocalNote,
   } = useNotesStore();
 
   const activeNote = notes.find((n) => n.id === activeNoteId);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const currentContentRef = useRef<TipTapContent | null>(null);
 
-  // Ref para el contenido actual (para guardar con Ctrl+S)
-  const currentContentRef = useRef<string>('');
+  // Fetch notes on mount if user is logged in
+  useEffect(() => {
+    if (isLoaded && user?.id) {
+      fetchNotes(user.id);
+    }
+  }, [isLoaded, user?.id, fetchNotes]);
 
-  // Auto-save with debounce
+  // Set first note as active if none selected
+  useEffect(() => {
+    if (!activeNoteId && notes.length > 0) {
+      setActiveNote(notes[0].id);
+    }
+  }, [activeNoteId, notes, setActiveNote]);
+
   const handleContentChange = useCallback(
-    (content: string) => {
+    (content: TipTapContent) => {
       currentContentRef.current = content;
-      
+
       if (activeNoteId) {
         setSaveStatus('saving');
-        
+
         if (saveTimeoutRef.current) {
           clearTimeout(saveTimeoutRef.current);
         }
-        
+
         saveTimeoutRef.current = setTimeout(() => {
-          updateNote(activeNoteId, { content });
+          if (user?.id) {
+            updateNote(activeNoteId, { content }, user.id);
+          } else {
+            updateLocalNote(activeNoteId, { content });
+          }
           setSaveStatus('saved');
-          
           setTimeout(() => setSaveStatus(null), 1500);
         }, 500);
       }
     },
-    [activeNoteId, updateNote]
+    [activeNoteId, user?.id, updateNote, updateLocalNote]
   );
 
-  // Forzar guardado inmediato
   const forceSave = useCallback(() => {
     if (activeNoteId && currentContentRef.current) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      updateNote(activeNoteId, { content: currentContentRef.current });
+      if (user?.id) {
+        updateNote(activeNoteId, { content: currentContentRef.current }, user.id);
+      } else {
+        updateLocalNote(activeNoteId, { content: currentContentRef.current });
+      }
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus(null), 1500);
     }
-  }, [activeNoteId, updateNote]);
+  }, [activeNoteId, user?.id, updateNote, updateLocalNote]);
 
-  // Capturar Ctrl+S para prevenir el comportamiento del navegador
+  // Ctrl+S handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -346,44 +371,58 @@ export function NotesContent() {
       }
     };
 
-    // Usar capture para interceptar antes que el navegador
     document.addEventListener('keydown', handleKeyDown, { capture: true });
-    
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown, { capture: true });
-    };
+    return () => document.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [forceSave]);
 
-  const handleCreateNote = () => {
-    createNote();
+  const handleCreateNote = async () => {
+    if (user?.id) {
+      await createNote(user.id);
+    } else {
+      createLocalNote();
+    }
   };
 
-  const handleDeleteNote = (id: string) => {
+  const handleDeleteNote = async (id: string) => {
     if (notes.length === 1) {
       // Last note - just clear it
-      updateNote(id, { content: '', title: 'Note 1' });
+      const emptyContent: TipTapContent = { type: 'doc', content: [] };
+      if (user?.id) {
+        await updateNote(id, { content: emptyContent, title: 'Note 1' }, user.id);
+      } else {
+        updateLocalNote(id, { content: emptyContent, title: 'Note 1' });
+      }
     } else {
-      deleteNote(id);
+      if (user?.id) {
+        await deleteNote(id, user.id);
+      } else {
+        deleteLocalNote(id);
+      }
     }
   };
 
-  const handleRenameNote = (id: string, newTitle: string) => {
-    updateNote(id, { title: newTitle });
+  const handleRenameNote = async (id: string, newTitle: string) => {
+    if (user?.id) {
+      await updateNote(id, { title: newTitle }, user.id);
+    } else {
+      updateLocalNote(id, { title: newTitle });
+    }
   };
 
-  // Set first note as active if none selected
-  useEffect(() => {
-    if (!activeNoteId && notes.length > 0) {
-      setActiveNote(notes[0].id);
-    }
-  }, [activeNoteId, notes, setActiveNote]);
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+        Loading...
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-white text-slate-900">
       {/* Header with tabs */}
-      <div className="flex items-center border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
+      <div className="flex items-center border-b border-slate-200 bg-slate-50/50">
         {/* Tabs */}
-        <div className="flex-1 flex items-end gap-0.5 px-2 pt-1.5 overflow-x-auto scrollbar-thin">
+        <div className="flex-1 flex items-end gap-0.5 px-1 pt-1 overflow-x-auto scrollbar-thin">
           {notes.map((note) => (
             <NoteTab
               key={note.id}
@@ -395,35 +434,19 @@ export function NotesContent() {
             />
           ))}
         </div>
-        
+
         {/* Actions */}
-        <div className="flex items-center gap-1 px-2 py-1.5">
-          {/* Save status indicator */}
+        <div className="flex items-center gap-2 px-2 py-1">
           {saveStatus && (
-            <div className={`flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded ${
-              saveStatus === 'saved' 
-                ? 'text-green-600 bg-green-50' 
-                : 'text-slate-500 bg-slate-100'
-            }`}>
-              {saveStatus === 'saved' ? (
-                <>
-                  <Check className="w-2.5 h-2.5" />
-                  <span>{t('notes.saved')}</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-2.5 h-2.5 animate-pulse" />
-                  <span>{t('notes.saving')}</span>
-                </>
-              )}
-            </div>
+            <span className={`text-[9px] ${saveStatus === 'saved' ? 'text-green-600' : 'text-slate-400'}`}>
+              {saveStatus === 'saved' ? '✓' : '...'}
+            </span>
           )}
-          
-          {/* New note button */}
+
           <button
             onClick={handleCreateNote}
-            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-            title={t('notes.newNote')}
+            className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+            title={t('notes.newNote', 'New note')}
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -435,23 +458,22 @@ export function NotesContent() {
         {notes.length === 0 ? (
           <EmptyState onCreate={handleCreateNote} />
         ) : activeNote ? (
-          <RichTextEditor
+          <TipTapEditor
             content={activeNote.content}
             onChange={handleContentChange}
-            placeholder={t('notes.placeholder')}
+            placeholder={t('notes.placeholder', 'Start writing...')}
           />
         ) : (
           <EmptyState onCreate={handleCreateNote} />
         )}
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-t border-slate-100 bg-slate-50/50 text-[9px] text-slate-400">
-        <span className="text-slate-400">{t('notes.autoSave')}</span>
-        
+      {/* Footer - minimal */}
+      <div className="flex items-center justify-between px-2 py-1 border-t border-slate-100 bg-slate-50/30 text-[9px] text-slate-400">
+        <span>{user?.id ? 'synced' : 'local'}</span>
         {activeNote && (
-          <span className="text-slate-400">
-            {new Date(activeNote.updatedAt).toLocaleString('en-US', {
+          <span>
+            {new Date(activeNote.updated_at).toLocaleString('en-US', {
               timeZone: getUserTimezone(),
               month: 'short',
               day: 'numeric',
@@ -466,4 +488,3 @@ export function NotesContent() {
 }
 
 export default NotesContent;
-
