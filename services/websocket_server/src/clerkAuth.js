@@ -99,6 +99,7 @@ async function verifyClerkToken(token) {
       {
         algorithms: ['RS256'],
         issuer: `https://${clerkDomain}`,
+        clockTolerance: 10, // Accept tokens expired up to 10s ago (reconnection grace period)
       },
       (err, decoded) => {
         if (err) {

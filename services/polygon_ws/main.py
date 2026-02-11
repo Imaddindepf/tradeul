@@ -46,6 +46,8 @@ quote_subscription_task: Optional[asyncio.Task] = None  # Nueva tarea para quote
 catalyst_subscription_task: Optional[asyncio.Task] = None  # Tarea para catalyst alerts
 luld_subscription_task: Optional[asyncio.Task] = None  # Tarea para LULD subscription
 luld_subscribed: bool = False  # Flag para LULD subscription
+minute_agg_subscription_task: Optional[asyncio.Task] = None  # Tarea para AM.* subscription
+minute_agg_subscribed: bool = False  # Flag para AM.* subscription
 nasdaq_rss_task: Optional[asyncio.Task] = None  # Tarea para NASDAQ RSS polling
 reconciler: Optional[SubscriptionReconciler] = None
 reconciler_task: Optional[asyncio.Task] = None
@@ -64,7 +66,7 @@ catalyst_subscribed_tickers: Set[str] = set()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestión del ciclo de vida de la aplicación"""
-    global redis_client, ws_client, subscription_task, quote_subscription_task, catalyst_subscription_task, luld_subscription_task, reconciler, reconciler_task
+    global redis_client, ws_client, subscription_task, quote_subscription_task, catalyst_subscription_task, luld_subscription_task, minute_agg_subscription_task, reconciler, reconciler_task
     
     logger.info("polygon_ws_service_starting")
     
@@ -82,7 +84,8 @@ async def lifespan(app: FastAPI):
         api_key=settings.POLYGON_API_KEY,
         on_trade=None,  # Desactivado - no necesario
         on_quote=handle_quote,  # ✅ ACTIVADO para tickers individuales
-        on_aggregate=handle_aggregate,  # Para Scanner
+        on_aggregate=handle_aggregate,  # Para Scanner (A.* per-second)
+        on_minute_aggregate=handle_minute_aggregate,  # ✅ AM.* para BarEngine (todo mercado)
         on_luld=handle_luld  # ✅ LULD para halts/pauses de TODO el mercado
     )
     
@@ -103,6 +106,7 @@ async def lifespan(app: FastAPI):
     quote_subscription_task = asyncio.create_task(manage_quote_subscriptions())
     catalyst_subscription_task = asyncio.create_task(manage_catalyst_subscriptions())
     luld_subscription_task = asyncio.create_task(manage_luld_subscription())  # LULD para todo el mercado
+    minute_agg_subscription_task = asyncio.create_task(manage_minute_agg_subscription())  # AM.* para todo el mercado
     nasdaq_rss_task = asyncio.create_task(poll_nasdaq_rss_halts())  # RSS feed de alta frecuencia
     reconciler_task = asyncio.create_task(reconciler.start())
     
@@ -112,6 +116,7 @@ async def lifespan(app: FastAPI):
         quotes_enabled=True,
         catalyst_enabled=True,
         luld_enabled=True,
+        minute_aggs_enabled=True,
         nasdaq_rss_enabled=True
     )
     
@@ -155,6 +160,13 @@ async def lifespan(app: FastAPI):
         luld_subscription_task.cancel()
         try:
             await luld_subscription_task
+        except asyncio.CancelledError:
+            pass
+    
+    if minute_agg_subscription_task:
+        minute_agg_subscription_task.cancel()
+        try:
+            await minute_agg_subscription_task
         except asyncio.CancelledError:
             pass
     
@@ -321,6 +333,53 @@ async def handle_aggregate(agg: PolygonAgg):
     except Exception as e:
         logger.error(
             "aggregate_handler_error",
+            symbol=agg.sym,
+            error=str(e)
+        )
+
+
+async def handle_minute_aggregate(agg: PolygonAgg):
+    """
+    Procesa un mensaje de Minute Aggregate (AM.*) del WebSocket.
+    
+    AM.* proporciona barras OHLCV de 1 minuto para TODO el mercado.
+    Se publica a stream:market:minutes para que el BarEngine las procese.
+    
+    Campos clave:
+    - sym: símbolo
+    - s: start timestamp del minuto (ms)
+    - e: end timestamp del minuto (ms)
+    - o/h/l/c: OHLC del minuto
+    - v: volumen del minuto
+    - av: volumen acumulado del día
+    - a: VWAP de hoy
+    - vw: VWAP del minuto
+    - z: average trade size
+    
+    Args:
+        agg: Minute aggregate de Polygon
+    """
+    try:
+        await redis_client.publish_to_stream(
+            "stream:market:minutes",
+            {
+                'sym': agg.sym,
+                's': str(agg.s),
+                'e': str(agg.e),
+                'o': str(agg.o),
+                'h': str(agg.h),
+                'l': str(agg.l),
+                'c': str(agg.c),
+                'v': str(agg.v),
+                'av': str(agg.av),
+                'vw': str(agg.vw),
+            },
+            maxlen=100000,  # Keep last 100K entries (~10 minutes of full market)
+        )
+        
+    except Exception as e:
+        logger.error(
+            "minute_aggregate_handler_error",
             symbol=agg.sym,
             error=str(e)
         )
@@ -1122,6 +1181,65 @@ async def manage_luld_subscription():
                 error_type=type(e).__name__
             )
             luld_subscribed = False
+            await asyncio.sleep(5)
+
+
+# ============================================================================
+# Minute Aggregate Subscription Management (AM.* for entire market)
+# ============================================================================
+
+async def manage_minute_agg_subscription():
+    """
+    Gestiona la suscripción a AM.* (1-minute aggregates) para TODO el mercado.
+    
+    AM.* es el feed principal para el BarEngine:
+    - Proporciona barras OHLCV de 1 minuto para ~11K tickers
+    - ~8-10K mensajes por minuto durante market hours
+    - Se usa para calcular indicadores (RSI, MACD, etc.) con cobertura 100%
+    
+    Esta tarea:
+    1. Espera a que el WebSocket esté autenticado
+    2. Se suscribe a AM.*
+    3. Maneja reconexiones (re-suscribe automáticamente)
+    """
+    global minute_agg_subscribed
+    
+    logger.info("minute_agg_subscription_manager_started")
+    
+    while True:
+        try:
+            if ws_client and ws_client.is_authenticated:
+                if not minute_agg_subscribed:
+                    logger.info("subscribing_to_am_all_market")
+                    success = await ws_client.subscribe_minute_aggs_all()
+                    
+                    if success:
+                        minute_agg_subscribed = True
+                        logger.info(
+                            "am_subscription_active",
+                            stream="AM.*",
+                            description="Receiving 1-minute OHLCV bars for entire market"
+                        )
+                    else:
+                        logger.warning("am_subscription_failed_will_retry")
+            else:
+                if minute_agg_subscribed:
+                    logger.info("am_subscription_lost_due_to_disconnect")
+                    minute_agg_subscribed = False
+            
+            await asyncio.sleep(2)
+            
+        except asyncio.CancelledError:
+            logger.info("minute_agg_subscription_manager_cancelled")
+            raise
+        
+        except Exception as e:
+            logger.error(
+                "minute_agg_subscription_manager_error",
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            minute_agg_subscribed = False
             await asyncio.sleep(5)
 
 

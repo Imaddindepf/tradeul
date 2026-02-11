@@ -141,12 +141,14 @@ class BaseEventDetector(ABC):
             chg_30min=getattr(current, 'chg_30min', None),
             vol_1min=getattr(current, 'vol_1min', None),
             vol_5min=getattr(current, 'vol_5min', None),
-            # Daily indicators
+            # Technical indicators
             float_shares=getattr(current, 'float_shares', None),
             rsi=getattr(current, 'rsi', None),
-            sma_20=getattr(current, 'sma_20', None),
-            sma_50=getattr(current, 'sma_50', None),
-            sma_200=getattr(current, 'sma_200', None),
+            ema_20=getattr(current, 'ema_20', None),
+            ema_50=getattr(current, 'ema_50', None),
+            # Fundamentals (from metadata via enriched)
+            security_type=getattr(current, 'security_type', None),
+            sector=getattr(current, 'sector', None),
             details=details,
         )
     

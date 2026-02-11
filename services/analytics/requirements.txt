@@ -25,6 +25,9 @@ psycopg2-binary==2.9.9
 numpy==1.26.2
 pandas==2.1.4
 
+# Streaming technical indicators (O(1) incremental computation)
+talipp>=2.7.0
+
 # Date/Time
 python-dateutil==2.8.2
 pytz==2023.3

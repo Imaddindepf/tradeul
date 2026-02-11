@@ -66,21 +66,40 @@ class TickerState:
     atr_percent: Optional[float] = None     # ATR as % of price
     trades_z_score: Optional[float] = None  # Z-Score of trades count
     
-    # ===== DAILY INDICATORS (from screener bridge, refreshed ~60s) =====
-    sma_20: Optional[float] = None          # 20-day Simple Moving Average
-    sma_50: Optional[float] = None          # 50-day Simple Moving Average
-    sma_200: Optional[float] = None         # 200-day Simple Moving Average
-    bb_upper: Optional[float] = None        # Bollinger Band upper (SMA20 + 2*std)
-    bb_lower: Optional[float] = None        # Bollinger Band lower (SMA20 - 2*std)
-    rsi: Optional[float] = None             # RSI (14-period, daily)
+    # ===== TECHNICAL INDICATORS (from BarEngine / enriched cache) =====
+    # EMA (kept for Bollinger context and legacy)
+    ema_20: Optional[float] = None          # Intraday EMA(20) from 1-min bars
+    ema_50: Optional[float] = None          # Intraday EMA(50) from 1-min bars
+    # SMA — aligned with Trade Ideas (intraday from 1-min bars)
+    sma_5: Optional[float] = None           # Intraday SMA(5)
+    sma_8: Optional[float] = None           # Intraday SMA(8)
+    sma_20: Optional[float] = None          # Intraday SMA(20)
+    sma_50: Optional[float] = None          # Intraday SMA(50)
+    sma_200: Optional[float] = None         # Intraday SMA(200)
+    # Bollinger Bands
+    bb_upper: Optional[float] = None        # Bollinger Band upper (EMA20 + 2σ)
+    bb_lower: Optional[float] = None        # Bollinger Band lower (EMA20 - 2σ)
+    # Oscillators
+    rsi: Optional[float] = None             # RSI (14-period, from 1-min bars)
+    macd_line: Optional[float] = None       # MACD line (12-26)
+    macd_signal: Optional[float] = None     # MACD signal (9)
+    macd_hist: Optional[float] = None       # MACD histogram
+    stoch_k: Optional[float] = None         # Stochastic %K (14,3)
+    stoch_d: Optional[float] = None         # Stochastic %D (smoothed)
+    adx_14: Optional[float] = None          # ADX (14) — trend strength
+    # Historical levels
     high_52w: Optional[float] = None        # 52-week high
     low_52w: Optional[float] = None         # 52-week low
     prev_day_high: Optional[float] = None   # Previous day's high
     prev_day_low: Optional[float] = None    # Previous day's low
     
-    # ===== FUNDAMENTALS =====
+    # ===== DAILY INDICATORS (from screener via enriched) =====
+    daily_sma_200: Optional[float] = None   # Daily SMA(200) — for "crossed above 200-day MA"
+    
+    # ===== FUNDAMENTALS (from metadata via enriched) =====
     market_cap: Optional[float] = None      # Market capitalization
     float_shares: Optional[float] = None    # Free float shares
+    security_type: Optional[str] = None     # CS, ETF, PFD, WARRANT, ADRC, etc.
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for condition evaluation."""
@@ -114,18 +133,30 @@ class TickerState:
             "atr": self.atr,
             "atr_percent": self.atr_percent,
             "trades_z_score": self.trades_z_score,
+            "ema_20": self.ema_20,
+            "ema_50": self.ema_50,
+            "sma_5": self.sma_5,
+            "sma_8": self.sma_8,
             "sma_20": self.sma_20,
             "sma_50": self.sma_50,
             "sma_200": self.sma_200,
             "bb_upper": self.bb_upper,
             "bb_lower": self.bb_lower,
             "rsi": self.rsi,
+            "macd_line": self.macd_line,
+            "macd_signal": self.macd_signal,
+            "macd_hist": self.macd_hist,
+            "stoch_k": self.stoch_k,
+            "stoch_d": self.stoch_d,
+            "adx_14": self.adx_14,
             "high_52w": self.high_52w,
             "low_52w": self.low_52w,
             "prev_day_high": self.prev_day_high,
             "prev_day_low": self.prev_day_low,
+            "daily_sma_200": self.daily_sma_200,
             "market_cap": self.market_cap,
             "float_shares": self.float_shares,
+            "security_type": self.security_type,
         }
         for key, val in optional.items():
             if val is not None:

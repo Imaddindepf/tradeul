@@ -37,6 +37,7 @@ class PolygonWebSocketClient:
     EVENT_QUOTE = "Q"
     EVENT_AGGREGATE = "A"
     EVENT_LULD = "LULD"  # Limit Up-Limit Down
+    EVENT_MINUTE_AGG = "AM"  # Per-minute aggregates
     
     def __init__(
         self,
@@ -44,6 +45,7 @@ class PolygonWebSocketClient:
         on_trade: Optional[Callable] = None,
         on_quote: Optional[Callable] = None,
         on_aggregate: Optional[Callable] = None,
+        on_minute_aggregate: Optional[Callable] = None,
         on_luld: Optional[Callable] = None,
         max_reconnect_attempts: int = 10,
         reconnect_delay: int = 5
@@ -56,6 +58,7 @@ class PolygonWebSocketClient:
             on_trade: Callback para trades
             on_quote: Callback para quotes
             on_aggregate: Callback para aggregates
+            on_minute_aggregate: Callback para AM.* (per-minute aggregates)
             on_luld: Callback para LULD (Limit Up-Limit Down)
             max_reconnect_attempts: Intentos máximos de reconexión
             reconnect_delay: Delay entre intentos (segundos)
@@ -64,6 +67,7 @@ class PolygonWebSocketClient:
         self.on_trade = on_trade
         self.on_quote = on_quote
         self.on_aggregate = on_aggregate
+        self.on_minute_aggregate = on_minute_aggregate
         self.on_luld = on_luld
         self.max_reconnect_attempts = max_reconnect_attempts
         self.reconnect_delay = reconnect_delay
@@ -85,6 +89,7 @@ class PolygonWebSocketClient:
             "trades_received": 0,
             "quotes_received": 0,
             "aggregates_received": 0,
+            "minute_aggregates_received": 0,
             "luld_received": 0,
             "luld_halts": 0,
             "luld_resumes": 0,
@@ -197,6 +202,9 @@ class PolygonWebSocketClient:
                     elif ev_type == self.EVENT_AGGREGATE:
                         await self._handle_aggregate(event)
                     
+                    elif ev_type == self.EVENT_MINUTE_AGG:
+                        await self._handle_minute_aggregate(event)
+                    
                     elif ev_type == self.EVENT_LULD:
                         await self._handle_luld(event)
                     
@@ -255,6 +263,19 @@ class PolygonWebSocketClient:
                 
         except Exception as e:
             logger.error("aggregate_processing_error", error=str(e), data=data)
+            self.stats["errors"] += 1
+    
+    async def _handle_minute_aggregate(self, data: Dict[str, Any]):
+        """Procesa un mensaje de Minute Aggregate (AM.*)"""
+        try:
+            aggregate = PolygonAgg(**data)
+            self.stats["minute_aggregates_received"] += 1
+            
+            if self.on_minute_aggregate:
+                await self.on_minute_aggregate(aggregate)
+                
+        except Exception as e:
+            logger.error("minute_aggregate_processing_error", error=str(e), data=data)
             self.stats["errors"] += 1
     
     async def _handle_luld(self, data: Dict[str, Any]):
@@ -468,6 +489,57 @@ class PolygonWebSocketClient:
             
         except Exception as e:
             logger.error("luld_subscription_failed", error=str(e))
+            return False
+    
+    async def subscribe_minute_aggs_all(self) -> bool:
+        """
+        Suscribe a AM.* para TODO el mercado (1-minute aggregates).
+        
+        AM.* proporciona barras OHLCV de 1 minuto para todos los tickers.
+        Llegan cuando el minuto cierra (con posibles updates intra-minuto).
+        
+        Volumen: ~8-10K mensajes por minuto durante market hours.
+        
+        Returns:
+            True si la suscripción fue exitosa
+        """
+        if not self.is_authenticated:
+            logger.warning("not_authenticated_cannot_subscribe_am")
+            return False
+        
+        try:
+            subscribe_message = {
+                "action": "subscribe",
+                "params": "AM.*"
+            }
+            
+            await self.ws.send(json.dumps(subscribe_message))
+            
+            logger.info("subscribed_to_am_all_market", channel="AM.*")
+            return True
+            
+        except Exception as e:
+            logger.error("am_subscription_failed", error=str(e))
+            return False
+    
+    async def unsubscribe_minute_aggs_all(self) -> bool:
+        """Desuscribe de AM.* para todo el mercado."""
+        if not self.is_authenticated:
+            return False
+        
+        try:
+            unsubscribe_message = {
+                "action": "unsubscribe",
+                "params": "AM.*"
+            }
+            
+            await self.ws.send(json.dumps(unsubscribe_message))
+            
+            logger.info("unsubscribed_from_am_all_market")
+            return True
+            
+        except Exception as e:
+            logger.error("am_unsubscription_failed", error=str(e))
             return False
     
     async def unsubscribe_luld_all(self) -> bool:

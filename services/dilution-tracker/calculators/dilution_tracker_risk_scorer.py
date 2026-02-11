@@ -77,6 +77,8 @@ class DilutionTrackerRiskScorer:
         shelf_capacity_remaining: float = 0,
         has_active_shelf: bool = False,
         has_pending_s1: bool = False,
+        has_filed_shelf: bool = False,  # Shelf filed but not yet Active/Effective
+        filed_shelf_capacity: float = 0,  # Total capacity of filed shelves
         
         # Overhead Supply inputs
         warrants_shares: int = 0,
@@ -88,10 +90,18 @@ class DilutionTrackerRiskScorer:
         # Historical inputs
         shares_outstanding_3yr_ago: int = 0,
         shares_outstanding_current_sec: Optional[int] = None,  # SEC-reported current (for Historical)
+        has_recent_reverse_split: bool = False,  # Reverse split detected in last 3 years
+        reverse_split_factor: float = 1.0,  # e.g., 25.0 for 1:25 reverse split
+        shares_history_span_years: float = 3.0,  # How many years of history we actually have
         
         # Cash Need inputs
         runway_months: Optional[float] = None,
         has_positive_operating_cf: bool = False,
+        estimated_current_cash: Optional[float] = None,  # Absolute cash amount
+        annual_burn_rate: Optional[float] = None,  # Annual operating CF (negative = burning)
+        
+        # Context
+        has_recent_offering: bool = False,  # Company did a recent offering (proves cash need)
         
         # Current price for calculations
         current_price: float = 0
@@ -107,7 +117,9 @@ class DilutionTrackerRiskScorer:
             offering_ability, offering_score, offering_details = self._calculate_offering_ability(
                 shelf_capacity_remaining=shelf_capacity_remaining,
                 has_active_shelf=has_active_shelf,
-                has_pending_s1=has_pending_s1
+                has_pending_s1=has_pending_s1,
+                has_filed_shelf=has_filed_shelf,
+                filed_shelf_capacity=filed_shelf_capacity
             )
             
             # 2. Overhead Supply
@@ -125,13 +137,19 @@ class DilutionTrackerRiskScorer:
             shares_for_historical = shares_outstanding_current_sec if shares_outstanding_current_sec else shares_outstanding
             historical, historical_score, historical_details = self._calculate_historical(
                 shares_outstanding_current=shares_for_historical,
-                shares_outstanding_3yr_ago=shares_outstanding_3yr_ago
+                shares_outstanding_3yr_ago=shares_outstanding_3yr_ago,
+                has_recent_reverse_split=has_recent_reverse_split,
+                reverse_split_factor=reverse_split_factor,
+                shares_history_span_years=shares_history_span_years
             )
             
             # 4. Cash Need
             cash_need, cash_score, cash_details = self._calculate_cash_need(
                 runway_months=runway_months,
-                has_positive_operating_cf=has_positive_operating_cf
+                has_positive_operating_cf=has_positive_operating_cf,
+                estimated_current_cash=estimated_current_cash,
+                annual_burn_rate=annual_burn_rate,
+                has_recent_offering=has_recent_offering
             )
             
             # 5. Overall Risk (combination of the 4 above)
@@ -179,36 +197,66 @@ class DilutionTrackerRiskScorer:
         self,
         shelf_capacity_remaining: float,
         has_active_shelf: bool,
-        has_pending_s1: bool
+        has_pending_s1: bool,
+        has_filed_shelf: bool = False,
+        filed_shelf_capacity: float = 0
     ) -> tuple[RiskLevel, int, Dict]:
         """
         Offering Ability Rating
         
         DilutionTracker Definition:
-        - High: >$20M shelf capacity, active offerings likely
-        - Medium: $1M-$20M shelf capacity
-        - Low: <$1M shelf capacity or no S-1/S-3
+        - High: >$20M shelf capacity, active offerings likely, or pending S-1/F-1
+        - Medium: $1M-$20M shelf capacity, or filed shelf with capacity
+        - Low: <$1M shelf capacity or no S-1/S-3/F-1
         
         A High rating indicates the company has the ability to conduct 
         a discounted offering through a shelf offering or S-1 offering,
         usually resulting in a sudden and large price drop.
+        
+        ENHANCED: Also considers:
+        - Filed (not yet effective) shelf registrations
+        - Pending S-1/F-1 offerings (company actively preparing to offer)
         """
         details = {
             "shelf_capacity_remaining": shelf_capacity_remaining,
             "has_active_shelf": has_active_shelf,
-            "has_pending_s1": has_pending_s1
+            "has_pending_s1": has_pending_s1,
+            "has_filed_shelf": has_filed_shelf,
+            "filed_shelf_capacity": filed_shelf_capacity
         }
         
+        # Consider combined capacity (active + filed shelves)
+        # Filed shelves are nearly as dangerous as active ones - they show intent to dilute
+        effective_capacity = shelf_capacity_remaining
+        has_any_shelf = has_active_shelf
+        
+        if has_filed_shelf and filed_shelf_capacity > 0:
+            effective_capacity = max(effective_capacity, filed_shelf_capacity)
+            has_any_shelf = True
+            details["effective_capacity_including_filed"] = effective_capacity
+        
+        # Pending S-1/F-1 is a STRONG signal of offering ability
+        # Company is actively preparing to issue shares
+        if has_pending_s1:
+            # S-1/F-1 pending = at minimum MEDIUM, but HIGH if combined with shelf
+            if has_any_shelf and effective_capacity > 1_000_000:
+                return RiskLevel.HIGH, 85, details
+            elif effective_capacity > 20_000_000:
+                return RiskLevel.HIGH, 90, details
+            else:
+                # Pending S-1 alone = at least HIGH (company is actively trying to dilute)
+                return RiskLevel.HIGH, 80, details
+        
         # No shelf and no pending S-1 = Low
-        if not has_active_shelf and not has_pending_s1:
+        if not has_any_shelf and not has_pending_s1:
             return RiskLevel.LOW, 10, details
         
         # Check capacity thresholds
-        if shelf_capacity_remaining > 20_000_000:  # > $20M
+        if effective_capacity > 20_000_000:  # > $20M
             return RiskLevel.HIGH, 90, details
-        elif shelf_capacity_remaining >= 1_000_000:  # $1M - $20M
+        elif effective_capacity >= 1_000_000:  # $1M - $20M
             return RiskLevel.MEDIUM, 50, details
-        else:  # < $1M
+        else:  # < $1M but has shelf
             return RiskLevel.LOW, 20, details
     
     def _calculate_overhead_supply(
@@ -268,7 +316,10 @@ class DilutionTrackerRiskScorer:
     def _calculate_historical(
         self,
         shares_outstanding_current: int,
-        shares_outstanding_3yr_ago: int
+        shares_outstanding_3yr_ago: int,
+        has_recent_reverse_split: bool = False,
+        reverse_split_factor: float = 1.0,
+        shares_history_span_years: float = 3.0
     ) -> tuple[RiskLevel, int, Dict]:
         """
         Historical Dilution Rating
@@ -279,20 +330,71 @@ class DilutionTrackerRiskScorer:
         - Low: <30% O/S increase
         
         Higher historical dilution = more likely company will dilute in future.
+        
+        ENHANCED: Also considers:
+        - Reverse splits: A reverse split is a STRONG indicator of past dilution.
+          Companies do reverse splits because their share price has dropped below $1,
+          typically due to excessive prior dilution. Factor >= 10x = automatic HIGH.
+        - Insufficient history: If we only have < 2 years of data (post-split),
+          the calculated increase% is unreliable. Use reverse split as proxy.
         """
         details = {
             "shares_outstanding_current": shares_outstanding_current,
             "shares_outstanding_3yr_ago": shares_outstanding_3yr_ago,
-            "increase_pct": 0
+            "increase_pct": 0,
+            "has_recent_reverse_split": has_recent_reverse_split,
+            "reverse_split_factor": reverse_split_factor,
+            "shares_history_span_years": round(shares_history_span_years, 1)
         }
         
+        # ============================================================
+        # REVERSE SPLIT OVERRIDE
+        # A reverse split of 10x+ is a definitive indicator of massive 
+        # past dilution. The company had to consolidate shares because
+        # the stock price dropped below $1 (usually from dilution).
+        # This should be HIGH regardless of the computed increase%.
+        # ============================================================
+        if has_recent_reverse_split and reverse_split_factor >= 10:
+            details["reverse_split_override"] = True
+            details["reasoning"] = (
+                f"Reverse split 1:{int(reverse_split_factor)} detected. "
+                f"Pre-split the company had {int(shares_outstanding_current * reverse_split_factor):,} shares. "
+                f"Reverse splits of 10x+ indicate massive prior dilution."
+            )
+            score = min(95, 80 + int(reverse_split_factor / 5))
+            return RiskLevel.HIGH, score, details
+        
+        if has_recent_reverse_split and reverse_split_factor >= 2:
+            # Moderate reverse split (2x-10x) - at least MEDIUM, likely HIGH
+            details["reverse_split_boost"] = True
+            if reverse_split_factor >= 5:
+                return RiskLevel.HIGH, 75, details
+            else:
+                return RiskLevel.MEDIUM, 60, details
+        
+        # ============================================================
+        # STANDARD CALCULATION
+        # ============================================================
         if shares_outstanding_3yr_ago <= 0 or shares_outstanding_current <= 0:
+            # No data - if reverse split happened, that's still informative
+            if has_recent_reverse_split:
+                return RiskLevel.HIGH, 75, details
             return RiskLevel.UNKNOWN, 0, details
         
         # Calculate percentage increase
         increase_pct = ((shares_outstanding_current - shares_outstanding_3yr_ago) / 
                        shares_outstanding_3yr_ago) * 100
         details["increase_pct"] = round(increase_pct, 2)
+        
+        # If history span is short (< 2 years), extrapolate to 3 years
+        if shares_history_span_years < 2.0 and shares_history_span_years > 0:
+            annualized_pct = increase_pct / shares_history_span_years
+            extrapolated_3yr = annualized_pct * 3
+            details["annualized_increase_pct"] = round(annualized_pct, 2)
+            details["extrapolated_3yr_pct"] = round(extrapolated_3yr, 2)
+            # Use the higher of actual and extrapolated
+            increase_pct = max(increase_pct, extrapolated_3yr)
+            details["effective_increase_pct"] = round(increase_pct, 2)
         
         # Handle negative (reverse split or buyback scenarios)
         if increase_pct < 0:
@@ -311,7 +413,10 @@ class DilutionTrackerRiskScorer:
     def _calculate_cash_need(
         self,
         runway_months: Optional[float],
-        has_positive_operating_cf: bool
+        has_positive_operating_cf: bool,
+        estimated_current_cash: Optional[float] = None,
+        annual_burn_rate: Optional[float] = None,
+        has_recent_offering: bool = False
     ) -> tuple[RiskLevel, int, Dict]:
         """
         Cash Need Rating
@@ -322,11 +427,47 @@ class DilutionTrackerRiskScorer:
         - Low: Positive operating CF or >24 months of runway
         
         A higher cash need = higher probability company will raise capital.
+        
+        ENHANCED: Also considers:
+        - Absolute cash level: < $1M with negative CF = critical regardless of runway
+        - Recent offering: If company just did an offering, it PROVES they need cash
+        - Borderline cases: 6-9 months with very low cash = effectively HIGH
         """
         details = {
             "runway_months": runway_months,
-            "has_positive_operating_cf": has_positive_operating_cf
+            "has_positive_operating_cf": has_positive_operating_cf,
+            "estimated_current_cash": estimated_current_cash,
+            "annual_burn_rate": annual_burn_rate,
+            "has_recent_offering": has_recent_offering
         }
+        
+        # ============================================================
+        # RECENT OFFERING OVERRIDE
+        # If the company just did an offering, they NEEDED cash.
+        # This is the strongest signal of cash need.
+        # ============================================================
+        if has_recent_offering and not has_positive_operating_cf:
+            details["recent_offering_override"] = True
+            if runway_months is not None and runway_months < 12:
+                return RiskLevel.HIGH, 85, details
+            elif estimated_current_cash is not None and estimated_current_cash < 5_000_000:
+                return RiskLevel.HIGH, 80, details
+        
+        # ============================================================
+        # ABSOLUTE CASH LEVEL OVERRIDE
+        # If estimated cash < $1M and company is burning money, 
+        # the situation is critical regardless of computed runway.
+        # ============================================================
+        if estimated_current_cash is not None and not has_positive_operating_cf:
+            if estimated_current_cash < 1_000_000:
+                details["low_absolute_cash_override"] = True
+                details["reasoning"] = f"Estimated cash ${estimated_current_cash:,.0f} is critically low"
+                return RiskLevel.HIGH, 90, details
+            elif estimated_current_cash < 3_000_000 and annual_burn_rate and annual_burn_rate < 0:
+                # Very low cash with active burn
+                if abs(annual_burn_rate) > estimated_current_cash * 0.5:
+                    details["low_cash_high_burn_override"] = True
+                    return RiskLevel.HIGH, 80, details
         
         # Positive operating CF = Low risk
         if has_positive_operating_cf:
@@ -338,6 +479,12 @@ class DilutionTrackerRiskScorer:
         if runway_months > 24:  # >24 months
             return RiskLevel.LOW, 15, details
         elif runway_months >= 6:  # 6-24 months
+            # ENHANCED: Borderline cases (6-9 months) with very low cash = HIGH
+            if runway_months < 9 and estimated_current_cash is not None and estimated_current_cash < 2_000_000:
+                details["borderline_high_override"] = True
+                score = int(80 - (runway_months - 6) * 3)
+                return RiskLevel.HIGH, max(70, score), details
+            
             # Scale: 6mo = 60, 24mo = 30
             score = int(70 - (runway_months - 6) * 2)
             return RiskLevel.MEDIUM, score, details

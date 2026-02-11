@@ -68,17 +68,28 @@ export function useAlertStrategies() {
     endpoint: string,
     options: RequestInit = {}
   ) => {
-    const token = await getToken();
-    if (!token) throw new Error('Not authenticated');
+    const doFetch = async (skipCache: boolean) => {
+      const token = await getToken({ skipCache });
+      if (!token) throw new Error('Not authenticated');
 
-    const response = await fetch(`${API_BASE}/api/v1/alert-strategies${endpoint}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        ...options.headers,
-      },
-    });
+      return fetch(`${API_BASE}/api/v1/alert-strategies${endpoint}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          ...options.headers,
+        },
+      });
+    };
+
+    // First attempt with cached token
+    let response = await doFetch(false);
+
+    // If 401 (JWT expired), retry ONCE with fresh token
+    if (response.status === 401) {
+      console.warn('🔐 [AlertStrategies] 401 received, retrying with fresh token...');
+      response = await doFetch(true);
+    }
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));

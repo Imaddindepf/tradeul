@@ -70,12 +70,13 @@ export function useAuthWebSocket(
             }
 
             try {
-                const token = await getToken();
+                // skipCache: true → token fresco garantizado (evita token expirado en la primera conexión)
+                const token = await getToken({ skipCache: true });
                 if (token) {
                     tokenRef.current = token;
                     const urlWithToken = buildAuthUrl(baseUrl, token);
 
-                    if (debug) console.log('🔐 [AuthWS] Got token, URL:', urlWithToken.substring(0, 80) + '...');
+                    if (debug) console.log('🔐 [AuthWS] Got fresh token, URL:', urlWithToken.substring(0, 80) + '...');
 
                     setWsUrl(urlWithToken);
                     setIsAuthenticated(true);
@@ -115,20 +116,25 @@ export function useAuthWebSocket(
     }, [wsUrl, ws.reconnect, debug]);
 
     // Refresh del token periódicamente (Clerk tokens expiran en 60s)
+    // IMPORTANTE: NO depende de ws.isConnected — debe refrescar SIEMPRE
+    // para que cuando el SharedWorker pida un token fresco, lo tenga listo
     useEffect(() => {
-        if (!isSignedIn || !ws.isConnected || !isAuthenticated) return;
+        if (!isSignedIn || !isAuthenticated) return;
 
         async function refreshToken() {
             try {
-                const newToken = await getToken();
+                // skipCache: true forces Clerk to mint a fresh token
+                const newToken = await getToken({ skipCache: true });
                 if (newToken && newToken !== tokenRef.current) {
                     tokenRef.current = newToken;
                     const newUrl = buildAuthUrl(baseUrl, newToken);
 
-                    // 🔐 Actualizar token en SharedWorker + enviar refresh al servidor
+                    // Actualizar token en SharedWorker:
+                    // - Si conectado: envía refresh_token al servidor WS
+                    // - Si esperando reconexión: reconecta con el token fresco
                     ws.updateToken(newUrl, newToken);
 
-                    if (debug) console.log('🔐 [AuthWS] Token refreshed (URL + server)');
+                    if (debug) console.log('🔐 [AuthWS] Token refreshed');
                 }
             } catch (error) {
                 console.error('🔐 [AuthWS] Token refresh failed:', error);
@@ -143,7 +149,7 @@ export function useAuthWebSocket(
                 clearInterval(refreshTimerRef.current);
             }
         };
-    }, [isSignedIn, ws.isConnected, ws.updateToken, getToken, refreshInterval, debug, isAuthenticated, baseUrl]);
+    }, [isSignedIn, ws.updateToken, getToken, refreshInterval, debug, isAuthenticated, baseUrl]);
 
     // Escuchar solicitudes de token refresh del SharedWorker (para reconexiones)
     useEffect(() => {
@@ -152,7 +158,7 @@ export function useAuthWebSocket(
         const subscription = ws.tokenRefreshRequest$.subscribe(async () => {
             try {
                 if (debug) console.log('🔐 [AuthWS] SharedWorker requested fresh token for reconnection');
-                const newToken = await getToken();
+                const newToken = await getToken({ skipCache: true });
                 if (newToken) {
                     tokenRef.current = newToken;
                     const newUrl = buildAuthUrl(baseUrl, newToken);

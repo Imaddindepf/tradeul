@@ -1,5 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Build-time env vars (evaluated once during `npm run build`)
+  // NEXT_PUBLIC_* are available in client-side code
+  env: {
+    NEXT_PUBLIC_BUILD_TIMESTAMP: Date.now().toString(),
+  },
+
   // Transpilar paquetes ESM que Next.js no maneja por defecto
   transpilePackages: ['@tanstack/react-table', '@tanstack/table-core', '@tanstack/react-virtual'],
 

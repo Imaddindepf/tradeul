@@ -26,33 +26,46 @@ export function useAuthFetch() {
     const { isSignedIn, getToken } = useAuth();
 
     /**
-     * Fetch autenticado - añade Authorization: Bearer <jwt> automáticamente
+     * Fetch autenticado - añade Authorization: Bearer <jwt> automáticamente.
+     * Si recibe 401, reintenta UNA vez con skipCache: true para forzar token fresco.
      */
     const authFetch = useCallback(async (
         endpoint: string,
         options: RequestInit = {}
     ): Promise<Response> => {
-        const token = await getToken();
-        
-        const headers: HeadersInit = {
-            'Content-Type': 'application/json',
-            ...(options.headers || {}),
-        };
-        
-        // Añadir Authorization header si tenemos token
-        if (token) {
-            (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-        }
-        
         // Construir URL completa si es relativa
         const url = endpoint.startsWith('http') 
             ? endpoint 
             : `${API_BASE_URL}${endpoint}`;
+
+        const doFetch = async (skipCache: boolean): Promise<Response> => {
+            const token = await getToken({ skipCache });
+            
+            const headers: HeadersInit = {
+                'Content-Type': 'application/json',
+                ...(options.headers || {}),
+            };
+            
+            if (token) {
+                (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+            }
+            
+            return fetch(url, {
+                ...options,
+                headers,
+            });
+        };
+
+        // First attempt with cached token
+        const response = await doFetch(false);
         
-        return fetch(url, {
-            ...options,
-            headers,
-        });
+        // If 401, retry ONCE with fresh token (skipCache: true)
+        if (response.status === 401) {
+            console.warn('🔐 [authFetch] 401 received, retrying with fresh token...');
+            return doFetch(true);
+        }
+        
+        return response;
     }, [getToken]);
 
     /**
@@ -88,23 +101,35 @@ export function useAuthFetch() {
  */
 export async function authFetchStandalone(
     url: string,
-    getToken: () => Promise<string | null>,
+    getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
     options: RequestInit = {}
 ): Promise<Response> {
-    const token = await getToken();
-    
-    const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-        ...(options.headers || {}),
+    const doFetch = async (skipCache: boolean): Promise<Response> => {
+        const token = await getToken({ skipCache });
+        
+        const headers: HeadersInit = {
+            'Content-Type': 'application/json',
+            ...(options.headers || {}),
+        };
+        
+        if (token) {
+            (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+        }
+        
+        return fetch(url, {
+            ...options,
+            headers,
+        });
     };
+
+    const response = await doFetch(false);
     
-    if (token) {
-        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    // Retry once with fresh token on 401
+    if (response.status === 401) {
+        console.warn('🔐 [authFetchStandalone] 401 received, retrying with fresh token...');
+        return doFetch(true);
     }
     
-    return fetch(url, {
-        ...options,
-        headers,
-    });
+    return response;
 }
 

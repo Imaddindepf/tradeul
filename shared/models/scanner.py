@@ -123,6 +123,23 @@ class ScannerTicker(BaseModel):
     trades_z_score: Optional[float] = Field(None, description="Z-Score = (trades_today - avg) / std")
     is_trade_anomaly: Optional[bool] = Field(None, description="True if Z-Score >= 3.0")
     
+    # Streaming Technical Indicators (from BarEngine, AM.* 1-min bars, 100% coverage)
+    rsi_14: Optional[float] = Field(None, description="RSI(14) on 1-minute bars")
+    ema_9: Optional[float] = Field(None, description="EMA(9) on 1-minute closes")
+    ema_20: Optional[float] = Field(None, description="EMA(20) on 1-minute closes")
+    ema_50: Optional[float] = Field(None, description="EMA(50) on 1-minute closes")
+    macd_line: Optional[float] = Field(None, description="MACD line (EMA12 - EMA26)")
+    macd_signal: Optional[float] = Field(None, description="MACD signal line (EMA9 of MACD)")
+    macd_hist: Optional[float] = Field(None, description="MACD histogram (MACD - Signal)")
+    bb_upper: Optional[float] = Field(None, description="Bollinger Band upper (SMA20 + 2*StdDev)")
+    bb_mid: Optional[float] = Field(None, description="Bollinger Band middle (SMA20)")
+    bb_lower: Optional[float] = Field(None, description="Bollinger Band lower (SMA20 - 2*StdDev)")
+    adx_14: Optional[float] = Field(None, description="ADX(14) - Average Directional Index")
+    stoch_k: Optional[float] = Field(None, description="Stochastic %K(14,3,3)")
+    stoch_d: Optional[float] = Field(None, description="Stochastic %D(14,3,3)")
+    chg_60min: Optional[float] = Field(None, description="Price change % in last 60 minutes")
+    vol_60min: Optional[int] = Field(None, description="Volume traded in last 60 minutes")
+    
     # Session context
     session: MarketSession = Field(..., description="Current market session")
     

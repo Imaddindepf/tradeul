@@ -92,6 +92,7 @@ export function useCommandExecutor() {
             description: category.description,
             eventTypes: category.eventTypes,
             icon: category.icon,
+            defaultFilters: category.defaultFilters,
         };
     }, []);
 
@@ -120,6 +121,7 @@ export function useCommandExecutor() {
                     categoryId={categoryId}
                     categoryName={category.name}
                     eventTypes={category.eventTypes}
+                    defaultFilters={category.defaultFilters}
                 />
             ),
             width: 750,
@@ -249,31 +251,48 @@ export function useCommandExecutor() {
 
             case 'build':
             case 'new':
-            case 'create':
+            case 'create': {
+                // Track categoryId across multiple onCreateAlertWindow calls
+                // so subsequent calls update the existing window instead of creating a new one
+                let activeCategoryId: string | null = null;
                 openWindow({
                     title: 'Strategy Builder',
                     content: (
                         <ConfigWindow
                             onCreateAlertWindow={(config: AlertWindowConfig) => {
-                                const categoryId = `evt_custom_${Date.now()}`;
-                                useEventFiltersStore.getState().setAllFilters(categoryId, config.filters);
-                                openWindow({
-                                    title: `Events: ${config.name}`,
-                                    content: (
-                                        <EventTableContent
-                                            categoryId={categoryId}
-                                            categoryName={config.name}
-                                            eventTypes={config.eventTypes}
-                                        />
-                                    ),
-                                    width: 800,
-                                    height: 500,
-                                    x: 220,
-                                    y: 170,
-                                    minWidth: 500,
-                                    minHeight: 300,
-                                    hideHeader: true,
-                                });
+                                const store = useEventFiltersStore.getState();
+                                if (activeCategoryId) {
+                                    // Window already exists → update filters + event_types in store
+                                    // EventTableContent reacts to store changes automatically
+                                    store.setAllFilters(activeCategoryId, {
+                                        ...config.filters,
+                                        event_types: config.eventTypes,
+                                    });
+                                } else {
+                                    // First time → create new window
+                                    activeCategoryId = `evt_custom_${Date.now()}`;
+                                    store.setAllFilters(activeCategoryId, {
+                                        ...config.filters,
+                                        event_types: config.eventTypes,
+                                    });
+                                    openWindow({
+                                        title: `Events: ${config.name}`,
+                                        content: (
+                                            <EventTableContent
+                                                categoryId={activeCategoryId}
+                                                categoryName={config.name}
+                                                eventTypes={config.eventTypes}
+                                            />
+                                        ),
+                                        width: 800,
+                                        height: 500,
+                                        x: 220,
+                                        y: 170,
+                                        minWidth: 500,
+                                        minHeight: 300,
+                                        hideHeader: true,
+                                    });
+                                }
                             }}
                         />
                     ),
@@ -285,6 +304,7 @@ export function useCommandExecutor() {
                     minHeight: 450,
                 });
                 return null;
+            }
 
             case 'dt':
                 openWindow({

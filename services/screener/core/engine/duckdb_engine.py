@@ -334,7 +334,7 @@ class ScreenerEngine:
         logger.info("refresh_starting")
         
         try:
-            # 1. Reload raw data from CSV files into new tables
+            # 1. Reload raw data from parquet files into new tables
             data_pattern = self.data_path / settings.daily_data_pattern
             
             self.conn.execute("DROP TABLE IF EXISTS daily_prices_new")
@@ -348,7 +348,7 @@ class ScreenerEngine:
                     low,
                     close,
                     CAST(volume AS BIGINT) as volume
-                FROM read_csv_auto('{data_pattern}', compression='gzip')
+                FROM read_parquet('{data_pattern}')
                 WHERE to_timestamp(window_start / 1000000000) >= CURRENT_DATE - INTERVAL '{settings.default_lookback_days} days'
             """)
             
@@ -602,14 +602,15 @@ class ScreenerEngine:
             result = self.conn.execute("""
                 SELECT
                     symbol,
-                    close as last_close,
+                    price as last_close,
                     sma_20,
                     sma_50,
                     sma_200,
                     bb_upper,
                     bb_lower,
-                    rsi,
+                    rsi_14 as rsi,
                     atr_14,
+                    atr_percent,
                     high_52w,
                     low_52w,
                     market_cap,

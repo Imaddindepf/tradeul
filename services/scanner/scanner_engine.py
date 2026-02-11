@@ -324,6 +324,11 @@ class ScannerEngine:
                         'avg_trades_5d': ticker_data.get('avg_trades_5d'),
                         'trades_z_score': ticker_data.get('trades_z_score'),
                         'is_trade_anomaly': ticker_data.get('is_trade_anomaly'),
+                        # Bid/Ask flattened from lastQuote by enrichment pipeline
+                        'bid': ticker_data.get('bid'),
+                        'ask': ticker_data.get('ask'),
+                        'bid_size': ticker_data.get('bid_size'),
+                        'ask_size': ticker_data.get('ask_size'),
                     }
                     
                     enriched_snapshots.append((snapshot, rvol, atr_data))
@@ -727,10 +732,11 @@ class ScannerEngine:
                 price_from_intraday_low = ((price - intraday_low) / intraday_low) * 100
             
             # Calculate spread (in CENTS)
-            bid = snapshot.lastQuote.p if snapshot.lastQuote else None
-            ask = snapshot.lastQuote.P if snapshot.lastQuote else None
-            bid_size = (snapshot.lastQuote.s * 100) if snapshot.lastQuote and snapshot.lastQuote.s else None  # lots to shares
-            ask_size = (snapshot.lastQuote.S * 100) if snapshot.lastQuote and snapshot.lastQuote.S else None  # lots to shares
+            # Bid/Ask now come as flat fields from enrichment pipeline (pre-converted to shares)
+            bid = atr_data.get('bid') if atr_data else (snapshot.lastQuote.p if snapshot.lastQuote else None)
+            ask = atr_data.get('ask') if atr_data else (snapshot.lastQuote.P if snapshot.lastQuote else None)
+            bid_size = atr_data.get('bid_size') if atr_data else ((snapshot.lastQuote.s * 100) if snapshot.lastQuote and snapshot.lastQuote.s else None)
+            ask_size = atr_data.get('ask_size') if atr_data else ((snapshot.lastQuote.S * 100) if snapshot.lastQuote and snapshot.lastQuote.S else None)
             spread = None
             spread_percent = None
             bid_ask_ratio = None
@@ -892,12 +898,18 @@ class ScannerEngine:
             )
             
             # 4. Calcular metricas de spread
-            bid_lots = snapshot.lastQuote.s if snapshot.lastQuote else None
-            ask_lots = snapshot.lastQuote.S if snapshot.lastQuote else None
+            # Bid/Ask from flat enriched fields (pre-converted to shares by analytics)
+            _bid = atr_data.get('bid') if atr_data else (snapshot.lastQuote.p if snapshot.lastQuote else None)
+            _ask = atr_data.get('ask') if atr_data else (snapshot.lastQuote.P if snapshot.lastQuote else None)
+            _bid_size_shares = atr_data.get('bid_size') if atr_data else None
+            _ask_size_shares = atr_data.get('ask_size') if atr_data else None
+            # SpreadMetricsCalculator expects lots, convert back if needed
+            bid_lots = (_bid_size_shares // 100) if _bid_size_shares else (snapshot.lastQuote.s if snapshot.lastQuote else None)
+            ask_lots = (_ask_size_shares // 100) if _ask_size_shares else (snapshot.lastQuote.S if snapshot.lastQuote else None)
             spread_metrics = SpreadMetricsCalculator.calculate(
                 price=price,
-                bid=snapshot.lastQuote.p if snapshot.lastQuote else None,
-                ask=snapshot.lastQuote.P if snapshot.lastQuote else None,
+                bid=_bid,
+                ask=_ask,
                 bid_size_lots=bid_lots,
                 ask_size_lots=ask_lots
             )
@@ -1832,15 +1844,11 @@ class ScannerEngine:
         """
         🌙 Pre-carga volúmenes regulares para símbolos durante POST_MARKET
         
-        Este método popula _regular_volumes_cache con los volúmenes de sesión regular
-        para cada símbolo. El cache se usa luego en _build_scanner_ticker_inline
-        de manera síncrona.
+        Patrón: Local cache → MGET batch Redis → (lazy API fetch para nuevos)
         
-        Flujo:
-        1. Para cada símbolo, intentar obtener de postmarket_capture.get_regular_volume()
-        2. postmarket_capture maneja su propio cache multi-nivel (local → Redis → API)
-        3. Si el símbolo ya está en cache, es O(1)
-        4. Si no, hace lazy fetch (solo para nuevos tickers)
+        Usa MGET para traer miles de keys en un solo round-trip a Redis,
+        igual que _get_metadata_batch_cached. Cada MGET con 1000 keys
+        usa UNA sola conexión del pool (no 1000).
         
         Args:
             symbols: Lista de símbolos para pre-cargar
@@ -1848,30 +1856,49 @@ class ScannerEngine:
         if not self.postmarket_capture:
             return
         
-        # Pre-cargar en paralelo usando gather
-        async def get_volume_safe(symbol: str) -> tuple:
-            try:
-                volume = await self.postmarket_capture.get_regular_volume(symbol)
-                return (symbol, volume)
-            except Exception as e:
-                logger.error("error_preloading_volume", symbol=symbol, error=str(e))
-                return (symbol, None)
+        # 1) Filtrar símbolos que ya están en cache local (O(1) dict lookup)
+        misses = [s for s in symbols if s not in self._regular_volumes_cache]
         
-        # Ejecutar en paralelo
-        tasks = [get_volume_safe(symbol) for symbol in symbols]
-        results = await asyncio.gather(*tasks)
+        if not misses:
+            return
         
-        # Actualizar cache local
+        # 2) MGET batch desde Redis (1 round-trip por chunk de 1000 keys)
+        trading_date = self.postmarket_capture._trading_date
+        if not trading_date:
+            return
+        
+        date_str = trading_date.replace('-', '')
+        prefix = f"{self.postmarket_capture.REDIS_PREFIX}:regular_vol:{date_str}"
+        
+        CHUNK_SIZE = 1000
         volumes_loaded = 0
-        for symbol, volume in results:
-            if volume is not None:
-                self._regular_volumes_cache[symbol] = volume
-                volumes_loaded += 1
+        
+        for i in range(0, len(misses), CHUNK_SIZE):
+            chunk = misses[i:i + CHUNK_SIZE]
+            keys = [f"{prefix}:{sym}" for sym in chunk]
+            
+            try:
+                results = await self.redis.client.mget(keys)
+            except Exception as e:
+                logger.error("mget_regular_volumes_error", chunk_size=len(chunk), error=str(e))
+                continue
+            
+            for sym, raw in zip(chunk, results):
+                if raw is not None:
+                    try:
+                        volume = int(raw)
+                        self._regular_volumes_cache[sym] = volume
+                        # Sincronizar con postmarket_capture local cache
+                        self.postmarket_capture._local_cache[sym] = volume
+                        self.postmarket_capture._captured_symbols.add(sym)
+                        volumes_loaded += 1
+                    except (ValueError, TypeError):
+                        pass
         
         if volumes_loaded > 0:
             logger.info(
                 "🌙 regular_volumes_preloaded",
-                symbols_requested=len(symbols),
+                symbols_requested=len(misses),
                 volumes_loaded=volumes_loaded,
                 cache_size=len(self._regular_volumes_cache)
             )

@@ -86,7 +86,8 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
             }
 
             try {
-                const token = await getToken();
+                // skipCache: true → token fresco garantizado en conexión inicial
+                const token = await getToken({ skipCache: true });
                 if (token) {
                     tokenRef.current = token;
                     const urlWithToken = buildAuthUrl(WS_BASE_URL, token);
@@ -111,20 +112,23 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
 
     // =========================================================================
     // REFRESH PERIÓDICO DEL TOKEN (cada 50 segundos)
+    // NO depende de ws.isConnected — debe refrescar SIEMPRE para que
+    // cuando el SharedWorker pida reconectar, tenga un token fresco disponible
     // =========================================================================
     useEffect(() => {
-        if (!isSignedIn || !ws.isConnected || !isAuthenticated) return;
+        if (!isSignedIn || !isAuthenticated) return;
 
         async function refreshToken() {
             try {
-                const newToken = await getToken();
+                const newToken = await getToken({ skipCache: true });
                 if (newToken && newToken !== tokenRef.current) {
                     tokenRef.current = newToken;
                     const newUrl = buildAuthUrl(WS_BASE_URL, newToken);
 
-                    // Actualizar token en SharedWorker + servidor
+                    // Actualizar token en SharedWorker:
+                    // - Si conectado: envía refresh_token al servidor
+                    // - Si esperando: reconecta con token fresco
                     ws.updateToken(newUrl, newToken);
-                    console.log('🔐 [AuthWSProvider] Token refreshed');
                 }
             } catch (error) {
                 console.error('🔐 [AuthWSProvider] Token refresh failed:', error);
@@ -138,7 +142,7 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
                 clearInterval(refreshTimerRef.current);
             }
         };
-    }, [isSignedIn, ws.isConnected, ws.updateToken, getToken, isAuthenticated]);
+    }, [isSignedIn, ws.updateToken, getToken, isAuthenticated]);
 
     // =========================================================================
     // ESCUCHAR SOLICITUDES DE TOKEN DEL SHAREDWORKER (para reconexiones)
@@ -149,7 +153,7 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
         const subscription = ws.tokenRefreshRequest$.subscribe(async () => {
             try {
                 console.log('🔐 [AuthWSProvider] SharedWorker requested fresh token');
-                const newToken = await getToken();
+                const newToken = await getToken({ skipCache: true });
                 if (newToken) {
                     tokenRef.current = newToken;
                     const newUrl = buildAuthUrl(WS_BASE_URL, newToken);

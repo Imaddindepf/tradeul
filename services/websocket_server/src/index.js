@@ -197,16 +197,15 @@ const benzingaNewsSubscribers = new Set();
 const benzingaEarningsSubscribers = new Set();
 
 // =============================================
-// MARKET EVENTS: Subscripción con filtrado server-side + ref counting
+// MARKET EVENTS: Multi-subscription with server-side filtering
 // =============================================
-// Per-connection subscription tracking with server-side filters
-// Map<connectionId, {
-//   refCount: number,           // Number of subscribed components (ref counting)
-//   allTypes: boolean,          // true if any component wants all events
-//   eventTypes: Set<string>,    // Union of all requested event types
-//   symbolsInclude: Set<string> | null,  // Symbols whitelist (null = all)
-//   symbolsExclude: Set<string>,         // Symbols blacklist
-// }>
+// Each connection can have MULTIPLE independent event subscriptions (one per open table).
+// Structure: Map<connectionId, Map<subId, subscription>>
+//   subId = unique ID per event table (e.g. "evt_halt_momentum_1707000000")
+//   Each subscribe_events with a sub_id creates/replaces ONLY that subscription.
+//   unsubscribe_events with a sub_id removes ONLY that subscription.
+//   An event is forwarded to a connection if it matches ANY of its active subscriptions.
+//   The event message includes matched_subs[] so the client can route to the correct table.
 const marketEventSubscriptions = new Map();
 
 // Backpressure: Max buffered bytes before skipping sends to slow clients
@@ -215,6 +214,385 @@ const WS_BACKPRESSURE_THRESHOLD = 64 * 1024; // 64KB
 // Rate limiting for market events per client
 const EVENT_RATE_LIMIT_PER_SECOND = 100;
 const eventRateLimiters = new Map(); // connectionId -> { count, resetTime }
+
+// =============================================
+// ENRICHED SNAPSHOT CACHE (for filter lookups)
+// =============================================
+// In-memory cache of snapshot:enriched:latest — refreshed every 10 seconds.
+// Used to apply filters that rely on enriched data (market_cap, security_type,
+// daily_sma_200, adx, stoch, bid/ask, etc.) without bloating EventRecord.
+// The EventRecord carries point-in-time display data; the enriched cache
+// provides current fundamental/technical state for filtering.
+const enrichedCache = new Map(); // symbol -> parsed object
+let enrichedCacheLastRefresh = 0;
+const ENRICHED_CACHE_INTERVAL_MS = 10_000; // 10 seconds
+
+async function refreshEnrichedCache() {
+  try {
+    const raw = await redisCommands.hgetall("snapshot:enriched:latest");
+    if (!raw || Object.keys(raw).length === 0) return;
+    let count = 0;
+    for (const [key, val] of Object.entries(raw)) {
+      if (key === "__meta__") continue;
+      try {
+        enrichedCache.set(key, JSON.parse(val));
+        count++;
+      } catch (_) { /* skip unparseable */ }
+    }
+    enrichedCacheLastRefresh = Date.now();
+    logger.info({ tickers: count }, "enriched_cache_refreshed");
+  } catch (err) {
+    logger.error({ err: err.message }, "enriched_cache_refresh_error");
+  }
+}
+
+// Start periodic refresh
+setInterval(refreshEnrichedCache, ENRICHED_CACHE_INTERVAL_MS);
+// Initial load
+refreshEnrichedCache();
+
+// ── Helper: Parse a filter field from client data ──
+function pf(data, key) {
+  const v = data[key];
+  return v !== undefined && v !== null ? parseFloat(v) : null;
+}
+function pi(data, key) {
+  const v = data[key];
+  return v !== undefined && v !== null ? parseInt(v) : null;
+}
+function ps(data, key) {
+  const v = data[key];
+  return (v !== undefined && v !== null && v !== '') ? String(v) : null;
+}
+
+// ── All numeric filter definitions: [subKey, dataKey, parser] ──
+// This single list drives buildEventSubscription, applyNumericFilterUpdates,
+// and eventPassesSubscription — no duplication.
+const NUMERIC_FILTER_DEFS = [
+  // === FROM EVENT PAYLOAD (EventRecord fields) ===
+  // Price & basics
+  ['priceMin', 'price_min', pf],
+  ['priceMax', 'price_max', pf],
+  ['rvolMin', 'rvol_min', pf],
+  ['rvolMax', 'rvol_max', pf],
+  ['changeMin', 'change_min', pf],
+  ['changeMax', 'change_max', pf],
+  ['volumeMin', 'volume_min', pi],
+  ['volumeMax', 'volume_max', pi],
+  ['gapPercentMin', 'gap_percent_min', pf],
+  ['gapPercentMax', 'gap_percent_max', pf],
+  ['changeFromOpenMin', 'change_from_open_min', pf],
+  ['changeFromOpenMax', 'change_from_open_max', pf],
+  ['atrPercentMin', 'atr_percent_min', pf],
+  ['atrPercentMax', 'atr_percent_max', pf],
+  ['rsiMin', 'rsi_min', pf],
+  ['rsiMax', 'rsi_max', pf],
+
+  // === FROM ENRICHED CACHE (looked up by symbol) ===
+  // Fundamentals
+  ['marketCapMin', 'market_cap_min', pf],
+  ['marketCapMax', 'market_cap_max', pf],
+  ['floatSharesMin', 'float_shares_min', pf],
+  ['floatSharesMax', 'float_shares_max', pf],
+  ['sharesOutstandingMin', 'shares_outstanding_min', pf],
+  ['sharesOutstandingMax', 'shares_outstanding_max', pf],
+  // Volume windows
+  ['vol1minMin', 'vol_1min_min', pi],
+  ['vol1minMax', 'vol_1min_max', pi],
+  ['vol5minMin', 'vol_5min_min', pi],
+  ['vol5minMax', 'vol_5min_max', pi],
+  ['vol10minMin', 'vol_10min_min', pi],
+  ['vol10minMax', 'vol_10min_max', pi],
+  ['vol15minMin', 'vol_15min_min', pi],
+  ['vol15minMax', 'vol_15min_max', pi],
+  ['vol30minMin', 'vol_30min_min', pi],
+  ['vol30minMax', 'vol_30min_max', pi],
+  // Change windows
+  ['chg1minMin', 'chg_1min_min', pf],
+  ['chg1minMax', 'chg_1min_max', pf],
+  ['chg5minMin', 'chg_5min_min', pf],
+  ['chg5minMax', 'chg_5min_max', pf],
+  ['chg10minMin', 'chg_10min_min', pf],
+  ['chg10minMax', 'chg_10min_max', pf],
+  ['chg15minMin', 'chg_15min_min', pf],
+  ['chg15minMax', 'chg_15min_max', pf],
+  ['chg30minMin', 'chg_30min_min', pf],
+  ['chg30minMax', 'chg_30min_max', pf],
+  ['chg60minMin', 'chg_60min_min', pf],
+  ['chg60minMax', 'chg_60min_max', pf],
+  // Quote data
+  ['bidMin', 'bid_min', pf],
+  ['bidMax', 'bid_max', pf],
+  ['askMin', 'ask_min', pf],
+  ['askMax', 'ask_max', pf],
+  ['bidSizeMin', 'bid_size_min', pi],
+  ['bidSizeMax', 'bid_size_max', pi],
+  ['askSizeMin', 'ask_size_min', pi],
+  ['askSizeMax', 'ask_size_max', pi],
+  ['spreadMin', 'spread_min', pf],
+  ['spreadMax', 'spread_max', pf],
+  // Intraday SMA
+  ['sma5Min', 'sma_5_min', pf],
+  ['sma5Max', 'sma_5_max', pf],
+  ['sma8Min', 'sma_8_min', pf],
+  ['sma8Max', 'sma_8_max', pf],
+  ['sma20Min', 'sma_20_min', pf],
+  ['sma20Max', 'sma_20_max', pf],
+  ['sma50Min', 'sma_50_min', pf],
+  ['sma50Max', 'sma_50_max', pf],
+  ['sma200Min', 'sma_200_min', pf],
+  ['sma200Max', 'sma_200_max', pf],
+  // MACD / Stochastic / ADX / Bollinger
+  ['macdLineMin', 'macd_line_min', pf],
+  ['macdLineMax', 'macd_line_max', pf],
+  ['macdHistMin', 'macd_hist_min', pf],
+  ['macdHistMax', 'macd_hist_max', pf],
+  ['stochKMin', 'stoch_k_min', pf],
+  ['stochKMax', 'stoch_k_max', pf],
+  ['stochDMin', 'stoch_d_min', pf],
+  ['stochDMax', 'stoch_d_max', pf],
+  ['adx14Min', 'adx_14_min', pf],
+  ['adx14Max', 'adx_14_max', pf],
+  ['bbUpperMin', 'bb_upper_min', pf],
+  ['bbUpperMax', 'bb_upper_max', pf],
+  ['bbLowerMin', 'bb_lower_min', pf],
+  ['bbLowerMax', 'bb_lower_max', pf],
+  // Daily indicators
+  ['dailySma20Min', 'daily_sma_20_min', pf],
+  ['dailySma20Max', 'daily_sma_20_max', pf],
+  ['dailySma50Min', 'daily_sma_50_min', pf],
+  ['dailySma50Max', 'daily_sma_50_max', pf],
+  ['dailySma200Min', 'daily_sma_200_min', pf],
+  ['dailySma200Max', 'daily_sma_200_max', pf],
+  ['dailyRsiMin', 'daily_rsi_min', pf],
+  ['dailyRsiMax', 'daily_rsi_max', pf],
+  ['high52wMin', 'high_52w_min', pf],
+  ['high52wMax', 'high_52w_max', pf],
+  ['low52wMin', 'low_52w_min', pf],
+  ['low52wMax', 'low_52w_max', pf],
+  // Trades anomaly
+  ['tradesTodayMin', 'trades_today_min', pi],
+  ['tradesTodayMax', 'trades_today_max', pi],
+  ['tradesZScoreMin', 'trades_z_score_min', pf],
+  ['tradesZScoreMax', 'trades_z_score_max', pf],
+  // VWAP
+  ['vwapMin', 'vwap_min', pf],
+  ['vwapMax', 'vwap_max', pf],
+];
+
+// String filter definitions: [subKey, dataKey]
+const STRING_FILTER_DEFS = [
+  ['securityType', 'security_type'],
+  ['sector', 'sector'],
+  ['industry', 'industry'],
+];
+
+// Mapping: enriched field name for each filter subKey (for enriched cache lookup)
+// Only filters that should be checked against enriched data (not event payload).
+const ENRICHED_FIELD_MAP = {
+  // Fundamentals
+  marketCapMin: 'market_cap', marketCapMax: 'market_cap',
+  floatSharesMin: 'float_shares', floatSharesMax: 'float_shares',
+  sharesOutstandingMin: 'shares_outstanding', sharesOutstandingMax: 'shares_outstanding',
+  // Volume windows
+  vol10minMin: 'vol_10min', vol10minMax: 'vol_10min',
+  vol15minMin: 'vol_15min', vol15minMax: 'vol_15min',
+  vol30minMin: 'vol_30min', vol30minMax: 'vol_30min',
+  // Change 60 min
+  chg60minMin: 'chg_60min', chg60minMax: 'chg_60min',
+  // Quote
+  bidMin: 'bid', bidMax: 'bid',
+  askMin: 'ask', askMax: 'ask',
+  bidSizeMin: 'bid_size', bidSizeMax: 'bid_size',
+  askSizeMin: 'ask_size', askSizeMax: 'ask_size',
+  // Intraday SMA
+  sma5Min: 'sma_5', sma5Max: 'sma_5',
+  sma8Min: 'sma_8', sma8Max: 'sma_8',
+  sma20Min: 'sma_20', sma20Max: 'sma_20',
+  sma50Min: 'sma_50', sma50Max: 'sma_50',
+  sma200Min: 'sma_200', sma200Max: 'sma_200',
+  // MACD / Stochastic / ADX / Bollinger
+  macdLineMin: 'macd_line', macdLineMax: 'macd_line',
+  macdHistMin: 'macd_hist', macdHistMax: 'macd_hist',
+  stochKMin: 'stoch_k', stochKMax: 'stoch_k',
+  stochDMin: 'stoch_d', stochDMax: 'stoch_d',
+  adx14Min: 'adx_14', adx14Max: 'adx_14',
+  bbUpperMin: 'bb_upper', bbUpperMax: 'bb_upper',
+  bbLowerMin: 'bb_lower', bbLowerMax: 'bb_lower',
+  // Daily indicators
+  dailySma20Min: 'daily_sma_20', dailySma20Max: 'daily_sma_20',
+  dailySma50Min: 'daily_sma_50', dailySma50Max: 'daily_sma_50',
+  dailySma200Min: 'daily_sma_200', dailySma200Max: 'daily_sma_200',
+  dailyRsiMin: 'daily_rsi', dailyRsiMax: 'daily_rsi',
+  high52wMin: 'high_52w', high52wMax: 'high_52w',
+  low52wMin: 'low_52w', low52wMax: 'low_52w',
+  // Trades
+  tradesTodayMin: 'trades_today', tradesTodayMax: 'trades_today',
+  tradesZScoreMin: 'trades_z_score', tradesZScoreMax: 'trades_z_score',
+  // VWAP
+  vwapMin: 'vwap', vwapMax: 'vwap',
+  // String filters
+  securityType: 'security_type',
+  sector: 'sector',
+  industry: 'industry',
+};
+
+// ── Helper: Build a subscription object from client data ──
+function buildEventSubscription(data) {
+  const requestedTypes = data.event_types;
+  const sub = {
+    allTypes: !requestedTypes || requestedTypes.length === 0,
+    eventTypes: new Set(requestedTypes || []),
+    symbolsInclude: null,
+    symbolsExclude: new Set(),
+  };
+
+  // Parse all numeric filters
+  for (const [subKey, dataKey, parser] of NUMERIC_FILTER_DEFS) {
+    sub[subKey] = parser(data, dataKey);
+  }
+
+  // Parse string filters
+  for (const [subKey, dataKey] of STRING_FILTER_DEFS) {
+    sub[subKey] = ps(data, dataKey);
+  }
+
+  if (data.symbols_include && Array.isArray(data.symbols_include)) {
+    sub.symbolsInclude = new Set(data.symbols_include.map(s => s.toUpperCase()));
+  }
+  if (data.symbols_exclude && Array.isArray(data.symbols_exclude)) {
+    sub.symbolsExclude = new Set(data.symbols_exclude.map(s => s.toUpperCase()));
+  }
+  return sub;
+}
+
+// ── Helper: Check if an event passes a subscription's filters ──
+// Uses event payload (evt) for point-in-time fields, enriched cache for current state fields.
+function eventPassesSubscription(evt, sub) {
+  // Type + symbol filters (from event)
+  if (!sub.allTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(evt.event_type)) return false;
+  if (sub.symbolsInclude && sub.symbolsInclude.size > 0 && !sub.symbolsInclude.has(evt.symbol)) return false;
+  if (sub.symbolsExclude && sub.symbolsExclude.size > 0 && sub.symbolsExclude.has(evt.symbol)) return false;
+
+  // Look up enriched data for this symbol (for enriched-based filters)
+  const enriched = enrichedCache.get(evt.symbol) || {};
+
+  // Computed fields from enriched
+  const spread = (enriched.ask != null && enriched.bid != null) ? enriched.ask - enriched.bid : null;
+
+  // Helper: get value from event first, then enriched
+  function val(evtField, enrichedField) {
+    const v = evt[evtField];
+    if (v != null) return v;
+    return enriched[enrichedField] != null ? enriched[enrichedField] : null;
+  }
+
+  // ── Apply all numeric filters ──
+  // Event-payload filters (use evt directly)
+  function chkEvt(v, minKey, maxKey) {
+    if (sub[minKey] !== null && (v == null || v < sub[minKey])) return false;
+    if (sub[maxKey] !== null && (v == null || v > sub[maxKey])) return false;
+    return true;
+  }
+
+  // Price & basics (from event payload)
+  if (!chkEvt(evt.price, 'priceMin', 'priceMax')) return false;
+  if (!chkEvt(evt.rvol, 'rvolMin', 'rvolMax')) return false;
+  if (!chkEvt(evt.change_percent, 'changeMin', 'changeMax')) return false;
+  if (!chkEvt(evt.volume, 'volumeMin', 'volumeMax')) return false;
+  if (!chkEvt(evt.gap_percent, 'gapPercentMin', 'gapPercentMax')) return false;
+  if (!chkEvt(evt.change_from_open, 'changeFromOpenMin', 'changeFromOpenMax')) return false;
+  if (!chkEvt(evt.atr_percent, 'atrPercentMin', 'atrPercentMax')) return false;
+  if (!chkEvt(evt.rsi, 'rsiMin', 'rsiMax')) return false;
+
+  // Enriched-based filters (from enriched cache, with event fallback)
+  if (!chkEvt(val('market_cap', 'market_cap'), 'marketCapMin', 'marketCapMax')) return false;
+  if (!chkEvt(val('float_shares', 'float_shares'), 'floatSharesMin', 'floatSharesMax')) return false;
+  if (!chkEvt(enriched.shares_outstanding, 'sharesOutstandingMin', 'sharesOutstandingMax')) return false;
+
+  // Volume windows
+  if (!chkEvt(val('vol_1min', 'vol_1min'), 'vol1minMin', 'vol1minMax')) return false;
+  if (!chkEvt(val('vol_5min', 'vol_5min'), 'vol5minMin', 'vol5minMax')) return false;
+  if (!chkEvt(enriched.vol_10min, 'vol10minMin', 'vol10minMax')) return false;
+  if (!chkEvt(enriched.vol_15min, 'vol15minMin', 'vol15minMax')) return false;
+  if (!chkEvt(enriched.vol_30min, 'vol30minMin', 'vol30minMax')) return false;
+
+  // Change windows
+  if (!chkEvt(val('chg_1min', 'chg_1min'), 'chg1minMin', 'chg1minMax')) return false;
+  if (!chkEvt(val('chg_5min', 'chg_5min'), 'chg5minMin', 'chg5minMax')) return false;
+  if (!chkEvt(val('chg_10min', 'chg_10min'), 'chg10minMin', 'chg10minMax')) return false;
+  if (!chkEvt(val('chg_15min', 'chg_15min'), 'chg15minMin', 'chg15minMax')) return false;
+  if (!chkEvt(val('chg_30min', 'chg_30min'), 'chg30minMin', 'chg30minMax')) return false;
+  if (!chkEvt(enriched.chg_60min, 'chg60minMin', 'chg60minMax')) return false;
+
+  // Quote
+  if (!chkEvt(enriched.bid, 'bidMin', 'bidMax')) return false;
+  if (!chkEvt(enriched.ask, 'askMin', 'askMax')) return false;
+  if (!chkEvt(enriched.bid_size, 'bidSizeMin', 'bidSizeMax')) return false;
+  if (!chkEvt(enriched.ask_size, 'askSizeMin', 'askSizeMax')) return false;
+  if (!chkEvt(spread, 'spreadMin', 'spreadMax')) return false;
+
+  // Intraday SMA (enriched)
+  if (!chkEvt(enriched.sma_5, 'sma5Min', 'sma5Max')) return false;
+  if (!chkEvt(enriched.sma_8, 'sma8Min', 'sma8Max')) return false;
+  if (!chkEvt(enriched.sma_20, 'sma20Min', 'sma20Max')) return false;
+  if (!chkEvt(enriched.sma_50, 'sma50Min', 'sma50Max')) return false;
+  if (!chkEvt(enriched.sma_200, 'sma200Min', 'sma200Max')) return false;
+
+  // MACD / Stochastic / ADX / Bollinger (enriched)
+  if (!chkEvt(enriched.macd_line, 'macdLineMin', 'macdLineMax')) return false;
+  if (!chkEvt(enriched.macd_hist, 'macdHistMin', 'macdHistMax')) return false;
+  if (!chkEvt(enriched.stoch_k, 'stochKMin', 'stochKMax')) return false;
+  if (!chkEvt(enriched.stoch_d, 'stochDMin', 'stochDMax')) return false;
+  if (!chkEvt(enriched.adx_14, 'adx14Min', 'adx14Max')) return false;
+  if (!chkEvt(enriched.bb_upper, 'bbUpperMin', 'bbUpperMax')) return false;
+  if (!chkEvt(enriched.bb_lower, 'bbLowerMin', 'bbLowerMax')) return false;
+
+  // Daily indicators (enriched)
+  if (!chkEvt(enriched.daily_sma_20, 'dailySma20Min', 'dailySma20Max')) return false;
+  if (!chkEvt(enriched.daily_sma_50, 'dailySma50Min', 'dailySma50Max')) return false;
+  if (!chkEvt(enriched.daily_sma_200, 'dailySma200Min', 'dailySma200Max')) return false;
+  if (!chkEvt(enriched.daily_rsi, 'dailyRsiMin', 'dailyRsiMax')) return false;
+  if (!chkEvt(enriched.high_52w, 'high52wMin', 'high52wMax')) return false;
+  if (!chkEvt(enriched.low_52w, 'low52wMin', 'low52wMax')) return false;
+
+  // Trades anomaly (enriched)
+  if (!chkEvt(enriched.trades_today, 'tradesTodayMin', 'tradesTodayMax')) return false;
+  if (!chkEvt(enriched.trades_z_score, 'tradesZScoreMin', 'tradesZScoreMax')) return false;
+
+  // VWAP (enriched)
+  if (!chkEvt(val('vwap', 'vwap'), 'vwapMin', 'vwapMax')) return false;
+
+  // ── String filters ──
+  if (sub.securityType !== null) {
+    const st = evt.security_type || enriched.security_type;
+    if (!st || st.toUpperCase() !== sub.securityType.toUpperCase()) return false;
+  }
+  if (sub.sector !== null) {
+    const s = evt.sector || enriched.sector;
+    if (!s || !s.toUpperCase().includes(sub.sector.toUpperCase())) return false;
+  }
+  if (sub.industry !== null) {
+    const ind = enriched.industry;
+    if (!ind || !ind.toUpperCase().includes(sub.industry.toUpperCase())) return false;
+  }
+
+  return true;
+}
+
+// ── Helper: Apply partial filter updates to an existing sub ──
+function applyNumericFilterUpdates(sub, data) {
+  for (const [subKey, dataKey, parser] of NUMERIC_FILTER_DEFS) {
+    if (data[dataKey] !== undefined) {
+      sub[subKey] = data[dataKey] !== null ? parser(data, dataKey) : null;
+    }
+  }
+  for (const [subKey, dataKey] of STRING_FILTER_DEFS) {
+    if (data[dataKey] !== undefined) {
+      sub[subKey] = ps(data, dataKey);
+    }
+  }
+}
 
 // =============================================
 // CHART SUBSCRIPTIONS: Suscripciones para charts en tiempo real
@@ -745,7 +1123,13 @@ function filterTickersByCategory(tickers, listName) {
         .slice(0, MAX_PER_CATEGORY);
     
     default:
-      // Para categorías desconocidas, devolver top por score
+      // Para user scans (uscan_XX), NO hacer fallback a datos sin filtrar.
+      // Los datos de user scans solo vienen del RETE engine (scanner:category:uscan_XX).
+      // Si no existen en Redis, devolver vacío en vez de datos incorrectos.
+      if (listName.startsWith("uscan_")) {
+        return [];
+      }
+      // Para otras categorías desconocidas, devolver top por score
       return tickers
         .sort((a, b) => (b.score || 0) - (a.score || 0))
         .slice(0, MAX_PER_CATEGORY);
@@ -2100,107 +2484,54 @@ function broadcastMarketEvent(eventData) {
     }
   }
 
-  // Helper: parse float, return null if missing/NaN
-  const pf = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
-  const pi = (v) => { const n = parseInt(v); return isNaN(n) ? null : n; };
+  // ── Build event payload dynamically from EventRecord fields ──
+  // String fields passed as-is; everything else parsed as number.
+  // This mirrors Python EventRecord.to_dict() — no manual field list to maintain.
+  const STRING_FIELDS = new Set(["id", "event_type", "rule_id", "symbol", "timestamp", "details"]);
+  const INT_FIELDS = new Set(["volume", "vol_1min", "vol_5min"]);
 
-  // Build event payload with full context
-  const eventPayload = {
-    id: eventData.id,
-    event_type: eventType,
-    rule_id: eventData.rule_id,
-    symbol: symbol,
-    timestamp: eventData.timestamp,
-    price: pf(eventData.price),
-    prev_value: pf(eventData.prev_value),
-    new_value: pf(eventData.new_value),
-    delta: pf(eventData.delta),
-    delta_percent: pf(eventData.delta_percent),
-    change_percent: pf(eventData.change_percent),
-    rvol: pf(eventData.rvol),
-    volume: pi(eventData.volume),
-    market_cap: pf(eventData.market_cap),
-    // Context fields from enriched EventRecord
-    gap_percent: pf(eventData.gap_percent),
-    change_from_open: pf(eventData.change_from_open),
-    open_price: pf(eventData.open_price),
-    prev_close: pf(eventData.prev_close),
-    vwap: pf(eventData.vwap),
-    atr_percent: pf(eventData.atr_percent),
-    intraday_high: pf(eventData.intraday_high),
-    intraday_low: pf(eventData.intraday_low),
-    details: details,
-  };
-
-  // Pre-serialize message ONCE for all clients (major perf optimization)
-  const message = JSON.stringify({
-    type: "market_event",
-    data: eventPayload,
-  });
+  const eventPayload = { event_type: eventType, symbol: symbol };
+  for (const [key, raw] of Object.entries(eventData)) {
+    if (key === "event_type" || key === "symbol") continue; // already set
+    if (key === "details") { eventPayload.details = details; continue; }
+    if (STRING_FIELDS.has(key)) { eventPayload[key] = raw; continue; }
+    if (INT_FIELDS.has(key)) {
+      const n = parseInt(raw); eventPayload[key] = isNaN(n) ? null : n; continue;
+    }
+    // Default: parse as float
+    const n = parseFloat(raw);
+    eventPayload[key] = isNaN(n) ? null : n;
+  }
 
   let sent = 0;
   let filtered = 0;
   let backpressured = 0;
   let rateLimited = 0;
 
-  for (const [connectionId, sub] of marketEventSubscriptions) {
+  for (const [connectionId, connSubs] of marketEventSubscriptions) {
     const connection = connections.get(connectionId);
     if (!connection || connection.ws.readyState !== WebSocket.OPEN) continue;
 
-    // ── SERVER-SIDE EVENT TYPE FILTER ──
-    // Skip events the client hasn't subscribed to
-    if (!sub.allTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(eventType)) {
-      filtered++;
-      continue;
+    // ── Find which subscriptions this event matches ──
+    const matchedSubIds = [];
+    for (const [subId, sub] of connSubs) {
+      if (eventPassesSubscription(eventPayload, sub)) {
+        matchedSubIds.push(subId);
+      }
     }
 
-    // ── SERVER-SIDE SYMBOL FILTER ──
-    // Skip symbols the client doesn't want
-    if (sub.symbolsInclude && sub.symbolsInclude.size > 0 && !sub.symbolsInclude.has(symbol)) {
-      filtered++;
-      continue;
-    }
-    if (sub.symbolsExclude.size > 0 && sub.symbolsExclude.has(symbol)) {
-      filtered++;
-      continue;
-    }
-
-    // ── SERVER-SIDE NUMERIC FILTERS ──
-    // Filter by price, rvol, change%, volume to reduce bandwidth
-    if (sub.priceMin !== null && (eventPayload.price === null || eventPayload.price < sub.priceMin)) {
-      filtered++;
-      continue;
-    }
-    if (sub.priceMax !== null && (eventPayload.price === null || eventPayload.price > sub.priceMax)) {
-      filtered++;
-      continue;
-    }
-    if (sub.rvolMin !== null && (eventPayload.rvol === null || eventPayload.rvol < sub.rvolMin)) {
-      filtered++;
-      continue;
-    }
-    if (sub.changeMin !== null && (eventPayload.change_percent === null || eventPayload.change_percent < sub.changeMin)) {
-      filtered++;
-      continue;
-    }
-    if (sub.changeMax !== null && (eventPayload.change_percent === null || eventPayload.change_percent > sub.changeMax)) {
-      filtered++;
-      continue;
-    }
-    if (sub.volumeMin !== null && (eventPayload.volume === null || eventPayload.volume < sub.volumeMin)) {
+    if (matchedSubIds.length === 0) {
       filtered++;
       continue;
     }
 
     // ── BACKPRESSURE CHECK ──
-    // Skip slow clients with high buffer to prevent memory exhaustion
     if (connection.ws.bufferedAmount > WS_BACKPRESSURE_THRESHOLD) {
       backpressured++;
       continue;
     }
 
     // ── RATE LIMITING ──
-    // Token bucket: max EVENT_RATE_LIMIT_PER_SECOND events/sec per client
     let limiter = eventRateLimiters.get(connectionId);
     if (!limiter || now >= limiter.resetTime) {
       limiter = { count: 0, resetTime: now + 1000 };
@@ -2212,8 +2543,14 @@ function broadcastMarketEvent(eventData) {
     }
     limiter.count++;
 
-    // ── SEND EVENT ──
+    // ── SEND EVENT with matched_subs ──
+    // Client uses matched_subs to route the event to the correct table(s)
     try {
+      const message = JSON.stringify({
+        type: "market_event",
+        matched_subs: matchedSubIds,
+        data: eventPayload,
+      });
       connection.ws.send(message);
       sent++;
     } catch (err) {
@@ -2777,155 +3114,115 @@ wss.on("connection", async (ws, req) => {
       }
 
       // =============================================
-      // SUBSCRIBE TO MARKET EVENTS (with server-side filtering + ref counting)
-      // Rate-limited: max 2 subscribe_events + 5 update_event_filters per second per connection
+      // SUBSCRIBE TO MARKET EVENTS (multi-subscription per connection)
+      // Each table sends its own sub_id — subscriptions are independent.
       // =============================================
       else if (action === "subscribe_events" || action === "subscribe_market_events") {
-        // Get or create subscription entry with reference counting
-        // Multiple components (windows) on the same connection can subscribe independently
-        let sub = marketEventSubscriptions.get(connectionId);
-        if (!sub) {
-          sub = {
-            refCount: 0,
-            allTypes: false,
-            eventTypes: new Set(),
-            symbolsInclude: null,
-            symbolsExclude: new Set(),
-            // Server-side numeric filters (applied per-event before sending)
-            priceMin: null,
-            priceMax: null,
-            rvolMin: null,
-            changeMin: null,
-            changeMax: null,
-            volumeMin: null,
-          };
-          marketEventSubscriptions.set(connectionId, sub);
-        }
-        sub.refCount++;
-
-        // Merge event type filters from this subscription
+        const subId = data.sub_id || "_default";
         const requestedTypes = data.event_types;
-        if (!requestedTypes || requestedTypes.length === 0) {
-          sub.allTypes = true; // This component wants all event types
-        } else {
-          for (const t of requestedTypes) sub.eventTypes.add(t);
-        }
 
-        // Merge symbol filters (if provided by client)
-        if (data.symbols_include && Array.isArray(data.symbols_include)) {
-          if (!sub.symbolsInclude) sub.symbolsInclude = new Set();
-          for (const s of data.symbols_include) sub.symbolsInclude.add(s.toUpperCase());
-        }
-        if (data.symbols_exclude && Array.isArray(data.symbols_exclude)) {
-          for (const s of data.symbols_exclude) sub.symbolsExclude.add(s.toUpperCase());
-        }
+        // Build subscription object from message data
+        const sub = buildEventSubscription(data);
 
-        // Server-side numeric filters (reduce bandwidth for filtered views)
-        if (data.price_min !== undefined) sub.priceMin = parseFloat(data.price_min);
-        if (data.price_max !== undefined) sub.priceMax = parseFloat(data.price_max);
-        if (data.rvol_min !== undefined) sub.rvolMin = parseFloat(data.rvol_min);
-        if (data.change_min !== undefined) sub.changeMin = parseFloat(data.change_min);
-        if (data.change_max !== undefined) sub.changeMax = parseFloat(data.change_max);
-        if (data.volume_min !== undefined) sub.volumeMin = parseInt(data.volume_min);
+        // Get or create the subscription map for this connection
+        if (!marketEventSubscriptions.has(connectionId)) {
+          marketEventSubscriptions.set(connectionId, new Map());
+        }
+        const connSubs = marketEventSubscriptions.get(connectionId);
+        connSubs.set(subId, sub);
 
         logger.info({
           connectionId,
-          refCount: sub.refCount,
+          subId,
           allTypes: sub.allTypes,
           eventTypesCount: sub.eventTypes.size,
-          serverFilter: !sub.allTypes,
-        }, "🎯 Client subscribed to Market Events (server-side filtering)");
+          activeSubs: connSubs.size,
+        }, "🎯 Event subscription created/replaced");
 
         sendMessage(connectionId, {
           type: "subscribed",
           channel: "MARKET_EVENTS",
+          sub_id: subId,
           server_filter: !sub.allTypes,
           event_types_count: sub.allTypes ? "all" : sub.eventTypes.size,
-          message: "Subscribed to real-time market events with server-side filtering"
         });
 
-        // Send initial snapshot of recent events (with ALL server-side filters applied)
+        // ── ADAPTIVE SNAPSHOT ─────────────────────────────────────
+        // Read events in batches until we find enough matches or exhaust the stream.
+        // Selective strategies (high rvol, rare types) need to search deeper.
         try {
-          const pf = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
-          const pi = (v) => { const n = parseInt(v); return isNaN(n) ? null : n; };
+          const SNAPSHOT_TARGET = 50;     // Aim for 50 matching events
+          const BATCH_SIZE = 500;         // Read 500 at a time from Redis
+          const MAX_SCANNED = 5000;       // Never scan more than 5000 total
 
-          const recentEvents = await redisCommands.xrevrange("stream:events:market", "+", "-", "COUNT", "200");
-          if (recentEvents && recentEvents.length > 0) {
-            const events = recentEvents.map(([id, fields]) => {
+          let matched = [];
+          let cursor = "+";
+          let totalScanned = 0;
+
+          while (matched.length < SNAPSHOT_TARGET && totalScanned < MAX_SCANNED) {
+            const batch = await redisCommands.xrevrange(
+              "stream:events:market", cursor, "-", "COUNT", String(BATCH_SIZE)
+            );
+            if (!batch || batch.length === 0) break;
+
+            for (const [streamId, fields] of batch) {
               const d = {};
-              for (let i = 0; i < fields.length; i += 2) {
-                d[fields[i]] = fields[i + 1];
-              }
+              for (let i = 0; i < fields.length; i += 2) d[fields[i]] = fields[i + 1];
               let details = null;
-              if (d.details) { try { details = JSON.parse(d.details); } catch(e) { details = d.details; } }
-              return {
-                id: d.id,
-                event_type: d.event_type,
-                rule_id: d.rule_id,
-                symbol: d.symbol,
-                timestamp: d.timestamp,
-                price: pf(d.price),
-                prev_value: pf(d.prev_value),
-                new_value: pf(d.new_value),
-                delta: pf(d.delta),
-                delta_percent: pf(d.delta_percent),
-                change_percent: pf(d.change_percent),
-                rvol: pf(d.rvol),
-                volume: pi(d.volume),
-                market_cap: pf(d.market_cap),
-                gap_percent: pf(d.gap_percent),
-                change_from_open: pf(d.change_from_open),
-                open_price: pf(d.open_price),
-                prev_close: pf(d.prev_close),
-                vwap: pf(d.vwap),
-                atr_percent: pf(d.atr_percent),
-                intraday_high: pf(d.intraday_high),
-                intraday_low: pf(d.intraday_low),
-                details,
-              };
-            }).filter(evt => {
-              // Apply ALL server-side filters to snapshot (same as real-time)
-              if (!sub.allTypes && sub.eventTypes.size > 0 && !sub.eventTypes.has(evt.event_type)) return false;
-              if (sub.symbolsInclude && sub.symbolsInclude.size > 0 && !sub.symbolsInclude.has(evt.symbol)) return false;
-              if (sub.symbolsExclude.size > 0 && sub.symbolsExclude.has(evt.symbol)) return false;
-              // Numeric filters
-              if (sub.priceMin !== null && (evt.price === null || evt.price < sub.priceMin)) return false;
-              if (sub.priceMax !== null && (evt.price === null || evt.price > sub.priceMax)) return false;
-              if (sub.rvolMin !== null && (evt.rvol === null || evt.rvol < sub.rvolMin)) return false;
-              if (sub.changeMin !== null && (evt.change_percent === null || evt.change_percent < sub.changeMin)) return false;
-              if (sub.changeMax !== null && (evt.change_percent === null || evt.change_percent > sub.changeMax)) return false;
-              if (sub.volumeMin !== null && (evt.volume === null || evt.volume < sub.volumeMin)) return false;
-              return true;
-            }).reverse(); // Reverse to get oldest first, newest last
+              // Dynamic field parsing — mirrors EventRecord.to_dict()
+              const STRING_KEYS = new Set(["id", "event_type", "rule_id", "symbol", "timestamp"]);
+              const INT_KEYS = new Set(["volume", "vol_1min", "vol_5min"]);
+              const evt = {};
+              for (const [key, raw] of Object.entries(d)) {
+                if (key === "details") {
+                  try { evt.details = JSON.parse(raw); } catch(e) { evt.details = raw; }
+                  continue;
+                }
+                if (STRING_KEYS.has(key)) { evt[key] = raw; continue; }
+                if (INT_KEYS.has(key)) { const n = parseInt(raw); evt[key] = isNaN(n) ? null : n; continue; }
+                const n = parseFloat(raw); evt[key] = isNaN(n) ? null : n;
+              }
+              if (eventPassesSubscription(evt, sub)) {
+                matched.push(evt);
+                if (matched.length >= SNAPSHOT_TARGET) break;
+              }
+            }
 
-            sendMessage(connectionId, {
-              type: "events_snapshot",
-              events: events,
-              count: events.length
-            });
-            logger.info({ connectionId, count: events.length, filtered: !sub.allTypes }, "📸 Sent filtered events snapshot to client");
+            totalScanned += batch.length;
+            // Move cursor to just before the last entry in this batch
+            const lastId = batch[batch.length - 1][0];
+            const [ms, seq] = lastId.split("-");
+            cursor = (parseInt(seq) > 0) ? `${ms}-${parseInt(seq) - 1}` : `${parseInt(ms) - 1}-99999`;
           }
+
+          matched.reverse(); // oldest first, newest last
+
+          sendMessage(connectionId, {
+            type: "events_snapshot",
+            sub_id: subId,
+            events: matched,
+            count: matched.length,
+          });
+          logger.info({ connectionId, subId, count: matched.length, scanned: totalScanned }, "📸 Adaptive snapshot sent");
+
         } catch (err) {
-          logger.error({ connectionId, error: err.message }, "❌ Error sending events snapshot");
+          logger.error({ connectionId, subId, error: err.message }, "❌ Error sending events snapshot");
         }
       }
 
       // =============================================
-      // UPDATE MARKET EVENT FILTERS (without re-subscribing)
-      // Rate-limited: max 5 per second per connection
+      // UPDATE MARKET EVENT FILTERS (for a specific sub_id)
       // =============================================
       else if (action === "update_event_filters") {
-        const sub = marketEventSubscriptions.get(connectionId);
+        const subId = data.sub_id || "_default";
+        const connSubs = marketEventSubscriptions.get(connectionId);
+        const sub = connSubs && connSubs.get(subId);
+
         if (sub) {
           // Replace event type filters
           if (data.event_types !== undefined) {
-            if (!data.event_types || data.event_types.length === 0) {
-              sub.allTypes = true;
-              sub.eventTypes.clear();
-            } else {
-              sub.allTypes = false;
-              sub.eventTypes = new Set(data.event_types);
-            }
+            sub.allTypes = !data.event_types || data.event_types.length === 0;
+            sub.eventTypes = new Set(data.event_types || []);
           }
           // Replace symbol filters
           if (data.symbols_include !== undefined) {
@@ -2936,49 +3233,31 @@ wss.on("connection", async (ws, req) => {
           if (data.symbols_exclude !== undefined) {
             sub.symbolsExclude = new Set((data.symbols_exclude || []).map(s => s.toUpperCase()));
           }
+          // Update numeric filters (only if present in message)
+          applyNumericFilterUpdates(sub, data);
 
-          // Update numeric filters
-          if (data.price_min !== undefined) sub.priceMin = data.price_min !== null ? parseFloat(data.price_min) : null;
-          if (data.price_max !== undefined) sub.priceMax = data.price_max !== null ? parseFloat(data.price_max) : null;
-          if (data.rvol_min !== undefined) sub.rvolMin = data.rvol_min !== null ? parseFloat(data.rvol_min) : null;
-          if (data.change_min !== undefined) sub.changeMin = data.change_min !== null ? parseFloat(data.change_min) : null;
-          if (data.change_max !== undefined) sub.changeMax = data.change_max !== null ? parseFloat(data.change_max) : null;
-          if (data.volume_min !== undefined) sub.volumeMin = data.volume_min !== null ? parseInt(data.volume_min) : null;
-
-          logger.info({
-            connectionId,
-            allTypes: sub.allTypes,
-            eventTypesCount: sub.eventTypes.size,
-            numericFilters: { priceMin: sub.priceMin, priceMax: sub.priceMax, rvolMin: sub.rvolMin },
-          }, "🎯 Updated market event filters");
-
-          sendMessage(connectionId, {
-            type: "filters_updated",
-            channel: "MARKET_EVENTS"
-          });
+          logger.info({ connectionId, subId, allTypes: sub.allTypes, eventTypesCount: sub.eventTypes.size }, "🎯 Updated event filters");
+          sendMessage(connectionId, { type: "filters_updated", channel: "MARKET_EVENTS", sub_id: subId });
         }
       }
 
-      // Desuscribirse de Market Events (with ref counting)
+      // =============================================
+      // UNSUBSCRIBE FROM MARKET EVENTS (by sub_id)
+      // =============================================
       else if (action === "unsubscribe_events" || action === "unsubscribe_market_events") {
-        const sub = marketEventSubscriptions.get(connectionId);
-        if (sub) {
-          sub.refCount--;
-          if (sub.refCount <= 0) {
-            // Last component unsubscribed - remove entirely
+        const subId = data.sub_id || "_default";
+        const connSubs = marketEventSubscriptions.get(connectionId);
+
+        if (connSubs) {
+          connSubs.delete(subId);
+          if (connSubs.size === 0) {
             marketEventSubscriptions.delete(connectionId);
             eventRateLimiters.delete(connectionId);
-            logger.info({ connectionId }, "🎯 Client fully unsubscribed from Market Events");
-          } else {
-            // Other components still subscribed on this connection
-            logger.info({ connectionId, remaining: sub.refCount }, "🎯 Client partially unsubscribed from Market Events");
           }
+          logger.info({ connectionId, subId, remaining: connSubs ? connSubs.size : 0 }, "🎯 Event subscription removed");
         }
 
-        sendMessage(connectionId, {
-          type: "unsubscribed",
-          channel: "MARKET_EVENTS"
-        });
+        sendMessage(connectionId, { type: "unsubscribed", channel: "MARKET_EVENTS", sub_id: subId });
       }
 
       // =============================================

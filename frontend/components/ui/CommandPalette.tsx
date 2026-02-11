@@ -29,6 +29,9 @@ import {
     Target,
     Layers,
     CheckCircle,
+    Clock,
+    Square,
+    LineChart,
 } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -79,24 +82,27 @@ const SCANNER_COMMANDS: CommandItem[] = [
     { id: 'with_news', label: 'SC With News', description: 'scanner.withNewsDescription', icon: Newspaper, shortcut: 'Ctrl+0', group: 'scanner' },
 ];
 
-// Iconos para categorías de eventos
+// Iconos para categorías de eventos (estrategias pre-built)
 const EVENT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-    'evt_new_highs': TrendingUp,
-    'evt_new_lows': TrendingDown,
-    'evt_vwap_crosses': Zap,
-    'evt_open_crosses': ArrowUp,
-    'evt_close_crosses': ArrowDown,
-    'evt_volume': BarChart3,
-    'evt_momentum': Activity,
-    'evt_big_movers': DollarSign,
-    'evt_pullbacks': TrendingDown,
-    'evt_gap_reversals': ScanSearch,
-    'evt_halts': CircleStop,
-    'evt_ma_crosses': GitBranch,
-    'evt_bollinger': Target,
-    'evt_daily_levels': Layers,
-    'evt_confirmed': CheckCircle,
-    'evt_all': Activity,
+    'evt_high_vol_runners': Activity,
+    'evt_parabolic_movers': TrendingUp,
+    'evt_gap_fade': TrendingDown,
+    'evt_gap_recovery': TrendingUp,
+    'evt_vwap_reclaim': Zap,
+    'evt_ema_trend_break': GitBranch,
+    'evt_halt_momentum': CircleStop,
+    'evt_dip_buy': Target,
+    'evt_confirmed_longs': CheckCircle,
+    'evt_confirmed_shorts': TrendingDown,
+    'evt_squeeze_play': Activity,
+    'evt_institutional_bid': DollarSign,
+    'evt_reversal_play': ScanSearch,
+    'evt_breakdown_short': TrendingDown,
+    'evt_macd_momentum': LineChart,
+    'evt_stoch_reversal': ScanSearch,
+    'evt_orb_play': Clock,
+    'evt_consolidation_break': Square,
+    'evt_all': BarChart3,
 };
 
 // Comandos de eventos (prefijo EVN)
@@ -441,8 +447,8 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
                         {/* COMANDOS DE EVENTOS */}
                         {showEventCommands && (
                             <>
-                                {/* System Events */}
-                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">Event Tables</span>}>
+                                {/* Pre-built Strategies */}
+                                <Command.Group heading={<span className="text-[9px] text-slate-400 uppercase px-1">Strategies</span>}>
                                     {EVENT_COMMANDS.map((cmd) => {
                                         const cmdName = cmd.label.replace('EVN ', '');
                                         const IconComponent = cmd.icon;

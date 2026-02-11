@@ -62,7 +62,7 @@ class WebSocketManager {
   private deltasSubject = new Subject<WebSocketMessage>();
   private aggregatesSubject = new Subject<WebSocketMessage>();
   private errorsSubject = new Subject<Error>();
-  private allMessagesSubject = new BehaviorSubject<WebSocketMessage | null>(null);
+  private allMessagesSubject = new Subject<WebSocketMessage>();
   private tokenRefreshRequestSubject = new Subject<boolean>(); // Para solicitar token nuevo al reconectar
 
   // Heartbeat timer
@@ -314,11 +314,11 @@ class WebSocketManager {
   private connectWithSharedWorker(url: string, debugMode: boolean) {
 
 
-    // URL y nombre fijos para que todas las tabs/ventanas compartan el mismo worker
-    // SharedWorkers se identifican por URL + nombre, ambos deben coincidir exactamente
-    // Cache-bust: forzar nueva versión del worker tras deploys
-    this.sharedWorker = new SharedWorker('/workers/websocket-shared.js?v=2', {
-      name: 'tradeul-websocket-v2'
+    // SharedWorkers se identifican por URL + nombre
+    // Usamos el build timestamp para que cada deploy cree un worker nuevo automáticamente
+    const buildVersion = process.env.NEXT_PUBLIC_BUILD_TIMESTAMP || '0';
+    this.sharedWorker = new SharedWorker(`/workers/websocket-shared.js?v=${buildVersion}`, {
+      name: `tradeul-ws-${buildVersion}`
     });
     this.workerPort = this.sharedWorker.port;
 
@@ -458,8 +458,6 @@ class WebSocketManager {
 
   get messages$(): Observable<WebSocketMessage> {
     return this.allMessagesSubject.asObservable().pipe(
-      filter((msg) => msg !== null),
-      map((msg) => msg!),
       share()
     );
   }

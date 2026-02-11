@@ -255,58 +255,189 @@ _a("RESUME","resume",                  "Resume",                    "Reanudació
 
 
 # ──────────────────────────────────────────────────────────────────────
-# PHASE 2 — DAILY INDICATORS (needs screener data bridge)
+# PHASE 1B — SNAPSHOT-DRIVEN (active, detected from enriched snapshot)
 # ──────────────────────────────────────────────────────────────────────
 
-# --- Daily Moving Average Crosses ---
-_a("CA200","crossed_above_sma200",     "Crossed Above 200 SMA",     "Cruzó Sobre SMA 200",        "ma_cross", "+", 2, False, 300,
+# --- Intraday EMA Crosses (BarEngine 1-min bars) ---
+_a("CA20", "crossed_above_ema20",      "Crossed Above EMA 20",      "Cruzó Sobre EMA 20",         "ma_cross", "+", 1, True, 300,
+   "Price crosses above intraday EMA(20) from 1-min bars",
+   "El precio cruza por encima de la EMA(20) intradía de barras de 1 minuto",
+   flip="CB20", keywords=["ema", "20", "moving average", "intraday"],
+   requires=["ema_20"])
+
+_a("CB20", "crossed_below_ema20",      "Crossed Below EMA 20",      "Cruzó Bajo EMA 20",          "ma_cross", "-", 1, True, 300,
+   "Price crosses below intraday EMA(20) from 1-min bars",
+   "El precio cruza por debajo de la EMA(20) intradía de barras de 1 minuto",
+   flip="CA20", keywords=["ema", "20", "moving average", "intraday"],
+   requires=["ema_20"])
+
+_a("CA50", "crossed_above_ema50",      "Crossed Above EMA 50",      "Cruzó Sobre EMA 50",         "ma_cross", "+", 1, True, 300,
+   "Price crosses above intraday EMA(50) from 1-min bars",
+   "El precio cruza por encima de la EMA(50) intradía de barras de 1 minuto",
+   flip="CB50", keywords=["ema", "50", "moving average", "intraday"],
+   requires=["ema_50"])
+
+_a("CB50", "crossed_below_ema50",      "Crossed Below EMA 50",      "Cruzó Bajo EMA 50",          "ma_cross", "-", 1, True, 300,
+   "Price crosses below intraday EMA(50) from 1-min bars",
+   "El precio cruza por debajo de la EMA(50) intradía de barras de 1 minuto",
+   flip="CA50", keywords=["ema", "50", "moving average", "intraday"],
+   requires=["ema_50"])
+
+# --- Bollinger Band Events ---
+_a("BBU",  "bb_upper_breakout",        "BB Upper Breakout",         "Ruptura BB Superior",        "bollinger", "+", 1, True, 120,
+   "Price crosses above upper Bollinger Band (2σ above EMA 20)",
+   "El precio cruza por encima de la Banda Bollinger superior (2σ sobre EMA 20)",
+   flip="BBD", keywords=["bollinger", "breakout", "std dev", "band"],
+   requires=["bb_upper"])
+
+_a("BBD",  "bb_lower_breakdown",       "BB Lower Breakdown",        "Quiebre BB Inferior",        "bollinger", "-", 1, True, 120,
+   "Price crosses below lower Bollinger Band (2σ below EMA 20)",
+   "El precio cruza por debajo de la Banda Bollinger inferior (2σ bajo EMA 20)",
+   flip="BBU", keywords=["bollinger", "breakdown", "std dev", "band"],
+   requires=["bb_lower"])
+
+# --- Intraday SMA Crosses (Trade Ideas alignment, BarEngine 1-min bars) ---
+_a("CAS8", "crossed_above_sma8",       "Crossed Above SMA 8",      "Cruzó Sobre SMA 8",         "ma_cross", "+", 1, True, 120,
+   "Price crosses above intraday SMA(8) from 1-min bars",
+   "El precio cruza por encima de la SMA(8) intradía",
+   flip="CBS8", keywords=["sma", "8", "moving average", "intraday"],
+   requires=["sma_8"])
+
+_a("CBS8", "crossed_below_sma8",       "Crossed Below SMA 8",      "Cruzó Bajo SMA 8",          "ma_cross", "-", 1, True, 120,
+   "Price crosses below intraday SMA(8) from 1-min bars",
+   "El precio cruza por debajo de la SMA(8) intradía",
+   flip="CAS8", keywords=["sma", "8", "moving average", "intraday"],
+   requires=["sma_8"])
+
+_a("CAS20","crossed_above_sma20",      "Crossed Above SMA 20",     "Cruzó Sobre SMA 20",        "ma_cross", "+", 1, True, 180,
+   "Price crosses above intraday SMA(20) from 1-min bars",
+   "El precio cruza por encima de la SMA(20) intradía",
+   flip="CBS20", keywords=["sma", "20", "moving average", "intraday"],
+   requires=["sma_20"])
+
+_a("CBS20","crossed_below_sma20",      "Crossed Below SMA 20",     "Cruzó Bajo SMA 20",         "ma_cross", "-", 1, True, 180,
+   "Price crosses below intraday SMA(20) from 1-min bars",
+   "El precio cruza por debajo de la SMA(20) intradía",
+   flip="CAS20", keywords=["sma", "20", "moving average", "intraday"],
+   requires=["sma_20"])
+
+_a("CAS50","crossed_above_sma50",      "Crossed Above SMA 50",     "Cruzó Sobre SMA 50",        "ma_cross", "+", 1, True, 300,
+   "Price crosses above intraday SMA(50) from 1-min bars",
+   "El precio cruza por encima de la SMA(50) intradía",
+   flip="CBS50", keywords=["sma", "50", "moving average", "intraday"],
+   requires=["sma_50"])
+
+_a("CBS50","crossed_below_sma50",      "Crossed Below SMA 50",     "Cruzó Bajo SMA 50",         "ma_cross", "-", 1, True, 300,
+   "Price crosses below intraday SMA(50) from 1-min bars",
+   "El precio cruza por debajo de la SMA(50) intradía",
+   flip="CAS50", keywords=["sma", "50", "moving average", "intraday"],
+   requires=["sma_50"])
+
+# --- SMA(8) vs SMA(20) Cross (intraday golden/death cross) ---
+_a("SXU",  "sma_8_cross_above_20",     "SMA 8/20 Golden Cross",    "Cruce Dorado SMA 8/20",     "ma_cross", "+", 1, True, 300,
+   "SMA(8) crosses above SMA(20) — intraday golden cross signal",
+   "SMA(8) cruza sobre SMA(20) — señal de cruce dorado intradía",
+   flip="SXD", keywords=["sma", "golden cross", "8", "20", "intraday"],
+   requires=["sma_8", "sma_20"])
+
+_a("SXD",  "sma_8_cross_below_20",     "SMA 8/20 Death Cross",     "Cruce Mortal SMA 8/20",     "ma_cross", "-", 1, True, 300,
+   "SMA(8) crosses below SMA(20) — intraday death cross signal",
+   "SMA(8) cruza bajo SMA(20) — señal de cruce mortal intradía",
+   flip="SXU", keywords=["sma", "death cross", "8", "20", "intraday"],
+   requires=["sma_8", "sma_20"])
+
+# --- MACD Crosses (from BarEngine 1-min bars) ---
+_a("MACDU","macd_cross_bullish",        "MACD Bullish Cross",        "Cruce MACD Alcista",         "indicator", "+", 1, True, 300,
+   "MACD line crosses above signal line (bullish momentum shift)",
+   "La línea MACD cruza sobre la línea de señal (cambio de momentum alcista)",
+   flip="MACDD", keywords=["macd", "signal", "bullish", "cross"],
+   requires=["macd_line", "macd_signal"])
+
+_a("MACDD","macd_cross_bearish",        "MACD Bearish Cross",        "Cruce MACD Bajista",         "indicator", "-", 1, True, 300,
+   "MACD line crosses below signal line (bearish momentum shift)",
+   "La línea MACD cruza bajo la línea de señal (cambio de momentum bajista)",
+   flip="MACDU", keywords=["macd", "signal", "bearish", "cross"],
+   requires=["macd_line", "macd_signal"])
+
+_a("MZU",  "macd_zero_cross_up",        "MACD Zero Cross Up",        "MACD Cruce Cero Arriba",    "indicator", "+", 1, True, 600,
+   "MACD crosses above zero line (trend shift bullish)",
+   "MACD cruza sobre la línea cero (cambio de tendencia alcista)",
+   flip="MZD", keywords=["macd", "zero", "bullish"],
+   requires=["macd_line"])
+
+_a("MZD",  "macd_zero_cross_down",      "MACD Zero Cross Down",      "MACD Cruce Cero Abajo",     "indicator", "-", 1, True, 600,
+   "MACD crosses below zero line (trend shift bearish)",
+   "MACD cruza bajo la línea cero (cambio de tendencia bajista)",
+   flip="MZU", keywords=["macd", "zero", "bearish"],
+   requires=["macd_line"])
+
+# --- Stochastic Events (from BarEngine 1-min bars) ---
+_a("STBU", "stoch_cross_bullish",       "Stoch Bullish Cross",       "Cruce Estocástico Alcista",  "indicator", "+", 1, True, 300,
+   "Stochastic %K crosses above %D from oversold zone (<30)",
+   "Estocástico %K cruza sobre %D desde zona de sobreventa (<30)",
+   flip="STBD", keywords=["stochastic", "bullish", "oversold"],
+   requires=["stoch_k", "stoch_d"])
+
+_a("STBD", "stoch_cross_bearish",       "Stoch Bearish Cross",       "Cruce Estocástico Bajista",  "indicator", "-", 1, True, 300,
+   "Stochastic %K crosses below %D from overbought zone (>70)",
+   "Estocástico %K cruza bajo %D desde zona de sobrecompra (>70)",
+   flip="STBU", keywords=["stochastic", "bearish", "overbought"],
+   requires=["stoch_k", "stoch_d"])
+
+_a("STOS", "stoch_oversold",            "Stoch Oversold Entry",      "Estocástico Sobreventa",     "indicator", "-", 1, True, 600,
+   "Stochastic %K enters oversold zone (<20)",
+   "Estocástico %K entra en zona de sobreventa (<20)",
+   flip="STOB", keywords=["stochastic", "oversold"],
+   requires=["stoch_k"])
+
+_a("STOB", "stoch_overbought",          "Stoch Overbought Entry",    "Estocástico Sobrecompra",    "indicator", "+", 1, True, 600,
+   "Stochastic %K enters overbought zone (>80)",
+   "Estocástico %K entra en zona de sobrecompra (>80)",
+   flip="STOS", keywords=["stochastic", "overbought"],
+   requires=["stoch_k"])
+
+# --- Opening Range Breakout (5-min ORB, active) ---
+_a("ORBU", "orb_breakout_up",           "Opening Range Breakout Up", "Ruptura Rango Apertura",     "orb", "+", 1, True, 600,
+   "Price breaks above the 5-minute opening range high",
+   "El precio rompe por encima del máximo del rango de apertura de 5 minutos",
+   flip="ORBD", keywords=["opening range", "breakout", "ORB"],
+   requires=["open_price", "intraday_high"])
+
+_a("ORBD", "orb_breakout_down",         "Opening Range Breakout Down","Quiebre Rango Apertura",    "orb", "-", 1, True, 600,
+   "Price breaks below the 5-minute opening range low",
+   "El precio rompe por debajo del mínimo del rango de apertura de 5 minutos",
+   flip="ORBU", keywords=["opening range", "breakdown", "ORB"],
+   requires=["open_price", "intraday_low"])
+
+# --- Consolidation Breakout (active, from window metrics) ---
+_a("CBU",  "consolidation_breakout_up",  "Consolidation Breakout",   "Ruptura Consolidación",     "consol", "+", 1, True, 600,
+   "Price breaks out of tight consolidation (low chg_5/10min then sudden 1min move)",
+   "El precio rompe un rango de consolidación estrecho con impulso repentino",
+   flip="CBD", keywords=["consolidation", "breakout", "tight range"],
+   requires=["chg_1min", "chg_5min", "chg_10min"])
+
+_a("CBD",  "consolidation_breakout_down","Consolidation Breakdown",   "Quiebre Consolidación",    "consol", "-", 1, True, 600,
+   "Price breaks down from tight consolidation (low chg_5/10min then sudden 1min drop)",
+   "El precio quiebra un rango de consolidación estrecho con caída repentina",
+   flip="CBU", keywords=["consolidation", "breakdown", "tight range"],
+   requires=["chg_1min", "chg_5min", "chg_10min"])
+
+# ──────────────────────────────────────────────────────────────────────
+# PHASE 2 — FUTURE (requires additional data / infrastructure)
+# ──────────────────────────────────────────────────────────────────────
+
+# --- Daily SMA Crosses (requires historical daily bars) ---
+_a("CA200","crossed_above_sma200",     "Crossed Above SMA 200",     "Cruzó Sobre SMA 200",        "ma_cross", "+", 2, False, 300,
    "Price crosses above 200-day simple moving average",
    "El precio cruza por encima de la media móvil simple de 200 días",
    flip="CB200", keywords=["sma", "200", "moving average", "daily"],
    requires=["sma_200"])
 
-_a("CB200","crossed_below_sma200",     "Crossed Below 200 SMA",     "Cruzó Bajo SMA 200",         "ma_cross", "-", 2, False, 300,
+_a("CB200","crossed_below_sma200",     "Crossed Below SMA 200",     "Cruzó Bajo SMA 200",         "ma_cross", "-", 2, False, 300,
    "Price crosses below 200-day simple moving average",
    "El precio cruza por debajo de la media móvil simple de 200 días",
    flip="CA200", keywords=["sma", "200", "moving average", "daily"],
    requires=["sma_200"])
-
-_a("CA50", "crossed_above_sma50",      "Crossed Above 50 SMA",      "Cruzó Sobre SMA 50",         "ma_cross", "+", 2, False, 300,
-   "Price crosses above 50-day simple moving average",
-   "El precio cruza por encima de la media móvil simple de 50 días",
-   flip="CB50", keywords=["sma", "50", "moving average", "daily"],
-   requires=["sma_50"])
-
-_a("CB50", "crossed_below_sma50",      "Crossed Below 50 SMA",      "Cruzó Bajo SMA 50",          "ma_cross", "-", 2, False, 300,
-   "Price crosses below 50-day simple moving average",
-   "El precio cruza por debajo de la media móvil simple de 50 días",
-   flip="CA50", keywords=["sma", "50", "moving average", "daily"],
-   requires=["sma_50"])
-
-_a("CA20", "crossed_above_sma20",      "Crossed Above 20 SMA",      "Cruzó Sobre SMA 20",         "ma_cross", "+", 2, False, 300,
-   "Price crosses above 20-day simple moving average",
-   "El precio cruza por encima de la media móvil simple de 20 días",
-   flip="CB20", keywords=["sma", "20", "moving average", "daily"],
-   requires=["sma_20"])
-
-_a("CB20", "crossed_below_sma20",      "Crossed Below 20 SMA",      "Cruzó Bajo SMA 20",          "ma_cross", "-", 2, False, 300,
-   "Price crosses below 20-day simple moving average",
-   "El precio cruza por debajo de la media móvil simple de 20 días",
-   flip="CA20", keywords=["sma", "20", "moving average", "daily"],
-   requires=["sma_20"])
-
-# --- Bollinger Band Events ---
-_a("BBU",  "bb_upper_breakout",        "Std Dev Breakout",          "Ruptura Desv. Estándar",     "bollinger", "+", 2, False, 120,
-   "Price crosses above upper Bollinger Band (2 std dev above SMA 20)",
-   "El precio cruza por encima de la Banda Bollinger superior (2 desv. est. sobre SMA 20)",
-   flip="BBD", keywords=["bollinger", "breakout", "std dev", "band"],
-   requires=["bb_upper"])
-
-_a("BBD",  "bb_lower_breakdown",       "Std Dev Breakdown",         "Quiebre Desv. Estándar",     "bollinger", "-", 2, False, 120,
-   "Price crosses below lower Bollinger Band (2 std dev below SMA 20)",
-   "El precio cruza por debajo de la Banda Bollinger inferior (2 desv. est. bajo SMA 20)",
-   flip="BBU", keywords=["bollinger", "breakdown", "std dev", "band"],
-   requires=["bb_lower"])
 
 # --- Pre/Post Market ---
 _a("HPRE", "pre_market_high",          "Pre-Market High",           "Máximo Pre-Market",          "session", "+", 2, False, 30,
@@ -358,14 +489,14 @@ _a("CBCC", "crossed_below_close_confirmed", "Crossed Below Close (Confirmed)","C
    flip="CACC", keywords=["close", "cross", "confirmed"],
    requires=["confirmation_timer"])
 
-# --- Gap Variants ---
-_a("FGUR", "false_gap_up_retracement", "False Gap Up Retracement",  "Retroceso Falso Gap Alcista", "gap", "-", 2, False, 300,
+# --- Gap Variants (active: gap_percent and prev_close available from REST) ---
+_a("FGUR", "false_gap_up_retracement", "False Gap Up Retracement",  "Retroceso Falso Gap Alcista", "gap", "-", 1, True, 300,
    "Gap up stock fully retraces to previous close level",
    "Acción con gap alcista retrocede completamente al nivel del cierre previo",
    flip="FGDR", keywords=["gap", "false", "retrace"],
    requires=["gap_percent", "prev_close"])
 
-_a("FGDR", "false_gap_down_retracement","False Gap Down Retracement","Retroceso Falso Gap Bajista", "gap", "+", 2, False, 300,
+_a("FGDR", "false_gap_down_retracement","False Gap Down Retracement","Retroceso Falso Gap Bajista", "gap", "+", 1, True, 300,
    "Gap down stock fully retraces back up to previous close level",
    "Acción con gap bajista retrocede completamente al nivel del cierre previo",
    flip="FGUR", keywords=["gap", "false", "retrace"],
@@ -412,26 +543,26 @@ _a("PFL25O","pullback_25_from_low_open",   "25% Pullback from Lows (Open)",  "Re
    "El precio rebota 25% desde el mínimo hacia la apertura",
    flip="PFH25O", keywords=["pullback", "bounce", "open"])
 
-# --- Running Variants ---
-_a("RU",   "running_up_sustained",     "Running Up",                "Subiendo Sostenido",         "momentum", "+", 2, False, 120,
+# --- Running Variants (active: chg_Xmin from window trackers) ---
+_a("RU",   "running_up_sustained",     "Running Up Sustained",      "Subiendo Sostenido",         "momentum", "+", 1, True, 120,
    "Price up >3% in last 10 minutes (sustained momentum)",
    "Precio sube >3% en los últimos 10 minutos (momentum sostenido)",
    flip="RD", keywords=["running", "sustained"],
    requires=["chg_10min"])
 
-_a("RD",   "running_down_sustained",   "Running Down",              "Bajando Sostenido",          "momentum", "-", 2, False, 120,
+_a("RD",   "running_down_sustained",   "Running Down Sustained",    "Bajando Sostenido",          "momentum", "-", 1, True, 120,
    "Price down >3% in last 10 minutes (sustained momentum)",
    "Precio baja >3% en los últimos 10 minutos (momentum sostenido)",
    flip="RU", keywords=["running", "sustained"],
    requires=["chg_10min"])
 
-_a("RUC",  "running_up_confirmed",     "Running Up (Confirmed)",    "Subiendo (Confirmado)",      "momentum", "+", 2, False, 180,
+_a("RUC",  "running_up_confirmed",     "Running Up (Confirmed)",    "Subiendo (Confirmado)",      "momentum", "+", 1, True, 180,
    "Price up >2% in 5 min AND >4% in 15 min (confirmed trend)",
    "Precio sube >2% en 5 min Y >4% en 15 min (tendencia confirmada)",
    flip="RDC", keywords=["running", "confirmed"],
    requires=["chg_5min", "chg_15min"])
 
-_a("RDC",  "running_down_confirmed",   "Running Down (Confirmed)",  "Bajando (Confirmado)",       "momentum", "-", 2, False, 180,
+_a("RDC",  "running_down_confirmed",   "Running Down (Confirmed)",  "Bajando (Confirmado)",       "momentum", "-", 1, True, 180,
    "Price down >2% in 5 min AND >4% in 15 min (confirmed trend)",
    "Precio baja >2% en 5 min Y >4% en 15 min (tendencia confirmada)",
    flip="RUC", keywords=["running", "confirmed"],
@@ -450,14 +581,14 @@ _a("VDD",  "vwap_divergence_down",     "Negative VWAP Divergence",  "Divergencia
    flip="VDU", keywords=["vwap", "divergence"],
    requires=["vwap", "price_highs_tracking"])
 
-# --- Daily Support/Resistance ---
-_a("CDHR", "crossed_daily_high_resistance", "Crossed Daily High Resistance", "Cruzó Resistencia Máx Diario", "price", "+", 2, False, 300,
+# --- Daily Support/Resistance (active: prevDay data from REST snapshot) ---
+_a("CDHR", "crossed_daily_high_resistance", "Crossed Daily High",    "Cruzó Máximo Día Anterior",    "price", "+", 1, True, 300,
    "Price crosses above previous day's high (resistance level)",
    "El precio cruza por encima del máximo del día anterior (nivel de resistencia)",
    flip="CDLS", keywords=["resistance", "daily high"],
    requires=["prev_day_high"])
 
-_a("CDLS", "crossed_daily_low_support",     "Crossed Daily Low Support",     "Cruzó Soporte Mín Diario",     "price", "-", 2, False, 300,
+_a("CDLS", "crossed_daily_low_support",     "Crossed Daily Low",     "Cruzó Mínimo Día Anterior",    "price", "-", 1, True, 300,
    "Price crosses below previous day's low (support level)",
    "El precio cruza por debajo del mínimo del día anterior (nivel de soporte)",
    flip="CDHR", keywords=["support", "daily low"],

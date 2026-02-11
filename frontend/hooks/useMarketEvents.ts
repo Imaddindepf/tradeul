@@ -1,14 +1,9 @@
 /**
  * useMarketEvents - Hook for real-time market events subscription
  * 
- * Events include all 27 event types detected by the Event Detector service:
- * - Price: new_high, new_low, crossed_above/below_open, crossed_above/below_prev_close
- * - VWAP: vwap_cross_up/down
- * - Volume: rvol_spike, volume_surge, volume_spike_1min, unusual_prints, block_trade
- * - Momentum: running_up/down, percent_up/down_5/10
- * - Pullbacks: pullback_75/25_from_high/low
- * - Gap: gap_up/down_reversal
- * - Trading: halt, resume
+ * Events include 39 active event types detected by the Event Detector service:
+ * Phase 1 (27 tick-based): price, VWAP, volume, momentum, pullbacks, gaps, halts
+ * Phase 1B (12 snapshot-driven): EMA crosses, BB breakout, daily levels, running variants
  * 
  * Uses the shared WebSocket connection via WebSocketManager singleton.
  */
@@ -22,40 +17,58 @@ import { filter, map, share, takeUntil } from 'rxjs/operators';
 // ============================================================================
 
 export type MarketEventType =
-  // Price
+  // Phase 1: Price
   | 'new_high'
   | 'new_low'
   | 'crossed_above_open'
   | 'crossed_below_open'
   | 'crossed_above_prev_close'
   | 'crossed_below_prev_close'
-  // VWAP
+  // Phase 1: VWAP
   | 'vwap_cross_up'
   | 'vwap_cross_down'
-  // Volume
+  // Phase 1: Volume
   | 'rvol_spike'
   | 'volume_surge'
   | 'volume_spike_1min'
   | 'unusual_prints'
   | 'block_trade'
-  // Momentum
+  // Phase 1: Momentum
   | 'running_up'
   | 'running_down'
   | 'percent_up_5'
   | 'percent_down_5'
   | 'percent_up_10'
   | 'percent_down_10'
-  // Pullbacks
+  // Phase 1: Pullbacks
   | 'pullback_75_from_high'
   | 'pullback_25_from_high'
   | 'pullback_75_from_low'
   | 'pullback_25_from_low'
-  // Gap
+  // Phase 1: Gap
   | 'gap_up_reversal'
   | 'gap_down_reversal'
-  // Trading
+  // Phase 1: Halts
   | 'halt'
-  | 'resume';
+  | 'resume'
+  // Phase 1B: Intraday EMA Crosses (snapshot-driven)
+  | 'crossed_above_ema20'
+  | 'crossed_below_ema20'
+  | 'crossed_above_ema50'
+  | 'crossed_below_ema50'
+  // Phase 1B: Bollinger Bands
+  | 'bb_upper_breakout'
+  | 'bb_lower_breakdown'
+  // Phase 1B: Daily Levels
+  | 'crossed_daily_high_resistance'
+  | 'crossed_daily_low_support'
+  | 'false_gap_up_retracement'
+  | 'false_gap_down_retracement'
+  // Phase 1B: Running Variants
+  | 'running_up_sustained'
+  | 'running_down_sustained'
+  | 'running_up_confirmed'
+  | 'running_down_confirmed';
 
 export interface MarketEvent {
   id: string;
@@ -163,8 +176,10 @@ class MarketEventsStore {
   }
 
   private addEvent(event: MarketEvent): void {
-    this.newEvent.next(event);
     const current = this.events.getValue();
+    // Deduplicate by event ID (prevents duplicates from SharedWorker multi-port broadcast)
+    if (current.some(e => e.id === event.id)) return;
+    this.newEvent.next(event);
     const updated = [event, ...current].slice(0, this.maxEvents);
     this.events.next(updated);
   }
@@ -291,44 +306,62 @@ export function useMarketEvents(options: UseMarketEventsOptions = {}): UseMarket
 }
 
 // ============================================================================
-// HELPERS - Display labels, colors, icons for ALL 27 event types
+// HELPERS - Display labels, colors, icons for ALL active event types
 // ============================================================================
 
 export const EVENT_TYPE_LABELS: Record<MarketEventType, string> = {
-  // Price
+  // Phase 1: Price
   new_high: 'New High',
   new_low: 'New Low',
   crossed_above_open: '↑ Open',
   crossed_below_open: '↓ Open',
   crossed_above_prev_close: '↑ Close',
   crossed_below_prev_close: '↓ Close',
-  // VWAP
+  // Phase 1: VWAP
   vwap_cross_up: 'VWAP ↑',
   vwap_cross_down: 'VWAP ↓',
-  // Volume
+  // Phase 1: Volume
   rvol_spike: 'RVOL 3x',
   volume_surge: 'RVOL 5x',
   volume_spike_1min: 'Vol Spike',
   unusual_prints: 'Unusual',
   block_trade: 'Block Trade',
-  // Momentum
+  // Phase 1: Momentum
   running_up: 'Run ↑',
   running_down: 'Run ↓',
   percent_up_5: '+5%',
   percent_down_5: '-5%',
   percent_up_10: '+10%',
   percent_down_10: '-10%',
-  // Pullbacks
+  // Phase 1: Pullbacks
   pullback_75_from_high: 'PB 75% H',
   pullback_25_from_high: 'PB 25% H',
   pullback_75_from_low: 'Bounce 75%',
   pullback_25_from_low: 'Bounce 25%',
-  // Gap
+  // Phase 1: Gap
   gap_up_reversal: 'Gap↑ Rev',
   gap_down_reversal: 'Gap↓ Rev',
-  // Trading
+  // Phase 1: Halts
   halt: 'HALT',
   resume: 'RESUME',
+  // Phase 1B: EMA Crosses
+  crossed_above_ema20: 'EMA20 ↑',
+  crossed_below_ema20: 'EMA20 ↓',
+  crossed_above_ema50: 'EMA50 ↑',
+  crossed_below_ema50: 'EMA50 ↓',
+  // Phase 1B: Bollinger
+  bb_upper_breakout: 'BB Upper',
+  bb_lower_breakdown: 'BB Lower',
+  // Phase 1B: Daily Levels
+  crossed_daily_high_resistance: 'Day High ↑',
+  crossed_daily_low_support: 'Day Low ↓',
+  false_gap_up_retracement: 'False Gap↑',
+  false_gap_down_retracement: 'False Gap↓',
+  // Phase 1B: Running Variants
+  running_up_sustained: 'Run ↑ Sust',
+  running_down_sustained: 'Run ↓ Sust',
+  running_up_confirmed: 'Run ↑ Conf',
+  running_down_confirmed: 'Run ↓ Conf',
 };
 
 export const EVENT_TYPE_COLORS: Record<MarketEventType, string> = {
@@ -359,6 +392,21 @@ export const EVENT_TYPE_COLORS: Record<MarketEventType, string> = {
   gap_down_reversal: 'text-emerald-500',
   halt: 'text-red-600',
   resume: 'text-green-600',
+  // Phase 1B
+  crossed_above_ema20: 'text-emerald-500',
+  crossed_below_ema20: 'text-rose-500',
+  crossed_above_ema50: 'text-emerald-600',
+  crossed_below_ema50: 'text-rose-600',
+  bb_upper_breakout: 'text-emerald-600',
+  bb_lower_breakdown: 'text-rose-600',
+  crossed_daily_high_resistance: 'text-emerald-600',
+  crossed_daily_low_support: 'text-rose-600',
+  false_gap_up_retracement: 'text-rose-500',
+  false_gap_down_retracement: 'text-emerald-500',
+  running_up_sustained: 'text-emerald-700',
+  running_down_sustained: 'text-rose-700',
+  running_up_confirmed: 'text-emerald-700',
+  running_down_confirmed: 'text-rose-700',
 };
 
 export const EVENT_TYPE_ICONS: Record<MarketEventType, string> = {
@@ -389,4 +437,19 @@ export const EVENT_TYPE_ICONS: Record<MarketEventType, string> = {
   gap_down_reversal: '🔄',
   halt: '🛑',
   resume: '▶️',
+  // Phase 1B
+  crossed_above_ema20: '📐',
+  crossed_below_ema20: '📐',
+  crossed_above_ema50: '📐',
+  crossed_below_ema50: '📐',
+  bb_upper_breakout: '📏',
+  bb_lower_breakdown: '📏',
+  crossed_daily_high_resistance: '📍',
+  crossed_daily_low_support: '📍',
+  false_gap_up_retracement: '🔃',
+  false_gap_down_retracement: '🔃',
+  running_up_sustained: '🏃',
+  running_down_sustained: '🏃',
+  running_up_confirmed: '✅',
+  running_down_confirmed: '✅',
 };

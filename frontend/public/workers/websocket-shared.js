@@ -120,9 +120,9 @@ function connectWebSocket(url) {
       stopHeartbeat();
       broadcastStatus();
 
-      // Auto-reconnect si hay tabs abiertas
+      // Auto-reconnect: pedir token fresco, NUNCA reconectar con viejo
       if (ports.size > 0) {
-        const backoff = Math.min(3000 * Math.pow(2, connectionInfo.reconnectAttempts), 60000);
+        var backoff = Math.min(1000 * Math.pow(2, connectionInfo.reconnectAttempts), 30000);
         connectionInfo.reconnectAttempts++;
 
         if (connectionInfo.reconnectTimer) {
@@ -130,23 +130,31 @@ function connectWebSocket(url) {
         }
 
         connectionInfo.reconnectTimer = setTimeout(function() {
-          // Pedir token nuevo al frontend antes de reconectar
+          // Pedir token fresco al frontend
           ports.forEach(function(port) {
-            port.postMessage({
-              type: 'request_fresh_token',
-              message: 'SharedWorker needs fresh token for reconnection'
-            });
+            try {
+              port.postMessage({
+                type: 'request_fresh_token',
+                message: 'SharedWorker needs fresh token for reconnection'
+              });
+            } catch (e) { /* port cerrado */ }
           });
           
-          // Esperar hasta 3 segundos para el token nuevo
-          // Si no llega, reconectar con la URL actual como fallback
+          // NO hay fallback con token viejo.
+          // Solo reconectamos cuando frontend envía 'update_token'.
+          // Safety: si no llega en 60s, re-pedir
           connectionInfo.tokenTimeout = setTimeout(function() {
-            if (connectionInfo.waitingForToken) {
-              log('error', '⚠️ Token timeout, reconnecting with current URL');
-              connectionInfo.waitingForToken = false;
-              connectWebSocket(connectionInfo.url);
+            if (connectionInfo.waitingForToken && ports.size > 0) {
+              ports.forEach(function(port) {
+                try {
+                  port.postMessage({
+                    type: 'request_fresh_token',
+                    message: 'SharedWorker retry: still waiting for fresh token'
+                  });
+                } catch (e) { /* port cerrado */ }
+              });
             }
-          }, 3000);
+          }, 60000);
         }, backoff);
       }
     };
@@ -264,6 +272,22 @@ function broadcastMessage(message) {
     else if (message.type === 'sec_filing') {
       if (!sub.subscribedSEC) return;
     }
+    // Market events: route by sub_id matching
+    else if (message.type === 'market_event') {
+      if (!sub.eventSubIds || sub.eventSubIds.size === 0) return;
+      // Only forward if this port has at least one matching sub_id
+      var matchedSubs = message.matched_subs || [];
+      var hasMatch = false;
+      for (var mi = 0; mi < matchedSubs.length; mi++) {
+        if (sub.eventSubIds.has(matchedSubs[mi])) { hasMatch = true; break; }
+      }
+      if (!hasMatch) return;
+    }
+    else if (message.type === 'events_snapshot') {
+      if (!sub.eventSubIds || sub.eventSubIds.size === 0) return;
+      // Only forward snapshot to the port that owns this sub_id
+      if (message.sub_id && !sub.eventSubIds.has(message.sub_id)) return;
+    }
     // Filtrar por lista para mensajes del scanner
     else if (message.list && !sub.lists.has(message.list)) {
       return;
@@ -335,6 +359,9 @@ function resubscribeAllLists() {
       ws.send(JSON.stringify({ action: 'subscribe_sec' }));
       // log('info', '📄 Re-subscribed to SEC');
     }
+    
+    // Events are NOT re-subscribed here. Each EventTableContent component
+    // re-subscribes with its own sub_id + filters via useEffect on ws.isConnected.
   }
 }
 
@@ -451,6 +478,11 @@ function handlePortMessage(port, data) {
             sub.subscribedSEC = true;
           } else if (data.payload.action === 'unsubscribe_sec' || data.payload.action === 'unsubscribe_sec_filings') {
             sub.subscribedSEC = false;
+          } else if (data.payload.action === 'subscribe_events' || data.payload.action === 'subscribe_market_events') {
+            if (!sub.eventSubIds) sub.eventSubIds = new Set();
+            sub.eventSubIds.add(data.payload.sub_id || '_default');
+          } else if (data.payload.action === 'unsubscribe_events' || data.payload.action === 'unsubscribe_market_events') {
+            if (sub.eventSubIds) sub.eventSubIds.delete(data.payload.sub_id || '_default');
           }
         }
       }
@@ -512,6 +544,7 @@ self.onconnect = function(e) {
     lists: new Set(),
     subscribedNews: false,
     subscribedSEC: false,
+    eventSubIds: new Set(),  // Set of active event subscription IDs for this port
     connectionId: null,
   });
 

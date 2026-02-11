@@ -51,9 +51,13 @@ class ReteManager:
         """Inicializa el manager cargando reglas."""
         await self.reload_rules()
         
-        # Suscribirse a cambios de reglas
+        # Suscribirse a cambios de reglas (evento inmediato)
         if self.redis:
             asyncio.create_task(self._listen_for_changes())
+        
+        # Recarga periódica como red de seguridad (si Pub/Sub falla)
+        if self.db:
+            asyncio.create_task(self._periodic_reload())
     
     async def reload_rules(self):
         """Recarga todas las reglas y recompila el network."""
@@ -124,6 +128,49 @@ class ReteManager:
             logger.error("error_loading_user_rules", error=str(e))
         
         return rules
+    
+    async def _periodic_reload(self):
+        """
+        Recarga periódica de reglas como red de seguridad.
+        
+        Si el Pub/Sub falla (ej: pool de conexiones saturado), esta tarea
+        garantiza que nuevos scans de usuario se carguen en un máximo de 5 minutos.
+        Solo recompila si el número de reglas en BD difiere del network actual.
+        """
+        RELOAD_INTERVAL_SECONDS = 300  # 5 minutos
+        
+        while True:
+            try:
+                await asyncio.sleep(RELOAD_INTERVAL_SECONDS)
+                
+                if not self.db:
+                    continue
+                
+                # Consulta ligera: solo contar reglas habilitadas
+                count_query = "SELECT COUNT(*) as cnt FROM user_scanner_filters WHERE enabled = true"
+                rows = await self.db.fetch(count_query)
+                db_count = rows[0]['cnt'] if rows else 0
+                
+                current_user_rules = self.network.user_rules if self.network else 0
+                
+                if db_count != current_user_rules:
+                    logger.info(
+                        "periodic_reload_triggered",
+                        db_rules=db_count,
+                        current_rules=current_user_rules,
+                        reason="rule_count_mismatch"
+                    )
+                    await self.reload_rules()
+                else:
+                    logger.debug(
+                        "periodic_reload_check_ok",
+                        rules_count=db_count
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("periodic_reload_error", error=str(e))
+                await asyncio.sleep(60)  # Esperar 1 min en caso de error
     
     async def _listen_for_changes(self):
         """Escucha cambios en reglas via Redis Pub/Sub."""

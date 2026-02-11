@@ -342,6 +342,61 @@ const PRESETS: Preset[] = [
 ];
 
 // ============================================================================
+// NumberInput - Uncontrolled number input that allows free typing of negatives/decimals
+// ============================================================================
+
+function NumberInput({
+    value,
+    onChange,
+    className,
+    style,
+}: {
+    value: number;
+    onChange: (val: number) => void;
+    className?: string;
+    style?: React.CSSProperties;
+}) {
+    // Key to force re-mount when value changes externally (preset, template, etc.)
+    const [resetKey, setResetKey] = useState(0);
+    const lastEmittedValue = useRef(value);
+
+    // When parent value changes externally, reset the uncontrolled input
+    useEffect(() => {
+        if (value !== lastEmittedValue.current) {
+            lastEmittedValue.current = value;
+            setResetKey(k => k + 1);
+        }
+    }, [value]);
+
+    return (
+        <input
+            key={resetKey}
+            type="number"
+            step="any"
+            defaultValue={value}
+            onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') return; // intermediate state (typing "-", clearing, etc.)
+                const parsed = parseFloat(raw);
+                if (!Number.isNaN(parsed)) {
+                    lastEmittedValue.current = parsed;
+                    onChange(parsed);
+                }
+            }}
+            onBlur={(e) => {
+                // On blur, if empty or invalid, reset to last valid value
+                const raw = e.target.value;
+                if (raw === '' || Number.isNaN(parseFloat(raw))) {
+                    setResetKey(k => k + 1);
+                }
+            }}
+            className={className}
+            style={style}
+        />
+    );
+}
+
+// ============================================================================
 // Filter Builder Component
 // ============================================================================
 
@@ -368,7 +423,20 @@ function FilterBuilder({
         newFilters[index] = { ...newFilters[index], ...updates };
 
         if (updates.operator === 'between' && !Array.isArray(newFilters[index].value)) {
-            newFilters[index].value = [0, 100];
+            // Set sensible defaults based on field type
+            const currentField = AVAILABLE_FIELDS.find(f => f.value === newFilters[index].field);
+            const currentVal = typeof newFilters[index].value === 'number' ? newFilters[index].value as number : 0;
+            if (currentField?.value === 'from_52w_high') {
+                newFilters[index].value = [-30, 0];
+            } else if (currentField?.value === 'rsi_14') {
+                newFilters[index].value = [30, 70];
+            } else if (currentField?.value === 'bb_position') {
+                newFilters[index].value = [0, 100];
+            } else if (currentField?.type === 'percent') {
+                newFilters[index].value = [currentVal, currentVal + 10];
+            } else {
+                newFilters[index].value = [currentVal, currentVal || 100];
+            }
         } else if (updates.operator && updates.operator !== 'between' && Array.isArray(newFilters[index].value)) {
             newFilters[index].value = 0;
         }
@@ -390,7 +458,7 @@ function FilterBuilder({
                 const fieldInfo = getFieldInfo(filter.field);
                 const hasParams = isParametric(fieldInfo);
                 const currentPeriod = filter.params?.period ?? fieldInfo?.defaultPeriod ?? 14;
-                
+
                 return (
                     <div key={index} className="flex items-center gap-1 bg-white rounded border border-slate-200 px-1.5 py-1">
                         <select
@@ -410,7 +478,7 @@ function FilterBuilder({
                                 value={currentPeriod}
                                 onChange={(e) => {
                                     const val = parseInt(e.target.value) || 14;
-                                    updateFilter(index, { 
+                                    updateFilter(index, {
                                         params: { period: Math.max(2, Math.min(200, val)) }
                                     });
                                 }}
@@ -441,11 +509,11 @@ function FilterBuilder({
                                         const num = parseFloat(e.target.value) || 0;
                                         const mult = (filter as any).multiplier || 1_000_000;
                                         const max = (filter as any).displayMax ?? 100;
-                                        updateFilter(index, { 
-                                            value: [num * mult, max * mult], 
-                                            displayMin: num, 
+                                        updateFilter(index, {
+                                            value: [num * mult, max * mult],
+                                            displayMin: num,
                                             displayMax: max,
-                                            multiplier: mult 
+                                            multiplier: mult
                                         } as any);
                                     }}
                                     className="w-[45px] px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
@@ -459,11 +527,11 @@ function FilterBuilder({
                                         const num = parseFloat(e.target.value) || 0;
                                         const mult = (filter as any).multiplier || 1_000_000;
                                         const min = (filter as any).displayMin ?? 0;
-                                        updateFilter(index, { 
-                                            value: [min * mult, num * mult], 
-                                            displayMin: min, 
+                                        updateFilter(index, {
+                                            value: [min * mult, num * mult],
+                                            displayMin: min,
                                             displayMax: num,
-                                            multiplier: mult 
+                                            multiplier: mult
                                         } as any);
                                     }}
                                     className="w-[45px] px-1 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
@@ -475,9 +543,9 @@ function FilterBuilder({
                                         const mult = parseInt(e.target.value);
                                         const min = (filter as any).displayMin ?? 0;
                                         const max = (filter as any).displayMax ?? 100;
-                                        updateFilter(index, { 
-                                            value: [min * mult, max * mult], 
-                                            multiplier: mult 
+                                        updateFilter(index, {
+                                            value: [min * mult, max * mult],
+                                            multiplier: mult
                                         } as any);
                                     }}
                                     className="px-1 py-0.5 rounded border border-slate-300 bg-slate-50 text-slate-600"
@@ -491,23 +559,21 @@ function FilterBuilder({
                         ) : filter.operator === 'between' ? (
                             // Between normal (sin unidades)
                             <div className="flex items-center gap-1">
-                                <input
-                                    type="number"
+                                <NumberInput
                                     value={Array.isArray(filter.value) ? filter.value[0] : 0}
-                                    onChange={(e) => updateFilter(index, {
-                                        value: [parseFloat(e.target.value) || 0, Array.isArray(filter.value) ? filter.value[1] : 100]
+                                    onChange={(val) => updateFilter(index, {
+                                        value: [val, Array.isArray(filter.value) ? filter.value[1] : 0]
                                     })}
-                                    className="w-[50px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    className="w-[60px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
                                     style={{ fontSize: '10px' }}
                                 />
                                 <span className="text-slate-400" style={{ fontSize: '8px' }}>to</span>
-                                <input
-                                    type="number"
-                                    value={Array.isArray(filter.value) ? filter.value[1] : 100}
-                                    onChange={(e) => updateFilter(index, {
-                                        value: [Array.isArray(filter.value) ? filter.value[0] : 0, parseFloat(e.target.value) || 100]
+                                <NumberInput
+                                    value={Array.isArray(filter.value) ? filter.value[1] : 0}
+                                    onChange={(val) => updateFilter(index, {
+                                        value: [Array.isArray(filter.value) ? filter.value[0] : 0, val]
                                     })}
-                                    className="w-[50px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
+                                    className="w-[60px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
                                     style={{ fontSize: '10px' }}
                                 />
                                 {fieldInfo?.unit && (
@@ -544,10 +610,9 @@ function FilterBuilder({
                             </div>
                         ) : (
                             <div className="flex items-center gap-1">
-                                <input
-                                    type="number"
+                                <NumberInput
                                     value={typeof filter.value === 'number' ? filter.value : 0}
-                                    onChange={(e) => updateFilter(index, { value: parseFloat(e.target.value) || 0 })}
+                                    onChange={(val) => updateFilter(index, { value: val })}
                                     className="w-[65px] px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-800 font-medium"
                                     style={{ fontSize: '10px' }}
                                 />
@@ -584,41 +649,41 @@ function FilterBuilder({
 const screenerColumnHelper = createColumnHelper<ScreenerResult>();
 
 // Formatters
-    const formatPrice = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-        if (value >= 1) return `$${value.toFixed(2)}`;
-        return `$${value.toFixed(4)}`;
-    };
+const formatPrice = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
+    if (value >= 1) return `$${value.toFixed(2)}`;
+    return `$${value.toFixed(4)}`;
+};
 
-    const formatPercent = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        const sign = value >= 0 ? '+' : '';
-        return `${sign}${value.toFixed(2)}%`;
-    };
+const formatPercent = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
+};
 
-    const formatVolume = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
-        if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-        if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
-        return value.toString();
-    };
+const formatVolume = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    if (value >= 1000000000) return `${(value / 1000000000).toFixed(1)}B`;
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+    return value.toString();
+};
 
-    const formatMultiplier = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        return `${value.toFixed(2)}x`;
-    };
+const formatMultiplier = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    return `${value.toFixed(2)}x`;
+};
 
-    const formatRSI = (value: number | null) => {
-        if (value === null || value === undefined) return '-';
-        return value.toFixed(0);
-    };
+const formatRSI = (value: number | null) => {
+    if (value === null || value === undefined) return '-';
+    return value.toFixed(0);
+};
 
-    const getChangeColor = (value: number | null) => {
-        if (value === null) return 'text-slate-400';
-        return value >= 0 ? 'text-emerald-600' : 'text-red-500';
-    };
+const getChangeColor = (value: number | null) => {
+    if (value === null) return 'text-slate-400';
+    return value >= 0 ? 'text-emerald-600' : 'text-red-500';
+};
 
 // Storage helpers for persistence
 const SCREENER_STORAGE_KEY = 'screener_table';
@@ -738,13 +803,13 @@ function ResultsTable({
     onSymbolClick?: (symbol: string) => void;
 }) {
     // Load persisted state
-    const [sorting, setSorting] = useState<SortingState>(() => 
+    const [sorting, setSorting] = useState<SortingState>(() =>
         loadScreenerStorage('sorting', [])
     );
-    const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(() => 
+    const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(() =>
         loadScreenerStorage('columnOrder', [])
     );
-    const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => 
+    const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() =>
         loadScreenerStorage('columnVisibility', {})
     );
 
@@ -785,11 +850,11 @@ function ResultsTable({
             <div className="flex-shrink-0 flex justify-end px-2 py-1 bg-slate-50/50 border-b border-slate-100">
                 <TableSettings table={table} />
             </div>
-            
+
             {/* Table */}
-        <div className="overflow-auto flex-1">
-            <table className="w-full text-left" style={{ fontSize: '9px' }}>
-                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
+            <div className="overflow-auto flex-1">
+                <table className="w-full text-left" style={{ fontSize: '9px' }}>
+                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-200">
                         {table.getHeaderGroups().map((headerGroup) => (
                             <tr key={headerGroup.id}>
                                 {headerGroup.headers.map((header, headerIndex) => {
@@ -840,15 +905,15 @@ function ResultsTable({
                                         </th>
                                     );
                                 })}
-                    </tr>
+                            </tr>
                         ))}
-                </thead>
-                <tbody>
+                    </thead>
+                    <tbody>
                         {table.getRowModel().rows.map((row, i) => (
-                        <tr
+                            <tr
                                 key={row.id}
-                            className={`border-b border-slate-50 hover:bg-slate-50/80 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
-                        >
+                                className={`border-b border-slate-50 hover:bg-slate-50/80 ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'}`}
+                            >
                                 {row.getVisibleCells().map((cell, cellIndex) => {
                                     const isFirstColumn = cellIndex === 0;
                                     return (
@@ -857,13 +922,13 @@ function ResultsTable({
                                             className={`px-2 py-1 ${isFirstColumn ? 'text-left' : 'text-right'}`}
                                         >
                                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                            </td>
+                                        </td>
                                     );
                                 })}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
             </div>
         </div>
     );
@@ -900,7 +965,7 @@ export function ScreenerContent() {
     const [activePreset, setActivePreset] = useState<string | null>(windowState.activePreset ?? null);
     const [showFilters, setShowFilters] = useState(true);
     const { executeCommand, executeTickerCommand } = useCommandExecutor();
-    
+
     // User templates
     const {
         templates: userTemplates,
@@ -914,7 +979,7 @@ export function ScreenerContent() {
     const [showSaveModal, setShowSaveModal] = useState(false);
     const [templateName, setTemplateName] = useState('');
     const [activeUserTemplate, setActiveUserTemplate] = useState<number | null>(windowState.activeUserTemplate ?? null);
-    
+
     // Track if auto-execute has been done
     const autoExecutedRef = useRef(false);
     // Ref to handleSearch for use in effect
@@ -924,12 +989,12 @@ export function ScreenerContent() {
     useEffect(() => {
         listTemplates();
     }, [listTemplates]);
-    
+
     // Persist state changes (only after first render with results)
     const hasResultsRef = useRef(false);
     useEffect(() => {
         if (results.length > 0) hasResultsRef.current = true;
-        
+
         // Only persist if we have meaningful state
         if (hasResultsRef.current || filters !== defaultFilters) {
             updateWindowState({
@@ -943,13 +1008,13 @@ export function ScreenerContent() {
             });
         }
     }, [filters, sortBy, sortOrder, limit, activePreset, activeUserTemplate, results.length, updateWindowState]);
-    
+
     // Auto-execute when windowState becomes available (may be delayed due to hydration)
     useEffect(() => {
         // Only execute once, when we have saved state
         if (!autoExecutedRef.current && windowState.autoExecute && windowState.filters && windowState.filters.length > 0) {
             autoExecutedRef.current = true;
-            
+
             // Update local state from windowState if different
             if (JSON.stringify(filters) !== JSON.stringify(windowState.filters)) {
                 setFilters(windowState.filters as FilterCondition[]);
@@ -963,7 +1028,7 @@ export function ScreenerContent() {
             if (windowState.limit && limit !== windowState.limit) {
                 setLimit(windowState.limit);
             }
-            
+
             // Execute search after state update
             const timer = setTimeout(() => {
                 handleSearchRef.current?.();
@@ -1010,7 +1075,7 @@ export function ScreenerContent() {
             setLoading(false);
         }
     }, [filters, symbols, sortBy, sortOrder, limit]);
-    
+
     // Update ref for auto-execute
     useEffect(() => {
         handleSearchRef.current = handleSearch;
@@ -1051,13 +1116,13 @@ export function ScreenerContent() {
     // Save current config as template
     const handleSaveTemplate = async () => {
         if (!templateName.trim()) return;
-        
+
         const templateFilters: TemplateFilterCondition[] = filters.map(f => ({
             field: f.field,
             operator: f.operator,
             value: f.value,
         }));
-        
+
         const result = await createTemplate({
             name: templateName.trim(),
             filters: templateFilters,
@@ -1065,7 +1130,7 @@ export function ScreenerContent() {
             sort_order: sortOrder,
             limit_results: limit,
         });
-        
+
         if (result) {
             setShowSaveModal(false);
             setTemplateName('');
@@ -1079,7 +1144,7 @@ export function ScreenerContent() {
             operator: f.operator,
             value: f.value as number | number[] | boolean,
         }));
-        
+
         setFilters(loadedFilters);
         setSortBy(template.sortBy);
         setSortOrder(template.sortOrder as 'asc' | 'desc');
@@ -1087,7 +1152,7 @@ export function ScreenerContent() {
         setActivePreset(null);
         setActiveUserTemplate(template.id);
         setShowFilters(true);
-        
+
         // Track usage
         useTemplate(template.id);
     };
@@ -1158,9 +1223,8 @@ export function ScreenerContent() {
                                     setActiveUserTemplate(null);
                                 }
                             }}
-                            className={`px-2 py-1 rounded border text-slate-600 bg-white cursor-pointer appearance-none pr-6 ${
-                                activePreset && !activeUserTemplate ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300'
-                            }`}
+                            className={`px-2 py-1 rounded border text-slate-600 bg-white cursor-pointer appearance-none pr-6 ${activePreset && !activeUserTemplate ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300'
+                                }`}
                             style={{ fontSize: '10px' }}
                         >
                             <option value="">Presets</option>
@@ -1170,10 +1234,10 @@ export function ScreenerContent() {
                         </select>
                         <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
                     </div>
-                    
+
                     {/* Separator */}
                     <div className="h-4 w-px bg-slate-200" />
-                    
+
                     {/* User templates */}
                     <div className="flex items-center gap-1 overflow-x-auto">
                         {userTemplates.map((template) => (
@@ -1200,7 +1264,7 @@ export function ScreenerContent() {
                                 </button>
                             </div>
                         ))}
-                        
+
                         {/* Save button */}
                         <button
                             onClick={() => setShowSaveModal(true)}
@@ -1213,11 +1277,11 @@ export function ScreenerContent() {
                     </div>
                 </div>
             </div>
-            
+
             {/* Save Template Modal */}
             {showSaveModal && (
                 <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowSaveModal(false)}>
-                    <div 
+                    <div
                         className="bg-white rounded-lg shadow-xl p-4 w-80"
                         onClick={e => e.stopPropagation()}
                         style={{ fontFamily }}
@@ -1314,8 +1378,8 @@ export function ScreenerContent() {
 
             {/* Results */}
             {results.length > 0 ? (
-                <ResultsTable 
-                    results={results} 
+                <ResultsTable
+                    results={results}
                     onSymbolClick={(symbol) => executeTickerCommand(symbol, 'chart')}
                 />
             ) : (
@@ -1340,7 +1404,7 @@ export function ScreenerContent() {
                 <div className="flex-shrink-0 px-2 py-1 border-t border-slate-100 bg-slate-50/50">
                     <div className="flex items-center justify-between text-slate-400" style={{ fontSize: '8px' }}>
                         <span>{results.length} results</span>
-                        <span>Polygon Daily Data</span>
+                        <span>Daily Data</span>
                     </div>
                 </div>
             )}

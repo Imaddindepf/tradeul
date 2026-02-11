@@ -72,20 +72,70 @@ class EventType(str, Enum):
     RESUME = "resume"                                  # [RESUME]
     
     # ═══════════════════════════════════════════════════════════════════
-    # PHASE 2 — DAILY INDICATORS + CONFIRMED CROSSES
+    # PHASE 1B — SNAPSHOT-DRIVEN (full market, detected from enriched snapshot)
     # ═══════════════════════════════════════════════════════════════════
     
-    # --- Daily Moving Average Crosses ---
-    CROSSED_ABOVE_SMA200 = "crossed_above_sma200"      # [CA200]
-    CROSSED_BELOW_SMA200 = "crossed_below_sma200"      # [CB200]
-    CROSSED_ABOVE_SMA50 = "crossed_above_sma50"        # [CA50]
-    CROSSED_BELOW_SMA50 = "crossed_below_sma50"        # [CB50]
-    CROSSED_ABOVE_SMA20 = "crossed_above_sma20"        # [CA20]
-    CROSSED_BELOW_SMA20 = "crossed_below_sma20"        # [CB20]
+    # --- Intraday EMA Crosses (BarEngine 1-min bars) ---
+    CROSSED_ABOVE_EMA20 = "crossed_above_ema20"        # [CA20] Intraday EMA(20)
+    CROSSED_BELOW_EMA20 = "crossed_below_ema20"        # [CB20] Intraday EMA(20)
+    CROSSED_ABOVE_EMA50 = "crossed_above_ema50"        # [CA50] Intraday EMA(50)
+    CROSSED_BELOW_EMA50 = "crossed_below_ema50"        # [CB50] Intraday EMA(50)
+    
+    # --- Intraday SMA Crosses (Trade Ideas alignment) ---
+    CROSSED_ABOVE_SMA8 = "crossed_above_sma8"          # [CAS8]  Intraday SMA(8)
+    CROSSED_BELOW_SMA8 = "crossed_below_sma8"          # [CBS8]  Intraday SMA(8)
+    CROSSED_ABOVE_SMA20 = "crossed_above_sma20"        # [CAS20] Intraday SMA(20)
+    CROSSED_BELOW_SMA20 = "crossed_below_sma20"        # [CBS20] Intraday SMA(20)
+    CROSSED_ABOVE_SMA50 = "crossed_above_sma50"        # [CAS50] Intraday SMA(50)
+    CROSSED_BELOW_SMA50 = "crossed_below_sma50"        # [CBS50] Intraday SMA(50)
+    SMA_8_CROSS_ABOVE_20 = "sma_8_cross_above_20"      # [SXU]  SMA(8) crosses above SMA(20)
+    SMA_8_CROSS_BELOW_20 = "sma_8_cross_below_20"      # [SXD]  SMA(8) crosses below SMA(20)
+    
+    # --- MACD Events ---
+    MACD_CROSS_BULLISH = "macd_cross_bullish"          # [MACDU] MACD crosses above signal
+    MACD_CROSS_BEARISH = "macd_cross_bearish"          # [MACDD] MACD crosses below signal
+    MACD_ZERO_CROSS_UP = "macd_zero_cross_up"          # [MZU]   MACD crosses above zero
+    MACD_ZERO_CROSS_DOWN = "macd_zero_cross_down"      # [MZD]   MACD crosses below zero
+    
+    # --- Stochastic Events ---
+    STOCH_CROSS_BULLISH = "stoch_cross_bullish"        # [STBU] %K crosses above %D (from oversold)
+    STOCH_CROSS_BEARISH = "stoch_cross_bearish"        # [STBD] %K crosses below %D (from overbought)
+    STOCH_OVERSOLD = "stoch_oversold"                  # [STOS] %K enters <20 zone
+    STOCH_OVERBOUGHT = "stoch_overbought"              # [STOB] %K enters >80 zone
+    
+    # --- Opening Range Breakout ---
+    ORB_BREAKOUT_UP = "orb_breakout_up"                # [ORBU] Price breaks above first N-min range
+    ORB_BREAKOUT_DOWN = "orb_breakout_down"            # [ORBD] Price breaks below first N-min range
+    
+    # --- Consolidation Breakout ---
+    CONSOLIDATION_BREAKOUT_UP = "consolidation_breakout_up"    # [CBU]
+    CONSOLIDATION_BREAKOUT_DOWN = "consolidation_breakout_down"  # [CBD]
     
     # --- Bollinger Band Events ---
     BB_UPPER_BREAKOUT = "bb_upper_breakout"            # [BBU]
     BB_LOWER_BREAKDOWN = "bb_lower_breakdown"          # [BBD]
+    
+    # --- Daily Support/Resistance ---
+    CROSSED_DAILY_HIGH_RESISTANCE = "crossed_daily_high_resistance"  # [CDHR]
+    CROSSED_DAILY_LOW_SUPPORT = "crossed_daily_low_support"          # [CDLS]
+    
+    # --- Gap Variants ---
+    FALSE_GAP_UP_RETRACEMENT = "false_gap_up_retracement"    # [FGUR]
+    FALSE_GAP_DOWN_RETRACEMENT = "false_gap_down_retracement"  # [FGDR]
+    
+    # --- Momentum Variants (time-window based) ---
+    RUNNING_UP_SUSTAINED = "running_up_sustained"      # [RU] chg_10min > 3%
+    RUNNING_DOWN_SUSTAINED = "running_down_sustained"  # [RD] chg_10min < -3%
+    RUNNING_UP_CONFIRMED = "running_up_confirmed"      # [RUC] chg_5min>2% AND chg_15min>4%
+    RUNNING_DOWN_CONFIRMED = "running_down_confirmed"  # [RDC] chg_5min<-2% AND chg_15min<-4%
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # PHASE 2 — FUTURE (requires additional data / infrastructure)
+    # ═══════════════════════════════════════════════════════════════════
+    
+    # --- Daily SMA Crosses (requires historical daily bars) ---
+    CROSSED_ABOVE_SMA200 = "crossed_above_sma200"      # [CA200] Daily SMA(200)
+    CROSSED_BELOW_SMA200 = "crossed_below_sma200"      # [CB200] Daily SMA(200)
     
     # --- Pre/Post Market ---
     PRE_MARKET_HIGH = "pre_market_high"                # [HPRE]
@@ -93,27 +143,13 @@ class EventType(str, Enum):
     POST_MARKET_HIGH = "post_market_high"              # [HPOST]
     POST_MARKET_LOW = "post_market_low"                # [LPOST]
     
-    # --- Confirmed Crosses ---
+    # --- Confirmed Crosses (requires confirmation timer) ---
     CROSSED_ABOVE_OPEN_CONFIRMED = "crossed_above_open_confirmed"    # [CAOC]
     CROSSED_BELOW_OPEN_CONFIRMED = "crossed_below_open_confirmed"    # [CBOC]
     CROSSED_ABOVE_CLOSE_CONFIRMED = "crossed_above_close_confirmed"  # [CACC]
     CROSSED_BELOW_CLOSE_CONFIRMED = "crossed_below_close_confirmed"  # [CBCC]
     
-    # --- Gap Variants ---
-    FALSE_GAP_UP_RETRACEMENT = "false_gap_up_retracement"    # [FGUR]
-    FALSE_GAP_DOWN_RETRACEMENT = "false_gap_down_retracement"  # [FGDR]
-    
-    # --- Daily Support/Resistance ---
-    CROSSED_DAILY_HIGH_RESISTANCE = "crossed_daily_high_resistance"  # [CDHR]
-    CROSSED_DAILY_LOW_SUPPORT = "crossed_daily_low_support"          # [CDLS]
-    
-    # --- Momentum Variants ---
-    RUNNING_UP_SUSTAINED = "running_up_sustained"      # [RU]
-    RUNNING_DOWN_SUSTAINED = "running_down_sustained"  # [RD]
-    RUNNING_UP_CONFIRMED = "running_up_confirmed"      # [RUC]
-    RUNNING_DOWN_CONFIRMED = "running_down_confirmed"  # [RDC]
-    
-    # --- VWAP Divergence ---
+    # --- VWAP Divergence (requires price lows/highs tracking) ---
     VWAP_DIVERGENCE_UP = "vwap_divergence_up"          # [VDU]
     VWAP_DIVERGENCE_DOWN = "vwap_divergence_down"      # [VDD]
 
@@ -166,12 +202,15 @@ class EventRecord:
     vol_1min: Optional[int] = None
     vol_5min: Optional[int] = None
     
-    # Daily indicators (from screener)
+    # Technical indicators (from BarEngine via enriched)
     float_shares: Optional[float] = None
     rsi: Optional[float] = None
-    sma_20: Optional[float] = None
-    sma_50: Optional[float] = None
-    sma_200: Optional[float] = None
+    ema_20: Optional[float] = None
+    ema_50: Optional[float] = None
+    
+    # Fundamentals (from metadata via enriched)
+    security_type: Optional[str] = None     # CS, ETF, PFD, WARRANT, ADRC, etc.
+    sector: Optional[str] = None            # Technology, Healthcare, etc.
     
     # Metadata
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -212,12 +251,11 @@ class EventRecord:
             "chg_10min": self.chg_10min,
             "chg_15min": self.chg_15min,
             "chg_30min": self.chg_30min,
-            # Daily indicators
+            # Technical indicators
             "float_shares": self.float_shares,
             "rsi": self.rsi,
-            "sma_20": self.sma_20,
-            "sma_50": self.sma_50,
-            "sma_200": self.sma_200,
+            "ema_20": self.ema_20,
+            "ema_50": self.ema_50,
         }
         for key, val in optional_floats.items():
             if val is not None:
@@ -230,6 +268,12 @@ class EventRecord:
             result["vol_1min"] = self.vol_1min
         if self.vol_5min is not None:
             result["vol_5min"] = self.vol_5min
+        # String optional fields
+        if self.security_type is not None:
+            result["security_type"] = self.security_type
+        if self.sector is not None:
+            result["sector"] = self.sector
+        
         if self.details:
             result["details"] = json.dumps(self.details) if isinstance(self.details, dict) else str(self.details)
             
@@ -278,11 +322,13 @@ class EventRecord:
             chg_30min=_float("chg_30min"),
             vol_1min=_int("vol_1min"),
             vol_5min=_int("vol_5min"),
-            # Daily indicators
+            # Technical indicators
             float_shares=_float("float_shares"),
             rsi=_float("rsi"),
-            sma_20=_float("sma_20"),
-            sma_50=_float("sma_50"),
-            sma_200=_float("sma_200"),
+            ema_20=_float("ema_20"),
+            ema_50=_float("ema_50"),
+            # Fundamentals
+            security_type=data.get("security_type"),
+            sector=data.get("sector"),
             details=data.get("details"),
         )

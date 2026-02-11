@@ -91,9 +91,8 @@ export interface MarketEvent {
   // Daily indicators / fundamentals
   float_shares?: number;
   rsi?: number;
-  sma_20?: number;
-  sma_50?: number;
-  sma_200?: number;
+  ema_20?: number;
+  ema_50?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -136,13 +135,11 @@ const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string; icon: ty
   // Halts
   'halt': { label: 'HALT', color: 'text-red-700 font-bold', icon: CircleStop },
   'resume': { label: 'RESUME', color: 'text-green-600', icon: Activity },
-  // Phase 2: MA Crosses
-  'crossed_above_sma200': { label: 'SMA200 Up', color: 'text-emerald-700 font-bold', icon: TrendingUp },
-  'crossed_below_sma200': { label: 'SMA200 Dn', color: 'text-rose-700 font-bold', icon: TrendingDown },
-  'crossed_above_sma50': { label: 'SMA50 Up', color: 'text-emerald-600', icon: TrendingUp },
-  'crossed_below_sma50': { label: 'SMA50 Dn', color: 'text-rose-600', icon: TrendingDown },
-  'crossed_above_sma20': { label: 'SMA20 Up', color: 'text-emerald-500', icon: TrendingUp },
-  'crossed_below_sma20': { label: 'SMA20 Dn', color: 'text-rose-500', icon: TrendingDown },
+  // Phase 1B: Intraday EMA Crosses
+  'crossed_above_ema20': { label: 'EMA20 ↑', color: 'text-emerald-500', icon: TrendingUp },
+  'crossed_below_ema20': { label: 'EMA20 ↓', color: 'text-rose-500', icon: TrendingDown },
+  'crossed_above_ema50': { label: 'EMA50 ↑', color: 'text-emerald-600', icon: TrendingUp },
+  'crossed_below_ema50': { label: 'EMA50 ↓', color: 'text-rose-600', icon: TrendingDown },
   // Phase 2: Bollinger
   'bb_upper_breakout': { label: 'BB Upper', color: 'text-emerald-600', icon: TrendingUp },
   'bb_lower_breakdown': { label: 'BB Lower', color: 'text-rose-600', icon: TrendingDown },
@@ -199,6 +196,29 @@ interface EventTableContentProps {
   categoryId: string;
   categoryName: string;
   eventTypes: string[]; // Filter to these event types (empty = all)
+  /** Default server-side filters applied when user hasn't customized */
+  defaultFilters?: {
+    min_price?: number;
+    max_price?: number;
+    min_rvol?: number;
+    max_rvol?: number;
+    min_volume?: number;
+    max_volume?: number;
+    min_change_percent?: number;
+    max_change_percent?: number;
+    min_market_cap?: number;
+    max_market_cap?: number;
+    min_gap_percent?: number;
+    max_gap_percent?: number;
+    min_change_from_open?: number;
+    max_change_from_open?: number;
+    min_float_shares?: number;
+    max_float_shares?: number;
+    min_rsi?: number;
+    max_rsi?: number;
+    min_atr_percent?: number;
+    max_atr_percent?: number;
+  };
 }
 
 // ============================================================================
@@ -237,9 +257,8 @@ function parseEvent(d: any): MarketEvent {
     vol_5min: d.vol_5min ?? undefined,
     float_shares: d.float_shares ?? undefined,
     rsi: d.rsi ?? undefined,
-    sma_20: d.sma_20 ?? undefined,
-    sma_50: d.sma_50 ?? undefined,
-    sma_200: d.sma_200 ?? undefined,
+    ema_20: d.ema_20 ?? undefined,
+    ema_50: d.ema_50 ?? undefined,
     metadata: d.details || d.metadata,
   };
 }
@@ -276,9 +295,8 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   // Fundamentals & indicators
   if (!chk(e.float_shares, f.min_float_shares, f.max_float_shares)) return false;
   if (!chk(e.rsi, f.min_rsi, f.max_rsi)) return false;
-  if (!chk(e.sma_20, f.min_sma_20, f.max_sma_20)) return false;
-  if (!chk(e.sma_50, f.min_sma_50, f.max_sma_50)) return false;
-  if (!chk(e.sma_200, f.min_sma_200, f.max_sma_200)) return false;
+  if (!chk(e.ema_20, f.min_ema_20 ?? f.min_sma_20, f.max_ema_20 ?? f.max_sma_20)) return false;
+  if (!chk(e.ema_50, f.min_ema_50 ?? f.min_sma_50, f.max_ema_50 ?? f.max_sma_50)) return false;
   // Symbol filters
   if (f.symbols_include?.length && !f.symbols_include.includes(e.symbol)) return false;
   if (f.symbols_exclude?.length && f.symbols_exclude.includes(e.symbol)) return false;
@@ -289,7 +307,7 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
 // COMPONENT
 // ============================================================================
 
-export function EventTableContent({ categoryId, categoryName, eventTypes: initialEventTypes }: EventTableContentProps) {
+export function EventTableContent({ categoryId, categoryName, eventTypes: initialEventTypes, defaultFilters }: EventTableContentProps) {
   const { t } = useTranslation();
   const { executeTickerCommand } = useCommandExecutor();
   const closeCurrentWindow = useCloseCurrentWindow();
@@ -367,6 +385,19 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     useCallback((s: { filtersMap: Record<string, ActiveEventFilters> }) => s.filtersMap[categoryId], [categoryId])
   ) || EMPTY_FILTERS;
 
+  // Sync event_types from store → customEventTypes (for external updates, e.g., ConfigWindow BUILD flow)
+  // When the store's event_types changes (from outside this component), update the local state.
+  const storeEventTypes = eventFilters.event_types;
+  useEffect(() => {
+    if (storeEventTypes && storeEventTypes.length > 0) {
+      setCustomEventTypes(prev => {
+        const prevKey = prev.sort().join(',');
+        const newKey = [...storeEventTypes].sort().join(',');
+        return prevKey === newKey ? prev : storeEventTypes;
+      });
+    }
+  }, [storeEventTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Apply client-side filters (complement server-side filtering)
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
@@ -429,6 +460,9 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   const eventFiltersRef = useRef(eventFilters);
   eventFiltersRef.current = eventFilters;
 
+  // Stable subscription ID for this table instance — survives re-renders, not remounts
+  const subIdRef = useRef(`${categoryId}_${Date.now()}`);
+
   // 1) SUBSCRIPTION EFFECT: only depends on connection + event types
   //    Subscribes/unsubscribes and listens for incoming events.
   //    Does NOT depend on filters (filters are updated separately).
@@ -439,20 +473,81 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     }
 
     setConnectionError(null);
+    const subId = subIdRef.current;
     const types = activeEventTypes;
 
-    // Subscribe with current event types and snapshot of filters
+    // Build subscribe message with sub_id + current event types + snapshot of filters
     const filters = eventFiltersRef.current;
+    const df = defaultFilters;
     const subscribeMsg: Record<string, any> = {
       action: 'subscribe_events',
+      sub_id: subId,
       event_types: types.length > 0 ? types : undefined,
     };
-    if (filters.min_price !== undefined) subscribeMsg.price_min = filters.min_price;
-    if (filters.max_price !== undefined) subscribeMsg.price_max = filters.max_price;
-    if (filters.min_rvol !== undefined) subscribeMsg.rvol_min = filters.min_rvol;
-    if (filters.min_change_percent !== undefined) subscribeMsg.change_min = filters.min_change_percent;
-    if (filters.max_change_percent !== undefined) subscribeMsg.change_max = filters.max_change_percent;
-    if (filters.min_volume !== undefined) subscribeMsg.volume_min = filters.min_volume;
+    // Server-side filters: user override → category default → omit
+    // Maps frontend min_xxx → server xxx_min format
+    const setF = (key: string, val: number | undefined) => { if (val !== undefined) subscribeMsg[key] = val; };
+    const setS = (key: string, val: string | undefined) => { if (val !== undefined && val !== '') subscribeMsg[key] = val; };
+    // Core filters (with category defaults fallback)
+    setF('price_min', filters.min_price ?? df?.min_price); setF('price_max', filters.max_price ?? df?.max_price);
+    setF('rvol_min', filters.min_rvol ?? df?.min_rvol); setF('rvol_max', filters.max_rvol ?? df?.max_rvol);
+    setF('change_min', filters.min_change_percent ?? df?.min_change_percent); setF('change_max', filters.max_change_percent ?? df?.max_change_percent);
+    setF('volume_min', filters.min_volume ?? df?.min_volume); setF('volume_max', filters.max_volume ?? df?.max_volume);
+    setF('market_cap_min', filters.min_market_cap ?? df?.min_market_cap); setF('market_cap_max', filters.max_market_cap ?? df?.max_market_cap);
+    setF('gap_percent_min', filters.min_gap_percent ?? df?.min_gap_percent); setF('gap_percent_max', filters.max_gap_percent ?? df?.max_gap_percent);
+    setF('change_from_open_min', filters.min_change_from_open ?? df?.min_change_from_open); setF('change_from_open_max', filters.max_change_from_open ?? df?.max_change_from_open);
+    setF('float_shares_min', filters.min_float_shares ?? df?.min_float_shares); setF('float_shares_max', filters.max_float_shares ?? df?.max_float_shares);
+    setF('rsi_min', filters.min_rsi ?? df?.min_rsi); setF('rsi_max', filters.max_rsi ?? df?.max_rsi);
+    setF('atr_percent_min', filters.min_atr_percent ?? df?.min_atr_percent); setF('atr_percent_max', filters.max_atr_percent ?? df?.max_atr_percent);
+    setF('vwap_min', filters.min_vwap); setF('vwap_max', filters.max_vwap);
+    // Volume windows
+    setF('vol_1min_min', filters.min_vol_1min); setF('vol_1min_max', filters.max_vol_1min);
+    setF('vol_5min_min', filters.min_vol_5min); setF('vol_5min_max', filters.max_vol_5min);
+    setF('vol_10min_min', filters.min_vol_10min); setF('vol_10min_max', filters.max_vol_10min);
+    setF('vol_15min_min', filters.min_vol_15min); setF('vol_15min_max', filters.max_vol_15min);
+    setF('vol_30min_min', filters.min_vol_30min); setF('vol_30min_max', filters.max_vol_30min);
+    // Change windows
+    setF('chg_1min_min', filters.min_chg_1min); setF('chg_1min_max', filters.max_chg_1min);
+    setF('chg_5min_min', filters.min_chg_5min); setF('chg_5min_max', filters.max_chg_5min);
+    setF('chg_10min_min', filters.min_chg_10min); setF('chg_10min_max', filters.max_chg_10min);
+    setF('chg_15min_min', filters.min_chg_15min); setF('chg_15min_max', filters.max_chg_15min);
+    setF('chg_30min_min', filters.min_chg_30min); setF('chg_30min_max', filters.max_chg_30min);
+    setF('chg_60min_min', filters.min_chg_60min); setF('chg_60min_max', filters.max_chg_60min);
+    // Shares & quote
+    setF('shares_outstanding_min', filters.min_shares_outstanding); setF('shares_outstanding_max', filters.max_shares_outstanding);
+    setF('bid_min', filters.min_bid); setF('bid_max', filters.max_bid);
+    setF('ask_min', filters.min_ask); setF('ask_max', filters.max_ask);
+    setF('bid_size_min', filters.min_bid_size); setF('bid_size_max', filters.max_bid_size);
+    setF('ask_size_min', filters.min_ask_size); setF('ask_size_max', filters.max_ask_size);
+    setF('spread_min', filters.min_spread); setF('spread_max', filters.max_spread);
+    // Intraday SMA / MACD / Stoch / ADX / BB
+    setF('sma_5_min', filters.min_sma_5); setF('sma_5_max', filters.max_sma_5);
+    setF('sma_8_min', filters.min_sma_8); setF('sma_8_max', filters.max_sma_8);
+    setF('sma_20_min', filters.min_sma_20); setF('sma_20_max', filters.max_sma_20);
+    setF('sma_50_min', filters.min_sma_50); setF('sma_50_max', filters.max_sma_50);
+    setF('sma_200_min', filters.min_sma_200); setF('sma_200_max', filters.max_sma_200);
+    setF('macd_line_min', filters.min_macd_line); setF('macd_line_max', filters.max_macd_line);
+    setF('macd_hist_min', filters.min_macd_hist); setF('macd_hist_max', filters.max_macd_hist);
+    setF('stoch_k_min', filters.min_stoch_k); setF('stoch_k_max', filters.max_stoch_k);
+    setF('stoch_d_min', filters.min_stoch_d); setF('stoch_d_max', filters.max_stoch_d);
+    setF('adx_14_min', filters.min_adx_14); setF('adx_14_max', filters.max_adx_14);
+    setF('bb_upper_min', filters.min_bb_upper); setF('bb_upper_max', filters.max_bb_upper);
+    setF('bb_lower_min', filters.min_bb_lower); setF('bb_lower_max', filters.max_bb_lower);
+    // Daily indicators
+    setF('daily_sma_20_min', filters.min_daily_sma_20); setF('daily_sma_20_max', filters.max_daily_sma_20);
+    setF('daily_sma_50_min', filters.min_daily_sma_50); setF('daily_sma_50_max', filters.max_daily_sma_50);
+    setF('daily_sma_200_min', filters.min_daily_sma_200); setF('daily_sma_200_max', filters.max_daily_sma_200);
+    setF('daily_rsi_min', filters.min_daily_rsi); setF('daily_rsi_max', filters.max_daily_rsi);
+    setF('high_52w_min', filters.min_high_52w); setF('high_52w_max', filters.max_high_52w);
+    setF('low_52w_min', filters.min_low_52w); setF('low_52w_max', filters.max_low_52w);
+    // Trades
+    setF('trades_today_min', filters.min_trades_today); setF('trades_today_max', filters.max_trades_today);
+    setF('trades_z_score_min', filters.min_trades_z_score); setF('trades_z_score_max', filters.max_trades_z_score);
+    // String filters
+    setS('security_type', filters.security_type);
+    setS('sector', filters.sector);
+    setS('industry', filters.industry);
+    // Symbols
     if (filters.symbols_include?.length) subscribeMsg.symbols_include = filters.symbols_include;
     if (filters.symbols_exclude?.length) subscribeMsg.symbols_exclude = filters.symbols_exclude;
 
@@ -465,19 +560,24 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
 
     const eventSub = ws.messages$.subscribe((msg: any) => {
       if (msg.type === 'market_event') {
+        // Only process if this event matched OUR subscription
+        const matchedSubs: string[] = msg.matched_subs || [];
+        if (!matchedSubs.includes(subId)) return;
+
         const d = msg.data || msg;
         const event = parseEvent(d);
 
-        // Client-side event type filter (safety net for server-side)
+        // Client-side event type filter (safety net)
         const currentTypes = activeEventTypesRef.current;
-        if (currentTypes.length > 0 && !currentTypes.includes(event.event_type)) {
-          return;
-        }
+        if (currentTypes.length > 0 && !currentTypes.includes(event.event_type)) return;
 
-        // Client-side filters (critical: server shares 1 subscription across windows)
+        // Client-side filters (safety net)
         if (!passesFilters(event, eventFiltersRef.current)) return;
 
-        setEvents((prev) => [event, ...prev].slice(0, 500));
+        setEvents((prev) => {
+          if (prev.some(e => e.id === event.id)) return prev;
+          return [event, ...prev].slice(0, 500);
+        });
 
         // Flash animation
         setNewEventIds((prev) => new Set(prev).add(event.id));
@@ -493,25 +593,25 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       }
 
       if (msg.type === 'events_snapshot') {
-        const currentTypes = activeEventTypesRef.current;
-        const f = eventFiltersRef.current;
+        // Only process snapshot for OUR subscription
+        if (msg.sub_id && msg.sub_id !== subId) return;
+
+        const seen = new Set<string>();
         const snapshot: MarketEvent[] = (msg.events || [])
           .map((e: any) => parseEvent(e))
           .filter((e: MarketEvent) => {
-            if (currentTypes.length > 0 && !currentTypes.includes(e.event_type)) return false;
-            return passesFilters(e, f);
+            if (seen.has(e.id)) return false;
+            seen.add(e.id);
+            return true; // Server already filtered — no need to re-filter
           });
         setEvents(snapshot.slice(0, 500));
       }
-
-      // Ignore filters_updated responses (no action needed)
     });
 
     return () => {
       eventSub.unsubscribe();
-      ws.send({ action: 'unsubscribe_events' });
+      ws.send({ action: 'unsubscribe_events', sub_id: subId });
       setIsSubscribed(false);
-      // Clear any pending debounce
       if (filterDebounceRef.current) {
         clearTimeout(filterDebounceRef.current);
         filterDebounceRef.current = null;
@@ -540,17 +640,72 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       if (currentKey === lastSentFiltersRef.current) return;
 
       const f = eventFiltersRef.current;
-      ws.send({
+      const df = defaultFilters;
+      // Build update message with ALL filter fields (null = clear filter)
+      const updateMsg: Record<string, any> = {
         action: 'update_event_filters',
-        price_min: f.min_price ?? null,
-        price_max: f.max_price ?? null,
-        rvol_min: f.min_rvol ?? null,
-        change_min: f.min_change_percent ?? null,
-        change_max: f.max_change_percent ?? null,
-        volume_min: f.min_volume ?? null,
-        symbols_include: f.symbols_include || null,
-        symbols_exclude: f.symbols_exclude || null,
-      });
+        sub_id: subIdRef.current,
+      };
+      const uF = (k: string, v: number | undefined) => { updateMsg[k] = v ?? null; };
+      const uS = (k: string, v: string | undefined) => { updateMsg[k] = v || null; };
+      // Reuse same numericFilters array pattern as subscribe
+      const uPairs: [string, number | undefined][] = [
+        ['price_min', f.min_price ?? df?.min_price], ['price_max', f.max_price ?? df?.max_price],
+        ['rvol_min', f.min_rvol ?? df?.min_rvol], ['rvol_max', f.max_rvol ?? df?.max_rvol],
+        ['change_min', f.min_change_percent ?? df?.min_change_percent], ['change_max', f.max_change_percent ?? df?.max_change_percent],
+        ['volume_min', f.min_volume ?? df?.min_volume], ['volume_max', f.max_volume ?? df?.max_volume],
+        ['market_cap_min', f.min_market_cap ?? df?.min_market_cap], ['market_cap_max', f.max_market_cap ?? df?.max_market_cap],
+        ['gap_percent_min', f.min_gap_percent ?? df?.min_gap_percent], ['gap_percent_max', f.max_gap_percent ?? df?.max_gap_percent],
+        ['change_from_open_min', f.min_change_from_open ?? df?.min_change_from_open], ['change_from_open_max', f.max_change_from_open ?? df?.max_change_from_open],
+        ['float_shares_min', f.min_float_shares ?? df?.min_float_shares], ['float_shares_max', f.max_float_shares ?? df?.max_float_shares],
+        ['rsi_min', f.min_rsi ?? df?.min_rsi], ['rsi_max', f.max_rsi ?? df?.max_rsi],
+        ['atr_percent_min', f.min_atr_percent ?? df?.min_atr_percent], ['atr_percent_max', f.max_atr_percent ?? df?.max_atr_percent],
+        ['vwap_min', f.min_vwap], ['vwap_max', f.max_vwap],
+        ['vol_1min_min', f.min_vol_1min], ['vol_1min_max', f.max_vol_1min],
+        ['vol_5min_min', f.min_vol_5min], ['vol_5min_max', f.max_vol_5min],
+        ['vol_10min_min', f.min_vol_10min], ['vol_10min_max', f.max_vol_10min],
+        ['vol_15min_min', f.min_vol_15min], ['vol_15min_max', f.max_vol_15min],
+        ['vol_30min_min', f.min_vol_30min], ['vol_30min_max', f.max_vol_30min],
+        ['chg_1min_min', f.min_chg_1min], ['chg_1min_max', f.max_chg_1min],
+        ['chg_5min_min', f.min_chg_5min], ['chg_5min_max', f.max_chg_5min],
+        ['chg_10min_min', f.min_chg_10min], ['chg_10min_max', f.max_chg_10min],
+        ['chg_15min_min', f.min_chg_15min], ['chg_15min_max', f.max_chg_15min],
+        ['chg_30min_min', f.min_chg_30min], ['chg_30min_max', f.max_chg_30min],
+        ['chg_60min_min', f.min_chg_60min], ['chg_60min_max', f.max_chg_60min],
+        ['shares_outstanding_min', f.min_shares_outstanding], ['shares_outstanding_max', f.max_shares_outstanding],
+        ['bid_min', f.min_bid], ['bid_max', f.max_bid],
+        ['ask_min', f.min_ask], ['ask_max', f.max_ask],
+        ['bid_size_min', f.min_bid_size], ['bid_size_max', f.max_bid_size],
+        ['ask_size_min', f.min_ask_size], ['ask_size_max', f.max_ask_size],
+        ['spread_min', f.min_spread], ['spread_max', f.max_spread],
+        ['sma_5_min', f.min_sma_5], ['sma_5_max', f.max_sma_5],
+        ['sma_8_min', f.min_sma_8], ['sma_8_max', f.max_sma_8],
+        ['sma_20_min', f.min_sma_20], ['sma_20_max', f.max_sma_20],
+        ['sma_50_min', f.min_sma_50], ['sma_50_max', f.max_sma_50],
+        ['sma_200_min', f.min_sma_200], ['sma_200_max', f.max_sma_200],
+        ['macd_line_min', f.min_macd_line], ['macd_line_max', f.max_macd_line],
+        ['macd_hist_min', f.min_macd_hist], ['macd_hist_max', f.max_macd_hist],
+        ['stoch_k_min', f.min_stoch_k], ['stoch_k_max', f.max_stoch_k],
+        ['stoch_d_min', f.min_stoch_d], ['stoch_d_max', f.max_stoch_d],
+        ['adx_14_min', f.min_adx_14], ['adx_14_max', f.max_adx_14],
+        ['bb_upper_min', f.min_bb_upper], ['bb_upper_max', f.max_bb_upper],
+        ['bb_lower_min', f.min_bb_lower], ['bb_lower_max', f.max_bb_lower],
+        ['daily_sma_20_min', f.min_daily_sma_20], ['daily_sma_20_max', f.max_daily_sma_20],
+        ['daily_sma_50_min', f.min_daily_sma_50], ['daily_sma_50_max', f.max_daily_sma_50],
+        ['daily_sma_200_min', f.min_daily_sma_200], ['daily_sma_200_max', f.max_daily_sma_200],
+        ['daily_rsi_min', f.min_daily_rsi], ['daily_rsi_max', f.max_daily_rsi],
+        ['high_52w_min', f.min_high_52w], ['high_52w_max', f.max_high_52w],
+        ['low_52w_min', f.min_low_52w], ['low_52w_max', f.max_low_52w],
+        ['trades_today_min', f.min_trades_today], ['trades_today_max', f.max_trades_today],
+        ['trades_z_score_min', f.min_trades_z_score], ['trades_z_score_max', f.max_trades_z_score],
+      ];
+      for (const [k, v] of uPairs) uF(k, v);
+      uS('security_type', f.security_type);
+      uS('sector', f.sector);
+      uS('industry', f.industry);
+      updateMsg.symbols_include = f.symbols_include || null;
+      updateMsg.symbols_exclude = f.symbols_exclude || null;
+      ws.send(updateMsg);
 
       lastSentFiltersRef.current = currentKey;
       filterDebounceRef.current = null;

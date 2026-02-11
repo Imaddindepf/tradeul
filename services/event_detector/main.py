@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import signal
+import time
 from datetime import datetime, date
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -154,7 +155,7 @@ class EventEngine:
         self.raw_redis: Optional[aioredis.Redis] = None
         self.running = False
 
-        # State cache for tracking previous values
+        # State cache for tracking previous values (per-second stream)
         self.state_cache = TickerStateCache(max_age_seconds=3600)
 
         # Event store for recent events (in-memory)
@@ -163,8 +164,16 @@ class EventEngine:
         # Enriched data cache (from Analytics service)
         self._enriched_cache: Dict[str, Dict] = {}
 
-        # Daily indicators cache (from Screener service via Redis)
-        self._screener_cache: Dict[str, Dict] = {}
+        # === SNAPSHOT-DRIVEN FULL-MARKET DETECTION ===
+        # Previous snapshot state for transition detection (all 11K+ tickers)
+        self._snapshot_prev: Dict[str, Dict] = {}
+        # Cooldown tracker: (symbol, event_type) -> last_fire_timestamp
+        self._snapshot_cooldowns: Dict[str, float] = {}
+        # Symbols being processed by per-second stream (avoid duplicate detection)
+        self._realtime_symbols: set = set()
+        # Stats
+        self._snapshot_events_total: int = 0
+        self._snapshot_cycles: int = 0
 
         # Initialize all detector plugins
         self.detectors = [cls() for cls in ALL_DETECTOR_CLASSES]
@@ -195,10 +204,6 @@ class EventEngine:
         await self._refresh_enriched_cache()
         logger.info(f"Loaded enriched cache: {len(self._enriched_cache)} tickers")
 
-        # Load daily indicators from screener
-        await self._refresh_screener_cache()
-        logger.info(f"Loaded screener cache: {len(self._screener_cache)} tickers")
-
         if self.price_detector:
             await self._initialize_tracked_extremes()
 
@@ -207,7 +212,7 @@ class EventEngine:
             asyncio.create_task(self._consume_aggregates_loop()),
             asyncio.create_task(self._consume_halts_loop()),
             asyncio.create_task(self._enriched_refresh_loop()),
-            asyncio.create_task(self._screener_refresh_loop()),
+            asyncio.create_task(self._snapshot_evaluation_loop()),
             asyncio.create_task(self._cleanup_loop()),
         ]
 
@@ -236,6 +241,14 @@ class EventEngine:
         old_states = self.state_cache.size
         self.state_cache.clear()
         logger.info(f"✅ State cache cleared ({old_states} states)")
+
+        # 2b. Clear snapshot-driven state
+        self._snapshot_prev.clear()
+        self._snapshot_cooldowns.clear()
+        self._realtime_symbols.clear()
+        self._snapshot_events_total = 0
+        self._snapshot_cycles = 0
+        logger.info("✅ Snapshot evaluation state cleared")
 
         # 3. Clear in-memory event store
         old_events = self.event_store.size
@@ -489,9 +502,6 @@ class EventEngine:
             if open_price and open_price > 0:
                 change_from_open = ((price - open_price) / open_price) * 100
 
-            # Daily indicators from screener (SMA, Bollinger, RSI, 52w)
-            screener = self._screener_cache.get(symbol, {})
-
             return TickerState(
                 symbol=symbol,
                 price=price,
@@ -519,20 +529,35 @@ class EventEngine:
                 atr=enriched.get("atr"),
                 atr_percent=enriched.get("atr_percent"),
                 trades_z_score=enriched.get("trades_z_score"),
-                # Daily indicators from screener
-                sma_20=screener.get("sma_20"),
-                sma_50=screener.get("sma_50"),
-                sma_200=screener.get("sma_200"),
-                bb_upper=screener.get("bb_upper"),
-                bb_lower=screener.get("bb_lower"),
-                rsi=screener.get("rsi"),
-                high_52w=screener.get("high_52w"),
-                low_52w=screener.get("low_52w"),
-                prev_day_high=enriched.get("day_high"),  # yesterday's high
-                prev_day_low=enriched.get("day_low"),    # yesterday's low
-                # Fundamentals (prefer screener, fallback enriched)
-                market_cap=screener.get("market_cap") or enriched.get("market_cap"),
-                float_shares=screener.get("float_shares"),
+                # Technical indicators (all from enriched — BarEngine intraday)
+                ema_20=enriched.get("ema_20"),
+                ema_50=enriched.get("ema_50"),
+                # SMA intraday (from BarEngine 1-min bars via enriched)
+                sma_5=enriched.get("sma_5"),
+                sma_8=enriched.get("sma_8"),
+                sma_20=enriched.get("sma_20"),
+                sma_50=enriched.get("sma_50"),
+                sma_200=enriched.get("sma_200"),
+                bb_upper=enriched.get("bb_upper"),
+                bb_lower=enriched.get("bb_lower"),
+                rsi=enriched.get("rsi_14"),
+                # MACD / Stochastic / ADX (from BarEngine via enriched)
+                macd_line=enriched.get("macd_line"),
+                macd_signal=enriched.get("macd_signal"),
+                macd_hist=enriched.get("macd_hist"),
+                stoch_k=enriched.get("stoch_k"),
+                stoch_d=enriched.get("stoch_d"),
+                adx_14=enriched.get("adx_14"),
+                # Daily indicators (from screener via enriched)
+                high_52w=enriched.get("high_52w"),
+                low_52w=enriched.get("low_52w"),
+                prev_day_high=enriched.get("day_high"),
+                prev_day_low=enriched.get("day_low"),
+                daily_sma_200=enriched.get("daily_sma_200"),
+                # Fundamentals (from metadata via enriched)
+                market_cap=enriched.get("market_cap"),
+                float_shares=enriched.get("float_shares"),
+                security_type=enriched.get("security_type"),
             )
         except Exception as e:
             logger.error(f"Error building TickerState for {symbol}: {e}")
@@ -728,6 +753,430 @@ class EventEngine:
         logger.info(f"Initialized tracked extremes for {initialized} symbols")
 
     # ========================================================================
+    # SNAPSHOT-DRIVEN FULL-MARKET EVALUATION
+    # ========================================================================
+
+    async def _snapshot_evaluation_loop(self):
+        """
+        Evaluate enriched snapshot every ~2s for state transitions across
+        the FULL universe (11K+ tickers).
+
+        This complements the per-second aggregate stream (which only covers
+        ~300 WS-subscribed tickers) by detecting events for ALL tickers
+        using the enriched snapshot data (which includes BarEngine indicators).
+
+        Detected events:
+        - new_high / new_low (intraday extremes changed)
+        - vwap_cross_up / vwap_cross_down
+        - bb_upper_breakout / bb_lower_breakdown
+        - crossed_above_sma200/50/20
+        - percent_up_5/10, percent_down_5/10 (threshold crosses)
+        - volume_spike_1min (vol_1min >> avg)
+
+        Deduplication:
+        - Skips symbols covered by the per-second stream (self._realtime_symbols)
+        - Uses cooldown per (symbol, event_type) to avoid flooding
+        """
+        COOLDOWN_SECONDS = 60.0  # Min seconds between same event for same symbol
+        LOOP_INTERVAL = 2.0
+
+        # Wait for initial enriched data to be available
+        await asyncio.sleep(5)
+        logger.info("📡 Snapshot evaluation loop started (full-market coverage)")
+
+        while self.running:
+            try:
+                if is_holiday_mode:
+                    await asyncio.sleep(30)
+                    continue
+
+                # Read full enriched snapshot
+                all_data = await self.raw_redis.hgetall("snapshot:enriched:latest")
+                if not all_data:
+                    await asyncio.sleep(LOOP_INTERVAL)
+                    continue
+
+                now = time.monotonic()
+                cycle_events = 0
+                tickers_evaluated = 0
+
+                for sym_bytes, ticker_json in all_data.items():
+                    sym = sym_bytes.decode() if isinstance(sym_bytes, bytes) else sym_bytes
+                    if sym == '__meta__':
+                        continue
+
+                    # Skip symbols covered by per-second realtime stream
+                    if sym in self._realtime_symbols:
+                        continue
+
+                    try:
+                        current = json.loads(
+                            ticker_json if isinstance(ticker_json, str)
+                            else ticker_json.decode()
+                        )
+                    except Exception:
+                        continue
+
+                    prev = self._snapshot_prev.get(sym)
+                    if prev is None:
+                        # First time seeing this ticker - store and skip
+                        self._snapshot_prev[sym] = current
+                        continue
+
+                    tickers_evaluated += 1
+
+                    # Detect state transitions
+                    events = self._detect_snapshot_transitions(sym, current, prev, now, COOLDOWN_SECONDS)
+                    for event in events:
+                        await self._publish_event(event)
+                        cycle_events += 1
+
+                    # Update previous state
+                    self._snapshot_prev[sym] = current
+
+                self._snapshot_cycles += 1
+                self._snapshot_events_total += cycle_events
+
+                if cycle_events > 0 or self._snapshot_cycles % 30 == 0:
+                    logger.info(
+                        f"📡 Snapshot eval cycle #{self._snapshot_cycles}: "
+                        f"{cycle_events} events from {tickers_evaluated} tickers "
+                        f"(skipped {len(self._realtime_symbols)} realtime)"
+                    )
+
+            except Exception as e:
+                logger.error(f"Snapshot evaluation error: {e}")
+
+            await asyncio.sleep(LOOP_INTERVAL)
+
+    def _detect_snapshot_transitions(
+        self,
+        symbol: str,
+        current: Dict,
+        prev: Dict,
+        now: float,
+        cooldown: float,
+    ) -> List[EventRecord]:
+        """
+        Compare current vs previous enriched snapshot for a single ticker.
+        Returns list of EventRecord for any detected transitions.
+        """
+        events: List[EventRecord] = []
+        price = current.get("current_price")
+        if not price or price <= 0:
+            return events
+
+        prev_price = prev.get("current_price")
+        if not prev_price or prev_price <= 0:
+            return events
+
+        # Compute gap_percent and change_from_open if not present
+        open_price = (current.get("day") or {}).get("o")
+        prev_close = (current.get("prevDay") or {}).get("c")
+        gap_percent = current.get("gap_percent")
+        if gap_percent is None and open_price and prev_close and prev_close > 0:
+            gap_percent = ((open_price - prev_close) / prev_close) * 100
+        change_from_open = current.get("change_from_open")
+        if change_from_open is None and open_price and open_price > 0:
+            change_from_open = ((price - open_price) / open_price) * 100
+
+        def _fire(event_type: EventType, prev_val=None, new_val=None, details=None):
+            """Helper to create an event with cooldown check."""
+            key = f"{symbol}:{event_type.value}"
+            last_fire = self._snapshot_cooldowns.get(key, 0)
+            if now - last_fire < cooldown:
+                return  # Still in cooldown
+            self._snapshot_cooldowns[key] = now
+
+            delta = None
+            delta_pct = None
+            if prev_val is not None and new_val is not None:
+                delta = new_val - prev_val
+                if prev_val != 0:
+                    delta_pct = (delta / abs(prev_val)) * 100
+
+            events.append(EventRecord(
+                event_type=event_type,
+                rule_id=f"event:system:{event_type.value}",
+                symbol=symbol,
+                timestamp=datetime.utcnow(),
+                price=price,
+                prev_value=prev_val,
+                new_value=new_val,
+                delta=delta,
+                delta_percent=delta_pct,
+                # Full context from enriched snapshot
+                change_percent=current.get("todaysChangePerc"),
+                rvol=current.get("rvol"),
+                volume=current.get("current_volume"),
+                # Fundamentals (from metadata via enriched)
+                market_cap=current.get("market_cap"),
+                gap_percent=gap_percent,
+                change_from_open=change_from_open,
+                open_price=open_price,
+                prev_close=prev_close,
+                vwap=current.get("vwap"),
+                atr_percent=current.get("atr_percent"),
+                intraday_high=current.get("intraday_high"),
+                intraday_low=current.get("intraday_low"),
+                # Time-window changes
+                chg_1min=current.get("chg_1min"),
+                chg_5min=current.get("chg_5min"),
+                chg_10min=current.get("chg_10min"),
+                chg_15min=current.get("chg_15min"),
+                chg_30min=current.get("chg_30min"),
+                vol_1min=current.get("vol_1min"),
+                vol_5min=current.get("vol_5min"),
+                # Technical indicators + fundamentals (all from enriched)
+                float_shares=current.get("float_shares"),
+                rsi=current.get("rsi_14"),
+                ema_20=current.get("ema_20"),
+                ema_50=current.get("ema_50"),
+                security_type=current.get("security_type"),
+                sector=current.get("sector"),
+                details=details,
+            ))
+
+        # --- NEW HIGH ---
+        curr_high = current.get("intraday_high")
+        prev_high = prev.get("intraday_high")
+        if curr_high and prev_high and curr_high > prev_high:
+            _fire(EventType.NEW_HIGH, prev_high, curr_high)
+
+        # --- NEW LOW ---
+        curr_low = current.get("intraday_low")
+        prev_low = prev.get("intraday_low")
+        if curr_low and prev_low and curr_low < prev_low:
+            _fire(EventType.NEW_LOW, prev_low, curr_low)
+
+        # --- VWAP CROSS ---
+        vwap = current.get("vwap")
+        prev_vwap = prev.get("vwap")
+        if vwap and prev_vwap and vwap > 0:
+            if prev_price <= prev_vwap and price > vwap:
+                _fire(EventType.VWAP_CROSS_UP, prev_vwap, vwap,
+                      {"vwap": vwap, "direction": "up"})
+            elif prev_price >= prev_vwap and price < vwap:
+                _fire(EventType.VWAP_CROSS_DOWN, prev_vwap, vwap,
+                      {"vwap": vwap, "direction": "down"})
+
+        # --- BOLLINGER BAND BREAKOUT ---
+        bb_upper = current.get("bb_upper")
+        bb_lower = current.get("bb_lower")
+        prev_bb_upper = prev.get("bb_upper")
+        prev_bb_lower = prev.get("bb_lower")
+        if bb_upper and prev_bb_upper and prev_price <= prev_bb_upper and price > bb_upper:
+            _fire(EventType.BB_UPPER_BREAKOUT, prev_bb_upper, bb_upper,
+                  {"bb_upper": bb_upper, "direction": "up"})
+        if bb_lower and prev_bb_lower and prev_price >= prev_bb_lower and price < bb_lower:
+            _fire(EventType.BB_LOWER_BREAKDOWN, prev_bb_lower, bb_lower,
+                  {"bb_lower": bb_lower, "direction": "down"})
+
+        # --- EMA CROSSES (from BarEngine intraday 1-min bars) ---
+        ema_20 = current.get("ema_20")
+        prev_ema_20 = prev.get("ema_20")
+        if ema_20 and prev_ema_20:
+            if prev_price <= prev_ema_20 and price > ema_20:
+                _fire(EventType.CROSSED_ABOVE_EMA20, prev_ema_20, ema_20)
+            elif prev_price >= prev_ema_20 and price < ema_20:
+                _fire(EventType.CROSSED_BELOW_EMA20, prev_ema_20, ema_20)
+
+        ema_50 = current.get("ema_50")
+        prev_ema_50 = prev.get("ema_50")
+        if ema_50 and prev_ema_50:
+            if prev_price <= prev_ema_50 and price > ema_50:
+                _fire(EventType.CROSSED_ABOVE_EMA50, prev_ema_50, ema_50)
+            elif prev_price >= prev_ema_50 and price < ema_50:
+                _fire(EventType.CROSSED_BELOW_EMA50, prev_ema_50, ema_50)
+
+        # --- SMA CROSSES (Trade Ideas alignment, from BarEngine 1-min bars) ---
+        for sma_field, et_above, et_below in [
+            ("sma_8",  EventType.CROSSED_ABOVE_SMA8,  EventType.CROSSED_BELOW_SMA8),
+            ("sma_20", EventType.CROSSED_ABOVE_SMA20, EventType.CROSSED_BELOW_SMA20),
+            ("sma_50", EventType.CROSSED_ABOVE_SMA50, EventType.CROSSED_BELOW_SMA50),
+        ]:
+            sma_val = current.get(sma_field)
+            prev_sma = prev.get(sma_field)
+            if sma_val and prev_sma:
+                if prev_price <= prev_sma and price > sma_val:
+                    _fire(et_above, prev_sma, sma_val,
+                          {"ma_type": sma_field, "ma_value": sma_val})
+                elif prev_price >= prev_sma and price < sma_val:
+                    _fire(et_below, prev_sma, sma_val,
+                          {"ma_type": sma_field, "ma_value": sma_val})
+
+        # --- SMA(8) cross SMA(20) — intraday golden/death cross ---
+        sma_8 = current.get("sma_8")
+        sma_20 = current.get("sma_20")
+        prev_sma_8 = prev.get("sma_8")
+        prev_sma_20 = prev.get("sma_20")
+        if sma_8 and sma_20 and prev_sma_8 and prev_sma_20:
+            if prev_sma_8 <= prev_sma_20 and sma_8 > sma_20:
+                _fire(EventType.SMA_8_CROSS_ABOVE_20, prev_sma_8, sma_8,
+                      {"sma_8": sma_8, "sma_20": sma_20, "cross_type": "golden"})
+            elif prev_sma_8 >= prev_sma_20 and sma_8 < sma_20:
+                _fire(EventType.SMA_8_CROSS_BELOW_20, prev_sma_8, sma_8,
+                      {"sma_8": sma_8, "sma_20": sma_20, "cross_type": "death"})
+
+        # --- MACD CROSSES (from BarEngine via enriched) ---
+        macd_l = current.get("macd_line")
+        macd_s = current.get("macd_signal")
+        prev_macd_l = prev.get("macd_line")
+        prev_macd_s = prev.get("macd_signal")
+        if macd_l is not None and macd_s is not None and prev_macd_l is not None and prev_macd_s is not None:
+            # Signal cross
+            if prev_macd_l <= prev_macd_s and macd_l > macd_s:
+                _fire(EventType.MACD_CROSS_BULLISH, prev_macd_l, macd_l,
+                      {"macd_line": macd_l, "macd_signal": macd_s})
+            elif prev_macd_l >= prev_macd_s and macd_l < macd_s:
+                _fire(EventType.MACD_CROSS_BEARISH, prev_macd_l, macd_l,
+                      {"macd_line": macd_l, "macd_signal": macd_s})
+            # Zero cross
+            if prev_macd_l <= 0 and macd_l > 0:
+                _fire(EventType.MACD_ZERO_CROSS_UP, prev_macd_l, macd_l)
+            elif prev_macd_l >= 0 and macd_l < 0:
+                _fire(EventType.MACD_ZERO_CROSS_DOWN, prev_macd_l, macd_l)
+
+        # --- STOCHASTIC CROSSES (from BarEngine via enriched) ---
+        stoch_k = current.get("stoch_k")
+        stoch_d = current.get("stoch_d")
+        prev_stoch_k = prev.get("stoch_k")
+        prev_stoch_d = prev.get("stoch_d")
+        if stoch_k is not None and stoch_d is not None and prev_stoch_k is not None and prev_stoch_d is not None:
+            # Bullish: %K crosses above %D while in oversold (<30)
+            if prev_stoch_k <= prev_stoch_d and stoch_k > stoch_d and stoch_k < 30:
+                _fire(EventType.STOCH_CROSS_BULLISH, prev_stoch_k, stoch_k,
+                      {"stoch_k": stoch_k, "stoch_d": stoch_d, "zone": "oversold"})
+            # Bearish: %K crosses below %D while in overbought (>70)
+            elif prev_stoch_k >= prev_stoch_d and stoch_k < stoch_d and stoch_k > 70:
+                _fire(EventType.STOCH_CROSS_BEARISH, prev_stoch_k, stoch_k,
+                      {"stoch_k": stoch_k, "stoch_d": stoch_d, "zone": "overbought"})
+            # Zone entries
+            if prev_stoch_k >= 20 and stoch_k < 20:
+                _fire(EventType.STOCH_OVERSOLD, prev_stoch_k, stoch_k)
+            elif prev_stoch_k <= 80 and stoch_k > 80:
+                _fire(EventType.STOCH_OVERBOUGHT, prev_stoch_k, stoch_k)
+
+        # --- PERCENTAGE THRESHOLD CROSSES ---
+        chg = current.get("todaysChangePerc")
+        prev_chg = prev.get("todaysChangePerc")
+        if chg is not None and prev_chg is not None:
+            # +5% threshold
+            if prev_chg < 5 and chg >= 5:
+                _fire(EventType.PERCENT_UP_5, prev_chg, chg)
+            if prev_chg > -5 and chg <= -5:
+                _fire(EventType.PERCENT_DOWN_5, prev_chg, chg)
+            # +10% threshold
+            if prev_chg < 10 and chg >= 10:
+                _fire(EventType.PERCENT_UP_10, prev_chg, chg)
+            if prev_chg > -10 and chg <= -10:
+                _fire(EventType.PERCENT_DOWN_10, prev_chg, chg)
+
+        # --- CROSSED ABOVE/BELOW OPEN ---
+        day_data = current.get("day") or {}
+        open_price = day_data.get("o")
+        prev_day = prev.get("day") or {}
+        prev_open = prev_day.get("o")
+        if open_price and open_price > 0 and prev_open and prev_open > 0:
+            if prev_price <= prev_open and price > open_price:
+                _fire(EventType.CROSSED_ABOVE_OPEN, prev_open, open_price)
+            elif prev_price >= prev_open and price < open_price:
+                _fire(EventType.CROSSED_BELOW_OPEN, prev_open, open_price)
+
+        # --- VOLUME SPIKE 1MIN ---
+        vol_1 = current.get("vol_1min")
+        vol_5 = current.get("vol_5min")
+        prev_vol_1 = prev.get("vol_1min")
+        if vol_1 and vol_5 and vol_5 > 0:
+            avg_1min = vol_5 / 5
+            if avg_1min > 100 and vol_1 > avg_1min * 3:
+                # Check it's a NEW spike (wasn't already spiking)
+                if not (prev_vol_1 and prev_vol_1 > avg_1min * 3):
+                    _fire(EventType.VOLUME_SPIKE_1MIN, avg_1min, vol_1,
+                          {"avg_1min_from_5min": round(avg_1min), "ratio": round(vol_1 / avg_1min, 1)})
+
+        # --- CROSSED ABOVE/BELOW PREV CLOSE ---
+        prev_close = (current.get("prevDay") or {}).get("c")
+        p_prev_close = (prev.get("prevDay") or {}).get("c")
+        if prev_close and prev_close > 0 and p_prev_close and p_prev_close > 0:
+            if prev_price <= p_prev_close and price > prev_close:
+                _fire(EventType.CROSSED_ABOVE_PREV_CLOSE, p_prev_close, prev_close)
+            elif prev_price >= p_prev_close and price < prev_close:
+                _fire(EventType.CROSSED_BELOW_PREV_CLOSE, p_prev_close, prev_close)
+
+        # --- RVOL SPIKE (crossed 3x) ---
+        rvol = current.get("rvol")
+        prev_rvol = prev.get("rvol")
+        if rvol and prev_rvol is not None:
+            if prev_rvol < 3.0 and rvol >= 3.0:
+                _fire(EventType.RVOL_SPIKE, prev_rvol, rvol,
+                      {"threshold": 3.0})
+            if prev_rvol < 5.0 and rvol >= 5.0:
+                _fire(EventType.VOLUME_SURGE, prev_rvol, rvol,
+                      {"threshold": 5.0})
+
+        # --- CROSSED DAILY HIGH RESISTANCE (prevDay.h) ---
+        prev_day_high = (current.get("prevDay") or {}).get("h")
+        p_prev_day_high = (prev.get("prevDay") or {}).get("h")
+        if prev_day_high and prev_day_high > 0 and p_prev_day_high:
+            if prev_price <= p_prev_day_high and price > prev_day_high:
+                _fire(EventType.CROSSED_DAILY_HIGH_RESISTANCE, p_prev_day_high, prev_day_high,
+                      {"prev_day_high": prev_day_high})
+
+        # --- CROSSED DAILY LOW SUPPORT (prevDay.l) ---
+        prev_day_low = (current.get("prevDay") or {}).get("l")
+        p_prev_day_low = (prev.get("prevDay") or {}).get("l")
+        if prev_day_low and prev_day_low > 0 and p_prev_day_low:
+            if prev_price >= p_prev_day_low and price < prev_day_low:
+                _fire(EventType.CROSSED_DAILY_LOW_SUPPORT, p_prev_day_low, prev_day_low,
+                      {"prev_day_low": prev_day_low})
+
+        # --- FALSE GAP RETRACEMENT ---
+        gap_pct = current.get("gap_percent")
+        prev_close_val = (current.get("prevDay") or {}).get("c")
+        if gap_pct and prev_close_val and prev_close_val > 0:
+            # Gap up > 2% and price retraces below prev close
+            if gap_pct >= 2.0 and prev_price > prev_close_val and price <= prev_close_val:
+                _fire(EventType.FALSE_GAP_UP_RETRACEMENT, prev_close_val, price,
+                      {"gap_percent": gap_pct})
+            # Gap down < -2% and price retraces above prev close
+            elif gap_pct <= -2.0 and prev_price < prev_close_val and price >= prev_close_val:
+                _fire(EventType.FALSE_GAP_DOWN_RETRACEMENT, prev_close_val, price,
+                      {"gap_percent": gap_pct})
+
+        # --- RUNNING SUSTAINED (chg_10min > 3%) ---
+        chg_10 = current.get("chg_10min")
+        prev_chg_10 = prev.get("chg_10min")
+        if chg_10 is not None and prev_chg_10 is not None:
+            if prev_chg_10 < 3.0 and chg_10 >= 3.0:
+                _fire(EventType.RUNNING_UP_SUSTAINED, prev_chg_10, chg_10,
+                      {"window": "10min", "threshold": 3.0})
+            if prev_chg_10 > -3.0 and chg_10 <= -3.0:
+                _fire(EventType.RUNNING_DOWN_SUSTAINED, prev_chg_10, chg_10,
+                      {"window": "10min", "threshold": -3.0})
+
+        # --- RUNNING CONFIRMED (chg_5min > 2% AND chg_15min > 4%) ---
+        chg_5 = current.get("chg_5min")
+        chg_15 = current.get("chg_15min")
+        prev_chg_5 = prev.get("chg_5min")
+        prev_chg_15 = prev.get("chg_15min")
+        if chg_5 is not None and chg_15 is not None and prev_chg_5 is not None and prev_chg_15 is not None:
+            # Bullish: both positive thresholds crossed
+            was_confirmed_up = prev_chg_5 >= 2.0 and prev_chg_15 >= 4.0
+            is_confirmed_up = chg_5 >= 2.0 and chg_15 >= 4.0
+            if is_confirmed_up and not was_confirmed_up:
+                _fire(EventType.RUNNING_UP_CONFIRMED, prev_chg_5, chg_5,
+                      {"chg_5min": chg_5, "chg_15min": chg_15})
+            # Bearish: both negative thresholds crossed
+            was_confirmed_dn = prev_chg_5 <= -2.0 and prev_chg_15 <= -4.0
+            is_confirmed_dn = chg_5 <= -2.0 and chg_15 <= -4.0
+            if is_confirmed_dn and not was_confirmed_dn:
+                _fire(EventType.RUNNING_DOWN_CONFIRMED, prev_chg_5, chg_5,
+                      {"chg_5min": chg_5, "chg_15min": chg_15})
+
+        return events
+
+    # ========================================================================
     # MAINTENANCE LOOPS
     # ========================================================================
 
@@ -737,49 +1186,11 @@ class EventEngine:
             await asyncio.sleep(30)
             await self._refresh_enriched_cache()
 
-    async def _screener_refresh_loop(self):
-        """Refresh screener daily indicators every 60 seconds."""
-        while self.running:
-            await asyncio.sleep(60)
-            await self._refresh_screener_cache()
-
-    async def _refresh_screener_cache(self):
-        """
-        Load daily indicators from screener service via Redis.
-        
-        The screener exports SMA(20/50/200), Bollinger Bands, RSI, 52w highs/lows
-        to Redis key 'screener:daily_indicators:latest' every 5 minutes.
-        We consume this to enable SMA cross and Bollinger breakout detection.
-        """
-        try:
-            data_json = await self.raw_redis.get("screener:daily_indicators:latest")
-            if not data_json:
-                logger.debug("No screener daily indicators in Redis (screener may not be running)")
-                return
-
-            data = json.loads(data_json)
-            tickers = data.get("tickers", {})
-
-            new_cache = {}
-            for symbol, ind in tickers.items():
-                new_cache[symbol] = {
-                    "sma_20": self._safe_float(ind.get("sma_20")),
-                    "sma_50": self._safe_float(ind.get("sma_50")),
-                    "sma_200": self._safe_float(ind.get("sma_200")),
-                    "bb_upper": self._safe_float(ind.get("bb_upper")),
-                    "bb_lower": self._safe_float(ind.get("bb_lower")),
-                    "rsi": self._safe_float(ind.get("rsi")),
-                    "high_52w": self._safe_float(ind.get("high_52w")),
-                    "low_52w": self._safe_float(ind.get("low_52w")),
-                    "prev_day_high": self._safe_float(ind.get("last_close")),  # approximation
-                    "market_cap": self._safe_float(ind.get("market_cap")),
-                    "float_shares": self._safe_float(ind.get("free_float")),
-                }
-
-            self._screener_cache = new_cache
-            logger.debug(f"Screener cache refreshed: {len(new_cache)} tickers")
-        except Exception as e:
-            logger.error(f"Error refreshing screener cache: {e}")
+    # NOTE: _screener_cache and _refresh_screener_cache REMOVED.
+    # All fundamental and daily indicator data now flows through
+    # snapshot:enriched:latest, populated by the Enrichment Pipeline.
+    # This eliminates the event_detector's direct Redis dependency
+    # on screener:daily_indicators:latest.
 
     @staticmethod
     def _safe_float(val) -> Optional[float]:

@@ -3,11 +3,11 @@
  * 
  * Los presets son combinaciones guardadas de:
  * - Event types seleccionados
- * - Filtros numéricos (precio, volumen, rvol, etc.)
+ * - Filtros numericos (precio, volumen, rvol, etc.)
  * 
  * Funciona similar a las "Strategies" de Trade Ideas:
  * el usuario configura una ventana de alertas y puede guardar/cargar
- * esa configuración como un preset reutilizable.
+ * esa configuracion como un preset reutilizable.
  */
 
 import { create } from 'zustand';
@@ -26,6 +26,18 @@ export interface AlertPresetFilters {
   max_rvol?: number;
   min_volume?: number;
   max_volume?: number;
+  min_market_cap?: number;
+  max_market_cap?: number;
+  min_gap_percent?: number;
+  max_gap_percent?: number;
+  min_change_from_open?: number;
+  max_change_from_open?: number;
+  min_float_shares?: number;
+  max_float_shares?: number;
+  min_rsi?: number;
+  max_rsi?: number;
+  min_atr_percent?: number;
+  max_atr_percent?: number;
 }
 
 export interface UserAlertPreset {

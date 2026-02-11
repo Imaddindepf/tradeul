@@ -2,7 +2,7 @@
  * Zustand Store para Filtros de Eventos
  * 
  * FILTROS PER-CATEGORY: Cada tabla de eventos (categoryId) tiene sus propios filtros.
- * Esto permite tener "EVN evt_new_highs" con precio > $10 y "EVN evt_all" sin filtros
+ * Esto permite tener "EVN High Vol Runners" con RVOL > 2x y "EVN All Events" sin filtros
  * al mismo tiempo en ventanas separadas.
  * 
  * PERSISTENCIA: Se guardan en localStorage y se sincronizan con la BD
@@ -73,22 +73,104 @@ export interface EventFilterParameters {
   max_vol_1min?: number;
   min_vol_5min?: number;
   max_vol_5min?: number;
+  min_vol_10min?: number;
+  max_vol_10min?: number;
+  min_vol_15min?: number;
+  max_vol_15min?: number;
+  min_vol_30min?: number;
+  max_vol_30min?: number;
 
-  // Float filters
+  // Change 60 min
+  min_chg_60min?: number;
+  max_chg_60min?: number;
+
+  // Float & Shares
   min_float_shares?: number;
   max_float_shares?: number;
+  min_shares_outstanding?: number;
+  max_shares_outstanding?: number;
 
-  // RSI filters
+  // RSI (intraday 1-min bars)
   min_rsi?: number;
   max_rsi?: number;
 
-  // SMA filters (price vs SMA)
+  // EMA filters (intraday EMAs from BarEngine)
+  min_ema_20?: number;
+  max_ema_20?: number;
+  min_ema_50?: number;
+  max_ema_50?: number;
+  // Legacy SMA filter names (backward compat with saved filters)
   min_sma_20?: number;
   max_sma_20?: number;
   min_sma_50?: number;
   max_sma_50?: number;
+
+  // Intraday SMA (from BarEngine 1-min bars)
+  min_sma_5?: number;
+  max_sma_5?: number;
+  min_sma_8?: number;
+  max_sma_8?: number;
   min_sma_200?: number;
   max_sma_200?: number;
+
+  // Quote data
+  min_bid?: number;
+  max_bid?: number;
+  min_ask?: number;
+  max_ask?: number;
+  min_bid_size?: number;
+  max_bid_size?: number;
+  min_ask_size?: number;
+  max_ask_size?: number;
+  min_spread?: number;
+  max_spread?: number;
+
+  // MACD
+  min_macd_line?: number;
+  max_macd_line?: number;
+  min_macd_hist?: number;
+  max_macd_hist?: number;
+
+  // Stochastic
+  min_stoch_k?: number;
+  max_stoch_k?: number;
+  min_stoch_d?: number;
+  max_stoch_d?: number;
+
+  // ADX
+  min_adx_14?: number;
+  max_adx_14?: number;
+
+  // Bollinger Bands (intraday)
+  min_bb_upper?: number;
+  max_bb_upper?: number;
+  min_bb_lower?: number;
+  max_bb_lower?: number;
+
+  // Daily indicators (from screener)
+  min_daily_sma_20?: number;
+  max_daily_sma_20?: number;
+  min_daily_sma_50?: number;
+  max_daily_sma_50?: number;
+  min_daily_sma_200?: number;
+  max_daily_sma_200?: number;
+  min_daily_rsi?: number;
+  max_daily_rsi?: number;
+  min_high_52w?: number;
+  max_high_52w?: number;
+  min_low_52w?: number;
+  max_low_52w?: number;
+
+  // Trades anomaly
+  min_trades_today?: number;
+  max_trades_today?: number;
+  min_trades_z_score?: number;
+  max_trades_z_score?: number;
+
+  // String filters (fundamentals)
+  security_type?: string;   // CS, ETF, PFD, WARRANT
+  sector?: string;
+  industry?: string;
 
   // Symbol filters
   symbols_include?: string[];
@@ -99,7 +181,7 @@ export interface EventFilterParameters {
 export interface ActiveEventFilters extends EventFilterParameters { }
 
 interface EventFiltersState {
-  // Per-category filters (key = categoryId, e.g. "evt_new_highs")
+  // Per-category filters (key = categoryId, e.g. "evt_high_vol_runners")
   filtersMap: Record<string, ActiveEventFilters>;
 
   // Actions (all take categoryId for per-window isolation)

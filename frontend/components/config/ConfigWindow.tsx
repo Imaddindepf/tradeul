@@ -72,7 +72,7 @@ function fmtFilter(key: string, val: number): string {
   };
   if (key.includes('market_cap') || key.includes('dollar_volume')) return fmtLarge(val, '$');
   if (key.includes('float') || key.includes('shares_outstanding') || key.includes('bid_size') || key.includes('ask_size')) return fmtLarge(val);
-  if (key.includes('price') && !key.includes('percent') || key.includes('vwap') || key.includes('sma_') || key.includes('_atr') && !key.includes('percent')) return `$${val}`;
+  if (key.includes('price') && !key.includes('percent') || key.includes('vwap') || key.includes('ema_') || key.includes('sma_') || key.includes('_atr') && !key.includes('percent')) return `$${val}`;
   if (key.includes('rvol')) return `${val}x`;
   if (key.includes('rsi')) return String(val);
   if (key.includes('percent') || key.includes('gap') || key.includes('atr') || key.includes('from_open') || key.includes('chg_') || key.includes('spread') || key.includes('nbbo') || key.includes('volatility') || key.includes('short_interest') || key.includes('today_pct') || key.includes('from_high')) return `${val}%`;
@@ -112,9 +112,8 @@ function filtersToDisplay(filters: Record<string, any>): string[] {
     min_atr_percent: 'ATR% >', max_atr_percent: 'ATR% <',
     min_volatility: 'Vola >', max_volatility: 'Vola <',
     min_rsi: 'RSI >', max_rsi: 'RSI <',
-    min_sma_20: 'SMA20 >', max_sma_20: 'SMA20 <',
-    min_sma_50: 'SMA50 >', max_sma_50: 'SMA50 <',
-    min_sma_200: 'SMA200 >', max_sma_200: 'SMA200 <',
+    min_ema_20: 'EMA20 >', max_ema_20: 'EMA20 <',
+    min_ema_50: 'EMA50 >', max_ema_50: 'EMA50 <',
     min_market_cap: 'MCap >', max_market_cap: 'MCap <',
     min_float_shares: 'Float >', max_float_shares: 'Float <',
     min_shares_outstanding: 'ShOut >', max_shares_outstanding: 'ShOut <',
@@ -182,8 +181,8 @@ export function ConfigWindow({
   // Current config being built
   const [strategyName, setStrategyName] = useState(initialName || '');
   const [selectedAlerts, setSelectedAlerts] = useState<Set<string>>(new Set(initialAlerts || []));
-  const [filters, setFilters] = useState<Record<string, number | undefined>>(
-    initialFilters ? Object.fromEntries(Object.entries(initialFilters).filter(([, v]) => typeof v === 'number')) : {}
+  const [filters, setFilters] = useState<Record<string, number | string | undefined>>(
+    initialFilters ? Object.fromEntries(Object.entries(initialFilters).filter(([, v]) => typeof v === 'number' || typeof v === 'string')) : {}
   );
   const [filterUnits, setFilterUnits] = useState<Record<string, string>>({});
   const [symbolsInclude, setSymbolsInclude] = useState(initialSymbolsInclude || '');
@@ -267,7 +266,7 @@ export function ConfigWindow({
   }, []);
 
   // Filter handlers
-  const setFilter = useCallback((key: string, val: number | undefined) => {
+  const setFilter = useCallback((key: string, val: number | string | undefined) => {
     setFilters(prev => {
       const n = { ...prev };
       if (val === undefined || val === null) delete n[key]; else n[key] = val;
@@ -300,11 +299,24 @@ export function ConfigWindow({
     setSaving(true);
     try {
       // Save strategy to BD
-      await createStrategy({
+      const saved = await createStrategy({
         name: strategyName.trim(),
         category: saveCategory,
         event_types: Array.from(selectedAlerts),
         filters,
+      });
+
+      // CRITICAL: Don't open window if save failed (JWT expired, 409 conflict, etc.)
+      if (!saved) {
+        return;
+      }
+
+      // Transition to "loaded" state so subsequent edits use Update (not Create again → 409)
+      setLoadedStrategyId(String(saved.id));
+      setLoadedSnapshot({
+        alerts: Array.from(selectedAlerts),
+        filters: { ...filters },
+        name: strategyName.trim(),
       });
 
       // Build ActiveEventFilters for the window
@@ -678,13 +690,11 @@ export function ConfigWindow({
             { id: 'volume', group: 'Volume', filters: [
               { label: 'RVOL', minK: 'min_rvol', maxK: 'max_rvol', suf: 'x', phMin: '1', phMax: '10' },
               { label: 'Volume', minK: 'min_volume', maxK: 'max_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-              { label: 'Avg Vol 5D', minK: 'min_avg_volume_5d', maxK: 'max_avg_volume_5d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-              { label: 'Avg Vol 10D', minK: 'min_avg_volume_10d', maxK: 'max_avg_volume_10d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-              { label: 'Avg Vol 3M', minK: 'min_avg_volume_3m', maxK: 'max_avg_volume_3m', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-              { label: 'Dollar Vol', minK: 'min_dollar_volume', maxK: 'max_dollar_volume', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
-              { label: 'Vol Today %', minK: 'min_volume_today_pct', maxK: 'max_volume_today_pct', suf: '%', phMin: '50', phMax: '500' },
               { label: 'Vol 1m', minK: 'min_vol_1min', maxK: 'max_vol_1min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '50' },
               { label: 'Vol 5m', minK: 'min_vol_5min', maxK: 'max_vol_5min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
+              { label: 'Vol 10m', minK: 'min_vol_10min', maxK: 'max_vol_10min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '5', phMax: '200' },
+              { label: 'Vol 15m', minK: 'min_vol_15min', maxK: 'max_vol_15min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
+              { label: 'Vol 30m', minK: 'min_vol_30min', maxK: 'max_vol_30min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '20', phMax: '1000' },
             ]},
             { id: 'windows', group: 'Time Windows', filters: [
               { label: 'Chg 1m', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
@@ -692,21 +702,48 @@ export function ConfigWindow({
               { label: 'Chg 10m', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
               { label: 'Chg 15m', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
               { label: 'Chg 30m', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
+              { label: 'Chg 60m', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
             ]},
-            { id: 'tech', group: 'Technical', filters: [
-              { label: 'ATR', minK: 'min_atr', maxK: 'max_atr', suf: '$', phMin: '0.5', phMax: '10' },
+            { id: 'quote', group: 'Quote', filters: [
+              { label: 'Bid', minK: 'min_bid', maxK: 'max_bid', suf: '$', phMin: '1', phMax: '500' },
+              { label: 'Ask', minK: 'min_ask', maxK: 'max_ask', suf: '$', phMin: '1', phMax: '500' },
+              { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+              { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+              { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '$', phMin: '0.01', phMax: '0.50' },
+            ]},
+            { id: 'tech', group: 'Intraday Technical', filters: [
               { label: 'ATR %', minK: 'min_atr_percent', maxK: 'max_atr_percent', suf: '%', phMin: '2', phMax: '10' },
-              { label: 'Volatility', minK: 'min_volatility', maxK: 'max_volatility', suf: '%', phMin: '1', phMax: '20' },
               { label: 'RSI', minK: 'min_rsi', maxK: 'max_rsi', suf: '', phMin: '20', phMax: '80' },
+              { label: 'EMA 20', minK: 'min_ema_20', maxK: 'max_ema_20', suf: '$', phMin: '5', phMax: '500' },
+              { label: 'EMA 50', minK: 'min_ema_50', maxK: 'max_ema_50', suf: '$', phMin: '5', phMax: '500' },
+              { label: 'SMA 8', minK: 'min_sma_8', maxK: 'max_sma_8', suf: '$', phMin: '1', phMax: '500' },
               { label: 'SMA 20', minK: 'min_sma_20', maxK: 'max_sma_20', suf: '$', phMin: '5', phMax: '500' },
               { label: 'SMA 50', minK: 'min_sma_50', maxK: 'max_sma_50', suf: '$', phMin: '5', phMax: '500' },
               { label: 'SMA 200', minK: 'min_sma_200', maxK: 'max_sma_200', suf: '$', phMin: '5', phMax: '500' },
+              { label: 'MACD', minK: 'min_macd_line', maxK: 'max_macd_line', suf: '', phMin: '-5', phMax: '5' },
+              { label: 'MACD Hist', minK: 'min_macd_hist', maxK: 'max_macd_hist', suf: '', phMin: '-2', phMax: '2' },
+              { label: 'Stoch %K', minK: 'min_stoch_k', maxK: 'max_stoch_k', suf: '', phMin: '20', phMax: '80' },
+              { label: 'Stoch %D', minK: 'min_stoch_d', maxK: 'max_stoch_d', suf: '', phMin: '20', phMax: '80' },
+              { label: 'ADX', minK: 'min_adx_14', maxK: 'max_adx_14', suf: '', phMin: '20', phMax: '50' },
+              { label: 'BB Upper', minK: 'min_bb_upper', maxK: 'max_bb_upper', suf: '$', phMin: '', phMax: '' },
+              { label: 'BB Lower', minK: 'min_bb_lower', maxK: 'max_bb_lower', suf: '$', phMin: '', phMax: '' },
+            ]},
+            { id: 'daily', group: 'Daily Indicators', filters: [
+              { label: 'D SMA 20', minK: 'min_daily_sma_20', maxK: 'max_daily_sma_20', suf: '$', phMin: '', phMax: '' },
+              { label: 'D SMA 50', minK: 'min_daily_sma_50', maxK: 'max_daily_sma_50', suf: '$', phMin: '', phMax: '' },
+              { label: 'D SMA 200', minK: 'min_daily_sma_200', maxK: 'max_daily_sma_200', suf: '$', phMin: '', phMax: '' },
+              { label: 'Daily RSI', minK: 'min_daily_rsi', maxK: 'max_daily_rsi', suf: '', phMin: '20', phMax: '80' },
+              { label: '52w High', minK: 'min_high_52w', maxK: 'max_high_52w', suf: '$', phMin: '', phMax: '' },
+              { label: '52w Low', minK: 'min_low_52w', maxK: 'max_low_52w', suf: '$', phMin: '', phMax: '' },
             ]},
             { id: 'fund', group: 'Fundamentals', filters: [
               { label: 'Mkt Cap', minK: 'min_market_cap', maxK: 'max_market_cap', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '50', phMax: '10' },
               { label: 'Float', minK: 'min_float_shares', maxK: 'max_float_shares', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
               { label: 'Shares Out', minK: 'min_shares_outstanding', maxK: 'max_shares_outstanding', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '500' },
-              { label: 'Short Int', minK: 'min_short_interest', maxK: 'max_short_interest', suf: '%', phMin: '5', phMax: '50' },
+            ]},
+            { id: 'trades', group: 'Trades Anomaly', filters: [
+              { label: 'Trades', minK: 'min_trades_today', maxK: 'max_trades_today', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+              { label: 'Z-Score', minK: 'min_trades_z_score', maxK: 'max_trades_z_score', suf: '', phMin: '1', phMax: '5' },
             ]},
           ] as const;
 
@@ -753,13 +790,13 @@ export function ConfigWindow({
                               <div key={f.label} className="flex items-center gap-1">
                                 <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">{f.label}</span>
                                 <FmtNum
-                                  value={toDisp(filters[f.minK])}
+                                  value={toDisp(filters[f.minK] as number | undefined)}
                                   onChange={v => setFilter(f.minK, toRaw(v))}
                                   placeholder={f.phMin}
                                   className="w-[68px] px-1.5 py-[2px] text-[10px] font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right tabular-nums" />
                                 <span className="text-slate-300 text-[8px]">-</span>
                                 <FmtNum
-                                  value={toDisp(filters[f.maxK])}
+                                  value={toDisp(filters[f.maxK] as number | undefined)}
                                   onChange={v => setFilter(f.maxK, toRaw(v))}
                                   placeholder={f.phMax}
                                   className="w-[68px] px-1.5 py-[2px] text-[10px] font-mono border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-right tabular-nums" />
@@ -779,6 +816,42 @@ export function ConfigWindow({
                     </div>
                   );
                 })}
+                {/* String filters (not min/max) */}
+                <div>
+                  <button onClick={() => toggleFilterGroup('strings')}
+                    className="w-full flex items-center gap-1 px-2 py-[3px] text-left hover:bg-slate-50/80 transition-colors border-b border-slate-100/80">
+                    <span className="text-[9px] text-slate-300 w-3">{expandedFilterGroups.has('strings') ? '\u25BC' : '\u25B6'}</span>
+                    <span className="text-[11px] font-medium text-slate-600 flex-1">Classification</span>
+                    {(filters.security_type || filters.sector || filters.industry) && <span className="text-[9px] text-blue-600 font-semibold">active</span>}
+                  </button>
+                  {expandedFilterGroups.has('strings') && (
+                    <div className="px-2 py-1 space-y-[3px]">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Type</span>
+                        <select value={(filters.security_type as string) || ''} onChange={e => setFilter('security_type', e.target.value || undefined)}
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                          <option value="">All</option>
+                          <option value="CS">Stocks (CS)</option>
+                          <option value="ETF">ETF</option>
+                          <option value="PFD">Preferred</option>
+                          <option value="WARRANT">Warrants</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Sector</span>
+                        <input type="text" value={(filters.sector as string) || ''} onChange={e => setFilter('sector', e.target.value || undefined)}
+                          placeholder="e.g. Technology"
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Industry</span>
+                        <input type="text" value={(filters.industry as string) || ''} onChange={e => setFilter('industry', e.target.value || undefined)}
+                          placeholder="e.g. Software"
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           );

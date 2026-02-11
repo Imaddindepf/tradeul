@@ -7,11 +7,11 @@ Events detected:
 - BB_UPPER_BREAKOUT  [BBU] - Price crosses above upper Bollinger Band
 - BB_LOWER_BREAKDOWN [BBD] - Price crosses below lower Bollinger Band
 
-Bollinger Bands = SMA(20) ± 2 * StdDev(20), computed daily by screener.
+Bollinger Bands = EMA(20) ± 2σ from 1-minute bars (BarEngine).
 A breakout above the upper band signals extreme overbought / momentum.
 A breakdown below the lower band signals extreme oversold / momentum.
 
-Data source: Daily BB values from screener service via Redis bridge.
+Data source: Intraday BB values from BarEngine via enriched snapshot.
 """
 
 from typing import Optional, List
@@ -50,7 +50,7 @@ class BollingerEventsDetector(BaseEventDetector):
                         details={
                             "bb_upper": round(bb_upper, 2),
                             "bb_lower": round(current.bb_lower, 2) if current.bb_lower else None,
-                            "sma_20": round(current.sma_20, 2) if current.sma_20 else None,
+                            "ema_20": round(current.ema_20, 2) if current.ema_20 else None,
                         },
                     ))
 
@@ -68,7 +68,7 @@ class BollingerEventsDetector(BaseEventDetector):
                         details={
                             "bb_upper": round(bb_upper, 2) if bb_upper else None,
                             "bb_lower": round(bb_lower, 2),
-                            "sma_20": round(current.sma_20, 2) if current.sma_20 else None,
+                            "ema_20": round(current.ema_20, 2) if current.ema_20 else None,
                         },
                     ))
 

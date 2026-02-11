@@ -157,9 +157,11 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
         shares_outstanding = profile.shares_outstanding or 0
         
         # Calculate shares from warrants
+        # ENHANCED: Use full fallback chain and filter by status
         warrants_shares = sum(
-            int(w.outstanding or w.total_issued or 0)
+            int(w.potential_new_shares or w.outstanding or w.total_issued or w.remaining or 0)
             for w in (profile.warrants or [])
+            if not w.exclude_from_dilution and (w.status in ['Active', None])
         )
         
         # Calculate shares from ATM at current price
@@ -193,6 +195,8 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
         # If float value < $75M, company can only use 1/3 of float value per 12 months
         shelf_capacity = 0
         has_active_shelf = False
+        has_filed_shelf = False
+        filed_shelf_capacity = 0
         
         # Calculate float value for Baby Shelf check
         free_float = profile.free_float or profile.shares_outstanding or 0
@@ -200,33 +204,47 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
         float_value = free_float * current_price
         is_baby_shelf_restricted = float_value < 75_000_000  # $75M threshold
         
+        # Active/Effective statuses for shelf registrations
+        active_statuses = ['Active', 'Effective', None]
+        # Filed shelves are not yet active but show intent to dilute
+        filed_statuses = ['Filed', 'Pending']
+        
         for shelf in (profile.shelf_registrations or []):
-            if shelf.status in ['Active', 'Effective', None]:
+            remaining = float(shelf.remaining_capacity or shelf.total_capacity or 0)
+            
+            if shelf.status in active_statuses:
                 has_active_shelf = True
-                remaining = float(shelf.remaining_capacity or shelf.total_capacity or 0)
                 
                 # Apply Baby Shelf limitation if applicable
                 if is_baby_shelf_restricted:
-                    # Can only raise 1/3 of float value per 12 months
                     baby_shelf_limit = float_value / 3
                     remaining = min(remaining, baby_shelf_limit)
                 
                 shelf_capacity += remaining
+            elif shelf.status in filed_statuses:
+                # Track filed shelves separately
+                has_filed_shelf = True
+                filed_shelf_capacity += remaining
         
         logger.debug("shelf_capacity_calculated", 
                     ticker=ticker,
                     raw_capacity=sum(float(s.remaining_capacity or s.total_capacity or 0) 
                                     for s in (profile.shelf_registrations or []) 
-                                    if s.status in ['Active', 'Effective', None]),
+                                    if s.status in active_statuses),
                     baby_shelf_restricted=is_baby_shelf_restricted,
                     float_value=float_value,
-                    effective_capacity=shelf_capacity)
+                    effective_capacity=shelf_capacity,
+                    has_filed_shelf=has_filed_shelf,
+                    filed_shelf_capacity=filed_shelf_capacity)
         
         # ===== HISTORICAL: Get shares current (from SEC history) and 3 years ago =====
         # IMPORTANT: For Historical rating, use SEC-reported shares (not "fully diluted")
         # This ensures we compare apples-to-apples: SEC current vs SEC 3yr ago
         shares_3yr_ago = 0
         shares_current_sec = 0  # Current shares from SEC filings (for Historical calc)
+        has_recent_reverse_split = False
+        reverse_split_factor = 1.0
+        shares_history_span_years = 3.0
         try:
             from services.data.shares_data_service import SharesDataService
             from datetime import timedelta
@@ -244,6 +262,29 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
                     shares_current_sec = sorted_hist[0].get("shares", 0)
                     logger.debug("historical_current_from_sec", ticker=ticker,
                                date=sorted_hist[0].get("date"), shares=shares_current_sec)
+                
+                # ===== DETECT REVERSE SPLITS =====
+                # Check if any history records have split_adjusted=true
+                for h in hist:
+                    if h.get("split_adjusted") and h.get("adjustment_factor"):
+                        adj_factor = float(h.get("adjustment_factor", 1))
+                        if adj_factor > 1:
+                            has_recent_reverse_split = True
+                            reverse_split_factor = max(reverse_split_factor, adj_factor)
+                            logger.info("reverse_split_detected_in_history", 
+                                       ticker=ticker, factor=adj_factor,
+                                       split_date=h.get("applied_split_date"),
+                                       original_shares=h.get("original_shares"))
+                
+                # Calculate actual history span
+                if len(sorted_hist) >= 2:
+                    try:
+                        newest_date = datetime.strptime(sorted_hist[0].get("date", "")[:10], "%Y-%m-%d")
+                        oldest_date = datetime.strptime(sorted_hist[-1].get("date", "")[:10], "%Y-%m-%d")
+                        span_days = (newest_date - oldest_date).days
+                        shares_history_span_years = max(span_days / 365.25, 0.1)
+                    except:
+                        shares_history_span_years = 3.0
                 
                 # Find closest date <= 3 years ago
                 for h in sorted_hist:
@@ -271,6 +312,7 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
         # ===== CASH NEED: Get runway months =====
         runway_months = None
         has_positive_cf = False
+        cash_data = None
         try:
             from services.sec.sec_cash_history import SECCashHistoryService
             
@@ -301,12 +343,58 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
         except Exception as e:
             logger.debug("cash_history_fetch_failed", ticker=ticker, error=str(e))
         
+        # ===== CONTEXT: Detect recent offerings =====
+        has_recent_offering = False
+        if profile.s1_offerings:
+            for s1 in profile.s1_offerings:
+                if s1.s1_filing_date:
+                    try:
+                        filing_date = s1.s1_filing_date
+                        if isinstance(filing_date, str):
+                            filing_date = datetime.strptime(filing_date[:10], "%Y-%m-%d").date()
+                        days_ago = (date.today() - filing_date).days
+                        if days_ago < 180:  # Within last 6 months
+                            has_recent_offering = True
+                            break
+                    except:
+                        pass
+            # If S-1/F-1 exists but no date, assume recent
+            if not has_recent_offering and len(profile.s1_offerings) > 0:
+                has_recent_offering = True
+        
+        # Also check completed offerings for recency
+        if not has_recent_offering and profile.completed_offerings:
+            for offering in profile.completed_offerings:
+                if offering.offering_date:
+                    try:
+                        off_date = offering.offering_date
+                        if isinstance(off_date, str):
+                            off_date = datetime.strptime(off_date[:10], "%Y-%m-%d").date()
+                        days_ago = (date.today() - off_date).days
+                        if days_ago < 180:
+                            has_recent_offering = True
+                            break
+                    except:
+                        pass
+        
+        # Get estimated current cash and annual burn from cash data
+        estimated_current_cash_val = None
+        annual_burn = None
+        try:
+            if cash_data and not cash_data.get("error"):
+                estimated_current_cash_val = cash_data.get("estimated_current_cash")
+                annual_burn = cash_data.get("annual_operating_cf")
+        except:
+            pass
+        
         # Calculate ratings
         ratings = risk_scorer.calculate_all_ratings(
             # Offering Ability
             shelf_capacity_remaining=shelf_capacity,
             has_active_shelf=has_active_shelf,
             has_pending_s1=len(profile.s1_offerings or []) > 0,
+            has_filed_shelf=has_filed_shelf,
+            filed_shelf_capacity=filed_shelf_capacity,
             
             # Overhead Supply (uses fully diluted shares_outstanding)
             warrants_shares=warrants_shares,
@@ -318,10 +406,16 @@ async def _calculate_risk_assessment(profile, dilution_analysis: dict, redis) ->
             # Historical (uses SEC-reported shares, not fully diluted)
             shares_outstanding_3yr_ago=shares_3yr_ago,
             shares_outstanding_current_sec=shares_for_historical,  # From SEC filings
+            has_recent_reverse_split=has_recent_reverse_split,
+            reverse_split_factor=reverse_split_factor,
+            shares_history_span_years=shares_history_span_years,
             
             # Cash Need
             runway_months=runway_months,
             has_positive_operating_cf=has_positive_cf,
+            estimated_current_cash=estimated_current_cash_val,
+            annual_burn_rate=annual_burn,
+            has_recent_offering=has_recent_offering,
             
             # Current price
             current_price=float(profile.current_price or 0)
@@ -1197,51 +1291,95 @@ async def get_risk_ratings(ticker: str):
             atm_offerings = profile.get("atm_offerings", []) if profile else []
             shelf_registrations = profile.get("shelf_registrations", []) if profile else []
             convertible_notes = profile.get("convertible_notes", []) if profile else []
+            s1_offerings = profile.get("s1_offerings", []) if profile else []
+            equity_lines = profile.get("equity_lines", []) if profile else []
             shares_outstanding = profile.get("shares_outstanding", 0) if profile else 0
             
-            # Calculate warrant shares
+            # Calculate warrant shares - ENHANCED: Full fallback chain + status filtering
             total_warrant_shares = sum(
-                w.get("remaining_warrants", 0) or w.get("outstanding", 0) or 0
+                int(
+                    w.get("potential_new_shares", 0) or 
+                    w.get("outstanding", 0) or 
+                    w.get("remaining_warrants", 0) or 
+                    w.get("total_issued", 0) or 
+                    w.get("remaining", 0) or 0
+                )
                 for w in warrants
+                if not w.get("exclude_from_dilution") and w.get("status", "Active") in ["Active", None, ""]
             )
             
             # Calculate ATM shares (estimate from remaining capacity / current price)
             current_price = profile.get("current_price", 1) if profile else 1
             total_atm_shares = sum(
-                int((a.get("remaining_capacity", 0) or 0) / max(current_price, 0.01))
+                int((a.get("remaining_capacity", 0) or 0) / max(float(current_price), 0.01))
                 for a in atm_offerings
+                if a.get("status", "Active") in ["Active", None, ""]
             )
             
-            # Calculate convertible shares
+            # Calculate convertible shares - ENHANCED: Better fallback chain
             total_convertible_shares = sum(
-                c.get("shares_if_converted", 0) or c.get("remaining_shares_to_be_issued", 0) or 0
+                int(
+                    c.get("remaining_shares_when_converted", 0) or 
+                    c.get("total_shares_when_converted", 0) or 
+                    c.get("shares_if_converted", 0) or 
+                    c.get("remaining_shares_to_be_issued", 0) or 0
+                )
                 for c in convertible_notes
             )
             
-            # Get shelf capacity
-            active_shelves = [s for s in shelf_registrations if s.get("status", "").lower() in ["active", "effective", "registered"]]
+            # Calculate equity line shares
+            total_equity_line_shares = sum(
+                int((el.get("remaining_capacity", 0) or 0) / max(float(current_price), 0.01))
+                for el in equity_lines
+            )
+            
+            # Get shelf capacity - ENHANCED: Active + Filed shelves
+            active_statuses = ["active", "effective", "registered"]
+            filed_statuses = ["filed", "pending"]
+            
+            active_shelves = [s for s in shelf_registrations 
+                            if s.get("status", "").lower() in active_statuses or s.get("status") is None]
+            filed_shelves = [s for s in shelf_registrations 
+                           if s.get("status", "").lower() in filed_statuses]
+            
             total_shelf_capacity = sum(
-                s.get("remaining_capacity", 0) or s.get("current_raisable_amount", 0) or 0
+                s.get("remaining_capacity", 0) or s.get("current_raisable_amount", 0) or s.get("total_capacity", 0) or 0
                 for s in active_shelves
             )
             has_active_shelf = len(active_shelves) > 0
             
+            has_filed_shelf = len(filed_shelves) > 0
+            filed_shelf_capacity = sum(
+                s.get("remaining_capacity", 0) or s.get("total_capacity", 0) or 0
+                for s in filed_shelves
+            )
+            
+            # Detect pending S-1/F-1 offerings
+            has_pending_s1 = len(s1_offerings) > 0
+            
             # Get runway from cash data
             runway_months = None
             has_positive_cf = False
+            estimated_current_cash = None
+            annual_burn = None
             if cash_data and not cash_data.get("error"):
                 runway_days = cash_data.get("runway_days")
                 if runway_days is not None:
                     runway_months = runway_days / 30
                 
-                # CORRECCIÓN: Usar annual_operating_cf para determinar has_positive_cf
-                # Cuando annual_ocf >= 0 (positivo O sin datos de burn), la empresa no está
-                # claramente quemando dinero → se considera "positivo" para efectos de risk
                 annual_ocf = cash_data.get("annual_operating_cf", 0) or 0
                 has_positive_cf = annual_ocf >= 0
+                estimated_current_cash = cash_data.get("estimated_current_cash")
+                annual_burn = cash_data.get("annual_operating_cf")
             
             # Get historical O/S (3 years ago) from shares history
+            # ENHANCED: Also detect reverse splits and history span
             shares_3yr_ago = 0
+            has_recent_reverse_split = False
+            reverse_split_factor = 1.0
+            shares_history_span_years = 3.0
+            has_recent_offering = has_pending_s1  # S-1 filed = recent offering intent
+            
             try:
                 from services.data.shares_data_service import SharesDataService
                 from datetime import timedelta
@@ -1251,9 +1389,28 @@ async def get_risk_ratings(ticker: str):
                 if shares_history and shares_history.get("history"):
                     hist = shares_history["history"]
                     target_date = datetime.now() - timedelta(days=3*365)
+                    sorted_hist = sorted(hist, key=lambda x: x.get("date", ""), reverse=True)
+                    
+                    # Detect reverse splits
+                    for h in hist:
+                        if h.get("split_adjusted") and h.get("adjustment_factor"):
+                            adj_factor = float(h.get("adjustment_factor", 1))
+                            if adj_factor > 1:
+                                has_recent_reverse_split = True
+                                reverse_split_factor = max(reverse_split_factor, adj_factor)
+                    
+                    # Calculate history span
+                    if len(sorted_hist) >= 2:
+                        try:
+                            newest_date = datetime.strptime(sorted_hist[0].get("date", "")[:10], "%Y-%m-%d")
+                            oldest_date = datetime.strptime(sorted_hist[-1].get("date", "")[:10], "%Y-%m-%d")
+                            span_days = (newest_date - oldest_date).days
+                            shares_history_span_years = max(span_days / 365.25, 0.1)
+                        except:
+                            shares_history_span_years = 3.0
                     
                     # Find closest date <= 3 years ago
-                    for h in sorted(hist, key=lambda x: x.get("date", ""), reverse=True):
+                    for h in sorted_hist:
                         try:
                             h_date = datetime.strptime(h.get("date", "")[:10], "%Y-%m-%d")
                             if h_date <= target_date:
@@ -1263,23 +1420,41 @@ async def get_risk_ratings(ticker: str):
                                 break
                         except:
                             continue
+                    
+                    # If no 3yr ago data, use earliest available
+                    if shares_3yr_ago == 0 and hist:
+                        earliest = min(hist, key=lambda x: x.get("date", "9999"))
+                        shares_3yr_ago = earliest.get("shares", 0)
             except Exception as e:
                 logger.warning("shares_history_fetch_for_risk_failed", ticker=ticker, error=str(e))
             
-            # Calculate ratings
+            # Calculate ratings with ALL enhanced parameters
             ratings = scorer.calculate_all_ratings(
+                # Offering Ability
                 shelf_capacity_remaining=total_shelf_capacity,
                 has_active_shelf=has_active_shelf,
-                has_pending_s1=False,  # Would need S-1 detection
+                has_pending_s1=has_pending_s1,
+                has_filed_shelf=has_filed_shelf,
+                filed_shelf_capacity=filed_shelf_capacity,
+                # Overhead Supply
                 warrants_shares=total_warrant_shares,
                 atm_shares=total_atm_shares,
                 convertible_shares=total_convertible_shares,
-                equity_line_shares=0,  # Would need ELOC detection
+                equity_line_shares=total_equity_line_shares,
                 shares_outstanding=shares_outstanding,
-                shares_outstanding_3yr_ago=shares_3yr_ago or int(shares_outstanding * 0.7),  # Estimate if missing
+                # Historical
+                shares_outstanding_3yr_ago=shares_3yr_ago,
+                has_recent_reverse_split=has_recent_reverse_split,
+                reverse_split_factor=reverse_split_factor,
+                shares_history_span_years=shares_history_span_years,
+                # Cash Need
                 runway_months=runway_months,
                 has_positive_operating_cf=has_positive_cf,
-                current_price=current_price
+                estimated_current_cash=estimated_current_cash,
+                annual_burn_rate=annual_burn,
+                has_recent_offering=has_recent_offering,
+                # Context
+                current_price=float(current_price)
             )
             
             result = ratings.to_dict()
