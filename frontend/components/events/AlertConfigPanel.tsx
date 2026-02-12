@@ -317,6 +317,13 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
               className="flex-1 px-1.5 py-[3px] text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
             <span className="w-4" />
           </div>
+          <div className="flex items-center gap-1.5 px-3 py-[3px]">
+            <span className="text-[11px] text-slate-600 w-16 flex-shrink-0 font-medium truncate">Industry</span>
+            <input type="text" value={currentFilters.industry || ''} onChange={e => update('industry', e.target.value || undefined)}
+              placeholder="e.g. Biotechnology"
+              className="flex-1 px-1.5 py-[3px] text-[11px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+            <span className="w-4" />
+          </div>
         </div>
         <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Quote</div>
@@ -341,6 +348,8 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_ema_20', v)} onMaxChange={v => update('max_ema_20', v)} suffix="$" />
           <FilterInput label="EMA 50" minValue={currentFilters.min_ema_50} maxValue={currentFilters.max_ema_50}
             onMinChange={v => update('min_ema_50', v)} onMaxChange={v => update('max_ema_50', v)} suffix="$" />
+          <FilterInput label="SMA 5" minValue={currentFilters.min_sma_5} maxValue={currentFilters.max_sma_5}
+            onMinChange={v => update('min_sma_5', v)} onMaxChange={v => update('max_sma_5', v)} suffix="$" />
           <FilterInput label="SMA 8" minValue={currentFilters.min_sma_8} maxValue={currentFilters.max_sma_8}
             onMinChange={v => update('min_sma_8', v)} onMaxChange={v => update('max_sma_8', v)} suffix="$" />
           <FilterInput label="SMA 20" minValue={currentFilters.min_sma_20} maxValue={currentFilters.max_sma_20}
@@ -355,6 +364,8 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             onMinChange={v => update('min_macd_hist', v)} onMaxChange={v => update('max_macd_hist', v)} phMin="-2" phMax="2" />
           <FilterInput label="Stoch %K" minValue={currentFilters.min_stoch_k} maxValue={currentFilters.max_stoch_k}
             onMinChange={v => update('min_stoch_k', v)} onMaxChange={v => update('max_stoch_k', v)} phMin="20" phMax="80" />
+          <FilterInput label="Stoch %D" minValue={currentFilters.min_stoch_d} maxValue={currentFilters.max_stoch_d}
+            onMinChange={v => update('min_stoch_d', v)} onMaxChange={v => update('max_stoch_d', v)} phMin="20" phMax="80" />
           <FilterInput label="ADX" minValue={currentFilters.min_adx_14} maxValue={currentFilters.max_adx_14}
             onMinChange={v => update('min_adx_14', v)} onMaxChange={v => update('max_adx_14', v)} phMin="20" phMax="50" />
           <FilterInput label="BB Upper" minValue={currentFilters.min_bb_upper} maxValue={currentFilters.max_bb_upper}
@@ -399,6 +410,88 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
             unitOpts={['', 'K']} defaultUnit="" phMin="100" phMax="10000" />
           <FilterInput label="Z-Score" minValue={currentFilters.min_trades_z_score} maxValue={currentFilters.max_trades_z_score}
             onMinChange={v => update('min_trades_z_score', v)} onMaxChange={v => update('max_trades_z_score', v)} phMin="1" phMax="5" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Derived</div>
+          <FilterInput label="$ Volume" minValue={currentFilters.min_dollar_volume} maxValue={currentFilters.max_dollar_volume}
+            onMinChange={v => update('min_dollar_volume', v)} onMaxChange={v => update('max_dollar_volume', v)}
+            unitOpts={['', 'K', 'M', 'B']} defaultUnit="M" phMin="1" phMax="100" />
+          <FilterInput label="Range $" minValue={currentFilters.min_todays_range} maxValue={currentFilters.max_todays_range}
+            onMinChange={v => update('min_todays_range', v)} onMaxChange={v => update('max_todays_range', v)} phMin="0.1" phMax="10" />
+          <FilterInput label="Range %" minValue={currentFilters.min_todays_range_pct} maxValue={currentFilters.max_todays_range_pct}
+            onMinChange={v => update('min_todays_range_pct', v)} onMaxChange={v => update('max_todays_range_pct', v)} phMin="1" phMax="20" />
+          <FilterInput label="B/A Ratio" minValue={currentFilters.min_bid_ask_ratio} maxValue={currentFilters.max_bid_ask_ratio}
+            onMinChange={v => update('min_bid_ask_ratio', v)} onMaxChange={v => update('max_bid_ask_ratio', v)} phMin="0.5" phMax="3" />
+          <FilterInput label="Float Turn" minValue={currentFilters.min_float_turnover} maxValue={currentFilters.max_float_turnover}
+            onMinChange={v => update('min_float_turnover', v)} onMaxChange={v => update('max_float_turnover', v)} phMin="0.01" phMax="5" />
+          <FilterInput label="Pos Range" minValue={currentFilters.min_pos_in_range} maxValue={currentFilters.max_pos_in_range}
+            onMinChange={v => update('min_pos_in_range', v)} onMaxChange={v => update('max_pos_in_range', v)} phMin="0" phMax="100" />
+          <FilterInput label="Below Hi" minValue={currentFilters.min_below_high} maxValue={currentFilters.max_below_high}
+            onMinChange={v => update('min_below_high', v)} onMaxChange={v => update('max_below_high', v)} phMin="0" phMax="5" />
+          <FilterInput label="Above Lo" minValue={currentFilters.min_above_low} maxValue={currentFilters.max_above_low}
+            onMinChange={v => update('min_above_low', v)} onMaxChange={v => update('max_above_low', v)} phMin="0" phMax="5" />
+          <FilterInput label="Pos Open" minValue={currentFilters.min_pos_of_open} maxValue={currentFilters.max_pos_of_open}
+            onMinChange={v => update('min_pos_of_open', v)} onMaxChange={v => update('max_pos_of_open', v)} suffix="%" phMin="0" phMax="100" />
+          <FilterInput label="Prev Vol" minValue={currentFilters.min_prev_day_volume} maxValue={currentFilters.max_prev_day_volume}
+            onMinChange={v => update('min_prev_day_volume', v)} onMaxChange={v => update('max_prev_day_volume', v)}
+            unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="10000" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Distance %</div>
+          <FilterInput label="Dist VWAP" minValue={currentFilters.min_dist_from_vwap} maxValue={currentFilters.max_dist_from_vwap}
+            onMinChange={v => update('min_dist_from_vwap', v)} onMaxChange={v => update('max_dist_from_vwap', v)} phMin="-10" phMax="10" />
+          <FilterInput label="Dist SMA5" minValue={currentFilters.min_dist_sma_5} maxValue={currentFilters.max_dist_sma_5}
+            onMinChange={v => update('min_dist_sma_5', v)} onMaxChange={v => update('max_dist_sma_5', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Dist SMA8" minValue={currentFilters.min_dist_sma_8} maxValue={currentFilters.max_dist_sma_8}
+            onMinChange={v => update('min_dist_sma_8', v)} onMaxChange={v => update('max_dist_sma_8', v)} phMin="-5" phMax="5" />
+          <FilterInput label="Dist SMA20" minValue={currentFilters.min_dist_sma_20} maxValue={currentFilters.max_dist_sma_20}
+            onMinChange={v => update('min_dist_sma_20', v)} onMaxChange={v => update('max_dist_sma_20', v)} phMin="-10" phMax="10" />
+          <FilterInput label="Dist SMA50" minValue={currentFilters.min_dist_sma_50} maxValue={currentFilters.max_dist_sma_50}
+            onMinChange={v => update('min_dist_sma_50', v)} onMaxChange={v => update('max_dist_sma_50', v)} phMin="-20" phMax="20" />
+          <FilterInput label="Dist SMA200" minValue={currentFilters.min_dist_sma_200} maxValue={currentFilters.max_dist_sma_200}
+            onMinChange={v => update('min_dist_sma_200', v)} onMaxChange={v => update('max_dist_sma_200', v)} phMin="-50" phMax="50" />
+          <FilterInput label="Dist D.SMA20" minValue={currentFilters.min_dist_daily_sma_20} maxValue={currentFilters.max_dist_daily_sma_20}
+            onMinChange={v => update('min_dist_daily_sma_20', v)} onMaxChange={v => update('max_dist_daily_sma_20', v)} phMin="-10" phMax="10" />
+          <FilterInput label="Dist D.SMA50" minValue={currentFilters.min_dist_daily_sma_50} maxValue={currentFilters.max_dist_daily_sma_50}
+            onMinChange={v => update('min_dist_daily_sma_50', v)} onMaxChange={v => update('max_dist_daily_sma_50', v)} phMin="-20" phMax="20" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Multi-Day Change %</div>
+          <FilterInput label="1 Day" minValue={currentFilters.min_change_1d} maxValue={currentFilters.max_change_1d}
+            onMinChange={v => update('min_change_1d', v)} onMaxChange={v => update('max_change_1d', v)} phMin="-10" phMax="10" />
+          <FilterInput label="3 Days" minValue={currentFilters.min_change_3d} maxValue={currentFilters.max_change_3d}
+            onMinChange={v => update('min_change_3d', v)} onMaxChange={v => update('max_change_3d', v)} phMin="-20" phMax="20" />
+          <FilterInput label="5 Days" minValue={currentFilters.min_change_5d} maxValue={currentFilters.max_change_5d}
+            onMinChange={v => update('min_change_5d', v)} onMaxChange={v => update('max_change_5d', v)} phMin="-20" phMax="50" />
+          <FilterInput label="10 Days" minValue={currentFilters.min_change_10d} maxValue={currentFilters.max_change_10d}
+            onMinChange={v => update('min_change_10d', v)} onMaxChange={v => update('max_change_10d', v)} phMin="-30" phMax="100" />
+          <FilterInput label="20 Days" minValue={currentFilters.min_change_20d} maxValue={currentFilters.max_change_20d}
+            onMinChange={v => update('min_change_20d', v)} onMaxChange={v => update('max_change_20d', v)} phMin="-50" phMax="200" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Avg Volume</div>
+          <FilterInput label="Avg 5D" minValue={currentFilters.min_avg_volume_5d} maxValue={currentFilters.max_avg_volume_5d}
+            onMinChange={v => update('min_avg_volume_5d', v)} onMaxChange={v => update('max_avg_volume_5d', v)}
+            unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="5000" />
+          <FilterInput label="Avg 10D" minValue={currentFilters.min_avg_volume_10d} maxValue={currentFilters.max_avg_volume_10d}
+            onMinChange={v => update('min_avg_volume_10d', v)} onMaxChange={v => update('max_avg_volume_10d', v)}
+            unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="5000" />
+          <FilterInput label="Avg 20D" minValue={currentFilters.min_avg_volume_20d} maxValue={currentFilters.max_avg_volume_20d}
+            onMinChange={v => update('min_avg_volume_20d', v)} onMaxChange={v => update('max_avg_volume_20d', v)}
+            unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="100" phMax="5000" />
+        </div>
+        <div>
+          <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">52W / Daily Extra</div>
+          <FilterInput label="From 52H %" minValue={currentFilters.min_from_52w_high} maxValue={currentFilters.max_from_52w_high}
+            onMinChange={v => update('min_from_52w_high', v)} onMaxChange={v => update('max_from_52w_high', v)} phMin="-80" phMax="0" />
+          <FilterInput label="From 52L %" minValue={currentFilters.min_from_52w_low} maxValue={currentFilters.max_from_52w_low}
+            onMinChange={v => update('min_from_52w_low', v)} onMaxChange={v => update('max_from_52w_low', v)} phMin="0" phMax="500" />
+          <FilterInput label="D. ADX" minValue={currentFilters.min_daily_adx_14} maxValue={currentFilters.max_daily_adx_14}
+            onMinChange={v => update('min_daily_adx_14', v)} onMaxChange={v => update('max_daily_adx_14', v)} phMin="20" phMax="50" />
+          <FilterInput label="D. ATR %" minValue={currentFilters.min_daily_atr_percent} maxValue={currentFilters.max_daily_atr_percent}
+            onMinChange={v => update('min_daily_atr_percent', v)} onMaxChange={v => update('max_daily_atr_percent', v)} phMin="1" phMax="15" />
+          <FilterInput label="D. BB Pos" minValue={currentFilters.min_daily_bb_position} maxValue={currentFilters.max_daily_bb_position}
+            onMinChange={v => update('min_daily_bb_position', v)} onMaxChange={v => update('max_daily_bb_position', v)} phMin="0" phMax="100" />
         </div>
         <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Symbols</div>
@@ -706,7 +799,7 @@ export function AlertConfigPanel({
       <div className="flex border-b border-slate-200 bg-white">
         {tabs.map(tab => {
           const isActive = activeTab === tab.id;
-          
+
           return (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={'flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium transition-colors border-b-2 '
