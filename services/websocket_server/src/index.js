@@ -444,8 +444,17 @@ const ENRICHED_CACHE_INTERVAL_MS = 10_000; // 10 seconds
 
 async function refreshEnrichedCache() {
   try {
-    const raw = await redisCommands.hgetall("snapshot:enriched:latest");
-    if (!raw || Object.keys(raw).length === 0) return;
+    // Try snapshot:enriched:latest first (live market data)
+    let raw = await redisCommands.hgetall("snapshot:enriched:latest");
+    let source = "latest";
+    
+    // Fallback to last_close if latest is empty (market closed)
+    if (!raw || Object.keys(raw).length === 0) {
+      raw = await redisCommands.hgetall("snapshot:enriched:last_close");
+      source = "last_close";
+      if (!raw || Object.keys(raw).length === 0) return;
+    }
+    
     let count = 0;
     for (const [key, val] of Object.entries(raw)) {
       if (key === "__meta__") continue;
@@ -455,7 +464,7 @@ async function refreshEnrichedCache() {
       } catch (_) { /* skip unparseable */ }
     }
     enrichedCacheLastRefresh = Date.now();
-    logger.info({ tickers: count }, "enriched_cache_refreshed");
+    logger.info({ tickers: count, source }, "enriched_cache_refreshed");
   } catch (err) {
     logger.error({ err: err.message }, "enriched_cache_refresh_error");
   }
