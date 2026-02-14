@@ -2908,10 +2908,14 @@ function broadcastMarketEvent(eventData) {
   // ── Build event payload dynamically from EventRecord fields ──
   // String fields passed as-is; everything else parsed as number.
   // This mirrors Python EventRecord.to_dict() — no manual field list to maintain.
-  const STRING_FIELDS = new Set(["id", "event_type", "rule_id", "symbol", "timestamp", "details"]);
-  const INT_FIELDS = new Set(["volume", "vol_1min", "vol_5min"]);
+  const STRING_FIELDS = new Set(["id", "event_type", "rule_id", "symbol", "timestamp", "details", "security_type", "sector", "industry"]);
+  const INT_FIELDS = new Set(["volume", "vol_1min", "vol_5min", "vol_10min", "vol_15min", "vol_30min", 
+                               "bid_size", "ask_size", "shares_outstanding", "trades_today",
+                               "avg_volume_5d", "avg_volume_10d", "avg_volume_20d", "avg_volume_3m", "prev_day_volume"]);
 
   const eventPayload = { event_type: eventType, symbol: symbol };
+  
+  // 1. First, copy fields from event stream
   for (const [key, raw] of Object.entries(eventData)) {
     if (key === "event_type" || key === "symbol") continue; // already set
     if (key === "details") { eventPayload.details = details; continue; }
@@ -2922,6 +2926,28 @@ function broadcastMarketEvent(eventData) {
     // Default: parse as float
     const n = parseFloat(raw);
     eventPayload[key] = isNaN(n) ? null : n;
+  }
+
+  // 2. Enrich with additional fields from enriched cache (scanner data)
+  // This allows event tables to display all scanner columns (technical indicators, derived metrics, etc.)
+  const enriched = enrichedCache.get(symbol) || {};
+  for (const [key, val] of Object.entries(enriched)) {
+    // Only add if:
+    // - Not already set from event (event fields take precedence)
+    // - Value is not null/undefined
+    // - Not a field we want to exclude
+    if (!(key in eventPayload) && val != null && key !== "last_update") {
+      if (STRING_FIELDS.has(key)) {
+        eventPayload[key] = val;
+      } else if (INT_FIELDS.has(key)) {
+        const n = parseInt(val);
+        if (!isNaN(n)) eventPayload[key] = n;
+      } else {
+        // Default: numeric field
+        const n = parseFloat(val);
+        if (!isNaN(n)) eventPayload[key] = n;
+      }
+    }
   }
 
   let sent = 0;
