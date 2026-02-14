@@ -101,6 +101,15 @@ const ALL_HIDEABLE_COLUMNS = [
   'ask_size', 'bid_ask_ratio', 'distance_from_nbbo', 'atr_percent', 'atr_used',
   // Trades anomaly detection columns
   'trades_today', 'avg_trades_5d', 'trades_z_score',
+  // Nuevas columnas (ocultas por defecto)
+  'bid', 'ask', 'rsi_14', 'ema_9', 'sma_5', 'sma_8', 'sma_20', 'sma_50', 'sma_200',
+  'ema_20', 'ema_50', 'macd_line', 'macd_signal', 'macd_hist', 'adx_14', 'stoch_k', 'stoch_d',
+  'bb_upper', 'bb_mid', 'bb_lower', 'daily_sma_20', 'daily_sma_50', 'daily_sma_200', 'daily_rsi',
+  'high_52w', 'low_52w', 'from_52w_high', 'from_52w_low', 'vwap',
+  'open', 'high', 'low', 'prev_close', 'sector', 'industry', 'security_type', 'exchange',
+  'chg_60min', 'vol_60min', 'change_1d', 'change_5d', 'change_10d', 'change_20d',
+  'dist_from_vwap', 'dist_sma_20', 'dist_sma_50', 'dist_sma_200',
+  'todays_range_pct', 'float_turnover', 'pos_in_range',
 ];
 
 function getDefaultColumnVisibility(listName: string): Record<string, boolean> {
@@ -1239,6 +1248,797 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           },
         }
       ),
+
+      // ═══════════════════════════════════════════════════════════════
+      // NUEVAS COLUMNAS - Ocultas por defecto, usuario puede activarlas
+      // ═══════════════════════════════════════════════════════════════
+
+      // ── Quote Data (Bid/Ask) ──
+      columnHelper.accessor('bid', {
+        header: 'Bid',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+      
+      columnHelper.accessor('ask', {
+        header: 'Ask',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      // ── Indicadores Técnicos Intradía (1-min bars) ──
+      columnHelper.accessor('rsi_14', {
+        header: 'RSI(14)',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('ema_9', {
+        header: 'EMA(9)',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_5', {
+        header: 'SMA(5)',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_8', {
+        header: 'SMA(8)',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_20', {
+        header: 'SMA(20)',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_50', {
+        header: 'SMA(50)',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_200', {
+        header: 'SMA(200)',
+        size: 80,
+        minSize: 65,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('ema_20', {
+        header: 'EMA(20)',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('ema_50', {
+        header: 'EMA(50)',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('macd_line', {
+        header: 'MACD',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(3)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('macd_signal', {
+        header: 'MACD Signal',
+        size: 85,
+        minSize: 70,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-600">{value.toFixed(3)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('macd_hist', {
+        header: 'MACD Hist',
+        size: 80,
+        minSize: 65,
+        maxSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(3)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('adx_14', {
+        header: 'ADX(14)',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 25 ? 'text-blue-600 font-semibold' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('stoch_k', {
+        header: 'Stoch %K',
+        size: 75,
+        minSize: 60,
+        maxSize: 95,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 80 ? 'text-red-600' : value < 20 ? 'text-green-600' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('stoch_d', {
+        header: 'Stoch %D',
+        size: 75,
+        minSize: 60,
+        maxSize: 95,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 80 ? 'text-red-600' : value < 20 ? 'text-green-600' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
+        },
+      }),
+
+      // ── Bollinger Bands ──
+      columnHelper.accessor('bb_upper', {
+        header: 'BB Upper',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('bb_mid', {
+        header: 'BB Mid',
+        size: 75,
+        minSize: 60,
+        maxSize: 95,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('bb_lower', {
+        header: 'BB Lower',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      // ── Indicadores Diarios ──
+      columnHelper.accessor('daily_sma_20', {
+        header: 'D.SMA(20)',
+        size: 85,
+        minSize: 70,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_sma_50', {
+        header: 'D.SMA(50)',
+        size: 85,
+        minSize: 70,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_sma_200', {
+        header: 'D.SMA(200)',
+        size: 90,
+        minSize: 75,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_rsi', {
+        header: 'D.RSI',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
+        },
+      }),
+
+      // ── 52 Semanas ──
+      columnHelper.accessor('high_52w', {
+        header: '52W High',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('low_52w', {
+        header: '52W Low',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('from_52w_high', {
+        header: 'From 52W H',
+        size: 90,
+        minSize: 75,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-red-600">{value.toFixed(1)}%</div>;
+        },
+      }),
+
+      columnHelper.accessor('from_52w_low', {
+        header: 'From 52W L',
+        size: 90,
+        minSize: 75,
+        maxSize: 120,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-green-600">+{value.toFixed(1)}%</div>;
+        },
+      }),
+
+      // ── VWAP ──
+      columnHelper.accessor('vwap', {
+        header: 'VWAP',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      // ── Basics (OHLC, Exchange, etc.) ──
+      columnHelper.accessor('open', {
+        header: 'Open',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('high', {
+        header: 'High',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-green-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('low', {
+        header: 'Low',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-red-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('prev_close', {
+        header: 'Prev Close',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      // ── Fundamentales ──
+      columnHelper.accessor('sector', {
+        header: 'Sector',
+        size: 110,
+        minSize: 90,
+        maxSize: 150,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="text-xs text-slate-700 truncate">{value}</div>;
+        },
+      }),
+
+      columnHelper.accessor('industry', {
+        header: 'Industry',
+        size: 120,
+        minSize: 100,
+        maxSize: 170,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="text-xs text-slate-700 truncate">{value}</div>;
+        },
+      }),
+
+      columnHelper.accessor('security_type', {
+        header: 'Type',
+        size: 75,
+        minSize: 60,
+        maxSize: 95,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          const colorClass = value === 'ETF' ? 'text-purple-600 font-semibold' : 'text-slate-700';
+          return <div className={`text-xs ${colorClass}`}>{value}</div>;
+        },
+      }),
+
+      columnHelper.accessor('exchange', {
+        header: 'Exchange',
+        size: 75,
+        minSize: 60,
+        maxSize: 95,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400">-</div>;
+          return <div className="text-xs text-slate-600">{value}</div>;
+        },
+      }),
+
+      // ── Ventana 60 minutos ──
+      columnHelper.accessor('chg_60min', {
+        header: '60m Chg%',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          const colorClass = isPositive ? 'text-emerald-600' : 'text-rose-600';
+          const prefix = isPositive ? '+' : '';
+          return <div className={`font-mono font-medium ${colorClass}`}>{prefix}{value.toFixed(2)}%</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_60min', {
+        header: '60m Vol',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+
+      // ── Cambios Multi-día ──
+      columnHelper.accessor('change_1d', {
+        header: '1D %',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_5d', {
+        header: '5D %',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_10d', {
+        header: '10D %',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_20d', {
+        header: '20D %',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>{formatPercent(value)}</div>;
+        },
+      }),
+
+      // ── Distancias desde Indicadores ──
+      columnHelper.accessor('dist_from_vwap', {
+        header: 'Dist VWAP',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
+          const prefix = value > 0 ? '+' : '';
+          return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_20', {
+        header: 'Dist SMA20',
+        size: 85,
+        minSize: 70,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
+          const prefix = value > 0 ? '+' : '';
+          return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_50', {
+        header: 'Dist SMA50',
+        size: 85,
+        minSize: 70,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
+          const prefix = value > 0 ? '+' : '';
+          return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_200', {
+        header: 'Dist SMA200',
+        size: 95,
+        minSize: 80,
+        maxSize: 125,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 0 ? 'text-green-600' : 'text-red-600';
+          const prefix = value > 0 ? '+' : '';
+          return <div className={`font-mono text-xs ${colorClass}`}>{prefix}{value.toFixed(1)}%</div>;
+        },
+      }),
+
+      // ── Derivados ──
+      columnHelper.accessor('todays_range_pct', {
+        header: 'Range %',
+        size: 75,
+        minSize: 60,
+        maxSize: 95,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          return <div className="font-mono text-xs text-slate-600">{value.toFixed(1)}%</div>;
+        },
+      }),
+
+      columnHelper.accessor('float_turnover', {
+        header: 'Float Turn',
+        size: 85,
+        minSize: 70,
+        maxSize: 110,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 1 ? 'text-orange-600 font-semibold' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(2)}x</div>;
+        },
+      }),
+
+      columnHelper.accessor('pos_in_range', {
+        header: 'Pos Range',
+        size: 80,
+        minSize: 65,
+        maxSize: 105,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const colorClass = value > 75 ? 'text-green-600' : value < 25 ? 'text-red-600' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(0)}%</div>;
+        },
+      }),
     ],
     [] // Sin dependencias - columnas son estáticas, PriceCell maneja su propio estado
   );

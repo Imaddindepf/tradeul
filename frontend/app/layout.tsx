@@ -10,6 +10,7 @@ import {
 import { ClerkProvider } from '@clerk/nextjs';
 import { ClientThemeProvider } from '@/components/settings/ClientThemeProvider';
 import { I18nProvider } from '@/components/providers/I18nProvider';
+import { ChunkLoadErrorHandler } from '@/components/ChunkLoadErrorHandler';
 
 // UI Font - Using Inter for better stability
 const inter = Inter({
@@ -70,6 +71,7 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en" translate="no" className={`${inter.variable} ${jetbrainsMono.variable} ${oxygenMono.variable} ${ibmPlexMono.variable} ${firaCode.variable} notranslate`}>
         <body className="font-sans antialiased">
+          <ChunkLoadErrorHandler />
           <I18nProvider>
             <ClientThemeProvider>
               {children}

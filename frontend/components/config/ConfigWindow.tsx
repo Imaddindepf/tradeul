@@ -15,14 +15,18 @@
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useAlertStrategies, type AlertStrategy, type CreateStrategyData } from '@/hooks/useAlertStrategies';
-import { BUILT_IN_PRESETS, type AlertPreset, ALERT_CATEGORIES, ALERT_CATALOG, getAlertsByCategory, searchAlerts } from '@/lib/alert-catalog';
+import { useUserFilters } from '@/hooks/useUserFilters';
+import { BUILT_IN_PRESETS, type AlertPreset, BUILT_IN_TOP_LISTS, type TopListPreset, ALERT_CATEGORIES, ALERT_CATALOG, getAlertsByCategory, searchAlerts } from '@/lib/alert-catalog';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
+import type { UserFilter } from '@/lib/types/scannerFilters';
+import { SECURITY_TYPES, SECTORS, INDUSTRIES } from '@/lib/constants/filters';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type ConfigTab = 'strategies' | 'alerts' | 'filters' | 'symbols' | 'summary';
+type BuilderMode = 'strategy' | 'toplist';
+type ConfigTab = 'saved' | 'alerts' | 'filters' | 'symbols' | 'summary';
 
 export interface AlertWindowConfig {
   name: string;
@@ -34,6 +38,7 @@ export interface AlertWindowConfig {
 
 interface ConfigWindowProps {
   onCreateAlertWindow?: (config: AlertWindowConfig) => void;
+  onCreateScannerWindow?: (filter: UserFilter) => void;
   /** Pre-load existing config (for reconfiguring an existing window) */
   initialAlerts?: string[];
   initialFilters?: Record<string, any>;
@@ -42,19 +47,28 @@ interface ConfigWindowProps {
   initialName?: string;
   /** Start on a specific tab */
   initialTab?: ConfigTab;
+  /** Start in a specific mode */
+  initialMode?: BuilderMode;
 }
 
 // ============================================================================
 // Strategy folder definitions
 // ============================================================================
 
-const FOLDERS = [
+const STRATEGY_FOLDERS = [
   { id: 'recent', label: 'Recent', labelEs: 'Recientes' },
   { id: 'favorites', label: 'Favorites', labelEs: 'Favoritos' },
   { id: 'bullish', label: 'Bullish Strategies', labelEs: 'Estrategias Alcistas' },
   { id: 'bearish', label: 'Bearish Strategies', labelEs: 'Estrategias Bajistas' },
   { id: 'neutral', label: 'Neutral Strategies', labelEs: 'Estrategias Neutrales' },
   { id: 'custom', label: 'My Strategies', labelEs: 'Mis Estrategias' },
+  { id: 'builtin', label: 'Built-in', labelEs: 'Del Sistema' },
+] as const;
+
+const TOPLIST_FOLDERS = [
+  { id: 'all', label: 'All Top Lists', labelEs: 'Todas las Listas' },
+  { id: 'active', label: 'Active', labelEs: 'Activas' },
+  { id: 'inactive', label: 'Inactive', labelEs: 'Inactivas' },
   { id: 'builtin', label: 'Built-in', labelEs: 'Del Sistema' },
 ] as const;
 
@@ -82,6 +96,11 @@ function fmtFilter(key: string, val: number): string {
 
 function filtersToDisplay(filters: Record<string, any>): string[] {
   const labels: Record<string, string> = {
+    // String filters
+    security_type: 'Type',
+    sector: 'Sector',
+    industry: 'Industry',
+    // Numeric filters
     min_price: 'Price >', max_price: 'Price <',
     min_vwap: 'VWAP >', max_vwap: 'VWAP <',
     min_spread: 'Spread >', max_spread: 'Spread <',
@@ -117,11 +136,29 @@ function filtersToDisplay(filters: Record<string, any>): string[] {
     min_market_cap: 'MCap >', max_market_cap: 'MCap <',
     min_float_shares: 'Float >', max_float_shares: 'Float <',
     min_shares_outstanding: 'ShOut >', max_shares_outstanding: 'ShOut <',
-    min_short_interest: 'SI% >', max_short_interest: 'SI% <',
+    min_sma_5: 'SMA5 >', max_sma_5: 'SMA5 <',
+    min_sma_8: 'SMA8 >', max_sma_8: 'SMA8 <',
+    min_sma_20: 'SMA20 >', max_sma_20: 'SMA20 <',
+    min_sma_50: 'SMA50 >', max_sma_50: 'SMA50 <',
+    min_sma_200: 'SMA200 >', max_sma_200: 'SMA200 <',
+    min_macd_line: 'MACD >', max_macd_line: 'MACD <',
+    min_macd_hist: 'MACDh >', max_macd_hist: 'MACDh <',
+    min_stoch_k: 'StK >', max_stoch_k: 'StK <',
+    min_stoch_d: 'StD >', max_stoch_d: 'StD <',
+    min_adx_14: 'ADX >', max_adx_14: 'ADX <',
+    min_bb_upper: 'BBU >', max_bb_upper: 'BBU <',
+    min_bb_lower: 'BBL >', max_bb_lower: 'BBL <',
   };
   return Object.entries(filters)
-    .filter(([, v]) => v != null && typeof v === 'number')
-    .map(([k, v]) => `${labels[k] || k} ${fmtFilter(k, v)}`);
+    .filter(([, v]) => v != null && (typeof v === 'number' || typeof v === 'string'))
+    .map(([k, v]) => {
+      const label = labels[k] || k;
+      // Handle string filters differently (no formatting needed)
+      if (typeof v === 'string') {
+        return `${label}: ${v}`;
+      }
+      return `${label} ${fmtFilter(k, v as number)}`;
+    });
 }
 
 function alertTypeLabel(eventType: string): string {
@@ -167,16 +204,25 @@ function FmtNum({ value, onChange, placeholder, className }: {
 
 export function ConfigWindow({
   onCreateAlertWindow,
+  onCreateScannerWindow,
   initialAlerts, initialFilters, initialSymbolsInclude, initialSymbolsExclude,
-  initialName, initialTab,
+  initialName, initialTab, initialMode,
 }: ConfigWindowProps) {
-  const [activeTab, setActiveTab] = useState<ConfigTab>(initialTab || 'strategies');
+  const [builderMode, setBuilderMode] = useState<BuilderMode>(initialMode || 'strategy');
+  const [activeTab, setActiveTab] = useState<ConfigTab>(initialTab || 'saved');
 
   // Strategy state
   const {
     strategies, loading, createStrategy, updateStrategy, deleteStrategy,
     useStrategy, toggleFavorite, getRecent, getFavorites, getByCategory,
   } = useAlertStrategies();
+
+  // Top List state (scanner filters)
+  const {
+    filters: scannerFilters, loading: loadingScans,
+    createFilter: createScanFilter, updateFilter: updateScanFilter,
+    deleteFilter: deleteScanFilter, refreshFilters: refreshScanFilters,
+  } = useUserFilters();
 
   // Current config being built
   const [strategyName, setStrategyName] = useState(initialName || '');
@@ -206,6 +252,10 @@ export function ConfigWindow({
     return Number(val) * (UNIT_MUL[filterUnits[id] || def || ''] || 1);
   }, [filterUnits]);
 
+  // Loaded scan (top list) state
+  const [loadedScanId, setLoadedScanId] = useState<number | null>(null);
+  const [loadedScanSnapshot, setLoadedScanSnapshot] = useState<{ filters: Record<string, any>; name: string } | null>(null);
+
   // Strategies tab state
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['builtin', 'custom']));
   const [selectedStrategy, setSelectedStrategy] = useState<AlertStrategy | AlertPreset | null>(null);
@@ -218,11 +268,11 @@ export function ConfigWindow({
   // Load strategy into editor
   const loadStrategy = useCallback((eventTypes: string[], stratFilters: Record<string, any>, name?: string) => {
     setSelectedAlerts(new Set(eventTypes));
-    const numFilters: Record<string, number | undefined> = {};
+    const allFilters: Record<string, number | string | undefined> = {};
     for (const [k, v] of Object.entries(stratFilters)) {
-      if (typeof v === 'number') numFilters[k] = v;
+      if (typeof v === 'number' || typeof v === 'string') allFilters[k] = v;
     }
-    setFilters(numFilters);
+    setFilters(allFilters);
     if (name) setStrategyName(name);
     setActiveTab('summary');
   }, []);
@@ -248,8 +298,10 @@ export function ConfigWindow({
     setStrategyName('');
     setLoadedStrategyId(null);
     setLoadedSnapshot(null);
-    setActiveTab('alerts');
-  }, []);
+    setLoadedScanId(null);
+    setLoadedScanSnapshot(null);
+    setActiveTab(builderMode === 'strategy' ? 'alerts' : 'filters');
+  }, [builderMode]);
 
   // Alert handlers
   const toggleAlert = useCallback((id: string) => {
@@ -274,10 +326,13 @@ export function ConfigWindow({
     });
   }, []);
 
-  // Validation
+  // Validation - different rules per mode
   const canCreate = useMemo(() => {
-    return strategyName.trim().length > 0 && selectedAlerts.size > 0;
-  }, [strategyName, selectedAlerts]);
+    if (!strategyName.trim()) return false;
+    if (builderMode === 'strategy') return selectedAlerts.size > 0;
+    // Top List: requires at least 1 filter
+    return Object.values(filters).some(v => v !== undefined);
+  }, [strategyName, selectedAlerts, filters, builderMode]);
 
   // Detect if config was modified from loaded snapshot
   const isDirty = useMemo(() => {
@@ -396,6 +451,121 @@ export function ConfigWindow({
     }
   }, [selectedAlerts, filters, symbolsInclude, symbolsExclude, strategyName, onCreateAlertWindow]);
 
+  // Detect if top list was modified from loaded snapshot
+  const isScanDirty = useMemo(() => {
+    if (!loadedScanSnapshot) return false;
+    if (strategyName !== loadedScanSnapshot.name) return true;
+    const curKeys = Object.keys(filters).filter(k => filters[k] !== undefined).sort();
+    const snapKeys = Object.keys(loadedScanSnapshot.filters).filter(k => loadedScanSnapshot.filters[k] != null).sort();
+    if (curKeys.length !== snapKeys.length || curKeys.some((k, i) => k !== snapKeys[i])) return true;
+    if (curKeys.some(k => filters[k] !== loadedScanSnapshot.filters[k])) return true;
+    return false;
+  }, [filters, strategyName, loadedScanSnapshot]);
+
+  // ── Top List handlers ──
+
+  const handleLoadScan = useCallback((scan: UserFilter) => {
+    const numFilters: Record<string, number | string | undefined> = {};
+    for (const [k, v] of Object.entries(scan.parameters || {})) {
+      if (typeof v === 'number') numFilters[k] = v;
+      if (typeof v === 'string') numFilters[k] = v;
+    }
+    setFilters(numFilters);
+    setSelectedAlerts(new Set()); // Top lists have no alerts
+    setStrategyName(scan.name);
+    setLoadedScanId(scan.id);
+    setLoadedScanSnapshot({ filters: { ...numFilters }, name: scan.name });
+    setLoadedStrategyId(null);
+    setLoadedSnapshot(null);
+    setActiveTab('summary');
+  }, []);
+
+  const handleLoadBuiltInTopList = useCallback((preset: TopListPreset) => {
+    const numFilters: Record<string, number | string | undefined> = {};
+    for (const [k, v] of Object.entries(preset.filters)) {
+      numFilters[k] = v;
+    }
+    setFilters(numFilters);
+    setSelectedAlerts(new Set());
+    setStrategyName(preset.name);
+    setLoadedScanId(null);
+    setLoadedScanSnapshot(null);
+    setLoadedStrategyId(null);
+    setLoadedSnapshot(null);
+    setActiveTab('summary');
+  }, []);
+
+  const handleCreateTopList = useCallback(async () => {
+    if (!canCreate || saving) return;
+    setSaving(true);
+    try {
+      // Build parameters from filters
+      const params: Record<string, any> = {};
+      for (const [k, v] of Object.entries(filters)) {
+        if (v !== undefined) params[k] = v;
+      }
+      const saved = await createScanFilter({
+        name: strategyName.trim(),
+        description: `${Object.keys(params).length} filters`,
+        enabled: true,
+        filter_type: 'custom',
+        parameters: params,
+        priority: 0,
+      });
+      if (!saved) return;
+      setLoadedScanId(saved.id);
+      setLoadedScanSnapshot({ filters: { ...filters }, name: strategyName.trim() });
+      if (onCreateScannerWindow) {
+        onCreateScannerWindow(saved);
+      }
+    } finally { setSaving(false); }
+  }, [canCreate, saving, strategyName, filters, createScanFilter, onCreateScannerWindow]);
+
+  // Open scanner for an already-saved scan (no save needed)
+  const handleOpenScanDirect = useCallback(() => {
+    if (!loadedScanId) return;
+    // Build a minimal UserFilter-like object to pass to the callback
+    const params: Record<string, any> = {};
+    for (const [k, v] of Object.entries(filters)) {
+      if (v !== undefined) params[k] = v;
+    }
+    if (onCreateScannerWindow) {
+      onCreateScannerWindow({
+        id: loadedScanId,
+        userId: '',
+        name: strategyName.trim(),
+        enabled: true,
+        filter_type: 'custom',
+        parameters: params,
+        priority: 0,
+        isShared: false,
+        isPublic: false,
+        createdAt: '',
+        updatedAt: '',
+      });
+    }
+  }, [loadedScanId, strategyName, filters, onCreateScannerWindow]);
+
+  const handleUpdateTopList = useCallback(async () => {
+    if (!loadedScanId || saving) return;
+    setSaving(true);
+    try {
+      const params: Record<string, any> = {};
+      for (const [k, v] of Object.entries(filters)) {
+        if (v !== undefined) params[k] = v;
+      }
+      const updated = await updateScanFilter(loadedScanId, {
+        name: strategyName.trim(),
+        parameters: params,
+      });
+      if (!updated) return;
+      setLoadedScanSnapshot({ filters: { ...filters }, name: strategyName.trim() });
+      if (onCreateScannerWindow) {
+        onCreateScannerWindow(updated);
+      }
+    } finally { setSaving(false); }
+  }, [loadedScanId, saving, strategyName, filters, updateScanFilter, onCreateScannerWindow]);
+
   // Folder data
   const folderData: Record<string, AlertStrategy[]> = {
     recent: getRecent(8),
@@ -429,46 +599,95 @@ export function ConfigWindow({
       .filter(g => g.alerts.length > 0);
   }, [alertSearch]);
 
-  const tabs: { id: ConfigTab; label: string }[] = [
-    { id: 'strategies', label: 'Strategies' },
-    { id: 'alerts', label: `Alerts (${selectedAlerts.size})` },
-    { id: 'filters', label: 'Filters' },
-    { id: 'symbols', label: 'Symbols' },
-    { id: 'summary', label: 'Summary' },
-  ];
+  // Top List folder data
+  const topListFolderData: Record<string, UserFilter[]> = useMemo(() => ({
+    all: scannerFilters,
+    active: scannerFilters.filter(s => s.enabled),
+    inactive: scannerFilters.filter(s => !s.enabled),
+  }), [scannerFilters]);
+
+  const tabs: { id: ConfigTab; label: string }[] = useMemo(() => {
+    if (builderMode === 'toplist') {
+      return [
+        { id: 'saved', label: 'Top Lists' },
+        { id: 'filters', label: 'Filters' },
+        { id: 'symbols', label: 'Symbols' },
+        { id: 'summary', label: 'Summary' },
+      ];
+    }
+    return [
+      { id: 'saved', label: 'Strategies' },
+      { id: 'alerts', label: `Alerts (${selectedAlerts.size})` },
+      { id: 'filters', label: 'Filters' },
+      { id: 'symbols', label: 'Symbols' },
+      { id: 'summary', label: 'Summary' },
+    ];
+  }, [builderMode, selectedAlerts.size]);
 
   const activeFilterCount = Object.values(filters).filter(v => v !== undefined).length;
 
+  // When switching modes, if on alerts tab (not available in toplist), redirect
+  const handleModeSwitch = useCallback((mode: BuilderMode) => {
+    setBuilderMode(mode);
+    if (mode === 'toplist' && activeTab === 'alerts') {
+      setActiveTab('filters');
+    }
+  }, [activeTab]);
+
   return (
     <div className="h-full flex flex-col bg-white text-slate-700 text-xs">
-      {/* Tabs */}
-      <div className="flex-shrink-0 flex border-b border-slate-200 bg-slate-50">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`px-3 py-1.5 text-xs border-b-2 transition-colors ${
-              activeTab === tab.id
-                ? 'border-blue-600 text-blue-600 bg-blue-50/50'
-                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-            }`}
-          >{tab.label}</button>
-        ))}
+      {/* Mode toggle + Tabs */}
+      <div className="flex-shrink-0 border-b border-slate-200 bg-slate-50">
+        {/* Mode selector */}
+        <div className="flex items-center gap-1 px-3 pt-1.5 pb-1">
+          <div className="flex bg-slate-200/80 rounded-md p-0.5 gap-0.5">
+            <button
+              onClick={() => handleModeSwitch('strategy')}
+              className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${
+                builderMode === 'strategy'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >Strategy</button>
+            <button
+              onClick={() => handleModeSwitch('toplist')}
+              className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${
+                builderMode === 'toplist'
+                  ? 'bg-white text-emerald-600 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >Top List</button>
+          </div>
+          <span className="text-[9px] text-slate-400 ml-1.5">
+            {builderMode === 'strategy' ? 'Events + Filters' : 'Filters only → Scanner'}
+          </span>
+        </div>
+        {/* Tabs */}
+        <div className="flex">
+          {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`px-3 py-1.5 text-xs border-b-2 transition-colors ${activeTab === tab.id
+                  ? (builderMode === 'toplist' ? 'border-emerald-600 text-emerald-600 bg-emerald-50/50' : 'border-blue-600 text-blue-600 bg-blue-50/50')
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+            >{tab.label}</button>
+          ))}
+        </div>
       </div>
 
       <div className="flex-1 overflow-hidden">
 
-        {/* ====== STRATEGIES TAB ====== */}
-        {activeTab === 'strategies' && (
+        {/* ====== SAVED TAB (Strategies or Top Lists) ====== */}
+        {activeTab === 'saved' && builderMode === 'strategy' && (
           <div className="h-full flex">
             {/* Left: folder tree */}
             <div className="w-52 border-r border-slate-200 flex flex-col overflow-hidden">
-              {/* Start from scratch */}
               <button onClick={handleStartFromScratch}
                 className="w-full text-left px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50/50 border-b border-slate-100 transition-colors flex-shrink-0">
                 Start from Scratch
               </button>
-
               <div className="flex-1 overflow-y-auto">
-                {FOLDERS.filter(f => f.id !== 'builtin').map(folder => {
+                {STRATEGY_FOLDERS.filter(f => f.id !== 'builtin').map(folder => {
                   const items = folderData[folder.id] || [];
                   const exp = expandedFolders.has(folder.id);
                   return (
@@ -486,18 +705,16 @@ export function ConfigWindow({
                         <button key={s.id}
                           onClick={() => setSelectedStrategy(s)}
                           onDoubleClick={() => handleLoadUserStrategy(s)}
-                          className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${
-                            selectedStrategy && 'id' in selectedStrategy && selectedStrategy.id === s.id
+                          className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'id' in selectedStrategy && selectedStrategy.id === s.id
                               ? 'bg-blue-50 text-blue-700 font-medium'
                               : 'text-slate-600 hover:bg-slate-50'
-                          }`}
+                            }`}
                         >{s.name}</button>
                       ))}
                     </div>
                   );
                 })}
-
-                {/* Built-in folder */}
+                {/* Built-in strategies folder */}
                 <div className="border-b border-slate-100">
                   <button onClick={() => toggleFolder('builtin')}
                     className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-slate-50 transition-colors">
@@ -509,26 +726,22 @@ export function ConfigWindow({
                     <button key={p.id}
                       onClick={() => setSelectedStrategy(p)}
                       onDoubleClick={() => handleLoadBuiltIn(p)}
-                      className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${
-                        selectedStrategy && 'isBuiltIn' in selectedStrategy && selectedStrategy.id === p.id
+                      className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isBuiltIn' in selectedStrategy && selectedStrategy.id === p.id
                           ? 'bg-blue-50 text-blue-700 font-medium'
                           : 'text-slate-600 hover:bg-slate-50'
-                      }`}
+                        }`}
                     >{p.name}</button>
                   ))}
                 </div>
               </div>
-
               {loading && <div className="px-3 py-1 text-[10px] text-slate-400 text-center flex-shrink-0">Loading...</div>}
             </div>
-
             {/* Right: strategy detail */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {selectedStrategy ? (
                 <>
                   <div className="flex-1 overflow-y-auto p-3">
                     {'isBuiltIn' in selectedStrategy ? (
-                      // Built-in preset detail
                       <>
                         <div className="text-xs font-bold text-slate-800 mb-1">{selectedStrategy.name}</div>
                         <p className="text-[11px] text-slate-500 mb-3">{selectedStrategy.description}</p>
@@ -536,9 +749,7 @@ export function ConfigWindow({
                           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Alerts</div>
                           <div className="flex flex-wrap gap-1">
                             {selectedStrategy.eventTypes.map(et => (
-                              <span key={et} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600">
-                                {alertTypeLabel(et)}
-                              </span>
+                              <span key={et} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600">{alertTypeLabel(et)}</span>
                             ))}
                           </div>
                         </div>
@@ -554,7 +765,6 @@ export function ConfigWindow({
                         )}
                       </>
                     ) : (
-                      // User strategy detail
                       <>
                         <div className="flex items-center justify-between mb-1">
                           <div className="text-xs font-bold text-slate-800">{(selectedStrategy as AlertStrategy).name}</div>
@@ -574,14 +784,10 @@ export function ConfigWindow({
                           {(selectedStrategy as AlertStrategy).lastUsedAt && ` \u00b7 Last: ${new Date((selectedStrategy as AlertStrategy).lastUsedAt!).toLocaleDateString()}`}
                         </div>
                         <div className="mb-2">
-                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                            Alerts ({(selectedStrategy as AlertStrategy).eventTypes.length})
-                          </div>
+                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Alerts ({(selectedStrategy as AlertStrategy).eventTypes.length})</div>
                           <div className="flex flex-wrap gap-1">
                             {(selectedStrategy as AlertStrategy).eventTypes.map(et => (
-                              <span key={et} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600">
-                                {alertTypeLabel(et)}
-                              </span>
+                              <span key={et} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600">{alertTypeLabel(et)}</span>
                             ))}
                           </div>
                         </div>
@@ -611,6 +817,138 @@ export function ConfigWindow({
               ) : (
                 <div className="h-full flex items-center justify-center text-slate-400 text-[11px] p-4 text-center">
                   Select a strategy to see details, or double-click to load
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ====== SAVED TAB — TOP LIST MODE ====== */}
+        {activeTab === 'saved' && builderMode === 'toplist' && (
+          <div className="h-full flex">
+            {/* Left: folder tree */}
+            <div className="w-52 border-r border-slate-200 flex flex-col overflow-hidden">
+              <button onClick={handleStartFromScratch}
+                className="w-full text-left px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50/50 border-b border-slate-100 transition-colors flex-shrink-0">
+                Start from Scratch
+              </button>
+              <div className="flex-1 overflow-y-auto">
+                {TOPLIST_FOLDERS.filter(f => f.id !== 'builtin').map(folder => {
+                  const items = topListFolderData[folder.id] || [];
+                  const exp = expandedFolders.has(folder.id);
+                  return (
+                    <div key={folder.id} className="border-b border-slate-100">
+                      <button onClick={() => toggleFolder(folder.id)}
+                        className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-slate-50 transition-colors">
+                        <span className="text-[10px] text-slate-400">{exp ? '\u25BC' : '\u25B6'}</span>
+                        <span className="text-xs font-semibold text-slate-600 flex-1">{folder.label}</span>
+                        {items.length > 0 && <span className="text-[10px] text-slate-400">{items.length}</span>}
+                      </button>
+                      {exp && items.length === 0 && (
+                        <div className="px-5 py-1 text-[10px] text-slate-300">Empty</div>
+                      )}
+                      {exp && items.map(scan => (
+                        <button key={scan.id}
+                          onClick={() => setSelectedStrategy(scan as any)}
+                          onDoubleClick={() => handleLoadScan(scan)}
+                          className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'userId' in selectedStrategy && (selectedStrategy as any).id === scan.id
+                              ? 'bg-emerald-50 text-emerald-700 font-medium'
+                              : 'text-slate-600 hover:bg-slate-50'
+                            }`}
+                        >
+                          <span className="flex items-center gap-1">
+                            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${scan.enabled ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                            {scan.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+                {/* Built-in top lists */}
+                <div className="border-b border-slate-100">
+                  <button onClick={() => toggleFolder('builtin')}
+                    className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-slate-50 transition-colors">
+                    <span className="text-[10px] text-slate-400">{expandedFolders.has('builtin') ? '\u25BC' : '\u25B6'}</span>
+                    <span className="text-xs font-semibold text-slate-600 flex-1">Built-in</span>
+                    <span className="text-[10px] text-slate-400">{BUILT_IN_TOP_LISTS.length}</span>
+                  </button>
+                  {expandedFolders.has('builtin') && BUILT_IN_TOP_LISTS.map(p => (
+                    <button key={p.id}
+                      onClick={() => setSelectedStrategy(p as any)}
+                      onDoubleClick={() => handleLoadBuiltInTopList(p)}
+                      className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isTopList' in selectedStrategy && (selectedStrategy as any).id === p.id
+                          ? 'bg-emerald-50 text-emerald-700 font-medium'
+                          : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                    >{p.name}</button>
+                  ))}
+                </div>
+              </div>
+              {loadingScans && <div className="px-3 py-1 text-[10px] text-slate-400 text-center flex-shrink-0">Loading...</div>}
+            </div>
+            {/* Right: top list detail */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {selectedStrategy ? (
+                <>
+                  <div className="flex-1 overflow-y-auto p-3">
+                    {'isTopList' in selectedStrategy ? (
+                      // Built-in top list preset
+                      <>
+                        <div className="text-xs font-bold text-slate-800 mb-1">{(selectedStrategy as any).name}</div>
+                        <p className="text-[11px] text-slate-500 mb-3">{(selectedStrategy as any).description}</p>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters</div>
+                          <div className="flex flex-wrap gap-1">
+                            {filtersToDisplay((selectedStrategy as any).filters).map(f => (
+                              <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : 'userId' in selectedStrategy ? (
+                      // User scanner filter
+                      <>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="text-xs font-bold text-slate-800">{(selectedStrategy as any).name}</div>
+                          <button onClick={async () => { await deleteScanFilter((selectedStrategy as any).id); setSelectedStrategy(null); }}
+                            className="text-[10px] text-slate-300 hover:text-rose-500">x</button>
+                        </div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${(selectedStrategy as any).enabled ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-50 text-slate-400 border border-slate-200'}`}>
+                            {(selectedStrategy as any).enabled ? 'Active' : 'Inactive'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {new Date((selectedStrategy as any).createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters</div>
+                          <div className="flex flex-wrap gap-1">
+                            {filtersToDisplay((selectedStrategy as any).parameters || {}).map(f => (
+                              <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      // Fallback: could be a strategy loaded while in toplist mode
+                      <div className="text-[11px] text-slate-400">Select a top list</div>
+                    )}
+                  </div>
+                  <div className="flex-shrink-0 p-2 border-t border-slate-200 bg-slate-50">
+                    <button
+                      onClick={() => {
+                        if ('isTopList' in selectedStrategy) handleLoadBuiltInTopList(selectedStrategy as TopListPreset);
+                        else if ('userId' in selectedStrategy) handleLoadScan(selectedStrategy as unknown as UserFilter);
+                      }}
+                      className="w-full py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded hover:bg-emerald-700 transition-colors"
+                    >Load Settings</button>
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex items-center justify-center text-slate-400 text-[11px] p-4 text-center">
+                  Select a top list to see details, or double-click to load
                 </div>
               )}
             </div>
@@ -652,11 +990,10 @@ export function ConfigWindow({
                       <div className="px-2 py-1 flex flex-wrap gap-[3px]">
                         {alerts.map(a => (
                           <button key={a.eventType} onClick={() => toggleAlert(a.eventType)}
-                            className={`px-1.5 py-[1px] text-[10px] rounded border transition-colors ${
-                              selectedAlerts.has(a.eventType)
+                            className={`px-1.5 py-[1px] text-[10px] rounded border transition-colors ${selectedAlerts.has(a.eventType)
                                 ? 'bg-blue-50/80 border-blue-200 text-blue-600 font-medium'
                                 : 'border-slate-200/80 text-slate-500 hover:bg-slate-50'
-                            }`}
+                              }`}
                           >{a.name}</button>
                         ))}
                       </div>
@@ -671,80 +1008,158 @@ export function ConfigWindow({
         {/* ====== FILTERS TAB ====== */}
         {activeTab === 'filters' && (() => {
           const FG = [
-            { id: 'price', group: 'Price', filters: [
-              { label: 'Price', minK: 'min_price', maxK: 'max_price', suf: '$', phMin: '0.50', phMax: '500' },
-              { label: 'VWAP', minK: 'min_vwap', maxK: 'max_vwap', suf: '$', phMin: '5', phMax: '200' },
-              { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '%', phMin: '0.01', phMax: '1' },
-              { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-              { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-              { label: 'NBBO Dist', minK: 'min_distance_from_nbbo', maxK: 'max_distance_from_nbbo', suf: '%', phMin: '0', phMax: '1' },
-            ]},
-            { id: 'change', group: 'Change', filters: [
-              { label: 'Change %', minK: 'min_change_percent', maxK: 'max_change_percent', suf: '%', phMin: '-10', phMax: '50' },
-              { label: 'From Open', minK: 'min_change_from_open', maxK: 'max_change_from_open', suf: '%', phMin: '-5', phMax: '20' },
-              { label: 'Gap %', minK: 'min_gap_percent', maxK: 'max_gap_percent', suf: '%', phMin: '-10', phMax: '30' },
-              { label: 'Pre-Mkt %', minK: 'min_premarket_change_percent', maxK: 'max_premarket_change_percent', suf: '%', phMin: '-5', phMax: '20' },
-              { label: 'Post-Mkt %', minK: 'min_postmarket_change_percent', maxK: 'max_postmarket_change_percent', suf: '%', phMin: '-5', phMax: '10' },
-              { label: 'From High', minK: 'min_price_from_high', maxK: 'max_price_from_high', suf: '%', phMin: '-20', phMax: '0' },
-            ]},
-            { id: 'volume', group: 'Volume', filters: [
-              { label: 'RVOL', minK: 'min_rvol', maxK: 'max_rvol', suf: 'x', phMin: '1', phMax: '10' },
-              { label: 'Volume', minK: 'min_volume', maxK: 'max_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-              { label: 'Vol 1m', minK: 'min_vol_1min', maxK: 'max_vol_1min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '50' },
-              { label: 'Vol 5m', minK: 'min_vol_5min', maxK: 'max_vol_5min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
-              { label: 'Vol 10m', minK: 'min_vol_10min', maxK: 'max_vol_10min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '5', phMax: '200' },
-              { label: 'Vol 15m', minK: 'min_vol_15min', maxK: 'max_vol_15min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
-              { label: 'Vol 30m', minK: 'min_vol_30min', maxK: 'max_vol_30min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '20', phMax: '1000' },
-            ]},
-            { id: 'windows', group: 'Time Windows', filters: [
-              { label: 'Chg 1m', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
-              { label: 'Chg 5m', minK: 'min_chg_5min', maxK: 'max_chg_5min', suf: '%', phMin: '-5', phMax: '10' },
-              { label: 'Chg 10m', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
-              { label: 'Chg 15m', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
-              { label: 'Chg 30m', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
-              { label: 'Chg 60m', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
-            ]},
-            { id: 'quote', group: 'Quote', filters: [
-              { label: 'Bid', minK: 'min_bid', maxK: 'max_bid', suf: '$', phMin: '1', phMax: '500' },
-              { label: 'Ask', minK: 'min_ask', maxK: 'max_ask', suf: '$', phMin: '1', phMax: '500' },
-              { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-              { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-              { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '$', phMin: '0.01', phMax: '0.50' },
-            ]},
-            { id: 'tech', group: 'Intraday Technical', filters: [
-              { label: 'ATR %', minK: 'min_atr_percent', maxK: 'max_atr_percent', suf: '%', phMin: '2', phMax: '10' },
-              { label: 'RSI', minK: 'min_rsi', maxK: 'max_rsi', suf: '', phMin: '20', phMax: '80' },
-              { label: 'EMA 20', minK: 'min_ema_20', maxK: 'max_ema_20', suf: '$', phMin: '5', phMax: '500' },
-              { label: 'EMA 50', minK: 'min_ema_50', maxK: 'max_ema_50', suf: '$', phMin: '5', phMax: '500' },
-              { label: 'SMA 8', minK: 'min_sma_8', maxK: 'max_sma_8', suf: '$', phMin: '1', phMax: '500' },
-              { label: 'SMA 20', minK: 'min_sma_20', maxK: 'max_sma_20', suf: '$', phMin: '5', phMax: '500' },
-              { label: 'SMA 50', minK: 'min_sma_50', maxK: 'max_sma_50', suf: '$', phMin: '5', phMax: '500' },
-              { label: 'SMA 200', minK: 'min_sma_200', maxK: 'max_sma_200', suf: '$', phMin: '5', phMax: '500' },
-              { label: 'MACD', minK: 'min_macd_line', maxK: 'max_macd_line', suf: '', phMin: '-5', phMax: '5' },
-              { label: 'MACD Hist', minK: 'min_macd_hist', maxK: 'max_macd_hist', suf: '', phMin: '-2', phMax: '2' },
-              { label: 'Stoch %K', minK: 'min_stoch_k', maxK: 'max_stoch_k', suf: '', phMin: '20', phMax: '80' },
-              { label: 'Stoch %D', minK: 'min_stoch_d', maxK: 'max_stoch_d', suf: '', phMin: '20', phMax: '80' },
-              { label: 'ADX', minK: 'min_adx_14', maxK: 'max_adx_14', suf: '', phMin: '20', phMax: '50' },
-              { label: 'BB Upper', minK: 'min_bb_upper', maxK: 'max_bb_upper', suf: '$', phMin: '', phMax: '' },
-              { label: 'BB Lower', minK: 'min_bb_lower', maxK: 'max_bb_lower', suf: '$', phMin: '', phMax: '' },
-            ]},
-            { id: 'daily', group: 'Daily Indicators', filters: [
-              { label: 'D SMA 20', minK: 'min_daily_sma_20', maxK: 'max_daily_sma_20', suf: '$', phMin: '', phMax: '' },
-              { label: 'D SMA 50', minK: 'min_daily_sma_50', maxK: 'max_daily_sma_50', suf: '$', phMin: '', phMax: '' },
-              { label: 'D SMA 200', minK: 'min_daily_sma_200', maxK: 'max_daily_sma_200', suf: '$', phMin: '', phMax: '' },
-              { label: 'Daily RSI', minK: 'min_daily_rsi', maxK: 'max_daily_rsi', suf: '', phMin: '20', phMax: '80' },
-              { label: '52w High', minK: 'min_high_52w', maxK: 'max_high_52w', suf: '$', phMin: '', phMax: '' },
-              { label: '52w Low', minK: 'min_low_52w', maxK: 'max_low_52w', suf: '$', phMin: '', phMax: '' },
-            ]},
-            { id: 'fund', group: 'Fundamentals', filters: [
-              { label: 'Mkt Cap', minK: 'min_market_cap', maxK: 'max_market_cap', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '50', phMax: '10' },
-              { label: 'Float', minK: 'min_float_shares', maxK: 'max_float_shares', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
-              { label: 'Shares Out', minK: 'min_shares_outstanding', maxK: 'max_shares_outstanding', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '500' },
-            ]},
-            { id: 'trades', group: 'Trades Anomaly', filters: [
-              { label: 'Trades', minK: 'min_trades_today', maxK: 'max_trades_today', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
-              { label: 'Z-Score', minK: 'min_trades_z_score', maxK: 'max_trades_z_score', suf: '', phMin: '1', phMax: '5' },
-            ]},
+            {
+              id: 'price', group: 'Price', filters: [
+                { label: 'Price', minK: 'min_price', maxK: 'max_price', suf: '$', phMin: '0.50', phMax: '500' },
+                { label: 'VWAP', minK: 'min_vwap', maxK: 'max_vwap', suf: '$', phMin: '5', phMax: '200' },
+                { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '%', phMin: '0.01', phMax: '1' },
+                { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+                { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+                { label: 'NBBO Dist', minK: 'min_distance_from_nbbo', maxK: 'max_distance_from_nbbo', suf: '%', phMin: '0', phMax: '1' },
+              ]
+            },
+            {
+              id: 'change', group: 'Change', filters: [
+                { label: 'Change %', minK: 'min_change_percent', maxK: 'max_change_percent', suf: '%', phMin: '-10', phMax: '50' },
+                { label: 'From Open', minK: 'min_change_from_open', maxK: 'max_change_from_open', suf: '%', phMin: '-5', phMax: '20' },
+                { label: 'Gap %', minK: 'min_gap_percent', maxK: 'max_gap_percent', suf: '%', phMin: '-10', phMax: '30' },
+                { label: 'Pre-Mkt %', minK: 'min_premarket_change_percent', maxK: 'max_premarket_change_percent', suf: '%', phMin: '-5', phMax: '20' },
+                { label: 'Post-Mkt %', minK: 'min_postmarket_change_percent', maxK: 'max_postmarket_change_percent', suf: '%', phMin: '-5', phMax: '10' },
+                { label: 'From High', minK: 'min_price_from_high', maxK: 'max_price_from_high', suf: '%', phMin: '-20', phMax: '0' },
+              ]
+            },
+            {
+              id: 'volume', group: 'Volume', filters: [
+                { label: 'RVOL', minK: 'min_rvol', maxK: 'max_rvol', suf: 'x', phMin: '1', phMax: '10' },
+                { label: 'Volume', minK: 'min_volume', maxK: 'max_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
+                { label: 'Vol 1m', minK: 'min_vol_1min', maxK: 'max_vol_1min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '50' },
+                { label: 'Vol 5m', minK: 'min_vol_5min', maxK: 'max_vol_5min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '1', phMax: '100' },
+                { label: 'Vol 10m', minK: 'min_vol_10min', maxK: 'max_vol_10min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '5', phMax: '200' },
+                { label: 'Vol 15m', minK: 'min_vol_15min', maxK: 'max_vol_15min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '10', phMax: '500' },
+                { label: 'Vol 30m', minK: 'min_vol_30min', maxK: 'max_vol_30min', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '20', phMax: '1000' },
+                { label: 'Vol Today %', minK: 'min_volume_today_pct', maxK: 'max_volume_today_pct', suf: '%', phMin: '50', phMax: '500' },
+              ]
+            },
+            {
+              id: 'windows', group: 'Time Windows', filters: [
+                { label: 'Chg 1m', minK: 'min_chg_1min', maxK: 'max_chg_1min', suf: '%', phMin: '-2', phMax: '5' },
+                { label: 'Chg 5m', minK: 'min_chg_5min', maxK: 'max_chg_5min', suf: '%', phMin: '-5', phMax: '10' },
+                { label: 'Chg 10m', minK: 'min_chg_10min', maxK: 'max_chg_10min', suf: '%', phMin: '-5', phMax: '15' },
+                { label: 'Chg 15m', minK: 'min_chg_15min', maxK: 'max_chg_15min', suf: '%', phMin: '-8', phMax: '20' },
+                { label: 'Chg 30m', minK: 'min_chg_30min', maxK: 'max_chg_30min', suf: '%', phMin: '-10', phMax: '25' },
+                { label: 'Chg 60m', minK: 'min_chg_60min', maxK: 'max_chg_60min', suf: '%', phMin: '-15', phMax: '30' },
+              ]
+            },
+            {
+              id: 'quote', group: 'Quote', filters: [
+                { label: 'Bid', minK: 'min_bid', maxK: 'max_bid', suf: '$', phMin: '1', phMax: '500' },
+                { label: 'Ask', minK: 'min_ask', maxK: 'max_ask', suf: '$', phMin: '1', phMax: '500' },
+                { label: 'Bid Size', minK: 'min_bid_size', maxK: 'max_bid_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+                { label: 'Ask Size', minK: 'min_ask_size', maxK: 'max_ask_size', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+                { label: 'Spread', minK: 'min_spread', maxK: 'max_spread', suf: '$', phMin: '0.01', phMax: '0.50' },
+              ]
+            },
+            {
+              id: 'tech', group: 'Intraday Technical', filters: [
+                { label: 'ATR', minK: 'min_atr', maxK: 'max_atr', suf: '$', phMin: '0.1', phMax: '5' },
+                { label: 'ATR %', minK: 'min_atr_percent', maxK: 'max_atr_percent', suf: '%', phMin: '2', phMax: '10' },
+                { label: 'RSI', minK: 'min_rsi', maxK: 'max_rsi', suf: '', phMin: '20', phMax: '80' },
+                { label: 'EMA 20', minK: 'min_ema_20', maxK: 'max_ema_20', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'EMA 50', minK: 'min_ema_50', maxK: 'max_ema_50', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'SMA 5', minK: 'min_sma_5', maxK: 'max_sma_5', suf: '$', phMin: '1', phMax: '500' },
+                { label: 'SMA 8', minK: 'min_sma_8', maxK: 'max_sma_8', suf: '$', phMin: '1', phMax: '500' },
+                { label: 'SMA 20', minK: 'min_sma_20', maxK: 'max_sma_20', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'SMA 50', minK: 'min_sma_50', maxK: 'max_sma_50', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'SMA 200', minK: 'min_sma_200', maxK: 'max_sma_200', suf: '$', phMin: '5', phMax: '500' },
+                { label: 'MACD', minK: 'min_macd_line', maxK: 'max_macd_line', suf: '', phMin: '-5', phMax: '5' },
+                { label: 'MACD Hist', minK: 'min_macd_hist', maxK: 'max_macd_hist', suf: '', phMin: '-2', phMax: '2' },
+                { label: 'Stoch %K', minK: 'min_stoch_k', maxK: 'max_stoch_k', suf: '', phMin: '20', phMax: '80' },
+                { label: 'Stoch %D', minK: 'min_stoch_d', maxK: 'max_stoch_d', suf: '', phMin: '20', phMax: '80' },
+                { label: 'ADX', minK: 'min_adx_14', maxK: 'max_adx_14', suf: '', phMin: '20', phMax: '50' },
+                { label: 'BB Upper', minK: 'min_bb_upper', maxK: 'max_bb_upper', suf: '$', phMin: '', phMax: '' },
+                { label: 'BB Lower', minK: 'min_bb_lower', maxK: 'max_bb_lower', suf: '$', phMin: '', phMax: '' },
+              ]
+            },
+            {
+              id: 'daily', group: 'Daily Indicators', filters: [
+                { label: 'D SMA 20', minK: 'min_daily_sma_20', maxK: 'max_daily_sma_20', suf: '$', phMin: '', phMax: '' },
+                { label: 'D SMA 50', minK: 'min_daily_sma_50', maxK: 'max_daily_sma_50', suf: '$', phMin: '', phMax: '' },
+                { label: 'D SMA 200', minK: 'min_daily_sma_200', maxK: 'max_daily_sma_200', suf: '$', phMin: '', phMax: '' },
+                { label: 'Daily RSI', minK: 'min_daily_rsi', maxK: 'max_daily_rsi', suf: '', phMin: '20', phMax: '80' },
+                { label: '52w High', minK: 'min_high_52w', maxK: 'max_high_52w', suf: '$', phMin: '', phMax: '' },
+                { label: '52w Low', minK: 'min_low_52w', maxK: 'max_low_52w', suf: '$', phMin: '', phMax: '' },
+              ]
+            },
+            {
+              id: 'fund', group: 'Fundamentals', filters: [
+                { label: 'Mkt Cap', minK: 'min_market_cap', maxK: 'max_market_cap', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '50', phMax: '10' },
+                { label: 'Float', minK: 'min_float_shares', maxK: 'max_float_shares', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
+                { label: 'Shares Out', minK: 'min_shares_outstanding', maxK: 'max_shares_outstanding', suf: '', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '500' },
+              ]
+            },
+            {
+              id: 'classification', group: 'Classification', filters: [
+                // String filters - estos se manejan con selects, no con inputs numéricos
+              ]
+            },
+            {
+              id: 'trades', group: 'Trades Anomaly', filters: [
+                { label: 'Trades', minK: 'min_trades_today', maxK: 'max_trades_today', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
+                { label: 'Z-Score', minK: 'min_trades_z_score', maxK: 'max_trades_z_score', suf: '', phMin: '1', phMax: '5' },
+              ]
+            },
+            {
+              id: 'derived', group: 'Derived', filters: [
+                { label: '$ Volume', minK: 'min_dollar_volume', maxK: 'max_dollar_volume', suf: '$', units: ['K', 'M', 'B'], defU: 'M', phMin: '1', phMax: '100' },
+                { label: 'Range $', minK: 'min_todays_range', maxK: 'max_todays_range', suf: '$', phMin: '0.1', phMax: '10' },
+                { label: 'Range %', minK: 'min_todays_range_pct', maxK: 'max_todays_range_pct', suf: '%', phMin: '1', phMax: '20' },
+                { label: 'B/A Ratio', minK: 'min_bid_ask_ratio', maxK: 'max_bid_ask_ratio', suf: '', phMin: '0.5', phMax: '3' },
+                { label: 'Float Turn', minK: 'min_float_turnover', maxK: 'max_float_turnover', suf: 'x', phMin: '0.01', phMax: '5' },
+                { label: 'Pos Range', minK: 'min_pos_in_range', maxK: 'max_pos_in_range', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Below Hi', minK: 'min_below_high', maxK: 'max_below_high', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'Above Lo', minK: 'min_above_low', maxK: 'max_above_low', suf: '$', phMin: '0', phMax: '5' },
+                { label: 'Pos Open', minK: 'min_pos_of_open', maxK: 'max_pos_of_open', suf: '%', phMin: '0', phMax: '100' },
+                { label: 'Prev Vol', minK: 'min_prev_day_volume', maxK: 'max_prev_day_volume', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '10000' },
+              ]
+            },
+            {
+              id: 'dist', group: 'Distance %', filters: [
+                { label: 'Dist VWAP', minK: 'min_dist_from_vwap', maxK: 'max_dist_from_vwap', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Dist SMA5', minK: 'min_dist_sma_5', maxK: 'max_dist_sma_5', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Dist SMA8', minK: 'min_dist_sma_8', maxK: 'max_dist_sma_8', suf: '%', phMin: '-5', phMax: '5' },
+                { label: 'Dist SMA20', minK: 'min_dist_sma_20', maxK: 'max_dist_sma_20', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Dist SMA50', minK: 'min_dist_sma_50', maxK: 'max_dist_sma_50', suf: '%', phMin: '-20', phMax: '20' },
+                { label: 'Dist SMA200', minK: 'min_dist_sma_200', maxK: 'max_dist_sma_200', suf: '%', phMin: '-50', phMax: '50' },
+                { label: 'Dist D.SMA20', minK: 'min_dist_daily_sma_20', maxK: 'max_dist_daily_sma_20', suf: '%', phMin: '-10', phMax: '10' },
+                { label: 'Dist D.SMA50', minK: 'min_dist_daily_sma_50', maxK: 'max_dist_daily_sma_50', suf: '%', phMin: '-20', phMax: '20' },
+              ]
+            },
+            {
+              id: 'multiday', group: 'Multi-Day Change %', filters: [
+                { label: '1 Day', minK: 'min_change_1d', maxK: 'max_change_1d', suf: '%', phMin: '-10', phMax: '10' },
+                { label: '3 Days', minK: 'min_change_3d', maxK: 'max_change_3d', suf: '%', phMin: '-20', phMax: '20' },
+                { label: '5 Days', minK: 'min_change_5d', maxK: 'max_change_5d', suf: '%', phMin: '-20', phMax: '50' },
+                { label: '10 Days', minK: 'min_change_10d', maxK: 'max_change_10d', suf: '%', phMin: '-30', phMax: '100' },
+                { label: '20 Days', minK: 'min_change_20d', maxK: 'max_change_20d', suf: '%', phMin: '-50', phMax: '200' },
+              ]
+            },
+            {
+              id: 'avgvol', group: 'Avg Volume', filters: [
+                { label: 'Avg 5D', minK: 'min_avg_volume_5d', maxK: 'max_avg_volume_5d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Avg 10D', minK: 'min_avg_volume_10d', maxK: 'max_avg_volume_10d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Avg 20D', minK: 'min_avg_volume_20d', maxK: 'max_avg_volume_20d', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+                { label: 'Avg 3M', minK: 'min_avg_volume_3m', maxK: 'max_avg_volume_3m', suf: '', units: ['', 'K', 'M'], defU: 'K', phMin: '100', phMax: '5000' },
+              ]
+            },
+            {
+              id: '52wextra', group: '52W / Daily Extra', filters: [
+                { label: 'From 52H %', minK: 'min_from_52w_high', maxK: 'max_from_52w_high', suf: '%', phMin: '-80', phMax: '0' },
+                { label: 'From 52L %', minK: 'min_from_52w_low', maxK: 'max_from_52w_low', suf: '%', phMin: '0', phMax: '500' },
+                { label: 'D. ADX', minK: 'min_daily_adx_14', maxK: 'max_daily_adx_14', suf: '', phMin: '20', phMax: '50' },
+                { label: 'D. ATR %', minK: 'min_daily_atr_percent', maxK: 'max_daily_atr_percent', suf: '%', phMin: '1', phMax: '15' },
+                { label: 'D. BB Pos', minK: 'min_daily_bb_position', maxK: 'max_daily_bb_position', suf: '%', phMin: '0', phMax: '100' },
+              ]
+            },
           ] as const;
 
           type FDef = (typeof FG)[number]['filters'][number];
@@ -830,24 +1245,31 @@ export function ConfigWindow({
                         <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Type</span>
                         <select value={(filters.security_type as string) || ''} onChange={e => setFilter('security_type', e.target.value || undefined)}
                           className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
-                          <option value="">All</option>
-                          <option value="CS">Stocks (CS)</option>
-                          <option value="ETF">ETF</option>
-                          <option value="PFD">Preferred</option>
-                          <option value="WARRANT">Warrants</option>
+                          <option value="">All Types</option>
+                          {SECURITY_TYPES.map(st => (
+                            <option key={st.value} value={st.value}>{st.label}</option>
+                          ))}
                         </select>
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Sector</span>
-                        <input type="text" value={(filters.sector as string) || ''} onChange={e => setFilter('sector', e.target.value || undefined)}
-                          placeholder="e.g. Technology"
-                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+                        <select value={(filters.sector as string) || ''} onChange={e => setFilter('sector', e.target.value || undefined)}
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                          <option value="">All Sectors</option>
+                          {SECTORS.map(s => (
+                            <option key={s.value} value={s.value}>{s.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Industry</span>
-                        <input type="text" value={(filters.industry as string) || ''} onChange={e => setFilter('industry', e.target.value || undefined)}
-                          placeholder="e.g. Software"
-                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
+                        <select value={(filters.industry as string) || ''} onChange={e => setFilter('industry', e.target.value || undefined)}
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
+                          <option value="">All Industries</option>
+                          {INDUSTRIES.map(i => (
+                            <option key={i.value} value={i.value}>{i.label}</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                   )}
@@ -877,10 +1299,9 @@ export function ConfigWindow({
         )}
 
         {/* ====== SUMMARY TAB ====== */}
-        {activeTab === 'summary' && (
+        {activeTab === 'summary' && builderMode === 'strategy' && (
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {/* Name + Category */}
               <div>
                 <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Strategy Name</label>
                 <input type="text" value={strategyName} onChange={(e) => setStrategyName(e.target.value)}
@@ -897,36 +1318,106 @@ export function ConfigWindow({
                   <option value="neutral">Neutral</option>
                 </select>
               </div>
-
-              {/* Alerts summary */}
               <div className="py-1 border-t border-slate-100">
-                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                  Alerts ({selectedAlerts.size})
-                </div>
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Alerts ({selectedAlerts.size})</div>
                 {selectedAlerts.size === 0
                   ? <span className="text-[10px] text-slate-300">none selected</span>
                   : <div className="flex flex-wrap gap-1">
-                      {Array.from(selectedAlerts).map(et => (
-                        <span key={et} className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded text-[10px] text-blue-600">
-                          {alertTypeLabel(et)}
-                        </span>
-                      ))}
-                    </div>
+                    {Array.from(selectedAlerts).map(et => (
+                      <span key={et} className="px-1.5 py-0.5 bg-blue-50 border border-blue-200 rounded text-[10px] text-blue-600">{alertTypeLabel(et)}</span>
+                    ))}
+                  </div>
                 }
+              </div>
+              <div className="py-1 border-t border-slate-100">
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters ({activeFilterCount})</div>
+                {activeFilterCount === 0
+                  ? <span className="text-[10px] text-slate-300">none</span>
+                  : <div className="flex flex-wrap gap-1">
+                    {filtersToDisplay(filters).map(f => (
+                      <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                    ))}
+                  </div>
+                }
+              </div>
+              {(symbolsInclude.trim() || symbolsExclude.trim()) && (
+                <div className="py-1 border-t border-slate-100">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Symbols</div>
+                  {symbolsInclude.trim() && <div className="text-[10px] text-slate-600 font-mono">+ {symbolsInclude.trim()}</div>}
+                  {symbolsExclude.trim() && <div className="text-[10px] text-slate-600 font-mono">- {symbolsExclude.trim()}</div>}
+                </div>
+              )}
+            </div>
+            {/* Strategy action buttons */}
+            <div className="flex-shrink-0 p-2 border-t border-slate-200 bg-slate-50 space-y-1.5">
+              {loadedStrategyId && !isDirty ? (
+                <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
+                  className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${selectedAlerts.size > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                  Open
+                </button>
+              ) : loadedStrategyId && isDirty ? (
+                <>
+                  <button onClick={handleUpdate} disabled={saving || selectedAlerts.size === 0}
+                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${!saving && selectedAlerts.size > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                    {saving ? 'Saving...' : 'Update & Open'}
+                  </button>
+                  <div className="flex gap-1.5">
+                    <button onClick={handleCreate} disabled={!canCreate || saving}
+                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">Save as new</button>
+                    <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
+                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">Open only</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <button onClick={handleCreate} disabled={!canCreate || saving}
+                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                    {saving ? 'Saving...' : 'Save & Open'}
+                  </button>
+                  <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
+                    className="w-full py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                    Open without saving
+                  </button>
+                </>
+              )}
+              {selectedAlerts.size === 0 && (
+                <p className="text-[10px] text-slate-400 text-center">Select alerts first</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ====== SUMMARY TAB — TOP LIST MODE ====== */}
+        {activeTab === 'summary' && builderMode === 'toplist' && (
+          <div className="h-full flex flex-col">
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Top List Name</label>
+                <input type="text" value={strategyName} onChange={(e) => setStrategyName(e.target.value)}
+                  placeholder="My Top List..."
+                  className="w-full px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white" />
+              </div>
+
+              {/* Mode indicator */}
+              <div className="py-1 border-t border-slate-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded text-[10px] font-semibold text-emerald-600">
+                    Scanner / Top List
+                  </span>
+                  <span className="text-[10px] text-slate-400">Real-time ticker list updated every scan cycle</span>
+                </div>
               </div>
 
               {/* Filters summary */}
               <div className="py-1 border-t border-slate-100">
-                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">
-                  Filters ({activeFilterCount})
-                </div>
+                <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Filters ({activeFilterCount})</div>
                 {activeFilterCount === 0
-                  ? <span className="text-[10px] text-slate-300">none</span>
+                  ? <span className="text-[10px] text-amber-500">Add at least 1 filter</span>
                   : <div className="flex flex-wrap gap-1">
-                      {filtersToDisplay(filters).map(f => (
-                        <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
-                      ))}
-                    </div>
+                    {filtersToDisplay(filters).map(f => (
+                      <span key={f} className="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-mono text-slate-600">{f}</span>
+                    ))}
+                  </div>
                 }
               </div>
 
@@ -940,59 +1431,44 @@ export function ConfigWindow({
               )}
             </div>
 
-            {/* Action buttons - context-aware */}
+            {/* Top List action buttons — 3 states */}
             <div className="flex-shrink-0 p-2 border-t border-slate-200 bg-slate-50 space-y-1.5">
-              {loadedStrategyId && !isDirty ? (
-                /* Saved strategy, no changes → just Open */
-                <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
-                  className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${
-                    selectedAlerts.size > 0
-                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                  }`}>
-                  Open
+              {loadedScanId && !isScanDirty ? (
+                /* Saved scan, no changes → just Open */
+                <button onClick={handleOpenScanDirect}
+                  className="w-full py-1.5 text-xs rounded font-semibold transition-colors bg-emerald-600 text-white hover:bg-emerald-700">
+                  Open Scanner
                 </button>
-              ) : loadedStrategyId && isDirty ? (
-                /* Saved strategy, modified → Update or Save as new */
+              ) : loadedScanId && isScanDirty ? (
+                /* Saved scan, modified → Update or Save as new */
                 <>
-                  <button onClick={handleUpdate} disabled={saving || selectedAlerts.size === 0}
-                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${
-                      !saving && selectedAlerts.size > 0
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    }`}>
-                    {saving ? 'Saving...' : 'Update & Open'}
+                  <button onClick={handleUpdateTopList} disabled={!canCreate || saving}
+                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                    {saving ? 'Saving...' : 'Update & Open Scanner'}
                   </button>
                   <div className="flex gap-1.5">
-                    <button onClick={handleCreate} disabled={!canCreate || saving}
+                    <button onClick={handleCreateTopList} disabled={!canCreate || saving}
                       className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">
                       Save as new
                     </button>
-                    <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
-                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">
+                    <button onClick={handleOpenScanDirect}
+                      className="flex-1 py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 transition-colors">
                       Open only
                     </button>
                   </div>
                 </>
               ) : (
-                /* New / built-in strategy → Save & Open */
-                <>
-                  <button onClick={handleCreate} disabled={!canCreate || saving}
-                    className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${
-                      canCreate && !saving
-                        ? 'bg-blue-600 text-white hover:bg-blue-700'
-                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                    }`}>
-                    {saving ? 'Saving...' : 'Save & Open'}
-                  </button>
-                  <button onClick={handleOpenDirect} disabled={selectedAlerts.size === 0}
-                    className="w-full py-1 text-xs text-slate-500 border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 transition-colors">
-                    Open without saving
-                  </button>
-                </>
+                /* New / built-in top list → Save & Open */
+                <button onClick={handleCreateTopList} disabled={!canCreate || saving}
+                  className={`w-full py-1.5 text-xs rounded font-semibold transition-colors ${canCreate && !saving ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                  {saving ? 'Saving...' : 'Save & Open Scanner'}
+                </button>
               )}
-              {selectedAlerts.size === 0 && (
-                <p className="text-[10px] text-slate-400 text-center">Select alerts first</p>
+              {activeFilterCount === 0 && !loadedScanId && (
+                <p className="text-[10px] text-slate-400 text-center">Add filters first</p>
+              )}
+              {!strategyName.trim() && activeFilterCount > 0 && !loadedScanId && (
+                <p className="text-[10px] text-slate-400 text-center">Enter a name</p>
               )}
             </div>
           </div>

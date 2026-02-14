@@ -167,6 +167,90 @@ export interface EventFilterParameters {
   min_trades_z_score?: number;
   max_trades_z_score?: number;
 
+  // === NEW: Computed derived fields ===
+  // Dollar volume
+  min_dollar_volume?: number;
+  max_dollar_volume?: number;
+  // Today's range
+  min_todays_range?: number;
+  max_todays_range?: number;
+  min_todays_range_pct?: number;
+  max_todays_range_pct?: number;
+  // Bid/Ask ratio
+  min_bid_ask_ratio?: number;
+  max_bid_ask_ratio?: number;
+  // Float turnover
+  min_float_turnover?: number;
+  max_float_turnover?: number;
+  // Distance from VWAP (%)
+  min_dist_from_vwap?: number;
+  max_dist_from_vwap?: number;
+  // Distance from intraday SMAs (%)
+  min_dist_sma_5?: number;
+  max_dist_sma_5?: number;
+  min_dist_sma_8?: number;
+  max_dist_sma_8?: number;
+  min_dist_sma_20?: number;
+  max_dist_sma_20?: number;
+  min_dist_sma_50?: number;
+  max_dist_sma_50?: number;
+  min_dist_sma_200?: number;
+  max_dist_sma_200?: number;
+  // Position in range (0-100%)
+  min_pos_in_range?: number;
+  max_pos_in_range?: number;
+  // Below high / Above low ($)
+  min_below_high?: number;
+  max_below_high?: number;
+  min_above_low?: number;
+  max_above_low?: number;
+  // Position of open (0-100%)
+  min_pos_of_open?: number;
+  max_pos_of_open?: number;
+  // Previous day volume
+  min_prev_day_volume?: number;
+  max_prev_day_volume?: number;
+
+  // === NEW: Multi-day changes (%) ===
+  min_change_1d?: number;
+  max_change_1d?: number;
+  min_change_3d?: number;
+  max_change_3d?: number;
+  min_change_5d?: number;
+  max_change_5d?: number;
+  min_change_10d?: number;
+  max_change_10d?: number;
+  min_change_20d?: number;
+  max_change_20d?: number;
+
+  // === NEW: Average daily volumes ===
+  min_avg_volume_5d?: number;
+  max_avg_volume_5d?: number;
+  min_avg_volume_10d?: number;
+  max_avg_volume_10d?: number;
+  min_avg_volume_20d?: number;
+  max_avg_volume_20d?: number;
+
+  // === NEW: Distance from daily SMAs (%) ===
+  min_dist_daily_sma_20?: number;
+  max_dist_daily_sma_20?: number;
+  min_dist_daily_sma_50?: number;
+  max_dist_daily_sma_50?: number;
+
+  // === NEW: 52w distances (%) ===
+  min_from_52w_high?: number;
+  max_from_52w_high?: number;
+  min_from_52w_low?: number;
+  max_from_52w_low?: number;
+
+  // === NEW: Daily ADX / ATR / Bollinger position ===
+  min_daily_adx_14?: number;
+  max_daily_adx_14?: number;
+  min_daily_atr_percent?: number;
+  max_daily_atr_percent?: number;
+  min_daily_bb_position?: number;
+  max_daily_bb_position?: number;
+
   // String filters (fundamentals)
   security_type?: string;   // CS, ETF, PFD, WARRANT
   sector?: string;
@@ -176,6 +260,31 @@ export interface EventFilterParameters {
   symbols_include?: string[];
   symbols_exclude?: string[];
   watchlist_only?: boolean;
+
+  // === Scanner-aligned filters ===
+  // Volume Today %
+  min_volume_today_pct?: number;
+  max_volume_today_pct?: number;
+  // Minute volume
+  min_minute_volume?: number;
+  // Price from day high (%)
+  min_price_from_high?: number;
+  max_price_from_high?: number;
+  // Distance from NBBO (%)
+  min_distance_from_nbbo?: number;
+  max_distance_from_nbbo?: number;
+  // Pre-Market %
+  min_premarket_change_percent?: number;
+  max_premarket_change_percent?: number;
+  // Post-Market %
+  min_postmarket_change_percent?: number;
+  max_postmarket_change_percent?: number;
+  // Avg Volume 3M
+  min_avg_volume_3m?: number;
+  max_avg_volume_3m?: number;
+  // ATR ($)
+  min_atr?: number;
+  max_atr?: number;
 }
 
 export interface ActiveEventFilters extends EventFilterParameters { }
