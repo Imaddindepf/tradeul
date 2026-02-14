@@ -1,7 +1,7 @@
 """
 Service Clients for AI Agent
 
-Clientes HTTP para comunicarse con los servicios internos de TradeUL.
+Clientes HTTP para comunicarse con los servicios internos de Tradeul.
 En lugar de reinventar la rueda, usamos los servicios existentes:
 
 - api_gateway: Para snapshots y datos de chart de Polygon
@@ -26,7 +26,7 @@ ET = pytz.timezone('America/New_York')
 
 class ServiceClients:
     """
-    Cliente unificado para servicios internos de TradeUL.
+    Cliente unificado para servicios internos de Tradeul.
     
     Ventajas:
     - Reutiliza cache existente en cada servicio

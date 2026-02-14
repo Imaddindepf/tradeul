@@ -1,4 +1,4 @@
-# TradeUL AI Agent Service
+# Tradeul AI Agent Service
 # Python 3.11+
 
 # Web Framework

@@ -182,7 +182,7 @@ class SPACDetector:
             # Luego obtener datos completos desde SEC EDGAR
             async with httpx.AsyncClient(timeout=30.0) as client:
                 url = f"{self.edgar_url}/CIK{str(cik).zfill(10)}.json"
-                headers = {'User-Agent': 'TradeUL/1.0 (support@tradeul.com)'}
+                headers = {'User-Agent': 'Tradeul/1.0 (support@tradeul.com)'}
                 
                 resp = await client.get(url, headers=headers)
                 

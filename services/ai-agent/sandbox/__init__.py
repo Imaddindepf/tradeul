@@ -1,5 +1,5 @@
 """
-TradeUL Sandbox Module
+Tradeul Sandbox Module
 
 Provides secure, isolated execution environment for LLM-generated code.
 The sandbox runs in a Docker container with no network access and limited resources.

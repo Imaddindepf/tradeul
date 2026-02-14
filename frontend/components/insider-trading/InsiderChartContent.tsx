@@ -64,11 +64,11 @@ const TX_LABELS: Record<string, string> = {
 };
 
 const TX_COLORS: Record<string, string> = {
-  'P': '#10b981', 'S': '#ef4444', 'M': '#8b5cf6', 'A': '#3b82f6', 
+  'P': '#10b981', 'S': '#ef4444', 'M': '#8b5cf6', 'A': '#3b82f6',
   'F': '#f59e0b', 'G': '#06b6d4', 'J': '#64748b'
 };
 
-// Chart colors - light theme (TradeUL style)
+// Chart colors - light theme (Tradeul style)
 const CHART_COLORS = {
   background: '#ffffff',
   gridColor: '#f1f5f9',
@@ -130,7 +130,7 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | null>(null);
-  
+
   const [chartType, setChartType] = useState<ChartType>('line');
   const [selectedGroup, setSelectedGroup] = useState<TransactionGroup | null>(null);
 
@@ -182,7 +182,7 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
   // Create markers - simplified text-only style
   const markers = useMemo((): SeriesMarker<Time>[] => {
     const result: SeriesMarker<Time>[] = [];
-    
+
     transactionGroups.forEach(group => {
       // Only show BUY markers (green, below bar) - NO TEXT
       if (group.totalBuyShares > 0) {
@@ -284,7 +284,7 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
         setSelectedGroup(null);
         return;
       }
-      
+
       const clickedTime = param.time as number;
       // Find closest transaction group
       const closest = transactionGroups.reduce((prev, curr) => {
@@ -412,9 +412,9 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
       {/* Controls bar */}
       <div className="flex-shrink-0 flex items-center gap-2 px-2 py-1.5 bg-slate-50 border-b border-slate-200">
         <span className="text-[11px] font-mono font-bold text-slate-800">{ticker}</span>
-        
+
         <div className="w-px h-4 bg-slate-300" />
-        
+
         {/* Chart type toggle */}
         <div className="flex items-center bg-white rounded border border-slate-200 overflow-hidden">
           <button
@@ -484,7 +484,7 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
       {/* Chart container */}
       <div className="flex-1 min-h-0 relative">
         <div ref={chartContainerRef} className="absolute inset-0" />
-        
+
         {/* Transaction detail popup */}
         {selectedGroup && (
           <div className="absolute top-2 right-2 bg-white border border-slate-200 rounded-lg shadow-xl p-3 min-w-[220px] max-w-[280px] z-10">
@@ -492,25 +492,25 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
               <span className="text-[11px] font-semibold text-slate-800">
                 {formatDate(selectedGroup.date)}
               </span>
-              <button 
+              <button
                 onClick={() => setSelectedGroup(null)}
                 className="p-0.5 text-slate-400 hover:text-slate-600"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
-            
+
             <div className="text-[10px] text-slate-500 mb-2">
               Price: ${selectedGroup.price.toFixed(2)}
             </div>
 
             <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
               {selectedGroup.transactions.map((tx, i) => (
-                <div 
-                  key={i} 
+                <div
+                  key={i}
                   className="flex items-center gap-2 py-1 border-b border-slate-100 last:border-0"
                 >
-                  <span 
+                  <span
                     className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white"
                     style={{ backgroundColor: TX_COLORS[tx.code] || '#64748b' }}
                   >

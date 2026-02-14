@@ -136,7 +136,7 @@ Puedes usar el código anterior como base:
         ))
         contents.append(types.Content(
             role="model",
-            parts=[types.Part(text="Entendido. Soy el asistente financiero de TradeUL. Estoy listo para ayudarte a analizar el mercado usando nuestro DSL de consultas.")]
+            parts=[types.Part(text="Entendido. Soy el asistente financiero de Tradeul. Estoy listo para ayudarte a analizar el mercado usando nuestro DSL de consultas.")]
         ))
         
         # Agregar historial
@@ -248,7 +248,7 @@ Si el usuario pide "filtrar", "mostrar solo", "de esos" o similar, aplica el fil
         ))
         contents.append(types.Content(
             role="model",
-            parts=[types.Part(text="Entendido. Soy el asistente financiero de TradeUL.")]
+            parts=[types.Part(text="Entendido. Soy el asistente financiero de Tradeul.")]
         ))
         
         for msg in history[-10:]:

@@ -872,7 +872,7 @@ class DailyMaintenanceScheduler:
                         "type": "midmorning",
                         "id": f"midmorning:{current_date.isoformat()}",
                         "date": current_date.isoformat(),
-                        "title": "TradeUL Mid-Morning Update",
+                        "title": "Tradeul Mid-Morning Update",
                         "preview_es": result_es.get("report", "")[:500] + "..." if result_es else "",
                         "preview_en": result_en.get("report", "")[:500] + "..." if result_en else "",
                         "generated_at": result.get("generated_at")

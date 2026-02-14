@@ -3,7 +3,7 @@ Mid-Morning Update Generator V2
 ===============================
 
 Genera el reporte de media mañana (12:30 ET) combinando:
-1. Datos del Scanner TradeUL (tickers en movimiento)
+1. Datos del Scanner Tradeul (tickers en movimiento)
 2. Gemini + Google Search (noticias formales)
 3. Grok + X.com Search (sentiment y breaking news)
 4. Clustering de sectores sintéticos (priorizando big caps)
@@ -216,7 +216,7 @@ class MarketDataProvider:
 # ============================================================================
 
 class ScannerDataExtractor:
-    """Extrae datos del Scanner TradeUL desde Redis"""
+    """Extrae datos del Scanner Tradeul desde Redis"""
     
     def __init__(self, redis_client: RedisClient):
         self.redis = redis_client

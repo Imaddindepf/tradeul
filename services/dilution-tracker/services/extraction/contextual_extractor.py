@@ -575,7 +575,7 @@ class SECAPIClient:
         self.base_url = "https://api.sec-api.io"
         self.filing_reader_url = "https://api.sec-api.io/filing-reader"
         self.sec_headers = {
-            "User-Agent": "TradeUL Research contact@tradeul.com",
+            "User-Agent": "Tradeul Research contact@tradeul.com",
             "Accept": "text/plain,text/html"
         }
     

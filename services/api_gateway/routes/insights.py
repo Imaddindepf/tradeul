@@ -1,8 +1,8 @@
 """
-TradeUL Insights Routes
+Tradeul Insights Routes
 =======================
 
-Endpoints unificados para todos los reportes de TradeUL Insights:
+Endpoints unificados para todos los reportes de Tradeul Insights:
 - Morning News Call (7:30 AM ET)
 - Mid-Morning Update (12:30 PM ET)
 - Evening Report (4:30 PM ET) - futuro
@@ -400,7 +400,7 @@ async def generate_insight_now(
                         "event": "insight_notification",
                         "type": "midmorning",
                         "date": today.isoformat(),
-                        "title": "TradeUL Mid-Morning Update",
+                        "title": "Tradeul Mid-Morning Update",
                         "manual": True
                     }, ensure_ascii=False)
                 )

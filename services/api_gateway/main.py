@@ -226,7 +226,7 @@ app.include_router(proxy_router)  # Incluye endpoints de dilution, SEC filings, 
 app.include_router(realtime_router)  # Real-time ticker data for charts
 app.include_router(ratio_analysis_router)  # Ratio analysis entre dos activos
 app.include_router(morning_news_router)  # Morning News Call diario
-app.include_router(insights_router)  # TradeUL Insights (Morning, Mid-Morning, etc.)
+app.include_router(insights_router)  # Tradeul Insights (Morning, Mid-Morning, etc.)
 app.include_router(symbols_router)  # Symbol lookups (market cap filtering for AI agent)
 app.include_router(heatmap_router)  # Market heatmap visualization
 app.include_router(scanner_router)  # Scanner filtered tickers

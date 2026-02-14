@@ -384,7 +384,7 @@ class SECAPIClient:
             
             # Use separate client for SEC.gov requests
             async with httpx.AsyncClient(timeout=15.0) as sec_client:
-                headers = {'User-Agent': 'TradeUL/1.0 support@tradeul.com'}
+                headers = {'User-Agent': 'Tradeul/1.0 support@tradeul.com'}
                 response = await sec_client.get(xml_url, headers=headers)
                 response.raise_for_status()
                 xml_content = response.text
@@ -951,7 +951,7 @@ class SECEdgarClient:
             timeout=timeout,
             limits=EXTERNAL_API_LIMITS,
             headers={
-                "User-Agent": "TradeUL/1.0 (support@tradeul.com)",
+                "User-Agent": "Tradeul/1.0 (support@tradeul.com)",
                 "Accept": "application/json"
             }
         )

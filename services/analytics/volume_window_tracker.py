@@ -23,7 +23,7 @@ Provides:
 - vol_15min: Volume in last 900 seconds
 - vol_30min: Volume in last 1800 seconds
 
-Author: TradeUL Team
+Author: Tradeul Team
 """
 
 import numpy as np

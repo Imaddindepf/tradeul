@@ -25,7 +25,7 @@ Provides:
 - chg_30min: Price change % in last 1800 seconds
 - price_5min_ago: Price exactly 5 minutes ago (for MOMENTUM criteria)
 
-Author: TradeUL Team
+Author: Tradeul Team
 """
 
 import numpy as np

@@ -522,7 +522,7 @@ async def proxy_sec_filing(
         # SEC.gov requiere User-Agent con información de contacto
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(url, headers={
-                "User-Agent": "TradeUL App admin@tradeul.com",
+                "User-Agent": "Tradeul App admin@tradeul.com",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Host": "www.sec.gov"

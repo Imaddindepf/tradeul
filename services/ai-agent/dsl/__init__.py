@@ -1,5 +1,5 @@
 """
-TradeUL DSL - Domain Specific Language for AI Agent
+Tradeul DSL - Domain Specific Language for AI Agent
 """
 
 from .query import Query

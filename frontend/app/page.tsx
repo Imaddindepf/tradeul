@@ -389,7 +389,7 @@ export default function Home() {
               >
                 <Image
                   src="/images/tradeul-landing-image.svg"
-                  alt="TradeUL Platform"
+                  alt="Tradeul Platform"
                   width={600}
                   height={450}
                   className="w-full max-w-[550px] h-auto drop-shadow-2xl"

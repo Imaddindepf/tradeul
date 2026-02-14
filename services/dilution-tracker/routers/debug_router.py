@@ -25,7 +25,7 @@ async def _get_cik_for_ticker(ticker: str) -> Optional[str]:
         try:
             response = await client.get(
                 "https://www.sec.gov/files/company_tickers.json",
-                headers={"User-Agent": "TradeUL Research contact@tradeul.com"}
+                headers={"User-Agent": "Tradeul Research contact@tradeul.com"}
             )
             if response.status_code == 200:
                 data = response.json()

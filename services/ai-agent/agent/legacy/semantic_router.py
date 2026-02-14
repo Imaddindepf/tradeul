@@ -1,5 +1,5 @@
 """
-Semantic Router for TradeUL AI Agent
+Semantic Router for Tradeul AI Agent
 ====================================
 
 Uses lightweight sentence embeddings to understand query intent,

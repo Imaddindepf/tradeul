@@ -41,7 +41,7 @@ class PolymarketClient:
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
             headers={
                 "Accept": "application/json",
-                "User-Agent": "TradeUL/1.0"
+                "User-Agent": "Tradeul/1.0"
             }
         )
         logger.info("polymarket_client_connected")

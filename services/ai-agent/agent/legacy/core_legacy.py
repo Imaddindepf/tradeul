@@ -73,7 +73,7 @@ class MarketAgent:
         result = await agent.process("top gainers de hoy")
     """
     
-    SYSTEM_PROMPT = """You are TradeUL's AI financial analyst. Respond in the same language as the user.
+    SYSTEM_PROMPT = """You are Tradeul's AI financial analyst. Respond in the same language as the user.
 
 CAPABILITIES (via tools):
 - get_market_snapshot: Real-time data for ~1000 active tickers (price, change, volume, sector, RVOL)

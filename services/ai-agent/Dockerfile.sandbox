@@ -14,7 +14,7 @@
 
 FROM python:3.11-slim
 
-LABEL maintainer="TradeUL Team"
+LABEL maintainer="Tradeul Team"
 LABEL description="Isolated sandbox for LLM code execution"
 LABEL version="1.0.0"
 

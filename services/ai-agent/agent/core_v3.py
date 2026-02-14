@@ -490,7 +490,7 @@ class MarketAgentV3:
         current_date = get_current_date()
         session = market_context.get("session", "UNKNOWN")
         
-        return f"""You are TradeUL's AI routing agent. Your job is to pick the RIGHT tool for the user's question.
+        return f"""You are Tradeul's AI routing agent. Your job is to pick the RIGHT tool for the user's question.
 
 CURRENT CONTEXT:
 - Date: {current_date}
