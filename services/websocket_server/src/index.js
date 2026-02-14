@@ -444,7 +444,7 @@ const ENRICHED_CACHE_INTERVAL_MS = 10_000; // 10 seconds
 
 async function refreshEnrichedCache() {
   try {
-    const raw = await redisCommands.hgetall("snapshot:enriched:last_close");
+    const raw = await redisCommands.hgetall("snapshot:enriched:latest");
     if (!raw || Object.keys(raw).length === 0) return;
     let count = 0;
     for (const [key, val] of Object.entries(raw)) {
