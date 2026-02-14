@@ -101,6 +101,9 @@ class TickerState:
     float_shares: Optional[float] = None    # Free float shares
     security_type: Optional[str] = None     # CS, ETF, PFD, WARRANT, ADRC, etc.
     
+    # ===== SESSION CONTEXT =====
+    market_session: Optional[str] = None    # PRE_MARKET, MARKET_OPEN, POST_MARKET, CLOSED
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for condition evaluation."""
         result = {
@@ -157,6 +160,7 @@ class TickerState:
             "market_cap": self.market_cap,
             "float_shares": self.float_shares,
             "security_type": self.security_type,
+            "market_session": self.market_session,
         }
         for key, val in optional.items():
             if val is not None:

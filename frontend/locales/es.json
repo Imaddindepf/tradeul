@@ -181,13 +181,9 @@
       "name": "Scanner Filters",
       "description": "Personalizar scanner"
     },
-    "sb": {
-      "name": "Scan Builder",
-      "description": "Scans personalizados"
-    },
     "build": {
-      "name": "Build",
-      "description": "Crear Top List o Alert Window personalizada"
+      "name": "Strategy Builder",
+      "description": "Crear estrategias (eventos + filtros) o top lists (scanner)"
     },
     "chat": {
       "name": "Community Chat",

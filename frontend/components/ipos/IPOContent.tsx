@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { TableVirtuoso } from 'react-virtuoso';
 import { RefreshCw, AlertTriangle, TrendingUp, Clock, CheckCircle, XCircle, HelpCircle, Rocket, FileText, ExternalLink, Loader2, ArrowLeft, Users, Building2, Scale, ClipboardList } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
+import { useWindowState } from '@/contexts/FloatingWindowContext';
 
 // ============================================================================
 // Types
@@ -110,12 +111,18 @@ const ROW_HEIGHT = 22;
 // Component
 // ============================================================================
 
+type IPOWindowState = {
+  statusFilter?: StatusFilter;
+}
+
 export function IPOContent() {
   const { t } = useTranslation();
+  const { state: windowState, updateState: updateWindowState } = useWindowState<IPOWindowState>();
+
   const [ipos, setIpos] = useState<IPO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('pending');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(windowState.statusFilter || 'pending');
   const [cached, setCached] = useState(false);
   const [loadingProspectus, setLoadingProspectus] = useState<string | null>(null);
   const [prospectusData, setProspectusData] = useState<any>(null);
@@ -179,6 +186,11 @@ export function IPOContent() {
   useEffect(() => {
     fetchIPOs();
   }, [fetchIPOs]);
+
+  // Persist status filter changes
+  useEffect(() => {
+    updateWindowState({ statusFilter });
+  }, [statusFilter, updateWindowState]);
 
   // Filter IPOs by status
   const filteredIPOs = useMemo(() => {
@@ -550,22 +562,22 @@ export function IPOContent() {
             }}
             components={{
               Table: ({ style, ...props }) => (
-                <table 
-                  {...props} 
+                <table
+                  {...props}
                   style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
                   className="text-[10px]"
                 />
               ),
               TableHead: React.forwardRef(({ style, ...props }, ref) => (
-                <thead 
-                  {...props} 
+                <thead
+                  {...props}
                   ref={ref}
                   style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }}
                 />
               )),
               TableRow: ({ style, ...props }) => (
-                <tr 
-                  {...props} 
+                <tr
+                  {...props}
                   style={{ ...style }}
                   className="hover:bg-blue-50/50 group border-b border-slate-50"
                 />

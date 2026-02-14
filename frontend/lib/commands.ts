@@ -13,7 +13,6 @@ import {
   User,
   Rocket,
   List,
-  Filter,
   Zap,
   MessageCircle,
   StickyNote,
@@ -71,8 +70,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'heatmap', label: 'HM', description: 'commands.heatmap.description', icon: Grid3X3, shortcut: 'Ctrl+H', isNew: true },
   { id: 'hds', label: 'HDS', description: 'commands.hds.description', icon: Users, isNew: true },
   { id: 'evn', label: 'EVN', description: 'commands.evn.description', icon: Activity, isNew: true },
-  { id: 'sb', label: 'SB', description: 'commands.sb.description', icon: Filter },
-  { id: 'build', label: 'BUILD', description: 'commands.build.description', icon: Zap, isNew: true },
+  { id: 'build', label: 'BUILD', description: 'commands.build.description', icon: Zap },
 ];
 
 /**
@@ -101,20 +99,15 @@ export const EVENT_CATEGORY_LABELS: Record<string, string> = {
   'evt_parabolic_movers': 'Parabolic Movers',
   'evt_gap_fade': 'Gap Fade',
   'evt_gap_recovery': 'Gap Down Recovery',
-  'evt_vwap_reclaim': 'VWAP Reclaim',
-  'evt_ema_trend_break': 'SMA 50 Trend Break',
   'evt_halt_momentum': 'Halt Resume',
   'evt_dip_buy': 'Dip Buy on Runners',
-  'evt_confirmed_longs': 'Confirmed Longs',
-  'evt_confirmed_shorts': 'Confirmed Shorts',
   'evt_squeeze_play': 'Squeeze Play',
   'evt_institutional_bid': 'Institutional Bid',
   'evt_reversal_play': 'Reversal Play',
   'evt_breakdown_short': 'Breakdown Short',
-  'evt_macd_momentum': 'MACD Momentum',
-  'evt_stoch_reversal': 'Stochastic Reversal',
   'evt_orb_play': 'Opening Range Play',
   'evt_consolidation_break': 'Consolidation Break',
+  'evt_daily_trend_change': 'Daily Trend Change',
   'evt_all': 'All Events',
 };
 
@@ -171,7 +164,9 @@ export interface EventCategory {
 }
 
 export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
-  // ── MOMENTUM ──
+  // ══════════════════════════════════════════════════════════════════════
+  // MOMENTUM — Edge: Confirmed directional moves with volume proof
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_high_vol_runners',
     label: 'Momentum Runners',
@@ -188,7 +183,9 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     icon: '🚀',
     defaultFilters: { min_price: 2, min_rvol: 4, min_volume: 500000, max_market_cap: 5000000000, max_float_shares: 30000000, min_gap_percent: 3 },
   },
-  // ── GAPS ──
+  // ══════════════════════════════════════════════════════════════════════
+  // GAPS — Edge: Failed/recovered gaps = high probability reversal setups
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_gap_fade',
     label: 'Gap Fade',
@@ -205,34 +202,20 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     icon: '📈',
     defaultFilters: { min_price: 5, max_gap_percent: -3, min_rvol: 2, min_volume: 200000, min_change_from_open: 1, min_market_cap: 500000000 },
   },
-  // ── VWAP ──
-  {
-    id: 'evt_vwap_reclaim',
-    label: 'VWAP Reclaim',
-    description: 'Institutional entry: VWAP reclaim on catalyst stock',
-    eventTypes: ['vwap_cross_up'],
-    icon: '⚡',
-    defaultFilters: { min_price: 5, min_rvol: 2, min_volume: 200000, min_gap_percent: 1, min_change_percent: -2, min_market_cap: 500000000, min_rsi: 30, max_rsi: 65 },
-  },
-  // ── SMA TREND ──
-  {
-    id: 'evt_ema_trend_break',
-    label: 'SMA 50 Trend Break',
-    description: 'SMA 50 cross + golden/death cross with volume',
-    eventTypes: ['crossed_above_sma50', 'crossed_below_sma50', 'sma_8_cross_above_20', 'sma_8_cross_below_20'],
-    icon: '📐',
-    defaultFilters: { min_price: 5, min_rvol: 2, min_volume: 200000, min_atr_percent: 1.5, min_market_cap: 500000000 },
-  },
-  // ── HALTS ──
+  // ══════════════════════════════════════════════════════════════════════
+  // HALTS — Edge: Halted stocks = extreme volatility on resume
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_halt_momentum',
     label: 'Halt Resume',
     description: 'Halts on runners — explosive resume plays',
     eventTypes: ['halt', 'resume'],
     icon: '🛑',
-    defaultFilters: { min_price: 2, min_change_percent: 5, min_rvol: 3, min_volume: 100000, max_market_cap: 5000000000 },
+    defaultFilters: {},
   },
-  // ── PULLBACKS ──
+  // ══════════════════════════════════════════════════════════════════════
+  // PULLBACKS — Edge: Retracements on strong stocks = dip buy setups
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_dip_buy',
     label: 'Dip Buy on Runners',
@@ -241,24 +224,9 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     icon: '🎯',
     defaultFilters: { min_price: 2, min_rvol: 2.5, min_volume: 200000, min_gap_percent: 2, min_change_percent: 3, max_market_cap: 10000000000 },
   },
-  // ── CONFIRMED ──
-  {
-    id: 'evt_confirmed_longs',
-    label: 'Confirmed Longs',
-    description: 'Highest conviction bullish signals',
-    eventTypes: ['running_up_confirmed', 'running_up_sustained', 'crossed_above_open', 'crossed_above_prev_close'],
-    icon: '✅',
-    defaultFilters: { min_price: 2, min_rvol: 2.5, min_volume: 200000, min_change_percent: 1, min_market_cap: 100000000 },
-  },
-  {
-    id: 'evt_confirmed_shorts',
-    label: 'Confirmed Shorts',
-    description: 'Highest conviction bearish signals',
-    eventTypes: ['running_down_confirmed', 'running_down_sustained', 'crossed_below_open', 'crossed_below_prev_close'],
-    icon: '🔻',
-    defaultFilters: { min_price: 5, min_rvol: 2, min_volume: 200000, max_change_percent: -1, min_market_cap: 200000000 },
-  },
-  // ── ADVANCED ──
+  // ══════════════════════════════════════════════════════════════════════
+  // SQUEEZE — Edge: Low float + breakout = explosive move potential
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_squeeze_play',
     label: 'Squeeze Play',
@@ -267,48 +235,39 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     icon: '💥',
     defaultFilters: { min_price: 2, max_float_shares: 20000000, min_rvol: 4, min_gap_percent: 3, max_market_cap: 2000000000, min_volume: 300000 },
   },
+  // ══════════════════════════════════════════════════════════════════════
+  // INSTITUTIONAL — Edge: Large cap + volume surge = smart money moving
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_institutional_bid',
     label: 'Institutional Bid',
-    description: 'Large cap momentum with institutional footprint',
-    eventTypes: ['vwap_cross_up', 'crossed_above_sma50', 'volume_surge', 'percent_up_5'],
+    description: 'Large cap momentum with institutional volume footprint',
+    eventTypes: ['volume_surge', 'percent_up_5', 'running_up_confirmed', 'crossed_daily_high_resistance'],
     icon: '🏦',
     defaultFilters: { min_market_cap: 5000000000, min_volume: 1000000, min_rvol: 2, min_price: 20, min_change_percent: 1 },
   },
+  // ══════════════════════════════════════════════════════════════════════
+  // REVERSAL — Edge: Oversold bounce with volume = mean reversion setup
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_reversal_play',
     label: 'Reversal Play',
-    description: 'Gap down stocks showing reversal signs',
-    eventTypes: ['gap_down_reversal', 'vwap_cross_up', 'pullback_25_from_low', 'pullback_75_from_low'],
+    description: 'Gap down stocks showing reversal signs with volume',
+    eventTypes: ['gap_down_reversal', 'pullback_25_from_low', 'pullback_75_from_low'],
     icon: '🔄',
     defaultFilters: { max_gap_percent: -3, min_rvol: 2.5, min_volume: 300000, min_change_from_open: 1, min_market_cap: 500000000, min_price: 5 },
   },
   {
     id: 'evt_breakdown_short',
     label: 'Breakdown Short',
-    description: 'Technical breakdown with volume',
-    eventTypes: ['running_down_confirmed', 'crossed_below_sma50', 'bb_lower_breakdown', 'macd_cross_bearish', 'crossed_daily_low_support'],
+    description: 'Technical breakdown with confirmed downward momentum',
+    eventTypes: ['running_down_confirmed', 'bb_lower_breakdown', 'crossed_daily_low_support'],
     icon: '⬇️',
     defaultFilters: { max_change_percent: -2, min_rvol: 2, min_volume: 200000, min_price: 5, min_market_cap: 300000000 },
   },
-  // ── MACD / STOCHASTIC ──
-  {
-    id: 'evt_macd_momentum',
-    label: 'MACD Momentum',
-    description: 'MACD bullish cross + SMA golden cross — triple confirmation',
-    eventTypes: ['macd_cross_bullish', 'macd_zero_cross_up', 'sma_8_cross_above_20', 'crossed_above_sma20'],
-    icon: '📊',
-    defaultFilters: { min_price: 3, min_rvol: 1.5, min_volume: 150000, min_market_cap: 200000000 },
-  },
-  {
-    id: 'evt_stoch_reversal',
-    label: 'Stochastic Reversal',
-    description: 'Oversold stochastic cross + VWAP reclaim — mean reversion',
-    eventTypes: ['stoch_cross_bullish', 'stoch_oversold', 'vwap_cross_up', 'pullback_75_from_low'],
-    icon: '🔄',
-    defaultFilters: { min_price: 5, min_rvol: 2, min_volume: 200000, min_market_cap: 500000000, max_rsi: 40 },
-  },
-  // ── OPENING RANGE ──
+  // ══════════════════════════════════════════════════════════════════════
+  // ORB / CONSOLIDATION — Edge: Range breakout = directional move
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_orb_play',
     label: 'Opening Range Play',
@@ -317,7 +276,6 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     icon: '⏰',
     defaultFilters: { min_price: 3, min_rvol: 2, min_volume: 200000, min_gap_percent: 1, max_market_cap: 10000000000 },
   },
-  // ── CONSOLIDATION ──
   {
     id: 'evt_consolidation_break',
     label: 'Consolidation Break',
@@ -326,14 +284,27 @@ export const SYSTEM_EVENT_CATEGORIES: EventCategory[] = [
     icon: '📦',
     defaultFilters: { min_price: 3, min_rvol: 2, min_volume: 200000, max_market_cap: 10000000000 },
   },
-  // ===== ALL (catch-all) =====
+  // ══════════════════════════════════════════════════════════════════════
+  // DAILY TREND — Edge: Price crossing DAILY MAs = significant trend shift
+  // ══════════════════════════════════════════════════════════════════════
+  {
+    id: 'evt_daily_trend_change',
+    label: 'Daily Trend Change',
+    description: 'Price crosses daily SMA 20/50/200 — major trend shifts',
+    eventTypes: ['crossed_above_sma20_daily', 'crossed_below_sma20_daily', 'crossed_above_sma50_daily', 'crossed_below_sma50_daily', 'crossed_above_sma200', 'crossed_below_sma200'],
+    icon: '📐',
+    defaultFilters: { min_price: 5, min_volume: 200000, min_market_cap: 500000000 },
+  },
+  // ══════════════════════════════════════════════════════════════════════
+  // ALL — Catch-all with stricter filters to reduce noise
+  // ══════════════════════════════════════════════════════════════════════
   {
     id: 'evt_all',
     label: 'All Events',
-    description: 'All market events in real-time (unfiltered)',
+    description: 'All market events in real-time',
     eventTypes: [], // Empty = all types
     icon: '📊',
-    defaultFilters: { min_price: 1, min_volume: 10000 },
+    defaultFilters: { min_price: 2, min_volume: 50000, min_rvol: 1.5 },
   },
 ];
 

@@ -14,6 +14,7 @@ export interface ScannerWindowData {
   categoryName: string;
   wsUrl: string;
   workerUrl: string; // URL absoluta del SharedWorker
+  token?: string; // JWT token for WebSocket authentication
 }
 
 export interface WindowConfig {
@@ -23,10 +24,10 @@ export interface WindowConfig {
   centered?: boolean;
 }
 
-export function openScannerWindow(
+export async function openScannerWindow(
   data: ScannerWindowData,
   config: WindowConfig
-): Window | null {
+): Promise<Window | null> {
   const {
     width = 1400,
     height = 900,

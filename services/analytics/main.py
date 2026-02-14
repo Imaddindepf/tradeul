@@ -300,7 +300,7 @@ async def lifespan(app: FastAPI):
             logger.warning("intraday_recovery_failed", error=str(e))
     
     # --- Initialize BarEngine (AM.* minute bars + streaming indicators) ---
-    bar_engine = BarEngine(ring_size=60)
+    bar_engine = BarEngine()  # Uses DEFAULT_RING_SIZE (210)
     
     # --- Warmup BarEngine from TimescaleDB (load last 200 1-min bars) ---
     timescale_bar_writer = TimescaleBarWriter(

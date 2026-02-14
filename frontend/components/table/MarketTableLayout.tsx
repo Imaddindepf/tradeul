@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, X } from 'lucide-react';
+import { useAuth } from '@clerk/nextjs';
 import { openScannerWindow } from '@/lib/window-injector';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { getUserTimezone } from '@/lib/date-utils';
@@ -30,22 +31,28 @@ export function MarketTableLayout({
 }: MarketTableLayoutProps) {
   const { t } = useTranslation();
   const { windows, updateWindow } = useFloatingWindow();
+  const { getToken } = useAuth();
 
-  const handleOpenNewWindow = () => {
+  const handleOpenNewWindow = async () => {
     if (!listName) return;
 
     // Patrón Godel Terminal: about:blank + inyección + SharedWorker
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+    const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+
+    // Obtener token JWT para autenticación del WebSocket
+    const token = await getToken({ skipCache: true });
+    const wsUrl = token ? `${wsBaseUrl}${wsBaseUrl.includes('?') ? '&' : '?'}token=${token}` : wsBaseUrl;
 
     // URL absoluta del SharedWorker (necesaria para about:blank)
     const workerUrl = `${window.location.origin}/workers/websocket-shared.js`;
 
-    const popOutWindow = openScannerWindow(
+    const popOutWindow = await openScannerWindow(
       {
         listName,
         categoryName: title,
         wsUrl,
         workerUrl,
+        token: token || undefined,
       },
       {
         title: `${title} - Tradeul`,

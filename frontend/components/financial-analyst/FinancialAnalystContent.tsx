@@ -6,7 +6,7 @@ import { Search, AlertTriangle, Loader2, ExternalLink, TrendingUp, TrendingDown,
 import { TradingChart } from '@/components/chart/TradingChart';
 import { TickerStrip } from '@/components/ticker/TickerStrip';
 import { TickerSearch, TickerSearchRef } from '@/components/common/TickerSearch';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
 import { ChartContent } from '@/components/chart/ChartContent';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 
@@ -120,7 +120,7 @@ const Row = ({ label, value, valueClass = '', loading }: { label: string; value:
 // MA indicator
 const MAArrow = ({ status }: { status?: string }) => {
     if (!status || status === 'Unknown') return null;
-    return status === 'Above' 
+    return status === 'Above'
         ? <ChevronUp className="w-3 h-3 text-green-500 inline" />
         : <ChevronDown className="w-3 h-3 text-red-500 inline" />;
 };
@@ -133,15 +133,42 @@ const GeminiLoading = ({ text }: { text: string }) => (
     </div>
 );
 
+// Expandable About section
+function ExpandableAbout({ text, isSpanish }: { text: string; isSpanish: boolean }) {
+    const [expanded, setExpanded] = useState(false);
+    const needsExpand = text.length > 180;
+
+    return (
+        <div className="px-3 py-2 border-b border-slate-200">
+            <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">{isSpanish ? 'Acerca de' : 'About'}</div>
+            <p className={`text-[10px] text-slate-700 leading-[14px] ${expanded ? '' : 'line-clamp-3'}`}>{text}</p>
+            {needsExpand && (
+                <button
+                    onClick={() => setExpanded(!expanded)}
+                    className="text-blue-500 hover:text-blue-600 text-[9px] font-medium mt-0.5 cursor-pointer"
+                >
+                    {expanded ? (isSpanish ? '▲ Ver menos' : '▲ Show less') : (isSpanish ? '▼ Leer más' : '▼ Read more')}
+                </button>
+            )}
+        </div>
+    );
+}
+
+type FinancialAnalystWindowState = {
+    ticker?: string;
+}
+
 export function FinancialAnalystContent({ initialTicker }: { initialTicker?: string }) {
     const { t, i18n } = useTranslation();
     const { openWindow } = useFloatingWindow();
+    const { state: windowState, updateState: updateWindowState } = useWindowState<FinancialAnalystWindowState>();
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
     const isSpanish = i18n.language === 'es';
 
-    const [ticker, setTicker] = useState(initialTicker || '');
-    const [inputValue, setInputValue] = useState(initialTicker || '');
+    const savedTicker = windowState.ticker || initialTicker || '';
+    const [ticker, setTicker] = useState(savedTicker);
+    const [inputValue, setInputValue] = useState(savedTicker);
     const [company, setCompany] = useState<CompanyData | null>(null);
     const [report, setReport] = useState<AIReport | null>(null);
     const tickerSearchRef = useRef<TickerSearchRef>(null);
@@ -183,7 +210,7 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
             setReport(instantData);
             fetchCompanyData(normalizedSymbol);
             setLoadingInstant(false);
-            
+
             // === FASE 2: Datos de Gemini (en paralelo) ===
             setLoadingGemini(true);
             const lang = isSpanish ? 'es' : 'en';
@@ -201,14 +228,26 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
         }
     }, [isSpanish, fetchCompanyData]);
 
-    useEffect(() => { if (initialTicker) fetchReport(initialTicker); }, [initialTicker, fetchReport]);
-    
+    // Persist ticker changes
+    useEffect(() => {
+        if (ticker) {
+            updateWindowState({ ticker });
+        }
+    }, [ticker, updateWindowState]);
+
+    // Auto-fetch on mount: prioritize saved ticker, then initialTicker
+    useEffect(() => {
+        const tickerToFetch = savedTicker || initialTicker;
+        if (tickerToFetch) fetchReport(tickerToFetch);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         tickerSearchRef.current?.close();
         if (inputValue.trim()) fetchReport(inputValue.trim());
     };
-    
+
     const handleOpenChart = useCallback(() => {
         openWindow({
             title: 'Chart', content: <ChartContent ticker={ticker} />,
@@ -238,9 +277,9 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                         className="flex-1"
                         autoFocus={false}
                     />
-                    <button 
-                        type="submit" 
-                        disabled={loading || !inputValue.trim()} 
+                    <button
+                        type="submit"
+                        disabled={loading || !inputValue.trim()}
                         className="px-3 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
                     >
                         {loading ? (
@@ -323,10 +362,7 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
 
                             {/* Business Description */}
                             {r.business_summary && (
-                                <div className="px-3 py-2 border-b border-slate-200">
-                                    <div className="text-[9px] font-semibold text-slate-600 uppercase tracking-wider mb-1">{isSpanish ? 'Acerca de' : 'About'}</div>
-                                    <p className="text-[10px] text-slate-700 leading-[14px] line-clamp-3">{r.business_summary}</p>
-                                </div>
+                                <ExpandableAbout text={r.business_summary} isSpanish={isSpanish} />
                             )}
 
                             {/* Chart - altura suficiente para mostrar eje X */}

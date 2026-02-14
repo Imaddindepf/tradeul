@@ -28,6 +28,18 @@ const nextConfig = {
   images: {
     domains: ['localhost'],
   },
+
+  // Generar ETags para mejor cache
+  generateEtags: true,
+
+  // Comprimir respuestas (Caddy también puede hacerlo)
+  compress: true,
+
+  // Asegurar que los assets estáticos tengan rutas estables
+  generateBuildId: async () => {
+    // Usar git commit hash o timestamp consistente durante el build
+    return process.env.BUILD_ID || `build-${Date.now()}`;
+  },
 };
 
 export default nextConfig;

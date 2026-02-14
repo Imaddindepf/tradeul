@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 // Rutas públicas que NO requieren autenticación
 const isPublicRoute = createRouteMatcher([
   '/',                    // Landing page
+  '/event',               // Formulario inscripción evento (Primer Tradeul Event)
   '/sign-in(.*)',         // Páginas de login
   '/sign-up(.*)',         // Páginas de registro
   '/tasks(.*)',           // Task pages (reset-password, etc.)
@@ -22,7 +23,7 @@ export default clerkMiddleware(async (auth, req) => {
   // Si está autenticado y tiene un session task pendiente
   if (userId && sessionClaims) {
     const currentTask = (sessionClaims as any)?.currentTask
-    
+
     // Si hay un task de reset-password y NO estamos ya en la página de task
     if (currentTask?.key === 'reset-password' && !isTaskRoute(req)) {
       const taskUrl = new URL('/tasks/reset-password', req.url)

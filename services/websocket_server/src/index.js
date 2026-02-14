@@ -128,6 +128,221 @@ redis.on("error", (err) => {
   logger.error({ err }, "Redis error");
 });
 
+// =============================================
+// TIMESCALEDB (PostgreSQL) - Historical event queries
+// =============================================
+const { Pool } = require("pg");
+
+const pgPool = new Pool({
+  host: process.env.POSTGRES_HOST || "timescaledb",
+  port: parseInt(process.env.POSTGRES_PORT || "5432", 10),
+  user: process.env.POSTGRES_USER || "tradeul_user",
+  password: process.env.POSTGRES_PASSWORD || "",
+  database: process.env.POSTGRES_DB || "tradeul",
+  max: 5,              // Small pool — only for on-demand historical queries
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+
+let pgAvailable = false;
+
+pgPool.on("error", (err) => {
+  logger.error({ err: err.message }, "PostgreSQL pool error");
+});
+
+// Test connection on startup
+pgPool.query("SELECT 1").then(() => {
+  pgAvailable = true;
+  logger.info("🗄️ TimescaleDB connected for historical queries");
+}).catch((err) => {
+  pgAvailable = false;
+  logger.warn({ err: err.message }, "⚠️ TimescaleDB not available — historical queries disabled");
+});
+
+/**
+ * Query historical events from TimescaleDB.
+ *
+ * Translates the subscription filters into parameterized SQL WHERE clauses.
+ * Core filters map to native columns; enriched-only filters use JSONB context.
+ *
+ * @param {Object} sub - The subscription object (from buildEventSubscription)
+ * @param {number} limit - Max events to return (default 200)
+ * @returns {Promise<Array>} Array of event objects (oldest first)
+ */
+async function queryHistoricalEvents(sub, limit = 200) {
+  if (!pgAvailable) return [];
+
+  const conditions = [];
+  const params = [];
+  let paramIdx = 0;
+
+  const addParam = (val) => { params.push(val); paramIdx++; return `$${paramIdx}`; };
+
+  // ── Event type filter ──
+  if (!sub.allTypes && sub.eventTypes && sub.eventTypes.size > 0) {
+    const types = Array.from(sub.eventTypes);
+    const placeholders = types.map(t => addParam(t));
+    conditions.push(`event_type IN (${placeholders.join(", ")})`);
+  }
+
+  // ── Symbol filters ──
+  if (sub.symbolsInclude && sub.symbolsInclude.size > 0) {
+    const syms = Array.from(sub.symbolsInclude);
+    const placeholders = syms.map(s => addParam(s));
+    conditions.push(`symbol IN (${placeholders.join(", ")})`);
+  }
+  if (sub.symbolsExclude && sub.symbolsExclude.size > 0) {
+    const syms = Array.from(sub.symbolsExclude);
+    const placeholders = syms.map(s => addParam(s));
+    conditions.push(`symbol NOT IN (${placeholders.join(", ")})`);
+  }
+
+  // ── Mapping: subscription key → { col: native column, ctx: JSONB context key } ──
+  // Native columns get direct SQL WHERE; context-only fields use JSONB operators.
+  const FILTER_MAP = [
+    // [subMinKey, subMaxKey, nativeCol, contextKey]
+    ['priceMin',          'priceMax',          'price',           null],
+    ['changeMin',         'changeMax',         'change_pct',      null],
+    ['rvolMin',           'rvolMax',           'rvol',            null],
+    ['volumeMin',         'volumeMax',         'volume',          null],
+    ['marketCapMin',      'marketCapMax',      'market_cap',      null],
+    ['floatSharesMin',    'floatSharesMax',    'float_shares',    null],
+    ['gapPercentMin',     'gapPercentMax',     'gap_pct',         null],
+    ['changeFromOpenMin', 'changeFromOpenMax', 'change_from_open', null],
+    ['atrPercentMin',     'atrPercentMax',     'atr_pct',         null],
+    ['rsiMin',            'rsiMax',            'rsi',             null],
+    ['chg1minMin',        'chg1minMax',        'chg_1min',        null],
+    ['chg5minMin',        'chg5minMax',        'chg_5min',        null],
+    ['chg10minMin',       'chg10minMax',       'chg_10min',       null],
+    ['chg15minMin',       'chg15minMax',       'chg_15min',       null],
+    ['chg30minMin',       'chg30minMax',       'chg_30min',       null],
+    ['vol1minMin',        'vol1minMax',        'vol_1min',        null],
+    ['vol5minMin',        'vol5minMax',        'vol_5min',        null],
+    // JSONB context only (enriched fields not in native columns)
+    ['sma5Min',           'sma5Max',           null, 'sma_5'],
+    ['sma8Min',           'sma8Max',           null, 'sma_8'],
+    ['sma20Min',          'sma20Max',          null, 'sma_20'],
+    ['sma50Min',          'sma50Max',          null, 'sma_50'],
+    ['sma200Min',         'sma200Max',         null, 'sma_200'],
+    ['macdLineMin',       'macdLineMax',       null, 'macd_line'],
+    ['macdHistMin',       'macdHistMax',       null, 'macd_hist'],
+    ['stochKMin',         'stochKMax',         null, 'stoch_k'],
+    ['stochDMin',         'stochDMax',         null, 'stoch_d'],
+    ['adx14Min',          'adx14Max',          null, 'adx_14'],
+    ['bbUpperMin',        'bbUpperMax',        null, 'bb_upper'],
+    ['bbLowerMin',        'bbLowerMax',        null, 'bb_lower'],
+    ['vwapMin',           'vwapMax',           null, 'vwap'],
+    ['dailySma20Min',     'dailySma20Max',     null, 'daily_sma_20'],
+    ['dailySma50Min',     'dailySma50Max',     null, 'daily_sma_50'],
+    ['dailySma200Min',    'dailySma200Max',    null, 'daily_sma_200'],
+    ['dollarVolumeMin',   'dollarVolumeMax',   null, 'dollar_volume'],
+    ['bidAskRatioMin',    'bidAskRatioMax',    null, 'bid_ask_ratio'],
+  ];
+
+  for (const [minKey, maxKey, nativeCol, ctxKey] of FILTER_MAP) {
+    const minVal = sub[minKey];
+    const maxVal = sub[maxKey];
+
+    if (nativeCol) {
+      // Native column — direct SQL
+      if (minVal != null) conditions.push(`${nativeCol} >= ${addParam(minVal)}`);
+      if (maxVal != null) conditions.push(`${nativeCol} <= ${addParam(maxVal)}`);
+    } else if (ctxKey) {
+      // JSONB context — use ->> operator with cast
+      if (minVal != null) conditions.push(`(context->>'${ctxKey}')::double precision >= ${addParam(minVal)}`);
+      if (maxVal != null) conditions.push(`(context->>'${ctxKey}')::double precision <= ${addParam(maxVal)}`);
+    }
+  }
+
+  // ── String filters ──
+  if (sub.securityType) conditions.push(`security_type = ${addParam(sub.securityType)}`);
+  if (sub.sector) conditions.push(`sector = ${addParam(sub.sector)}`);
+  if (sub.industry) conditions.push(`(context->>'industry') = ${addParam(sub.industry)}`);
+
+  // ── Time range: only today's session (avoid scanning all 60 days) ──
+  conditions.push(`ts >= NOW() - INTERVAL '16 hours'`);
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const query = `
+    SELECT id, ts, symbol, event_type, rule_id, price,
+           change_pct, rvol, volume, market_cap, float_shares, gap_pct,
+           security_type, sector,
+           prev_value, new_value, delta, delta_pct,
+           change_from_open, open_price, prev_close, vwap, atr_pct,
+           intraday_high, intraday_low,
+           chg_1min, chg_5min, chg_10min, chg_15min, chg_30min,
+           vol_1min, vol_5min,
+           rsi, ema_20, ema_50,
+           details
+    FROM market_events
+    ${whereClause}
+    ORDER BY ts DESC
+    LIMIT ${addParam(limit)}
+  `;
+
+  try {
+    const result = await pgPool.query(query, params);
+
+    // Transform rows to match the Redis event format (camelCase → snake_case)
+    return result.rows.map(row => {
+      const evt = {
+        id: row.id,
+        event_type: row.event_type,
+        rule_id: row.rule_id,
+        symbol: row.symbol,
+        timestamp: row.ts ? row.ts.toISOString() : null,
+        price: row.price != null ? parseFloat(row.price) : null,
+      };
+
+      // Optional numeric fields
+      const numericFields = {
+        change_percent: row.change_pct,
+        rvol: row.rvol,
+        volume: row.volume != null ? Number(row.volume) : null,
+        market_cap: row.market_cap,
+        float_shares: row.float_shares,
+        gap_percent: row.gap_pct,
+        change_from_open: row.change_from_open,
+        open_price: row.open_price,
+        prev_close: row.prev_close,
+        vwap: row.vwap,
+        atr_percent: row.atr_pct,
+        intraday_high: row.intraday_high,
+        intraday_low: row.intraday_low,
+        chg_1min: row.chg_1min,
+        chg_5min: row.chg_5min,
+        chg_10min: row.chg_10min,
+        chg_15min: row.chg_15min,
+        chg_30min: row.chg_30min,
+        vol_1min: row.vol_1min != null ? Number(row.vol_1min) : null,
+        vol_5min: row.vol_5min != null ? Number(row.vol_5min) : null,
+        rsi: row.rsi,
+        ema_20: row.ema_20,
+        ema_50: row.ema_50,
+        prev_value: row.prev_value,
+        new_value: row.new_value,
+        delta: row.delta,
+        delta_percent: row.delta_pct,
+        security_type: row.security_type,
+        sector: row.sector,
+      };
+
+      for (const [k, v] of Object.entries(numericFields)) {
+        if (v != null) evt[k] = typeof v === "number" ? v : parseFloat(v);
+      }
+
+      if (row.details) evt.details = row.details;
+
+      return evt;
+    }).reverse(); // oldest first, newest last (same as Redis snapshot)
+
+  } catch (err) {
+    logger.error({ err: err.message, query: query.substring(0, 200) }, "❌ Historical events query failed");
+    return [];
+  }
+}
+
 // Manejadores de error para conexiones adicionales
 redisCommands.on("error", (err) => {
   logger.error({ err }, "Redis Commands error");
@@ -342,6 +557,11 @@ const NUMERIC_FILTER_DEFS = [
   ['sma50Max', 'sma_50_max', pf],
   ['sma200Min', 'sma_200_min', pf],
   ['sma200Max', 'sma_200_max', pf],
+  // EMA
+  ['ema20Min', 'ema_20_min', pf],
+  ['ema20Max', 'ema_20_max', pf],
+  ['ema50Min', 'ema_50_min', pf],
+  ['ema50Max', 'ema_50_max', pf],
   // MACD / Stochastic / ADX / Bollinger
   ['macdLineMin', 'macd_line_min', pf],
   ['macdLineMax', 'macd_line_max', pf],
@@ -378,6 +598,107 @@ const NUMERIC_FILTER_DEFS = [
   // VWAP
   ['vwapMin', 'vwap_min', pf],
   ['vwapMax', 'vwap_max', pf],
+
+  // === NEW: Computed derived fields (real-time from enriched) ===
+  // Dollar volume
+  ['dollarVolumeMin', 'dollar_volume_min', pf],
+  ['dollarVolumeMax', 'dollar_volume_max', pf],
+  // Today's range
+  ['todaysRangeMin', 'todays_range_min', pf],
+  ['todaysRangeMax', 'todays_range_max', pf],
+  ['todaysRangePctMin', 'todays_range_pct_min', pf],
+  ['todaysRangePctMax', 'todays_range_pct_max', pf],
+  // Bid/Ask ratio
+  ['bidAskRatioMin', 'bid_ask_ratio_min', pf],
+  ['bidAskRatioMax', 'bid_ask_ratio_max', pf],
+  // Float turnover
+  ['floatTurnoverMin', 'float_turnover_min', pf],
+  ['floatTurnoverMax', 'float_turnover_max', pf],
+  // Distance from VWAP (%)
+  ['distFromVwapMin', 'dist_from_vwap_min', pf],
+  ['distFromVwapMax', 'dist_from_vwap_max', pf],
+  // Distance from intraday SMAs (%)
+  ['distSma5Min', 'dist_sma_5_min', pf],
+  ['distSma5Max', 'dist_sma_5_max', pf],
+  ['distSma8Min', 'dist_sma_8_min', pf],
+  ['distSma8Max', 'dist_sma_8_max', pf],
+  ['distSma20Min', 'dist_sma_20_min', pf],
+  ['distSma20Max', 'dist_sma_20_max', pf],
+  ['distSma50Min', 'dist_sma_50_min', pf],
+  ['distSma50Max', 'dist_sma_50_max', pf],
+  ['distSma200Min', 'dist_sma_200_min', pf],
+  ['distSma200Max', 'dist_sma_200_max', pf],
+  // Position in range (0-100%)
+  ['posInRangeMin', 'pos_in_range_min', pf],
+  ['posInRangeMax', 'pos_in_range_max', pf],
+  // Below high / Above low ($)
+  ['belowHighMin', 'below_high_min', pf],
+  ['belowHighMax', 'below_high_max', pf],
+  ['aboveLowMin', 'above_low_min', pf],
+  ['aboveLowMax', 'above_low_max', pf],
+  // Position of open (0-100%)
+  ['posOfOpenMin', 'pos_of_open_min', pf],
+  ['posOfOpenMax', 'pos_of_open_max', pf],
+  // Previous day volume
+  ['prevDayVolumeMin', 'prev_day_volume_min', pi],
+  ['prevDayVolumeMax', 'prev_day_volume_max', pi],
+
+  // === NEW: Multi-day changes (from screener daily cache) ===
+  ['change1dMin', 'change_1d_min', pf],
+  ['change1dMax', 'change_1d_max', pf],
+  ['change3dMin', 'change_3d_min', pf],
+  ['change3dMax', 'change_3d_max', pf],
+  ['change5dMin', 'change_5d_min', pf],
+  ['change5dMax', 'change_5d_max', pf],
+  ['change10dMin', 'change_10d_min', pf],
+  ['change10dMax', 'change_10d_max', pf],
+  ['change20dMin', 'change_20d_min', pf],
+  ['change20dMax', 'change_20d_max', pf],
+
+  // === NEW: Average daily volumes ===
+  ['avgVolume5dMin', 'avg_volume_5d_min', pi],
+  ['avgVolume5dMax', 'avg_volume_5d_max', pi],
+  ['avgVolume10dMin', 'avg_volume_10d_min', pi],
+  ['avgVolume10dMax', 'avg_volume_10d_max', pi],
+  ['avgVolume20dMin', 'avg_volume_20d_min', pi],
+  ['avgVolume20dMax', 'avg_volume_20d_max', pi],
+
+  // === NEW: Distance from daily SMAs (%) ===
+  ['distDailySma20Min', 'dist_daily_sma_20_min', pf],
+  ['distDailySma20Max', 'dist_daily_sma_20_max', pf],
+  ['distDailySma50Min', 'dist_daily_sma_50_min', pf],
+  ['distDailySma50Max', 'dist_daily_sma_50_max', pf],
+
+  // === NEW: 52w distances (%) ===
+  ['from52wHighMin', 'from_52w_high_min', pf],
+  ['from52wHighMax', 'from_52w_high_max', pf],
+  ['from52wLowMin', 'from_52w_low_min', pf],
+  ['from52wLowMax', 'from_52w_low_max', pf],
+
+  // === NEW: Daily ADX / ATR / Bollinger position ===
+  ['dailyAdx14Min', 'daily_adx_14_min', pf],
+  ['dailyAdx14Max', 'daily_adx_14_max', pf],
+  ['dailyAtrPercentMin', 'daily_atr_percent_min', pf],
+  ['dailyAtrPercentMax', 'daily_atr_percent_max', pf],
+  ['dailyBbPositionMin', 'daily_bb_position_min', pf],
+  ['dailyBbPositionMax', 'daily_bb_position_max', pf],
+
+  // === Filters aligned with Scanner (from enriched cache) ===
+  ['volumeTodayPctMin', 'volume_today_pct_min', pf],
+  ['volumeTodayPctMax', 'volume_today_pct_max', pf],
+  ['minuteVolumeMin', 'minute_volume_min', pi],
+  ['priceFromHighMin', 'price_from_high_min', pf],
+  ['priceFromHighMax', 'price_from_high_max', pf],
+  ['distanceFromNbboMin', 'distance_from_nbbo_min', pf],
+  ['distanceFromNbboMax', 'distance_from_nbbo_max', pf],
+  ['premarketChangePctMin', 'premarket_change_percent_min', pf],
+  ['premarketChangePctMax', 'premarket_change_percent_max', pf],
+  ['postmarketChangePctMin', 'postmarket_change_percent_min', pf],
+  ['postmarketChangePctMax', 'postmarket_change_percent_max', pf],
+  ['avgVolume3mMin', 'avg_volume_3m_min', pi],
+  ['avgVolume3mMax', 'avg_volume_3m_max', pi],
+  ['atrMin', 'atr_min', pf],
+  ['atrMax', 'atr_max', pf],
 ];
 
 // String filter definitions: [subKey, dataKey]
@@ -411,6 +732,9 @@ const ENRICHED_FIELD_MAP = {
   sma20Min: 'sma_20', sma20Max: 'sma_20',
   sma50Min: 'sma_50', sma50Max: 'sma_50',
   sma200Min: 'sma_200', sma200Max: 'sma_200',
+  // EMA
+  ema20Min: 'ema_20', ema20Max: 'ema_20',
+  ema50Min: 'ema_50', ema50Max: 'ema_50',
   // MACD / Stochastic / ADX / Bollinger
   macdLineMin: 'macd_line', macdLineMax: 'macd_line',
   macdHistMin: 'macd_hist', macdHistMax: 'macd_hist',
@@ -431,6 +755,52 @@ const ENRICHED_FIELD_MAP = {
   tradesZScoreMin: 'trades_z_score', tradesZScoreMax: 'trades_z_score',
   // VWAP
   vwapMin: 'vwap', vwapMax: 'vwap',
+  // === NEW: Computed derived fields ===
+  dollarVolumeMin: 'dollar_volume', dollarVolumeMax: 'dollar_volume',
+  todaysRangeMin: 'todays_range', todaysRangeMax: 'todays_range',
+  todaysRangePctMin: 'todays_range_pct', todaysRangePctMax: 'todays_range_pct',
+  bidAskRatioMin: 'bid_ask_ratio', bidAskRatioMax: 'bid_ask_ratio',
+  floatTurnoverMin: 'float_turnover', floatTurnoverMax: 'float_turnover',
+  distFromVwapMin: 'dist_from_vwap', distFromVwapMax: 'dist_from_vwap',
+  distSma5Min: 'dist_sma_5', distSma5Max: 'dist_sma_5',
+  distSma8Min: 'dist_sma_8', distSma8Max: 'dist_sma_8',
+  distSma20Min: 'dist_sma_20', distSma20Max: 'dist_sma_20',
+  distSma50Min: 'dist_sma_50', distSma50Max: 'dist_sma_50',
+  distSma200Min: 'dist_sma_200', distSma200Max: 'dist_sma_200',
+  posInRangeMin: 'pos_in_range', posInRangeMax: 'pos_in_range',
+  belowHighMin: 'below_high', belowHighMax: 'below_high',
+  aboveLowMin: 'above_low', aboveLowMax: 'above_low',
+  posOfOpenMin: 'pos_of_open', posOfOpenMax: 'pos_of_open',
+  prevDayVolumeMin: 'prev_day_volume', prevDayVolumeMax: 'prev_day_volume',
+  // Multi-day changes
+  change1dMin: 'change_1d', change1dMax: 'change_1d',
+  change3dMin: 'change_3d', change3dMax: 'change_3d',
+  change5dMin: 'change_5d', change5dMax: 'change_5d',
+  change10dMin: 'change_10d', change10dMax: 'change_10d',
+  change20dMin: 'change_20d', change20dMax: 'change_20d',
+  // Average volumes
+  avgVolume5dMin: 'avg_volume_5d', avgVolume5dMax: 'avg_volume_5d',
+  avgVolume10dMin: 'avg_volume_10d', avgVolume10dMax: 'avg_volume_10d',
+  avgVolume20dMin: 'avg_volume_20d', avgVolume20dMax: 'avg_volume_20d',
+  // Distance from daily SMAs
+  distDailySma20Min: 'dist_daily_sma_20', distDailySma20Max: 'dist_daily_sma_20',
+  distDailySma50Min: 'dist_daily_sma_50', distDailySma50Max: 'dist_daily_sma_50',
+  // 52w distances
+  from52wHighMin: 'from_52w_high', from52wHighMax: 'from_52w_high',
+  from52wLowMin: 'from_52w_low', from52wLowMax: 'from_52w_low',
+  // Daily ADX / ATR / BB position
+  dailyAdx14Min: 'daily_adx_14', dailyAdx14Max: 'daily_adx_14',
+  dailyAtrPercentMin: 'daily_atr_percent', dailyAtrPercentMax: 'daily_atr_percent',
+  dailyBbPositionMin: 'daily_bb_position', dailyBbPositionMax: 'daily_bb_position',
+  // Scanner-aligned filters (from enriched cache)
+  volumeTodayPctMin: 'volume_today_pct', volumeTodayPctMax: 'volume_today_pct',
+  minuteVolumeMin: 'minute_volume',
+  priceFromHighMin: 'price_from_high', priceFromHighMax: 'price_from_high',
+  distanceFromNbboMin: 'distance_from_nbbo', distanceFromNbboMax: 'distance_from_nbbo',
+  premarketChangePctMin: 'premarket_change_percent', premarketChangePctMax: 'premarket_change_percent',
+  postmarketChangePctMin: 'postmarket_change_percent', postmarketChangePctMax: 'postmarket_change_percent',
+  avgVolume3mMin: 'avg_volume_3m', avgVolume3mMax: 'avg_volume_3m',
+  atrMin: 'atr', atrMax: 'atr',
   // String filters
   securityType: 'security_type',
   sector: 'sector',
@@ -562,6 +932,57 @@ function eventPassesSubscription(evt, sub) {
 
   // VWAP (enriched)
   if (!chkEvt(val('vwap', 'vwap'), 'vwapMin', 'vwapMax')) return false;
+
+  // EMA (enriched)
+  if (!chkEvt(enriched.ema_20, 'ema20Min', 'ema20Max')) return false;
+  if (!chkEvt(enriched.ema_50, 'ema50Min', 'ema50Max')) return false;
+
+  // Derived / Computed fields (enriched)
+  if (!chkEvt(enriched.dollar_volume, 'dollarVolumeMin', 'dollarVolumeMax')) return false;
+  if (!chkEvt(enriched.todays_range, 'todaysRangeMin', 'todaysRangeMax')) return false;
+  if (!chkEvt(enriched.todays_range_pct, 'todaysRangePctMin', 'todaysRangePctMax')) return false;
+  if (!chkEvt(enriched.bid_ask_ratio, 'bidAskRatioMin', 'bidAskRatioMax')) return false;
+  if (!chkEvt(enriched.float_turnover, 'floatTurnoverMin', 'floatTurnoverMax')) return false;
+  if (!chkEvt(enriched.dist_from_vwap, 'distFromVwapMin', 'distFromVwapMax')) return false;
+
+  // Distance from intraday SMAs (%)
+  if (!chkEvt(enriched.dist_sma_5, 'distSma5Min', 'distSma5Max')) return false;
+  if (!chkEvt(enriched.dist_sma_8, 'distSma8Min', 'distSma8Max')) return false;
+  if (!chkEvt(enriched.dist_sma_20, 'distSma20Min', 'distSma20Max')) return false;
+  if (!chkEvt(enriched.dist_sma_50, 'distSma50Min', 'distSma50Max')) return false;
+  if (!chkEvt(enriched.dist_sma_200, 'distSma200Min', 'distSma200Max')) return false;
+
+  // Position / range
+  if (!chkEvt(enriched.pos_in_range, 'posInRangeMin', 'posInRangeMax')) return false;
+  if (!chkEvt(enriched.below_high, 'belowHighMin', 'belowHighMax')) return false;
+  if (!chkEvt(enriched.above_low, 'aboveLowMin', 'aboveLowMax')) return false;
+  if (!chkEvt(enriched.pos_of_open, 'posOfOpenMin', 'posOfOpenMax')) return false;
+  if (!chkEvt(enriched.prev_day_volume, 'prevDayVolumeMin', 'prevDayVolumeMax')) return false;
+
+  // Multi-day changes (%)
+  if (!chkEvt(enriched.change_1d, 'change1dMin', 'change1dMax')) return false;
+  if (!chkEvt(enriched.change_3d, 'change3dMin', 'change3dMax')) return false;
+  if (!chkEvt(enriched.change_5d, 'change5dMin', 'change5dMax')) return false;
+  if (!chkEvt(enriched.change_10d, 'change10dMin', 'change10dMax')) return false;
+  if (!chkEvt(enriched.change_20d, 'change20dMin', 'change20dMax')) return false;
+
+  // Average daily volumes
+  if (!chkEvt(enriched.avg_volume_5d, 'avgVolume5dMin', 'avgVolume5dMax')) return false;
+  if (!chkEvt(enriched.avg_volume_10d, 'avgVolume10dMin', 'avgVolume10dMax')) return false;
+  if (!chkEvt(enriched.avg_volume_20d, 'avgVolume20dMin', 'avgVolume20dMax')) return false;
+
+  // Distance from daily SMAs (%)
+  if (!chkEvt(enriched.dist_daily_sma_20, 'distDailySma20Min', 'distDailySma20Max')) return false;
+  if (!chkEvt(enriched.dist_daily_sma_50, 'distDailySma50Min', 'distDailySma50Max')) return false;
+
+  // 52-week distances (%)
+  if (!chkEvt(enriched.from_52w_high, 'from52wHighMin', 'from52wHighMax')) return false;
+  if (!chkEvt(enriched.from_52w_low, 'from52wLowMin', 'from52wLowMax')) return false;
+
+  // Daily ADX / ATR / Bollinger position
+  if (!chkEvt(enriched.daily_adx_14, 'dailyAdx14Min', 'dailyAdx14Max')) return false;
+  if (!chkEvt(enriched.daily_atr_percent, 'dailyAtrPercentMin', 'dailyAtrPercentMax')) return false;
+  if (!chkEvt(enriched.daily_bb_position, 'dailyBbPositionMin', 'dailyBbPositionMax')) return false;
 
   // ── String filters ──
   if (sub.securityType !== null) {
@@ -3147,63 +3568,78 @@ wss.on("connection", async (ws, req) => {
           event_types_count: sub.allTypes ? "all" : sub.eventTypes.size,
         });
 
-        // ── ADAPTIVE SNAPSHOT ─────────────────────────────────────
-        // Read events in batches until we find enough matches or exhaust the stream.
-        // Selective strategies (high rvol, rare types) need to search deeper.
+        // ── HISTORICAL SNAPSHOT ─────────────────────────────────────
+        // 1. Try TimescaleDB first (persistent, 60-day history)
+        // 2. Fallback to Redis stream (in-memory, ~20 min window)
         try {
-          const SNAPSHOT_TARGET = 50;     // Aim for 50 matching events
-          const BATCH_SIZE = 500;         // Read 500 at a time from Redis
-          const MAX_SCANNED = 5000;       // Never scan more than 5000 total
-
           let matched = [];
-          let cursor = "+";
-          let totalScanned = 0;
+          let source = "none";
 
-          while (matched.length < SNAPSHOT_TARGET && totalScanned < MAX_SCANNED) {
-            const batch = await redisCommands.xrevrange(
-              "stream:events:market", cursor, "-", "COUNT", String(BATCH_SIZE)
-            );
-            if (!batch || batch.length === 0) break;
-
-            for (const [streamId, fields] of batch) {
-              const d = {};
-              for (let i = 0; i < fields.length; i += 2) d[fields[i]] = fields[i + 1];
-              let details = null;
-              // Dynamic field parsing — mirrors EventRecord.to_dict()
-              const STRING_KEYS = new Set(["id", "event_type", "rule_id", "symbol", "timestamp"]);
-              const INT_KEYS = new Set(["volume", "vol_1min", "vol_5min"]);
-              const evt = {};
-              for (const [key, raw] of Object.entries(d)) {
-                if (key === "details") {
-                  try { evt.details = JSON.parse(raw); } catch(e) { evt.details = raw; }
-                  continue;
-                }
-                if (STRING_KEYS.has(key)) { evt[key] = raw; continue; }
-                if (INT_KEYS.has(key)) { const n = parseInt(raw); evt[key] = isNaN(n) ? null : n; continue; }
-                const n = parseFloat(raw); evt[key] = isNaN(n) ? null : n;
-              }
-              if (eventPassesSubscription(evt, sub)) {
-                matched.push(evt);
-                if (matched.length >= SNAPSHOT_TARGET) break;
-              }
+          // === Strategy 1: TimescaleDB (preferred — full session history) ===
+          if (pgAvailable) {
+            try {
+              matched = await queryHistoricalEvents(sub, 200);
+              source = "timescale";
+            } catch (dbErr) {
+              logger.warn({ connectionId, subId, err: dbErr.message }, "TimescaleDB query failed, falling back to Redis");
+              matched = [];
             }
-
-            totalScanned += batch.length;
-            // Move cursor to just before the last entry in this batch
-            const lastId = batch[batch.length - 1][0];
-            const [ms, seq] = lastId.split("-");
-            cursor = (parseInt(seq) > 0) ? `${ms}-${parseInt(seq) - 1}` : `${parseInt(ms) - 1}-99999`;
           }
 
-          matched.reverse(); // oldest first, newest last
+          // === Strategy 2: Redis stream fallback (if TimescaleDB unavailable or empty) ===
+          if (matched.length === 0) {
+            const SNAPSHOT_TARGET = 50;
+            const BATCH_SIZE = 500;
+            const MAX_SCANNED = 5000;
+
+            let cursor = "+";
+            let totalScanned = 0;
+
+            while (matched.length < SNAPSHOT_TARGET && totalScanned < MAX_SCANNED) {
+              const batch = await redisCommands.xrevrange(
+                "stream:events:market", cursor, "-", "COUNT", String(BATCH_SIZE)
+              );
+              if (!batch || batch.length === 0) break;
+
+              for (const [streamId, fields] of batch) {
+                const d = {};
+                for (let i = 0; i < fields.length; i += 2) d[fields[i]] = fields[i + 1];
+                const STRING_KEYS = new Set(["id", "event_type", "rule_id", "symbol", "timestamp"]);
+                const INT_KEYS = new Set(["volume", "vol_1min", "vol_5min"]);
+                const evt = {};
+                for (const [key, raw] of Object.entries(d)) {
+                  if (key === "details") {
+                    try { evt.details = JSON.parse(raw); } catch(e) { evt.details = raw; }
+                    continue;
+                  }
+                  if (STRING_KEYS.has(key)) { evt[key] = raw; continue; }
+                  if (INT_KEYS.has(key)) { const n = parseInt(raw); evt[key] = isNaN(n) ? null : n; continue; }
+                  const n = parseFloat(raw); evt[key] = isNaN(n) ? null : n;
+                }
+                if (eventPassesSubscription(evt, sub)) {
+                  matched.push(evt);
+                  if (matched.length >= SNAPSHOT_TARGET) break;
+                }
+              }
+
+              totalScanned += batch.length;
+              const lastId = batch[batch.length - 1][0];
+              const [ms, seq] = lastId.split("-");
+              cursor = (parseInt(seq) > 0) ? `${ms}-${parseInt(seq) - 1}` : `${parseInt(ms) - 1}-99999`;
+            }
+
+            matched.reverse();
+            source = "redis";
+          }
 
           sendMessage(connectionId, {
             type: "events_snapshot",
             sub_id: subId,
             events: matched,
             count: matched.length,
+            source,
           });
-          logger.info({ connectionId, subId, count: matched.length, scanned: totalScanned }, "📸 Adaptive snapshot sent");
+          logger.info({ connectionId, subId, count: matched.length, source }, "📸 Historical snapshot sent");
 
         } catch (err) {
           logger.error({ connectionId, subId, error: err.message }, "❌ Error sending events snapshot");

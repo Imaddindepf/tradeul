@@ -96,12 +96,16 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         }
       );
     } else if (window.title === 'News') {
-      // Abrir News en about:blank con WebSocket
+      // Abrir News en about:blank con WebSocket autenticado
       const { openNewsWindow } = require('@/lib/window-injector');
       const { useNewsStore } = require('@/stores/useNewsStore');
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+      const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
       const workerUrl = `${globalThis.location.origin}/workers/websocket-shared.js`;
       const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      // Obtener token JWT para autenticación del WebSocket
+      const token = await getToken({ skipCache: true });
+      const wsUrl = token ? `${wsBaseUrl}${wsBaseUrl.includes('?') ? '&' : '?'}token=${token}` : wsBaseUrl;
       
       // Get existing articles from the store
       const existingArticles = useNewsStore.getState().articles || [];
@@ -111,7 +115,8 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           wsUrl,
           workerUrl,
           apiBaseUrl,
-          existingArticles
+          existingArticles,
+          token: token || undefined
         },
         {
           title: 'News - Tradeul',
@@ -121,16 +126,21 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         }
       );
     } else if (window.title === 'SEC Filings') {
-      // Abrir SEC Filings en about:blank con WebSocket
+      // Abrir SEC Filings en about:blank con WebSocket autenticado
       const { openSECFilingsWindow } = require('@/lib/window-injector');
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+      const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
       const workerUrl = `${globalThis.location.origin}/workers/websocket-shared.js`;
 
-      popOutWindow = openSECFilingsWindow(
+      // Obtener token JWT para autenticación del WebSocket
+      const token = await getToken({ skipCache: true });
+      const wsUrl = token ? `${wsBaseUrl}${wsBaseUrl.includes('?') ? '&' : '?'}token=${token}` : wsBaseUrl;
+
+      popOutWindow = await openSECFilingsWindow(
         {
           wsUrl,
           workerUrl,
-          secApiBaseUrl: process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012'
+          secApiBaseUrl: process.env.NEXT_PUBLIC_SEC_FILINGS_URL || 'http://localhost:8012',
+          token: token || undefined
         },
         {
           title: 'SEC Filings - Tradeul',
@@ -258,10 +268,14 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
         }
       );
     } else if (window.title.startsWith('Scanner:')) {
-      // Abrir Scanner en about:blank con WebSocket
+      // Abrir Scanner en about:blank con WebSocket autenticado
       const { openScannerWindow } = require('@/lib/window-injector');
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
+      const wsBaseUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
       const workerUrl = `${globalThis.location.origin}/workers/websocket-shared.js`;
+
+      // Obtener token JWT para autenticación del WebSocket
+      const token = await getToken({ skipCache: true });
+      const wsUrl = token ? `${wsBaseUrl}${wsBaseUrl.includes('?') ? '&' : '?'}token=${token}` : wsBaseUrl;
 
       // Extraer listName del título (ej: "Scanner: Gap Up" -> buscar en el componente)
       const windowElement = document.getElementById(`floating-window-${window.id}`);
@@ -295,12 +309,13 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
       listName = listName || LIST_NAME_MAP[categoryName] || '';
 
       if (listName) {
-        popOutWindow = openScannerWindow(
+        popOutWindow = await openScannerWindow(
           {
             listName,
             categoryName,
             wsUrl,
             workerUrl,
+            token: token || undefined
           },
           {
             title: `${categoryName} - Tradeul`,

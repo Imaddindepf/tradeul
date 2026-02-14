@@ -308,7 +308,7 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 3G
+          memory: 5G
 
   # =============================================
   # EVENT DETECTOR - Real-time market events
@@ -320,6 +320,12 @@ services:
     container_name: tradeul_event_detector
     env_file:
       - .env
+    environment:
+      - POSTGRES_HOST=timescaledb
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
     logging:
       driver: "json-file"
       options:
@@ -327,6 +333,8 @@ services:
         max-file: "3"
     depends_on:
       redis:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
       analytics:
         condition: service_started
@@ -414,6 +422,12 @@ services:
       # Clerk Auth
       WS_AUTH_ENABLED: ${WS_AUTH_ENABLED:-false}
       CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:-}
+      # TimescaleDB for historical event queries
+      POSTGRES_HOST: timescaledb
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-tradeul_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-tradeul}
     logging:
       driver: "json-file"
       options:
@@ -421,6 +435,8 @@ services:
         max-file: "3"
     depends_on:
       redis:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
     restart: unless-stopped
     networks:

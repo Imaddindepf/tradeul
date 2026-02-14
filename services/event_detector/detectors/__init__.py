@@ -19,6 +19,8 @@ from detectors.macd_events import MACDEventsDetector
 from detectors.stochastic_events import StochasticEventsDetector
 from detectors.orb_events import ORBEventsDetector
 from detectors.consolidation_events import ConsolidationEventsDetector
+from detectors.confirmed_cross_events import ConfirmedCrossEventsDetector
+from detectors.session_events import SessionEventsDetector
 
 # All detector plugin classes - the engine instantiates each one
 ALL_DETECTOR_CLASSES = [
@@ -27,16 +29,19 @@ ALL_DETECTOR_CLASSES = [
     VWAPEventsDetector,
     VolumeEventsDetector,
     MomentumEventsDetector,
-    PullbackEventsDetector,
+    PullbackEventsDetector,         # Includes open/close variants
     GapEventsDetector,
     # Phase 1B — Snapshot + BarEngine indicators
-    MACrossEventsDetector,      # SMA + EMA crosses
+    MACrossEventsDetector,          # SMA + EMA + Daily SMA200 crosses
     BollingerEventsDetector,
     DailyLevelEventsDetector,
-    MACDEventsDetector,         # NEW: MACD signal + zero crosses
-    StochasticEventsDetector,   # NEW: Stochastic %K/%D crosses
-    ORBEventsDetector,          # NEW: Opening Range Breakout
-    ConsolidationEventsDetector,  # NEW: Consolidation breakout
+    MACDEventsDetector,
+    StochasticEventsDetector,
+    ORBEventsDetector,
+    ConsolidationEventsDetector,
+    # Phase 2 — Confirmed crosses + Session-aware
+    ConfirmedCrossEventsDetector,   # CAOC/CBOC/CACC/CBCC (30s confirmation)
+    SessionEventsDetector,          # HPRE/LPRE/HPOST/LPOST
 ]
 
 __all__ = [
@@ -55,5 +60,7 @@ __all__ = [
     "StochasticEventsDetector",
     "ORBEventsDetector",
     "ConsolidationEventsDetector",
+    "ConfirmedCrossEventsDetector",
+    "SessionEventsDetector",
     "ALL_DETECTOR_CLASSES",
 ]

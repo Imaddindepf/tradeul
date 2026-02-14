@@ -16,9 +16,9 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useAuth } from '@clerk/nextjs';
-import { 
-  useUserPreferencesStore, 
-  Workspace, 
+import {
+  useUserPreferencesStore,
+  Workspace,
   WindowLayout,
   selectWorkspaces,
   selectActiveWorkspaceId,
@@ -43,7 +43,7 @@ export interface UseWorkspacesReturn {
   /** Renombrar workspace */
   renameWorkspace: (workspaceId: string, newName: string) => void;
   /** Cambiar al workspace especificado (guarda actual, restaura nuevo) */
-  switchWorkspace: (workspaceId: string, getWindowContent: (title: string) => React.ReactNode) => void;
+  switchWorkspace: (workspaceId: string, getWindowContent: (layout: { title: string; componentState?: Record<string, unknown> }) => React.ReactNode) => void;
   /** Guardar layout actual en el workspace activo */
   saveCurrentLayout: () => void;
   /** Verificar si es el workspace Main */
@@ -54,7 +54,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { getToken, isSignedIn } = useAuth();
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Store actions
   const storeCreateWorkspace = useUserPreferencesStore((s) => s.createWorkspace);
   const storeDeleteWorkspace = useUserPreferencesStore((s) => s.deleteWorkspace);
@@ -63,7 +63,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const storeSaveWorkspaceLayouts = useUserPreferencesStore((s) => s.saveWorkspaceLayouts);
   const syncWorkspacesToBackend = useUserPreferencesStore((s) => s.syncWorkspacesToBackend);
   const setWorkspaceSwitching = useUserPreferencesStore((s) => s.setWorkspaceSwitching);
-  
+
   // Store selectors
   const workspaces = useUserPreferencesStore(selectWorkspaces);
   const activeWorkspaceId = useUserPreferencesStore(selectActiveWorkspaceId);
@@ -76,7 +76,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const scheduleSyncToBackend = useCallback(() => {
     // Solo sincronizar si el usuario está autenticado
     if (!isSignedIn) return;
-    
+
     // Cancelar sync pendiente
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
@@ -97,9 +97,18 @@ export function useWorkspaces(): UseWorkspacesReturn {
   }, []);
 
   /**
-   * Exportar layout actual de las ventanas abiertas
+   * Exportar layout actual de las ventanas abiertas.
+   * Preserva componentState del workspace activo (metadata de restauración).
    */
   const exportCurrentLayout = useCallback((): WindowLayout[] => {
+    // Recuperar componentState existente del workspace activo
+    const store = useUserPreferencesStore.getState();
+    const activeWs = store.workspaces.find(w => w.id === store.activeWorkspaceId);
+    const existingLayouts = activeWs?.windowLayouts || store.windowLayouts;
+    const componentStateMap = new Map(
+      existingLayouts.map(l => [l.id, l.componentState])
+    );
+
     return windows.map((w) => ({
       id: w.id,
       type: getWindowType(w.title),
@@ -108,7 +117,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
       size: { width: w.width, height: w.height },
       isMinimized: w.isMinimized,
       zIndex: w.zIndex,
-      // componentState se guarda por separado en updateWindowComponentState
+      componentState: componentStateMap.get(w.id),
     }));
   }, [windows]);
 
@@ -153,76 +162,79 @@ export function useWorkspaces(): UseWorkspacesReturn {
   }, [storeRenameWorkspace, scheduleSyncToBackend]);
 
   /**
-   * Cambiar al workspace especificado
-   * 1. Activar bandera de switching (desactiva auto-save)
-   * 2. Guardar layout actual
-   * 3. Cerrar todas las ventanas
-   * 4. Cambiar workspace activo
-   * 5. Restaurar ventanas del nuevo workspace
-   * 6. Desactivar bandera de switching
+   * Cambiar al workspace especificado.
+   * Flujo: guardar actual → cerrar ventanas → cambiar ID → restaurar destino.
    */
   const switchWorkspace = useCallback((
-    workspaceId: string, 
-    getWindowContent: (title: string) => React.ReactNode
+    workspaceId: string,
+    getWindowContent: (layout: { title: string; componentState?: Record<string, unknown> }) => React.ReactNode
   ) => {
-    // Si ya estamos en ese workspace, no hacer nada
-    if (workspaceId === activeWorkspaceId) return;
+    // Leer todo del store de forma síncrona (sin depender de closures de React)
+    const store = useUserPreferencesStore.getState();
+    if (workspaceId === store.activeWorkspaceId) return;
 
-    // 1. ACTIVAR bandera para desactivar auto-save durante el cambio
+    // ── 1. Bloquear auto-save ──
     setWorkspaceSwitching(true);
 
-    // 2. Guardar layout actual en workspace actual
-    const currentLayouts = exportCurrentLayout();
-    storeSaveWorkspaceLayouts(activeWorkspaceId, currentLayouts);
+    // ── 2. Guardar layout actual al workspace ACTUAL ──
+    const currentWs = store.workspaces.find(w => w.id === store.activeWorkspaceId);
+    const existingLayouts = currentWs?.windowLayouts || [];
+    const csMap = new Map(existingLayouts.map(l => [l.id, l.componentState]));
 
-    // 3. Cerrar todas las ventanas actuales
-    windows.forEach((w) => closeWindow(w.id));
+    const layoutsToSave: WindowLayout[] = windows.map(w => ({
+      id: w.id,
+      type: getWindowType(w.title),
+      title: w.title,
+      position: { x: w.x, y: w.y },
+      size: { width: w.width, height: w.height },
+      isMinimized: w.isMinimized,
+      zIndex: w.zIndex,
+      componentState: csMap.get(w.id),
+    }));
+    storeSaveWorkspaceLayouts(store.activeWorkspaceId, layoutsToSave);
 
-    // 4. Cambiar workspace activo
+    // ── 3. Cerrar todas las ventanas ──
+    windows.forEach(w => closeWindow(w.id));
+
+    // ── 4. Cambiar workspace activo ──
     storeSetActiveWorkspace(workspaceId);
 
-    // 5. Restaurar ventanas del nuevo workspace
-    // IMPORTANTE: Obtener workspaces del store para tener el estado más reciente
+    // ── 5. Restaurar ventanas del workspace destino ──
     setTimeout(() => {
-      const store = useUserPreferencesStore.getState();
-      const targetWorkspace = store.workspaces.find(w => w.id === workspaceId);
-      
-      if (targetWorkspace && targetWorkspace.windowLayouts.length > 0) {
-        targetWorkspace.windowLayouts.forEach((layout) => {
-          const content = getWindowContent(layout.title);
-          if (content) {
-            const hideHeader = layout.title.startsWith('Scanner:');
-            openWindow({
-              id: layout.id,
-              title: layout.title,
-              content,
-              x: layout.position.x,
-              y: layout.position.y,
-              width: layout.size.width,
-              height: layout.size.height,
-              hideHeader,
-            });
-          }
-        });
-      }
+      const freshStore = useUserPreferencesStore.getState();
+      const target = freshStore.workspaces.find(w => w.id === workspaceId);
+      const layouts = (target?.windowLayouts || []).filter(l => l.title);
 
-      // 6. DESACTIVAR bandera después de restaurar ventanas
+      layouts.forEach(layout => {
+        const content = getWindowContent(layout);
+        if (content) {
+          openWindow({
+            id: layout.id,
+            title: layout.title,
+            content,
+            x: layout.position.x,
+            y: layout.position.y,
+            width: layout.size.width,
+            height: layout.size.height,
+            hideHeader: layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:'),
+          });
+        }
+      });
+
+      // ── 6. Desbloquear auto-save ──
       setTimeout(() => {
         setWorkspaceSwitching(false);
-        // Sync to backend
         scheduleSyncToBackend();
       }, 100);
     }, 50);
   }, [
-    activeWorkspaceId, 
-    windows, 
-    exportCurrentLayout, 
-    storeSaveWorkspaceLayouts, 
-    storeSetActiveWorkspace, 
+    windows,
+    storeSaveWorkspaceLayouts,
+    storeSetActiveWorkspace,
     setWorkspaceSwitching,
-    closeWindow, 
+    closeWindow,
     openWindow,
-    scheduleSyncToBackend
+    scheduleSyncToBackend,
   ]);
 
   /**

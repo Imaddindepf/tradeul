@@ -119,14 +119,18 @@ class IndicatorValues(NamedTuple):
     bar_low_intraday: Optional[float]
     # Bar count (for warmup tracking)
     bar_count: int
+    # Multi-timeframe indicators: {period_minutes: {indicator_name: value}}
+    tf: Optional[dict] = None
 
 
 # ============================================================================
 # Per-symbol state
 # ============================================================================
 
-# Default ring buffer size: 60 bars = 1 hour of 1-minute bars
-DEFAULT_RING_SIZE = 60
+# Ring buffer size: 210 bars ≈ 3.5 hours of 1-minute bars.
+# Must be >= 201 to support SMA(200) warmup in _calc_change and ring-based lookbacks.
+# chg_60min needs 61 bars, SMA(200) needs 200 bars for first valid output.
+DEFAULT_RING_SIZE = 210
 
 # Maximum number of output values to retain in each talipp indicator.
 # talipp stores every computed value in a list that grows without limit.
@@ -137,8 +141,8 @@ DEFAULT_RING_SIZE = 60
 # results identical to never-purged indicators across all 9 indicator types
 # (RSI, EMA, MACD, BB, ATR, ADX, Stoch) over 800-bar simulations.
 #
-# 60 matches DEFAULT_RING_SIZE for architectural consistency.
-TALIPP_MAX_OUTPUT_LENGTH = 60
+# Matches DEFAULT_RING_SIZE for architectural consistency.
+TALIPP_MAX_OUTPUT_LENGTH = 210
 
 # How often (in bar closes) to run the purge. Purging every single bar
 # adds unnecessary overhead; batching amortizes the cost.
@@ -150,6 +154,72 @@ TALIPP_PURGE_INTERVAL = 50
 _TALIPP_ATTRS = ('rsi_14', 'ema_9', 'ema_20', 'ema_50',
                  'sma_5', 'sma_8', 'sma_20', 'sma_50', 'sma_200',
                  'macd', 'bb_20', 'atr_14', 'adx_14', 'stoch')
+
+# ============================================================================
+# Multi-timeframe configuration
+# ============================================================================
+
+# Clock-aligned timeframe periods (minutes)
+MULTI_TIMEFRAMES = (2, 5, 10, 15, 30, 60)
+
+# Per-timeframe indicator config — only allocate what the alert catalog needs.
+# This keeps memory bounded: ~1.5 GB for 15K symbols across all 6 timeframes.
+_TF_INDICATOR_CONFIG = {
+    2:  {'sma_periods': (5, 8, 20), 'macd': False, 'stoch': False},
+    5:  {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True},
+    10: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False},
+    15: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': True},
+    30: {'sma_periods': (5, 8, 20), 'macd': True,  'stoch': False},
+    60: {'sma_periods': (),          'macd': True,  'stoch': True},
+}
+
+# talipp attribute names on TimeframeState (for purging)
+_TF_TALIPP_ATTRS = ('sma_5', 'sma_8', 'sma_20', 'macd', 'stoch')
+
+
+class TimeframeState:
+    """
+    Per-symbol, per-timeframe state for multi-TF bar aggregation.
+
+    Clock-aligned: bars are grouped by floor(timestamp / period).
+    When the group changes, the previous bar is closed and indicators updated.
+
+    Memory per instance: ~7-22 KB depending on indicator config.
+    Total: 15K symbols × 6 TFs × avg 16 KB ≈ 1.4 GB (bounded via purge).
+    """
+    __slots__ = (
+        'period', 'builder', 'bar_count',
+        'current_group',       # clock-aligned group ID (for detecting bar boundaries)
+        'sma_5', 'sma_8', 'sma_20',
+        'macd', 'stoch',
+        'tf_high', 'tf_low',  # intraday extremes for this timeframe
+    )
+
+    def __init__(self, period: int):
+        self.period = period
+        self.builder: list = []
+        self.bar_count: int = 0
+        self.current_group: int = 0
+
+        # Intraday extremes for this timeframe's bars
+        self.tf_high: float = 0.0
+        self.tf_low: float = float('inf')
+
+        cfg = _TF_INDICATOR_CONFIG.get(period, {})
+        sma_periods = cfg.get('sma_periods', ())
+
+        if _talipp_available:
+            self.sma_5 = SMA(period=5) if 5 in sma_periods else None
+            self.sma_8 = SMA(period=8) if 8 in sma_periods else None
+            self.sma_20 = SMA(period=20) if 20 in sma_periods else None
+            self.macd = MACD(fast_period=12, slow_period=26, signal_period=9) if cfg.get('macd') else None
+            self.stoch = Stoch(period=14, smoothing_period=3) if cfg.get('stoch') else None
+        else:
+            self.sma_5 = None
+            self.sma_8 = None
+            self.sma_20 = None
+            self.macd = None
+            self.stoch = None
 
 
 class TickerBarState:
@@ -173,7 +243,7 @@ class TickerBarState:
         'rsi_14', 'ema_9', 'ema_20', 'ema_50',
         'sma_5', 'sma_8', 'sma_20', 'sma_50', 'sma_200',
         'macd', 'bb_20', 'atr_14', 'adx_14', 'stoch',
-        'builder_5m', 'builder_15m',
+        'tf_states',  # Dict[int, TimeframeState] — multi-TF aggregation
     )
 
     def __init__(self, ring_size: int = DEFAULT_RING_SIZE):
@@ -227,9 +297,8 @@ class TickerBarState:
             self.adx_14 = None
             self.stoch = None
 
-        # Multi-timeframe builders
-        self.builder_5m: list = []   # accumulates bars for 5m aggregation
-        self.builder_15m: list = []  # accumulates bars for 15m aggregation
+        # Multi-timeframe states (clock-aligned bar aggregation + indicators)
+        self.tf_states: dict = {tf: TimeframeState(tf) for tf in MULTI_TIMEFRAMES}
 
 
 # ============================================================================
@@ -413,21 +482,17 @@ class BarEngine:
             if state.bar_count % TALIPP_PURGE_INTERVAL == 0:
                 self._purge_indicators(state)
 
-        # ---- Multi-timeframe builders ----
-        bar_dict = {
-            'o': bar.o, 'h': bar.h, 'l': bar.l,
-            'c': bar.c, 'v': bar.v, 'av': bar.av,
-            's': bar.s,
-        }
-        state.builder_5m.append(bar_dict)
-        state.builder_15m.append(bar_dict)
+        # ---- Multi-timeframe aggregation (clock-aligned) ----
+        bar_dict = {'o': bar.o, 'h': bar.h, 'l': bar.l, 'c': bar.c, 'v': bar.v}
+        bar_group_base = bar.s // 60000  # minutes since epoch
 
-        # TODO: when builder_5m reaches 5 bars, emit 5m bar
-        # and update 5m-timeframe indicators. For V1, 1m is sufficient.
-        if len(state.builder_5m) >= 5:
-            state.builder_5m.clear()
-        if len(state.builder_15m) >= 15:
-            state.builder_15m.clear()
+        for tf_state in state.tf_states.values():
+            group = bar_group_base // tf_state.period
+            # Detect TF bar boundary (group changed)
+            if tf_state.current_group != 0 and group != tf_state.current_group and tf_state.builder:
+                self._close_tf_bar(tf_state)
+            tf_state.current_group = group
+            tf_state.builder.append(bar_dict)
 
         # ---- Persistence buffer (for TimescaleDB async write) ----
         self._bars_closed_buffer.append({
@@ -439,6 +504,64 @@ class BarEngine:
             'close': bar.c,
             'volume': bar.v,
         })
+
+    # ========================================================================
+    # Multi-timeframe bar close
+    # ========================================================================
+
+    @staticmethod
+    def _close_tf_bar(tf_state: TimeframeState) -> None:
+        """
+        Close a multi-timeframe bar by aggregating accumulated 1-min bars.
+        Updates timeframe-specific indicators (SMA, MACD, Stoch).
+        """
+        bars = tf_state.builder
+        if not bars:
+            return
+
+        # Aggregate OHLCV from constituent 1-min bars
+        o = bars[0]['o']
+        h = max(b['h'] for b in bars)
+        l_val = min(b['l'] for b in bars)
+        c = bars[-1]['c']
+        v = sum(b['v'] for b in bars)
+
+        tf_state.bar_count += 1
+
+        # Track intraday extremes for this timeframe
+        if h > tf_state.tf_high:
+            tf_state.tf_high = h
+        if l_val < tf_state.tf_low:
+            tf_state.tf_low = l_val
+
+        # Update indicators
+        if _talipp_available:
+            # SMA indicators (close-based)
+            for sma_attr in ('sma_5', 'sma_8', 'sma_20'):
+                ind = getattr(tf_state, sma_attr, None)
+                if ind is not None:
+                    ind.add(c)
+
+            # MACD (close-based)
+            if tf_state.macd is not None:
+                tf_state.macd.add(c)
+
+            # Stochastic (OHLCV-based)
+            if tf_state.stoch is not None:
+                ohlcv = OHLCV(o, h, l_val, c, v)
+                tf_state.stoch.add(ohlcv)
+
+            # Purge periodically (same cadence as 1m indicators)
+            if tf_state.bar_count % TALIPP_PURGE_INTERVAL == 0:
+                for attr in _TF_TALIPP_ATTRS:
+                    ind = getattr(tf_state, attr, None)
+                    if ind is not None:
+                        excess = len(ind) - TALIPP_MAX_OUTPUT_LENGTH
+                        if excess > 0:
+                            ind.purge_oldest(excess)
+
+        # Clear builder for next TF bar
+        tf_state.builder.clear()
 
     # ========================================================================
     # Read: get computed indicators for a symbol
@@ -526,6 +649,42 @@ class BarEngine:
                 stoch_k = self._round_safe(last_stoch.k if hasattr(last_stoch, 'k') else None)
                 stoch_d = self._round_safe(last_stoch.d if hasattr(last_stoch, 'd') else None)
 
+        # ---- Multi-timeframe indicators ----
+        tf_data = {}
+        for tf_period, tf_state in state.tf_states.items():
+            if tf_state.bar_count == 0:
+                continue
+            tf_ind = {'bar_count': tf_state.bar_count}
+
+            # SMA values
+            for sma_attr in ('sma_5', 'sma_8', 'sma_20'):
+                ind = getattr(tf_state, sma_attr, None)
+                if ind is not None:
+                    tf_ind[sma_attr] = self._read_talipp(ind)
+
+            # MACD
+            if tf_state.macd is not None and len(tf_state.macd) > 0:
+                last_macd = tf_state.macd[-1]
+                if last_macd is not None:
+                    tf_ind['macd_line'] = self._round_safe(last_macd.macd)
+                    tf_ind['macd_signal'] = self._round_safe(last_macd.signal)
+                    tf_ind['macd_hist'] = self._round_safe(last_macd.histogram)
+
+            # Stochastic
+            if tf_state.stoch is not None and len(tf_state.stoch) > 0:
+                last_stoch = tf_state.stoch[-1]
+                if last_stoch is not None:
+                    tf_ind['stoch_k'] = self._round_safe(last_stoch.k if hasattr(last_stoch, 'k') else None)
+                    tf_ind['stoch_d'] = self._round_safe(last_stoch.d if hasattr(last_stoch, 'd') else None)
+
+            # Timeframe highs/lows
+            if tf_state.tf_high > 0:
+                tf_ind['tf_high'] = tf_state.tf_high
+            if tf_state.tf_low < float('inf'):
+                tf_ind['tf_low'] = tf_state.tf_low
+
+            tf_data[tf_period] = tf_ind
+
         return IndicatorValues(
             chg_1m=chg_1m, chg_2m=chg_2m, chg_5m=chg_5m,
             chg_10m=chg_10m, chg_15m=chg_15m, chg_30m=chg_30m,
@@ -541,6 +700,7 @@ class BarEngine:
             bar_high_intraday=state.high_intraday if state.high_intraday > 0 else None,
             bar_low_intraday=state.low_intraday if state.low_intraday < float('inf') else None,
             bar_count=state.bar_count,
+            tf=tf_data if tf_data else None,
         )
 
     def get_volume_window(self, symbol: str, minutes: int) -> Optional[int]:
@@ -647,11 +807,13 @@ class BarEngine:
     @staticmethod
     def _purge_indicators(state: TickerBarState) -> int:
         """
-        Trim old output values from all talipp indicators on a TickerBarState.
+        Trim old output values from all talipp indicators on a TickerBarState,
+        including multi-timeframe indicators.
 
         Returns total number of values purged (for logging/metrics).
         """
         total_purged = 0
+        # 1-minute indicators
         for attr in _TALIPP_ATTRS:
             ind = getattr(state, attr, None)
             if ind is not None:
@@ -660,6 +822,16 @@ class BarEngine:
                 if excess > 0:
                     ind.purge_oldest(excess)
                     total_purged += excess
+        # Multi-timeframe indicators
+        for tf_state in state.tf_states.values():
+            for attr in _TF_TALIPP_ATTRS:
+                ind = getattr(tf_state, attr, None)
+                if ind is not None:
+                    n = len(ind)
+                    excess = n - TALIPP_MAX_OUTPUT_LENGTH
+                    if excess > 0:
+                        ind.purge_oldest(excess)
+                        total_purged += excess
         return total_purged
 
     # ========================================================================

@@ -63,6 +63,16 @@ class EventType(str, Enum):
     PULLBACK_75_FROM_LOW = "pullback_75_from_low"      # [PFL75]
     PULLBACK_25_FROM_LOW = "pullback_25_from_low"      # [PFL25]
     
+    # --- Pullback Variants (Open/Close reference) ---
+    PULLBACK_75_FROM_HIGH_CLOSE = "pullback_75_from_high_close"  # [PFH75C]
+    PULLBACK_25_FROM_HIGH_CLOSE = "pullback_25_from_high_close"  # [PFH25C]
+    PULLBACK_75_FROM_LOW_CLOSE = "pullback_75_from_low_close"    # [PFL75C]
+    PULLBACK_25_FROM_LOW_CLOSE = "pullback_25_from_low_close"    # [PFL25C]
+    PULLBACK_75_FROM_HIGH_OPEN = "pullback_75_from_high_open"    # [PFH75O]
+    PULLBACK_25_FROM_HIGH_OPEN = "pullback_25_from_high_open"    # [PFH25O]
+    PULLBACK_75_FROM_LOW_OPEN = "pullback_75_from_low_open"      # [PFL75O]
+    PULLBACK_25_FROM_LOW_OPEN = "pullback_25_from_low_open"      # [PFL25O]
+    
     # --- Gap Events ---
     GAP_UP_REVERSAL = "gap_up_reversal"                # [GUR]
     GAP_DOWN_REVERSAL = "gap_down_reversal"            # [GDR]
@@ -75,33 +85,53 @@ class EventType(str, Enum):
     # PHASE 1B — SNAPSHOT-DRIVEN (full market, detected from enriched snapshot)
     # ═══════════════════════════════════════════════════════════════════
     
-    # --- Intraday EMA Crosses (BarEngine 1-min bars) ---
-    CROSSED_ABOVE_EMA20 = "crossed_above_ema20"        # [CA20] Intraday EMA(20)
-    CROSSED_BELOW_EMA20 = "crossed_below_ema20"        # [CB20] Intraday EMA(20)
-    CROSSED_ABOVE_EMA50 = "crossed_above_ema50"        # [CA50] Intraday EMA(50)
-    CROSSED_BELOW_EMA50 = "crossed_below_ema50"        # [CB50] Intraday EMA(50)
+    # --- DEPRECATED: Price vs Intraday SMA/EMA (1-min bars) ---
+    # These don't exist in Trade Ideas. TI uses DAILY MAs for price-vs-MA alerts.
+    # Kept for backward compat with stored events; NO LONGER EMITTED.
+    CROSSED_ABOVE_EMA20 = "crossed_above_ema20"        # DEPRECATED — use daily
+    CROSSED_BELOW_EMA20 = "crossed_below_ema20"        # DEPRECATED
+    CROSSED_ABOVE_EMA50 = "crossed_above_ema50"        # DEPRECATED
+    CROSSED_BELOW_EMA50 = "crossed_below_ema50"        # DEPRECATED
+    CROSSED_ABOVE_SMA8 = "crossed_above_sma8"          # DEPRECATED — TI has no equivalent
+    CROSSED_BELOW_SMA8 = "crossed_below_sma8"          # DEPRECATED
+    CROSSED_ABOVE_SMA20 = "crossed_above_sma20"        # DEPRECATED — use daily
+    CROSSED_BELOW_SMA20 = "crossed_below_sma20"        # DEPRECATED
+    CROSSED_ABOVE_SMA50 = "crossed_above_sma50"        # DEPRECATED — use daily
+    CROSSED_BELOW_SMA50 = "crossed_below_sma50"        # DEPRECATED
     
-    # --- Intraday SMA Crosses (Trade Ideas alignment) ---
-    CROSSED_ABOVE_SMA8 = "crossed_above_sma8"          # [CAS8]  Intraday SMA(8)
-    CROSSED_BELOW_SMA8 = "crossed_below_sma8"          # [CBS8]  Intraday SMA(8)
-    CROSSED_ABOVE_SMA20 = "crossed_above_sma20"        # [CAS20] Intraday SMA(20)
-    CROSSED_BELOW_SMA20 = "crossed_below_sma20"        # [CBS20] Intraday SMA(20)
-    CROSSED_ABOVE_SMA50 = "crossed_above_sma50"        # [CAS50] Intraday SMA(50)
-    CROSSED_BELOW_SMA50 = "crossed_below_sma50"        # [CBS50] Intraday SMA(50)
-    SMA_8_CROSS_ABOVE_20 = "sma_8_cross_above_20"      # [SXU]  SMA(8) crosses above SMA(20)
-    SMA_8_CROSS_BELOW_20 = "sma_8_cross_below_20"      # [SXD]  SMA(8) crosses below SMA(20)
+    # --- DEPRECATED: 1-min MA-to-MA / MACD / Stoch (replaced by 5-min) ---
+    SMA_8_CROSS_ABOVE_20 = "sma_8_cross_above_20"      # DEPRECATED — use 5m
+    SMA_8_CROSS_BELOW_20 = "sma_8_cross_below_20"      # DEPRECATED
+    MACD_CROSS_BULLISH = "macd_cross_bullish"           # DEPRECATED — use 5m
+    MACD_CROSS_BEARISH = "macd_cross_bearish"           # DEPRECATED
+    MACD_ZERO_CROSS_UP = "macd_zero_cross_up"           # DEPRECATED — use 5m
+    MACD_ZERO_CROSS_DOWN = "macd_zero_cross_down"       # DEPRECATED
+    STOCH_CROSS_BULLISH = "stoch_cross_bullish"         # DEPRECATED — use 5m
+    STOCH_CROSS_BEARISH = "stoch_cross_bearish"         # DEPRECATED
+    STOCH_OVERSOLD = "stoch_oversold"                   # DEPRECATED — use 5m
+    STOCH_OVERBOUGHT = "stoch_overbought"               # DEPRECATED
     
-    # --- MACD Events ---
-    MACD_CROSS_BULLISH = "macd_cross_bullish"          # [MACDU] MACD crosses above signal
-    MACD_CROSS_BEARISH = "macd_cross_bearish"          # [MACDD] MACD crosses below signal
-    MACD_ZERO_CROSS_UP = "macd_zero_cross_up"          # [MZU]   MACD crosses above zero
-    MACD_ZERO_CROSS_DOWN = "macd_zero_cross_down"      # [MZD]   MACD crosses below zero
+    # --- Daily SMA Crosses (what Trade Ideas CA20/CA50 actually are) ---
+    CROSSED_ABOVE_SMA20_DAILY = "crossed_above_sma20_daily"  # [CA20] Daily SMA(20)
+    CROSSED_BELOW_SMA20_DAILY = "crossed_below_sma20_daily"  # [CB20] Daily SMA(20)
+    CROSSED_ABOVE_SMA50_DAILY = "crossed_above_sma50_daily"  # [CA50] Daily SMA(50)
+    CROSSED_BELOW_SMA50_DAILY = "crossed_below_sma50_daily"  # [CB50] Daily SMA(50)
     
-    # --- Stochastic Events ---
-    STOCH_CROSS_BULLISH = "stoch_cross_bullish"        # [STBU] %K crosses above %D (from oversold)
-    STOCH_CROSS_BEARISH = "stoch_cross_bearish"        # [STBD] %K crosses below %D (from overbought)
-    STOCH_OVERSOLD = "stoch_oversold"                  # [STOS] %K enters <20 zone
-    STOCH_OVERBOUGHT = "stoch_overbought"              # [STOB] %K enters >80 zone
+    # --- 5-min MA-to-MA Crosses (Trade Ideas ECAY5/ECBY5) ---
+    SMA8_ABOVE_SMA20_5M = "sma8_above_sma20_5min"     # [ECAY5] SMA(8) crosses SMA(20) on 5m
+    SMA8_BELOW_SMA20_5M = "sma8_below_sma20_5min"     # [ECBY5]
+    
+    # --- 5-min MACD Crosses (Trade Ideas MDAS5/MDBS5/MDAZ5/MDBZ5) ---
+    MACD_ABOVE_SIGNAL_5M = "macd_above_signal_5min"    # [MDAS5]
+    MACD_BELOW_SIGNAL_5M = "macd_below_signal_5min"    # [MDBS5]
+    MACD_ABOVE_ZERO_5M = "macd_above_zero_5min"        # [MDAZ5]
+    MACD_BELOW_ZERO_5M = "macd_below_zero_5min"        # [MDBZ5]
+    
+    # --- 5-min Stochastic (Trade Ideas SC20_5/SC80_5) ---
+    STOCH_CROSS_BULLISH_5M = "stoch_cross_bullish_5min"    # %K crosses above %D (oversold, 5m)
+    STOCH_CROSS_BEARISH_5M = "stoch_cross_bearish_5min"    # %K crosses below %D (overbought, 5m)
+    STOCH_OVERSOLD_5M = "stoch_oversold_5min"              # %K < 20 on 5m
+    STOCH_OVERBOUGHT_5M = "stoch_overbought_5min"          # %K > 80 on 5m
     
     # --- Opening Range Breakout ---
     ORB_BREAKOUT_UP = "orb_breakout_up"                # [ORBU] Price breaks above first N-min range

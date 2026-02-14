@@ -117,12 +117,19 @@ export function WindowStateProvider({
   }, [savedState]);
 
   // Cleanup: GUARDAR INMEDIATAMENTE al desmontar si hay cambios pendientes
+  // EXCEPCIÓN: NO guardar si estamos en medio de un cambio de workspace
+  // (el workspace activo ya cambió y escribiríamos en el workspace equivocado)
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
-      // IMPORTANTE: Guardar estado pendiente antes de desmontar
+      // IMPORTANTE: Solo guardar si NO estamos cambiando de workspace
+      const store = useUserPreferencesStore.getState();
+      if (store.isWorkspaceSwitching) {
+        // Skip: el switchWorkspace ya guardó todo antes de cerrar ventanas
+        return;
+      }
       if (hasPendingSaveRef.current && pendingStateRef.current) {
         updateWindowComponentState(windowId, pendingStateRef.current);
       }
@@ -383,21 +390,14 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
     // Nuevo timeout de 3 segundos
     autoSaveTimeoutRef.current = setTimeout(() => {
       const store = useUserPreferencesStore.getState();
-      
-      // NO guardar si estamos en proceso de cambio de workspace
-      if (store.isWorkspaceSwitching) {
-        // console.log('[Layout] Auto-save SKIPPED - workspace switching in progress');
-        return;
-      }
-      
+
+      // No guardar durante cambio de workspace
+      if (store.isWorkspaceSwitching) return;
+
       const activeWorkspaceId = store.activeWorkspaceId;
       const activeWorkspace = store.workspaces.find(w => w.id === activeWorkspaceId);
-      
-      // Obtener componentState guardado de cada ventana (buscar en workspace activo primero)
       const existingLayouts = activeWorkspace?.windowLayouts || store.windowLayouts;
-      const componentStateMap = new Map(
-        existingLayouts.map(l => [l.id, l.componentState])
-      );
+      const csMap = new Map(existingLayouts.map(l => [l.id, l.componentState]));
 
       const layouts = windows.map((w) => ({
         id: w.id,
@@ -407,17 +407,14 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         size: { width: w.width, height: w.height },
         isMinimized: w.isMinimized,
         zIndex: w.zIndex,
-        componentState: componentStateMap.get(w.id), // Preservar componentState
+        componentState: csMap.get(w.id),
       }));
 
-      // NUEVO: Guardar en workspace activo
       if (activeWorkspaceId) {
         store.saveWorkspaceLayouts(activeWorkspaceId, layouts);
       } else {
-        // Fallback legacy
         saveWindowLayouts(layouts);
       }
-      // console.log('[Layout] Auto-guardado:', layouts.length, 'ventanas en workspace', activeWorkspaceId);
     }, 3000);
 
     return () => {

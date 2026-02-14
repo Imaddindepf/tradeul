@@ -38,6 +38,22 @@ import { HistoricalMultipleSecurityContent } from '@/components/historical-multi
 import { ChartContent } from '@/components/chart/ChartContent';
 import { DescriptionContent } from '@/components/description/DescriptionContent';
 import { EarningsCalendarContent } from '@/components/floating-window/EarningsCalendarContent';
+import { PredictionMarketsContent } from '@/components/floating-window';
+import { EventTableContent } from '@/components/events';
+import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
+import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
+// Phase 1: All window types for full restoration
+import { FinancialAnalystContent } from '@/components/financial-analyst';
+import { InsightsPanel } from '@/components/insights';
+import { HeatmapContent } from '@/components/heatmap';
+import { GlossaryContent } from '@/components/glossary';
+import { PatternRealtimeContent } from '@/components/pattern-realtime';
+import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
+import { AIAgentContent } from '@/components/ai-agent';
+import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
+import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
+import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
+import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 
 // Adaptador para convertir MarketSession a PolygonMarketStatus
 function adaptMarketSession(session: MarketSession) {
@@ -92,8 +108,10 @@ export default function ScannerPage() {
   const layoutRestoredRef = useRef(false);
   const initialTablesOpenedRef = useRef(false);
 
-  // Función para reconstruir contenido de ventana por título
-  const getWindowContent = useCallback((title: string) => {
+  // Función para reconstruir contenido de ventana por título y componentState
+  const getWindowContent = useCallback((layout: { title: string; componentState?: Record<string, unknown> }) => {
+    const { title, componentState } = layout;
+
     // === Ventanas generales (sin ticker específico) ===
     if (title === 'Settings') return <SettingsContent />;
     if (title === 'Filter Manager' || title === 'Filtros') return <FilterManagerContent />;
@@ -101,6 +119,7 @@ export default function ScannerPage() {
     if (title === 'SEC Filings') return <SECFilingsContent />;
     if (title === 'News') return <NewsContent />;
     if (title === 'Financial Analysis') return <FinancialsContent />;
+    if (title === 'Financials') return <FinancialsContent />;
     if (title === 'Community Chat') return <ChatContent />;
     if (title === 'Catalyst Alerts') return <CatalystAlertsConfig />;
     if (title === 'IPOs') return <IPOContent />;
@@ -111,6 +130,45 @@ export default function ScannerPage() {
     if (title === 'Stock Screener') return <ScreenerContent />;
     if (title === 'Historical Multiple Security') return <HistoricalMultipleSecurityContent />;
     if (title === 'Earnings Calendar') return <EarningsCalendarContent />;
+    // New window types — full restoration
+    if (title === 'Financial Analyst') return <FinancialAnalystContent />;
+    if (title === 'Insights') return <InsightsPanel />;
+    if (title === 'Prediction Markets') return <PredictionMarketsContent />;
+    if (title === 'Market Heatmap') return <HeatmapContent />;
+    if (title === 'Indicators') return <GlossaryContent />;
+    if (title === 'Pattern Real-Time') return <PatternRealtimeContent />;
+    if (title === 'Insider Trading') return <InsiderTradingContent />;
+    if (title === 'Insider Trading Guide') return <InsiderGlossaryContent />;
+    if (title === 'AI Agent') return <AIAgentContent />;
+    if (title === 'Institutional Holdings') return <InstitutionalHoldingsContent />;
+    if (title === 'Chart') return <ChartContent />;
+    // Strategy Builder - restore with full callbacks for creating event/scanner windows
+    if (title === 'Strategy Builder') return (
+      <ConfigWindow
+        onCreateAlertWindow={(config: AlertWindowConfig) => {
+          const filterStore = useEventFiltersStore.getState();
+          const prefStore = useUserPreferencesStore.getState();
+          const categoryId = `evt_custom_${Date.now()}`;
+          filterStore.setAllFilters(categoryId, { ...config.filters, event_types: config.eventTypes });
+          const winId = openWindow({
+            title: `Events: ${config.name}`,
+            content: <EventTableContent categoryId={categoryId} categoryName={config.name} eventTypes={config.eventTypes} />,
+            width: 800, height: 500, x: 220, y: 170, minWidth: 500, minHeight: 300, hideHeader: true,
+          });
+          prefStore.updateWindowComponentState(winId, { restoreType: 'event_table', categoryId, categoryName: config.name, eventTypes: config.eventTypes });
+        }}
+        onCreateScannerWindow={(savedFilter: any) => {
+          const prefStore = useUserPreferencesStore.getState();
+          const categoryId = `uscan_${savedFilter.id}`;
+          const winId = openWindow({
+            title: `Scanner: ${savedFilter.name}`,
+            content: <ScannerTableContent categoryId={categoryId} categoryName={savedFilter.name} />,
+            width: 850, height: 500, x: 400, y: 200, minWidth: 500, minHeight: 300, hideHeader: true,
+          });
+          prefStore.updateWindowComponentState(winId, { restoreType: 'user_scan', categoryId, categoryName: savedFilter.name, scanId: savedFilter.id });
+        }}
+      />
+    );
 
     // === Ventanas con ticker específico ===
     // Chart: TICKER
@@ -154,6 +212,18 @@ export default function ScannerPage() {
     // === Tablas del scanner ===
     if (title.startsWith('Scanner: ')) {
       const categoryName = title.replace('Scanner: ', '');
+
+      // 1) Intentar restaurar desde componentState (user scans)
+      if (componentState?.restoreType === 'user_scan' && componentState.categoryId && componentState.categoryName) {
+        return (
+          <ScannerTableContent
+            categoryId={componentState.categoryId as string}
+            categoryName={componentState.categoryName as string}
+          />
+        );
+      }
+
+      // 2) Buscar en categorías predefinidas del scanner
       const categoryIds = ['gappers_up', 'gappers_down', 'momentum_up', 'momentum_down', 'winners', 'losers', 'new_highs', 'new_lows', 'anomalies', 'high_volume', 'reversals', 'post_market', 'with_news'];
       for (const categoryId of categoryIds) {
         const category = getScannerCategory(categoryId);
@@ -171,8 +241,51 @@ export default function ScannerPage() {
       }
     }
 
+    // === Tablas de eventos ===
+    if (title.startsWith('Events: ')) {
+      const eventName = title.replace('Events: ', '');
+
+      // 1) Restaurar desde componentState (tiene toda la metadata guardada)
+      if (componentState?.restoreType) {
+        const restoreType = componentState.restoreType as string;
+
+        if (restoreType === 'event_table' || restoreType === 'user_strategy') {
+          const categoryId = componentState.categoryId as string;
+          const categoryName = componentState.categoryName as string;
+          const eventTypes = componentState.eventTypes as string[] || [];
+
+          // Restaurar filtros en el store si los hay (strategies)
+          if (componentState.filters && categoryId) {
+            useEventFiltersStore.getState().setAllFilters(categoryId, componentState.filters as Record<string, unknown>);
+          }
+
+          return (
+            <EventTableContent
+              categoryId={categoryId}
+              categoryName={categoryName}
+              eventTypes={eventTypes}
+              defaultFilters={componentState.defaultFilters as any}
+            />
+          );
+        }
+      }
+
+      // 2) Fallback: buscar en categorías del sistema por label (ventanas sin componentState)
+      const systemCat = SYSTEM_EVENT_CATEGORIES.find(c => c.label === eventName);
+      if (systemCat) {
+        return (
+          <EventTableContent
+            categoryId={systemCat.id}
+            categoryName={systemCat.label}
+            eventTypes={systemCat.eventTypes}
+            defaultFilters={systemCat.defaultFilters}
+          />
+        );
+      }
+    }
+
     return null;
-  }, [getScannerCategory]);
+  }, [getScannerCategory, openWindow]);
 
   // Restaurar layout del workspace activo O abrir tablas por defecto
   useEffect(() => {
@@ -189,9 +302,9 @@ export default function ScannerPage() {
 
       setTimeout(() => {
         workspaceLayouts.forEach((layout) => {
-          const content = getWindowContent(layout.title);
+          const content = getWindowContent(layout);
           if (content) {
-            const hideHeader = layout.title.startsWith('Scanner:');
+            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:');
             openWindow({
               id: layout.id,
               title: layout.title,
@@ -216,9 +329,9 @@ export default function ScannerPage() {
 
       setTimeout(() => {
         savedLayout.forEach((layout) => {
-          const content = getWindowContent(layout.title);
+          const content = getWindowContent({ title: layout.title });
           if (content) {
-            const hideHeader = layout.title.startsWith('Scanner:');
+            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:');
             openWindow({
               id: layout.id,
               title: layout.title,

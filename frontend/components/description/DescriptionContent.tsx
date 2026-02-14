@@ -151,6 +151,31 @@ const SectionHeader = memo(({ title }: { title: string }) => (
 SectionHeader.displayName = 'SectionHeader';
 
 // ============================================================================
+// Expandable Text — collapsible description with "more/less" toggle
+// ============================================================================
+
+function ExpandableText({ text, className = '' }: { text: string; className?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const needsExpand = text.length > 200;
+
+  return (
+    <div className={className}>
+      <p className={expanded ? '' : 'line-clamp-3'}>
+        {text}
+      </p>
+      {needsExpand && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-blue-500 hover:text-blue-600 text-[10px] font-medium mt-0.5 cursor-pointer"
+        >
+          {expanded ? '▲ Show less' : '▼ Read more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -158,14 +183,14 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
   const { t } = useTranslation();
   const { openWindow } = useFloatingWindow();
   const { state: windowState, updateState: updateWindowState } = useWindowState<DescriptionWindowState>();
-  
+
   // Use persisted ticker or prop
   const ticker = windowState.ticker || initialTicker;
-  
+
   const [data, setData] = useState<TickerDescription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Persist ticker when it changes
   useEffect(() => {
     if (ticker) {
@@ -324,9 +349,7 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
 
               {/* Description */}
               {company.description && (
-                <p className="mt-2 text-xs text-slate-500 line-clamp-3">
-                  {company.description}
-                </p>
+                <ExpandableText text={company.description} className="mt-2 text-xs text-slate-500" />
               )}
             </div>
 

@@ -44,6 +44,9 @@ class MACrossEventsDetector(BaseEventDetector):
         # EMA — legacy (kept for backward compatibility)
         (EventType.CROSSED_ABOVE_EMA20,  EventType.CROSSED_BELOW_EMA20,  "ema_20"),
         (EventType.CROSSED_ABOVE_EMA50,  EventType.CROSSED_BELOW_EMA50,  "ema_50"),
+        # Daily SMA(200) — "crossed above/below 200 day moving average"
+        # Source: screener:daily_indicators:latest → enriched → daily_sma_200
+        (EventType.CROSSED_ABOVE_SMA200, EventType.CROSSED_BELOW_SMA200, "daily_sma_200"),
     ]
 
     # Cooldowns — longer for higher-period MAs (they cross less often)

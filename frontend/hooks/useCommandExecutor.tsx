@@ -30,12 +30,12 @@ import { FinancialAnalystContent } from '@/components/financial-analyst';
 import { AIAgentContent } from '@/components/ai-agent';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
-import { ScanBuilderContent } from '@/components/scan-builder';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
 import { EventTableContent } from '@/components/events/EventTableContent';
 import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
+import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 import type { UserFilter } from '@/lib/types/scannerFilters';
 
@@ -114,7 +114,7 @@ export function useCommandExecutor() {
         const offsetX = (index % 5) * 50;
         const offsetY = (index % 5) * 40;
 
-        return openWindow({
+        const winId = openWindow({
             title,
             content: (
                 <EventTableContent
@@ -132,6 +132,15 @@ export function useCommandExecutor() {
             minHeight: 300,
             hideHeader: true,
         });
+        // Persist restoration metadata
+        useUserPreferencesStore.getState().updateWindowComponentState(winId, {
+            restoreType: 'event_table',
+            categoryId,
+            categoryName: category.name,
+            eventTypes: category.eventTypes,
+            defaultFilters: category.defaultFilters,
+        });
+        return winId;
     }, [openWindow, getEventCategory]);
 
     /**
@@ -235,47 +244,31 @@ export function useCommandExecutor() {
                 });
                 return null;
 
-            case 'sb':
-            case 'scan-builder':
-                openWindow({
-                    title: 'Scan Builder',
-                    content: <ScanBuilderContent />,
-                    width: 450,
-                    height: 500,
-                    x: screenWidth / 2 - 225,
-                    y: screenHeight / 2 - 250,
-                    minWidth: 380,
-                    minHeight: 400,
-                });
-                return null;
-
             case 'build':
             case 'new':
             case 'create': {
+
                 // Track categoryId across multiple onCreateAlertWindow calls
-                // so subsequent calls update the existing window instead of creating a new one
                 let activeCategoryId: string | null = null;
                 openWindow({
                     title: 'Strategy Builder',
                     content: (
                         <ConfigWindow
                             onCreateAlertWindow={(config: AlertWindowConfig) => {
-                                const store = useEventFiltersStore.getState();
+                                const filterStore = useEventFiltersStore.getState();
+                                const prefStore = useUserPreferencesStore.getState();
                                 if (activeCategoryId) {
-                                    // Window already exists → update filters + event_types in store
-                                    // EventTableContent reacts to store changes automatically
-                                    store.setAllFilters(activeCategoryId, {
+                                    filterStore.setAllFilters(activeCategoryId, {
                                         ...config.filters,
                                         event_types: config.eventTypes,
                                     });
                                 } else {
-                                    // First time → create new window
                                     activeCategoryId = `evt_custom_${Date.now()}`;
-                                    store.setAllFilters(activeCategoryId, {
+                                    filterStore.setAllFilters(activeCategoryId, {
                                         ...config.filters,
                                         event_types: config.eventTypes,
                                     });
-                                    openWindow({
+                                    const winId = openWindow({
                                         title: `Events: ${config.name}`,
                                         content: (
                                             <EventTableContent
@@ -292,7 +285,41 @@ export function useCommandExecutor() {
                                         minHeight: 300,
                                         hideHeader: true,
                                     });
+                                    // Persist restoration metadata
+                                    prefStore.updateWindowComponentState(winId, {
+                                        restoreType: 'event_table',
+                                        categoryId: activeCategoryId,
+                                        categoryName: config.name,
+                                        eventTypes: config.eventTypes,
+                                    });
                                 }
+                            }}
+                            onCreateScannerWindow={(savedFilter: UserFilter) => {
+                                const prefStore = useUserPreferencesStore.getState();
+                                const categoryId = `uscan_${savedFilter.id}`;
+                                const winId = openWindow({
+                                    title: `Scanner: ${savedFilter.name}`,
+                                    content: (
+                                        <ScannerTableContent
+                                            categoryId={categoryId}
+                                            categoryName={savedFilter.name}
+                                        />
+                                    ),
+                                    width: 850,
+                                    height: 500,
+                                    x: Math.max(50, screenWidth / 2 - 425),
+                                    y: Math.max(80, screenHeight / 2 - 250),
+                                    minWidth: 500,
+                                    minHeight: 300,
+                                    hideHeader: true,
+                                });
+                                // Persist restoration metadata
+                                prefStore.updateWindowComponentState(winId, {
+                                    restoreType: 'user_scan',
+                                    categoryId,
+                                    categoryName: savedFilter.name,
+                                    scanId: savedFilter.id,
+                                });
                             }}
                         />
                     ),
@@ -874,7 +901,7 @@ export function useCommandExecutor() {
         // categoryId debe coincidir con el backend: uscan_{filterId}
         const categoryId = `uscan_${scan.id}`;
 
-        openWindow({
+        const winId = openWindow({
             title: `Scanner: ${scan.name}`,
             content: (
                 <ScannerTableContent
@@ -889,6 +916,13 @@ export function useCommandExecutor() {
             minWidth: 500,
             minHeight: 300,
             hideHeader: true,
+        });
+        // Persist restoration metadata
+        useUserPreferencesStore.getState().updateWindowComponentState(winId, {
+            restoreType: 'user_scan',
+            categoryId,
+            categoryName: scan.name,
+            scanId: scan.id,
         });
     }, [openWindow]);
 
@@ -906,8 +940,8 @@ export function useCommandExecutor() {
         const offsetX = (index % 5) * 50;
         const offsetY = (index % 5) * 40;
 
-        return openWindow({
-            title: strategy.name,
+        const winId = openWindow({
+            title: `Events: ${strategy.name}`,
             content: (
                 <EventTableContent
                     categoryId={categoryId}
@@ -923,6 +957,16 @@ export function useCommandExecutor() {
             minHeight: 300,
             hideHeader: true,
         });
+        // Persist restoration metadata
+        useUserPreferencesStore.getState().updateWindowComponentState(winId, {
+            restoreType: 'user_strategy',
+            categoryId,
+            categoryName: strategy.name,
+            eventTypes: strategy.eventTypes,
+            strategyId: strategy.id,
+            filters: strategy.filters,
+        });
+        return winId;
     }, [openWindow]);
 
     return {

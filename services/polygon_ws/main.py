@@ -548,12 +548,28 @@ async def _update_halt_state(luld: PolygonLuld, event_type: str):
                 timestamp=timestamp_ms
             )
         else:
-            # Resume sin halt previo (puede pasar si se reinició el servicio)
+            # Resume sin halt previo (puede pasar si se reinició el servicio).
+            # Publicar RESUME al stream igualmente para que la tabla de eventos
+            # (evt_halts) muestre el estado real: si el usuario ve el ticker en resume,
+            # la tabla debe mostrar RESUME como último evento, no quedarse en HALT.
             logger.warning(
                 "resume_without_halt",
                 symbol=symbol,
                 timestamp=timestamp_ms
             )
+            halt_data = {
+                'symbol': symbol,
+                'halt_time': timestamp_ms,  # desconocido; usamos resume time como ref
+                'halt_reason': 'UNKNOWN',
+                'halt_reason_desc': 'Resume (no prior halt in state)',
+                'status': 'RESUMED',
+                'resume_time': timestamp_ms,
+                'duration_seconds': None,
+                'upper_band': getattr(luld, 'upper_band', None),
+                'lower_band': getattr(luld, 'lower_band', None),
+                'indicators': getattr(luld, 'indicators', None),
+            }
+            await _publish_halt_event(halt_data, event_type)
 
 
 async def handle_luld(luld: PolygonLuld):

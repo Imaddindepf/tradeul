@@ -258,29 +258,30 @@ _a("RESUME","resume",                  "Resume",                    "Reanudació
 # PHASE 1B — SNAPSHOT-DRIVEN (active, detected from enriched snapshot)
 # ──────────────────────────────────────────────────────────────────────
 
-# --- Intraday EMA Crosses (BarEngine 1-min bars) ---
-_a("CA20", "crossed_above_ema20",      "Crossed Above EMA 20",      "Cruzó Sobre EMA 20",         "ma_cross", "+", 1, True, 300,
-   "Price crosses above intraday EMA(20) from 1-min bars",
-   "El precio cruza por encima de la EMA(20) intradía de barras de 1 minuto",
-   flip="CB20", keywords=["ema", "20", "moving average", "intraday"],
+# --- DEPRECATED: Price vs Intraday EMA (1-min) — NO LONGER EMITTED ---
+# Trade Ideas CA20/CA50/CB20/CB50 are DAILY MAs, not intraday.
+_a("iCA20", "crossed_above_ema20",     "Crossed Above EMA 20 (1m)", "Cruzó Sobre EMA 20 (1m)",    "ma_cross", "+", 1, False, 300,
+   "DEPRECATED: Price crosses above intraday EMA(20) from 1-min bars",
+   "DEPRECADO: Cruce intraday EMA(20) — no aporta edge",
+   flip="iCB20", keywords=["ema", "20", "intraday", "deprecated"],
    requires=["ema_20"])
 
-_a("CB20", "crossed_below_ema20",      "Crossed Below EMA 20",      "Cruzó Bajo EMA 20",          "ma_cross", "-", 1, True, 300,
-   "Price crosses below intraday EMA(20) from 1-min bars",
-   "El precio cruza por debajo de la EMA(20) intradía de barras de 1 minuto",
-   flip="CA20", keywords=["ema", "20", "moving average", "intraday"],
+_a("iCB20", "crossed_below_ema20",     "Crossed Below EMA 20 (1m)", "Cruzó Bajo EMA 20 (1m)",     "ma_cross", "-", 1, False, 300,
+   "DEPRECATED: Price crosses below intraday EMA(20) from 1-min bars",
+   "DEPRECADO: Cruce intraday EMA(20) — no aporta edge",
+   flip="iCA20", keywords=["ema", "20", "intraday", "deprecated"],
    requires=["ema_20"])
 
-_a("CA50", "crossed_above_ema50",      "Crossed Above EMA 50",      "Cruzó Sobre EMA 50",         "ma_cross", "+", 1, True, 300,
-   "Price crosses above intraday EMA(50) from 1-min bars",
-   "El precio cruza por encima de la EMA(50) intradía de barras de 1 minuto",
-   flip="CB50", keywords=["ema", "50", "moving average", "intraday"],
+_a("iCA50", "crossed_above_ema50",     "Crossed Above EMA 50 (1m)", "Cruzó Sobre EMA 50 (1m)",    "ma_cross", "+", 1, False, 300,
+   "DEPRECATED: Price crosses above intraday EMA(50) from 1-min bars",
+   "DEPRECADO: Cruce intraday EMA(50) — no aporta edge",
+   flip="iCB50", keywords=["ema", "50", "intraday", "deprecated"],
    requires=["ema_50"])
 
-_a("CB50", "crossed_below_ema50",      "Crossed Below EMA 50",      "Cruzó Bajo EMA 50",          "ma_cross", "-", 1, True, 300,
-   "Price crosses below intraday EMA(50) from 1-min bars",
-   "El precio cruza por debajo de la EMA(50) intradía de barras de 1 minuto",
-   flip="CA50", keywords=["ema", "50", "moving average", "intraday"],
+_a("iCB50", "crossed_below_ema50",     "Crossed Below EMA 50 (1m)", "Cruzó Bajo EMA 50 (1m)",     "ma_cross", "-", 1, False, 300,
+   "DEPRECATED: Price crosses below intraday EMA(50) from 1-min bars",
+   "DEPRECADO: Cruce intraday EMA(50) — no aporta edge",
+   flip="iCA50", keywords=["ema", "50", "intraday", "deprecated"],
    requires=["ema_50"])
 
 # --- Bollinger Band Events ---
@@ -296,105 +297,67 @@ _a("BBD",  "bb_lower_breakdown",       "BB Lower Breakdown",        "Quiebre BB 
    flip="BBU", keywords=["bollinger", "breakdown", "std dev", "band"],
    requires=["bb_lower"])
 
-# --- Intraday SMA Crosses (Trade Ideas alignment, BarEngine 1-min bars) ---
-_a("CAS8", "crossed_above_sma8",       "Crossed Above SMA 8",      "Cruzó Sobre SMA 8",         "ma_cross", "+", 1, True, 120,
-   "Price crosses above intraday SMA(8) from 1-min bars",
-   "El precio cruza por encima de la SMA(8) intradía",
-   flip="CBS8", keywords=["sma", "8", "moving average", "intraday"],
-   requires=["sma_8"])
+# --- DEPRECATED: Price vs Intraday SMA (1-min) — NO LONGER EMITTED ---
+# Trade Ideas does NOT have price-vs-intraday-SMA alerts. Only DAILY MAs.
+_a("CAS8", "crossed_above_sma8",       "Crossed Above SMA 8 (1m)",  "Cruzó Sobre SMA 8 (1m)",    "ma_cross", "+", 1, False, 120,
+   "DEPRECATED: Price vs intraday SMA(8) — not in Trade Ideas, pure noise",
+   "DEPRECADO: Precio vs SMA(8) intradía — no existe en Trade Ideas",
+   flip="CBS8", keywords=["deprecated"], requires=["sma_8"])
 
-_a("CBS8", "crossed_below_sma8",       "Crossed Below SMA 8",      "Cruzó Bajo SMA 8",          "ma_cross", "-", 1, True, 120,
-   "Price crosses below intraday SMA(8) from 1-min bars",
-   "El precio cruza por debajo de la SMA(8) intradía",
-   flip="CAS8", keywords=["sma", "8", "moving average", "intraday"],
-   requires=["sma_8"])
+_a("CBS8", "crossed_below_sma8",       "Crossed Below SMA 8 (1m)",  "Cruzó Bajo SMA 8 (1m)",     "ma_cross", "-", 1, False, 120,
+   "DEPRECATED", "DEPRECADO", flip="CAS8", keywords=["deprecated"], requires=["sma_8"])
 
-_a("CAS20","crossed_above_sma20",      "Crossed Above SMA 20",     "Cruzó Sobre SMA 20",        "ma_cross", "+", 1, True, 180,
-   "Price crosses above intraday SMA(20) from 1-min bars",
-   "El precio cruza por encima de la SMA(20) intradía",
-   flip="CBS20", keywords=["sma", "20", "moving average", "intraday"],
-   requires=["sma_20"])
+_a("CAS20","crossed_above_sma20",      "Crossed Above SMA 20 (1m)", "Cruzó Sobre SMA 20 (1m)",   "ma_cross", "+", 1, False, 180,
+   "DEPRECATED: Use CA20D (daily) instead", "DEPRECADO: Usar CA20D (diario)",
+   flip="CBS20", keywords=["deprecated"], requires=["sma_20"])
 
-_a("CBS20","crossed_below_sma20",      "Crossed Below SMA 20",     "Cruzó Bajo SMA 20",         "ma_cross", "-", 1, True, 180,
-   "Price crosses below intraday SMA(20) from 1-min bars",
-   "El precio cruza por debajo de la SMA(20) intradía",
-   flip="CAS20", keywords=["sma", "20", "moving average", "intraday"],
-   requires=["sma_20"])
+_a("CBS20","crossed_below_sma20",      "Crossed Below SMA 20 (1m)", "Cruzó Bajo SMA 20 (1m)",    "ma_cross", "-", 1, False, 180,
+   "DEPRECATED", "DEPRECADO", flip="CAS20", keywords=["deprecated"], requires=["sma_20"])
 
-_a("CAS50","crossed_above_sma50",      "Crossed Above SMA 50",     "Cruzó Sobre SMA 50",        "ma_cross", "+", 1, True, 300,
-   "Price crosses above intraday SMA(50) from 1-min bars",
-   "El precio cruza por encima de la SMA(50) intradía",
-   flip="CBS50", keywords=["sma", "50", "moving average", "intraday"],
-   requires=["sma_50"])
+_a("CAS50","crossed_above_sma50",      "Crossed Above SMA 50 (1m)", "Cruzó Sobre SMA 50 (1m)",   "ma_cross", "+", 1, False, 300,
+   "DEPRECATED: Use CA50D (daily) instead", "DEPRECADO: Usar CA50D (diario)",
+   flip="CBS50", keywords=["deprecated"], requires=["sma_50"])
 
-_a("CBS50","crossed_below_sma50",      "Crossed Below SMA 50",     "Cruzó Bajo SMA 50",         "ma_cross", "-", 1, True, 300,
-   "Price crosses below intraday SMA(50) from 1-min bars",
-   "El precio cruza por debajo de la SMA(50) intradía",
-   flip="CAS50", keywords=["sma", "50", "moving average", "intraday"],
-   requires=["sma_50"])
+_a("CBS50","crossed_below_sma50",      "Crossed Below SMA 50 (1m)", "Cruzó Bajo SMA 50 (1m)",    "ma_cross", "-", 1, False, 300,
+   "DEPRECATED", "DEPRECADO", flip="CAS50", keywords=["deprecated"], requires=["sma_50"])
 
-# --- SMA(8) vs SMA(20) Cross (intraday golden/death cross) ---
-_a("SXU",  "sma_8_cross_above_20",     "SMA 8/20 Golden Cross",    "Cruce Dorado SMA 8/20",     "ma_cross", "+", 1, True, 300,
-   "SMA(8) crosses above SMA(20) — intraday golden cross signal",
-   "SMA(8) cruza sobre SMA(20) — señal de cruce dorado intradía",
-   flip="SXD", keywords=["sma", "golden cross", "8", "20", "intraday"],
-   requires=["sma_8", "sma_20"])
+# --- DEPRECATED: 1-min MA-to-MA Cross (replaced by 5m ECAY5/ECBY5) ---
+_a("SXU",  "sma_8_cross_above_20",     "SMA 8/20 Golden Cross (1m)","Cruce Dorado 8/20 (1m)",    "ma_cross", "+", 1, False, 300,
+   "DEPRECATED: Use ECAY5 (5-min) instead", "DEPRECADO: Usar ECAY5 (5 min)",
+   flip="SXD", keywords=["deprecated"], requires=["sma_8", "sma_20"])
 
-_a("SXD",  "sma_8_cross_below_20",     "SMA 8/20 Death Cross",     "Cruce Mortal SMA 8/20",     "ma_cross", "-", 1, True, 300,
-   "SMA(8) crosses below SMA(20) — intraday death cross signal",
-   "SMA(8) cruza bajo SMA(20) — señal de cruce mortal intradía",
-   flip="SXU", keywords=["sma", "death cross", "8", "20", "intraday"],
-   requires=["sma_8", "sma_20"])
+_a("SXD",  "sma_8_cross_below_20",     "SMA 8/20 Death Cross (1m)", "Cruce Mortal 8/20 (1m)",    "ma_cross", "-", 1, False, 300,
+   "DEPRECATED: Use ECBY5 (5-min) instead", "DEPRECADO: Usar ECBY5 (5 min)",
+   flip="SXU", keywords=["deprecated"], requires=["sma_8", "sma_20"])
 
-# --- MACD Crosses (from BarEngine 1-min bars) ---
-_a("MACDU","macd_cross_bullish",        "MACD Bullish Cross",        "Cruce MACD Alcista",         "indicator", "+", 1, True, 300,
-   "MACD line crosses above signal line (bullish momentum shift)",
-   "La línea MACD cruza sobre la línea de señal (cambio de momentum alcista)",
-   flip="MACDD", keywords=["macd", "signal", "bullish", "cross"],
-   requires=["macd_line", "macd_signal"])
+# --- DEPRECATED: 1-min MACD (replaced by 5m MDAS5/MDBS5) ---
+_a("MACDU","macd_cross_bullish",        "MACD Bullish Cross (1m)",   "Cruce MACD Alcista (1m)",    "indicator", "+", 1, False, 300,
+   "DEPRECATED: Use MDAS5 (5-min) instead", "DEPRECADO: Usar MDAS5 (5 min)",
+   flip="MACDD", keywords=["deprecated"], requires=["macd_line", "macd_signal"])
 
-_a("MACDD","macd_cross_bearish",        "MACD Bearish Cross",        "Cruce MACD Bajista",         "indicator", "-", 1, True, 300,
-   "MACD line crosses below signal line (bearish momentum shift)",
-   "La línea MACD cruza bajo la línea de señal (cambio de momentum bajista)",
-   flip="MACDU", keywords=["macd", "signal", "bearish", "cross"],
-   requires=["macd_line", "macd_signal"])
+_a("MACDD","macd_cross_bearish",        "MACD Bearish Cross (1m)",   "Cruce MACD Bajista (1m)",    "indicator", "-", 1, False, 300,
+   "DEPRECATED", "DEPRECADO", flip="MACDU", keywords=["deprecated"], requires=["macd_line", "macd_signal"])
 
-_a("MZU",  "macd_zero_cross_up",        "MACD Zero Cross Up",        "MACD Cruce Cero Arriba",    "indicator", "+", 1, True, 600,
-   "MACD crosses above zero line (trend shift bullish)",
-   "MACD cruza sobre la línea cero (cambio de tendencia alcista)",
-   flip="MZD", keywords=["macd", "zero", "bullish"],
-   requires=["macd_line"])
+_a("MZU",  "macd_zero_cross_up",        "MACD Zero Up (1m)",         "MACD Cero Arriba (1m)",     "indicator", "+", 1, False, 600,
+   "DEPRECATED: Use MDAZ5 (5-min) instead", "DEPRECADO: Usar MDAZ5 (5 min)",
+   flip="MZD", keywords=["deprecated"], requires=["macd_line"])
 
-_a("MZD",  "macd_zero_cross_down",      "MACD Zero Cross Down",      "MACD Cruce Cero Abajo",     "indicator", "-", 1, True, 600,
-   "MACD crosses below zero line (trend shift bearish)",
-   "MACD cruza bajo la línea cero (cambio de tendencia bajista)",
-   flip="MZU", keywords=["macd", "zero", "bearish"],
-   requires=["macd_line"])
+_a("MZD",  "macd_zero_cross_down",      "MACD Zero Down (1m)",       "MACD Cero Abajo (1m)",      "indicator", "-", 1, False, 600,
+   "DEPRECATED", "DEPRECADO", flip="MZU", keywords=["deprecated"], requires=["macd_line"])
 
-# --- Stochastic Events (from BarEngine 1-min bars) ---
-_a("STBU", "stoch_cross_bullish",       "Stoch Bullish Cross",       "Cruce Estocástico Alcista",  "indicator", "+", 1, True, 300,
-   "Stochastic %K crosses above %D from oversold zone (<30)",
-   "Estocástico %K cruza sobre %D desde zona de sobreventa (<30)",
-   flip="STBD", keywords=["stochastic", "bullish", "oversold"],
-   requires=["stoch_k", "stoch_d"])
+# --- DEPRECATED: 1-min Stochastic (replaced by 5m) ---
+_a("STBU", "stoch_cross_bullish",       "Stoch Bullish (1m)",        "Estocástico Alcista (1m)",   "indicator", "+", 1, False, 300,
+   "DEPRECATED: Use 5-min stochastic", "DEPRECADO: Usar estocástico 5 min",
+   flip="STBD", keywords=["deprecated"], requires=["stoch_k", "stoch_d"])
 
-_a("STBD", "stoch_cross_bearish",       "Stoch Bearish Cross",       "Cruce Estocástico Bajista",  "indicator", "-", 1, True, 300,
-   "Stochastic %K crosses below %D from overbought zone (>70)",
-   "Estocástico %K cruza bajo %D desde zona de sobrecompra (>70)",
-   flip="STBU", keywords=["stochastic", "bearish", "overbought"],
-   requires=["stoch_k", "stoch_d"])
+_a("STBD", "stoch_cross_bearish",       "Stoch Bearish (1m)",        "Estocástico Bajista (1m)",   "indicator", "-", 1, False, 300,
+   "DEPRECATED", "DEPRECADO", flip="STBU", keywords=["deprecated"], requires=["stoch_k", "stoch_d"])
 
-_a("STOS", "stoch_oversold",            "Stoch Oversold Entry",      "Estocástico Sobreventa",     "indicator", "-", 1, True, 600,
-   "Stochastic %K enters oversold zone (<20)",
-   "Estocástico %K entra en zona de sobreventa (<20)",
-   flip="STOB", keywords=["stochastic", "oversold"],
-   requires=["stoch_k"])
+_a("STOS", "stoch_oversold",            "Stoch Oversold (1m)",       "Sobreventa (1m)",            "indicator", "-", 1, False, 600,
+   "DEPRECATED", "DEPRECADO", flip="STOB", keywords=["deprecated"], requires=["stoch_k"])
 
-_a("STOB", "stoch_overbought",          "Stoch Overbought Entry",    "Estocástico Sobrecompra",    "indicator", "+", 1, True, 600,
-   "Stochastic %K enters overbought zone (>80)",
-   "Estocástico %K entra en zona de sobrecompra (>80)",
-   flip="STOS", keywords=["stochastic", "overbought"],
-   requires=["stoch_k"])
+_a("STOB", "stoch_overbought",          "Stoch Overbought (1m)",     "Sobrecompra (1m)",           "indicator", "+", 1, False, 600,
+   "DEPRECATED", "DEPRECADO", flip="STOS", keywords=["deprecated"], requires=["stoch_k"])
 
 # --- Opening Range Breakout (5-min ORB, active) ---
 _a("ORBU", "orb_breakout_up",           "Opening Range Breakout Up", "Ruptura Rango Apertura",     "orb", "+", 1, True, 600,
@@ -426,68 +389,149 @@ _a("CBD",  "consolidation_breakout_down","Consolidation Breakdown",   "Quiebre C
 # PHASE 2 — FUTURE (requires additional data / infrastructure)
 # ──────────────────────────────────────────────────────────────────────
 
-# --- Daily SMA Crosses (requires historical daily bars) ---
-_a("CA200","crossed_above_sma200",     "Crossed Above SMA 200",     "Cruzó Sobre SMA 200",        "ma_cross", "+", 2, False, 300,
-   "Price crosses above 200-day simple moving average",
+# --- Daily SMA Crosses (Trade Ideas CA20/CA50/CA200/CB20/CB50/CB200) ---
+# These are the REAL MA alerts — price vs DAILY moving averages. Rare, meaningful.
+_a("CA20D","crossed_above_sma20_daily", "Crossed Above 20-Day SMA",  "Cruzó Sobre SMA 20 Diaria",  "ma_cross", "+", 2, True, 600,
+   "Price crosses above 20-day simple moving average (short-term trend shift)",
+   "El precio cruza por encima de la SMA de 20 días (cambio de tendencia a corto plazo)",
+   flip="CB20D", keywords=["sma", "20", "moving average", "daily"],
+   requires=["daily_sma_20"])
+
+_a("CB20D","crossed_below_sma20_daily", "Crossed Below 20-Day SMA",  "Cruzó Bajo SMA 20 Diaria",   "ma_cross", "-", 2, True, 600,
+   "Price crosses below 20-day simple moving average",
+   "El precio cruza por debajo de la SMA de 20 días",
+   flip="CA20D", keywords=["sma", "20", "moving average", "daily"],
+   requires=["daily_sma_20"])
+
+_a("CA50D","crossed_above_sma50_daily", "Crossed Above 50-Day SMA",  "Cruzó Sobre SMA 50 Diaria",  "ma_cross", "+", 2, True, 600,
+   "Price crosses above 50-day simple moving average (major trend change)",
+   "El precio cruza por encima de la SMA de 50 días (cambio de tendencia mayor)",
+   flip="CB50D", keywords=["sma", "50", "moving average", "daily"],
+   requires=["daily_sma_50"])
+
+_a("CB50D","crossed_below_sma50_daily", "Crossed Below 50-Day SMA",  "Cruzó Bajo SMA 50 Diaria",   "ma_cross", "-", 2, True, 600,
+   "Price crosses below 50-day simple moving average",
+   "El precio cruza por debajo de la SMA de 50 días",
+   flip="CA50D", keywords=["sma", "50", "moving average", "daily"],
+   requires=["daily_sma_50"])
+
+_a("CA200","crossed_above_sma200",     "Crossed Above 200-Day SMA", "Cruzó Sobre SMA 200 Diaria", "ma_cross", "+", 2, True, 600,
+   "Price crosses above 200-day simple moving average (long-term trend shift)",
    "El precio cruza por encima de la media móvil simple de 200 días",
    flip="CB200", keywords=["sma", "200", "moving average", "daily"],
-   requires=["sma_200"])
+   requires=["daily_sma_200"])
 
-_a("CB200","crossed_below_sma200",     "Crossed Below SMA 200",     "Cruzó Bajo SMA 200",         "ma_cross", "-", 2, False, 300,
+_a("CB200","crossed_below_sma200",     "Crossed Below 200-Day SMA", "Cruzó Bajo SMA 200 Diaria",  "ma_cross", "-", 2, True, 600,
    "Price crosses below 200-day simple moving average",
    "El precio cruza por debajo de la media móvil simple de 200 días",
    flip="CA200", keywords=["sma", "200", "moving average", "daily"],
-   requires=["sma_200"])
+   requires=["daily_sma_200"])
+
+# --- 5-min SMA(8) vs SMA(20) Cross (Trade Ideas ECAY5/ECBY5) — ACTIVE ---
+_a("ECAY5","sma8_above_sma20_5min",    "SMA 8/20 Golden Cross (5m)","Cruce Dorado 8/20 (5m)",     "indicator", "+", 4, True, 300,
+   "8-period SMA crosses above 20-period SMA on 5-minute chart",
+   "SMA de 8 cruza sobre SMA de 20 en gráfico de 5 minutos",
+   flip="ECBY5", keywords=["sma", "golden cross", "5min"],
+   requires=["sma_8_5m", "sma_20_5m"])
+
+_a("ECBY5","sma8_below_sma20_5min",    "SMA 8/20 Death Cross (5m)", "Cruce Mortal 8/20 (5m)",     "indicator", "-", 4, True, 300,
+   "8-period SMA crosses below 20-period SMA on 5-minute chart",
+   "SMA de 8 cruza bajo SMA de 20 en gráfico de 5 minutos",
+   flip="ECAY5", keywords=["sma", "death cross", "5min"],
+   requires=["sma_8_5m", "sma_20_5m"])
+
+# --- 5-min MACD (Trade Ideas MDAS5/MDBS5/MDAZ5/MDBZ5) — ACTIVE ---
+_a("MDAS5","macd_above_signal_5min",   "MACD Above Signal (5m)",    "MACD Sobre Señal (5m)",      "indicator", "+", 4, True, 300,
+   "MACD crosses above signal line on 5-minute chart",
+   "MACD cruza sobre la línea de señal en gráfico de 5 minutos",
+   flip="MDBS5", keywords=["macd", "signal", "5min"],
+   requires=["macd_line_5m", "macd_signal_5m"])
+
+_a("MDBS5","macd_below_signal_5min",   "MACD Below Signal (5m)",    "MACD Bajo Señal (5m)",       "indicator", "-", 4, True, 300,
+   "MACD crosses below signal line on 5-minute chart",
+   "MACD cruza bajo la línea de señal en gráfico de 5 minutos",
+   flip="MDAS5", keywords=["macd", "signal", "5min"],
+   requires=["macd_line_5m", "macd_signal_5m"])
+
+_a("MDAZ5","macd_above_zero_5min",     "MACD Above Zero (5m)",      "MACD Sobre Cero (5m)",       "indicator", "+", 4, True, 600,
+   "MACD crosses above zero on 5-minute chart (trend bullish)",
+   "MACD cruza sobre cero en gráfico de 5 minutos",
+   flip="MDBZ5", keywords=["macd", "zero", "5min"],
+   requires=["macd_line_5m"])
+
+_a("MDBZ5","macd_below_zero_5min",     "MACD Below Zero (5m)",      "MACD Bajo Cero (5m)",        "indicator", "-", 4, True, 600,
+   "MACD crosses below zero on 5-minute chart (trend bearish)",
+   "MACD cruza bajo cero en gráfico de 5 minutos",
+   flip="MDAZ5", keywords=["macd", "zero", "5min"],
+   requires=["macd_line_5m"])
+
+# --- 5-min Stochastic (Trade Ideas SC20_5/SC80_5) — ACTIVE ---
+_a("SC20_5","stoch_cross_bullish_5min", "Stoch Bullish Cross (5m)",  "Estocástico Alcista (5m)",   "indicator", "+", 4, True, 300,
+   "Stochastic %K crosses above %D from oversold on 5-minute chart",
+   "Estocástico %K cruza sobre %D desde sobreventa en gráfico de 5 minutos",
+   flip="SC80_5", keywords=["stochastic", "oversold", "5min"],
+   requires=["stoch_k_5m", "stoch_d_5m"])
+
+_a("SC80_5","stoch_cross_bearish_5min", "Stoch Bearish Cross (5m)",  "Estocástico Bajista (5m)",   "indicator", "-", 4, True, 300,
+   "Stochastic %K crosses below %D from overbought on 5-minute chart",
+   "Estocástico %K cruza bajo %D desde sobrecompra en gráfico de 5 minutos",
+   flip="SC20_5", keywords=["stochastic", "overbought", "5min"],
+   requires=["stoch_k_5m", "stoch_d_5m"])
+
+_a("STO5","stoch_oversold_5min",        "Stoch Oversold (5m)",       "Sobreventa Estocástico (5m)","indicator", "-", 4, True, 600,
+   "Stochastic %K enters oversold zone (<20) on 5-minute chart",
+   "Estocástico %K entra en sobreventa (<20) en gráfico de 5 minutos",
+   flip="STB5", keywords=["stochastic", "oversold", "5min"],
+   requires=["stoch_k_5m"])
+
+_a("STB5","stoch_overbought_5min",      "Stoch Overbought (5m)",     "Sobrecompra Estocástico (5m)","indicator", "+", 4, True, 600,
+   "Stochastic %K enters overbought zone (>80) on 5-minute chart",
+   "Estocástico %K entra en sobrecompra (>80) en gráfico de 5 minutos",
+   flip="STO5", keywords=["stochastic", "overbought", "5min"],
+   requires=["stoch_k_5m"])
 
 # --- Pre/Post Market ---
-_a("HPRE", "pre_market_high",          "Pre-Market High",           "Máximo Pre-Market",          "session", "+", 2, False, 30,
+_a("HPRE", "pre_market_high",          "Pre-Market High",           "Máximo Pre-Market",          "session", "+", 2, True, 30,
    "Stock makes new high during pre-market session",
    "La acción alcanza un nuevo máximo durante la sesión pre-market",
    flip="LPRE", keywords=["pre-market", "high", "extended"],
    requires=["market_session"])
 
-_a("LPRE", "pre_market_low",           "Pre-Market Low",            "Mínimo Pre-Market",          "session", "-", 2, False, 30,
+_a("LPRE", "pre_market_low",           "Pre-Market Low",            "Mínimo Pre-Market",          "session", "-", 2, True, 30,
    "Stock makes new low during pre-market session",
    "La acción alcanza un nuevo mínimo durante la sesión pre-market",
-   flip="HPRE", keywords=["pre-market", "low", "extended"],
-   requires=["market_session"])
+   flip="HPRE", keywords=["pre-market", "low", "extended"])
 
-_a("HPOST","post_market_high",         "Post-Market High",          "Máximo Post-Market",         "session", "+", 2, False, 30,
+_a("HPOST","post_market_high",         "Post-Market High",          "Máximo Post-Market",         "session", "+", 2, True, 30,
    "Stock makes new high during post-market session",
    "La acción alcanza un nuevo máximo durante la sesión post-market",
-   flip="LPOST", keywords=["post-market", "high", "extended"],
-   requires=["market_session"])
+   flip="LPOST", keywords=["post-market", "high", "extended"])
 
-_a("LPOST","post_market_low",          "Post-Market Low",           "Mínimo Post-Market",         "session", "-", 2, False, 30,
+_a("LPOST","post_market_low",          "Post-Market Low",           "Mínimo Post-Market",         "session", "-", 2, True, 30,
    "Stock makes new low during post-market session",
    "La acción alcanza un nuevo mínimo durante la sesión post-market",
-   flip="HPOST", keywords=["post-market", "low", "extended"],
-   requires=["market_session"])
+   flip="HPOST", keywords=["post-market", "low", "extended"])
 
 # --- Confirmed Crosses ---
-_a("CAOC", "crossed_above_open_confirmed",  "Crossed Above Open (Confirmed)", "Cruzó Sobre Apertura (Conf.)",  "price", "+", 2, False, 180,
+_a("CAOC", "crossed_above_open_confirmed",  "Crossed Above Open (Confirmed)", "Cruzó Sobre Apertura (Conf.)",  "price", "+", 2, True, 300,
    "Price crosses above open and stays above for 30+ seconds",
    "El precio cruza sobre la apertura y se mantiene por 30+ segundos",
-   flip="CBOC", keywords=["open", "cross", "confirmed"],
-   requires=["confirmation_timer"])
+   flip="CBOC", keywords=["open", "cross", "confirmed"])
 
-_a("CBOC", "crossed_below_open_confirmed",  "Crossed Below Open (Confirmed)", "Cruzó Bajo Apertura (Conf.)",   "price", "-", 2, False, 180,
+_a("CBOC", "crossed_below_open_confirmed",  "Crossed Below Open (Confirmed)", "Cruzó Bajo Apertura (Conf.)",   "price", "-", 2, True, 300,
    "Price crosses below open and stays below for 30+ seconds",
    "El precio cruza bajo la apertura y se mantiene por 30+ segundos",
-   flip="CAOC", keywords=["open", "cross", "confirmed"],
-   requires=["confirmation_timer"])
+   flip="CAOC", keywords=["open", "cross", "confirmed"])
 
-_a("CACC", "crossed_above_close_confirmed", "Crossed Above Close (Confirmed)","Cruzó Sobre Cierre (Conf.)",    "price", "+", 2, False, 180,
+_a("CACC", "crossed_above_close_confirmed", "Crossed Above Close (Confirmed)","Cruzó Sobre Cierre (Conf.)",    "price", "+", 2, True, 300,
    "Price crosses above prev close and stays above for 30+ seconds",
    "El precio cruza sobre el cierre previo y se mantiene por 30+ segundos",
-   flip="CBCC", keywords=["close", "cross", "confirmed"],
-   requires=["confirmation_timer"])
+   flip="CBCC", keywords=["close", "cross", "confirmed"])
 
-_a("CBCC", "crossed_below_close_confirmed", "Crossed Below Close (Confirmed)","Cruzó Bajo Cierre (Conf.)",     "price", "-", 2, False, 180,
+_a("CBCC", "crossed_below_close_confirmed", "Crossed Below Close (Confirmed)","Cruzó Bajo Cierre (Conf.)",     "price", "-", 2, True, 300,
    "Price crosses below prev close and stays below for 30+ seconds",
    "El precio cruza bajo el cierre previo y se mantiene por 30+ segundos",
-   flip="CACC", keywords=["close", "cross", "confirmed"],
-   requires=["confirmation_timer"])
+   flip="CACC", keywords=["close", "cross", "confirmed"])
 
 # --- Gap Variants (active: gap_percent and prev_close available from REST) ---
 _a("FGUR", "false_gap_up_retracement", "False Gap Up Retracement",  "Retroceso Falso Gap Alcista", "gap", "-", 1, True, 300,
@@ -503,42 +547,42 @@ _a("FGDR", "false_gap_down_retracement","False Gap Down Retracement","Retroceso 
    requires=["gap_percent", "prev_close"])
 
 # --- Pullback Variants (from open/close) ---
-_a("PFH75C","pullback_75_from_high_close", "75% Pullback from Highs (Close)", "Retroceso 75% Máx (Cierre)", "pullback", "-", 2, False, 120,
+_a("PFH75C","pullback_75_from_high_close", "75% Pullback from Highs (Close)", "Retroceso 75% Máx (Cierre)", "pullback", "-", 2, True, 120,
    "Price retraces 75% from high toward previous close",
    "El precio retrocede 75% desde el máximo hacia el cierre previo",
    flip="PFL75C", keywords=["pullback", "retrace", "close"])
 
-_a("PFL75C","pullback_75_from_low_close",  "75% Pullback from Lows (Close)",  "Retroceso 75% Mín (Cierre)", "pullback", "+", 2, False, 120,
+_a("PFL75C","pullback_75_from_low_close",  "75% Pullback from Lows (Close)",  "Retroceso 75% Mín (Cierre)", "pullback", "+", 2, True, 120,
    "Price bounces 75% from low toward previous close",
    "El precio rebota 75% desde el mínimo hacia el cierre previo",
    flip="PFH75C", keywords=["pullback", "bounce", "close"])
 
-_a("PFH25C","pullback_25_from_high_close", "25% Pullback from Highs (Close)", "Retroceso 25% Máx (Cierre)", "pullback", "-", 2, False, 120,
+_a("PFH25C","pullback_25_from_high_close", "25% Pullback from Highs (Close)", "Retroceso 25% Máx (Cierre)", "pullback", "-", 2, True, 120,
    "Price retraces 25% from high toward previous close",
    "El precio retrocede 25% desde el máximo hacia el cierre previo",
    flip="PFL25C", keywords=["pullback", "retrace", "close"])
 
-_a("PFL25C","pullback_25_from_low_close",  "25% Pullback from Lows (Close)",  "Retroceso 25% Mín (Cierre)", "pullback", "+", 2, False, 120,
+_a("PFL25C","pullback_25_from_low_close",  "25% Pullback from Lows (Close)",  "Retroceso 25% Mín (Cierre)", "pullback", "+", 2, True, 120,
    "Price bounces 25% from low toward previous close",
    "El precio rebota 25% desde el mínimo hacia el cierre previo",
    flip="PFH25C", keywords=["pullback", "bounce", "close"])
 
-_a("PFH75O","pullback_75_from_high_open",  "75% Pullback from Highs (Open)", "Retroceso 75% Máx (Apert.)", "pullback", "-", 2, False, 120,
+_a("PFH75O","pullback_75_from_high_open",  "75% Pullback from Highs (Open)", "Retroceso 75% Máx (Apert.)", "pullback", "-", 2, True, 120,
    "Price retraces 75% from high toward today's open",
    "El precio retrocede 75% desde el máximo hacia la apertura",
    flip="PFL75O", keywords=["pullback", "retrace", "open"])
 
-_a("PFL75O","pullback_75_from_low_open",   "75% Pullback from Lows (Open)",  "Retroceso 75% Mín (Apert.)", "pullback", "+", 2, False, 120,
+_a("PFL75O","pullback_75_from_low_open",   "75% Pullback from Lows (Open)",  "Retroceso 75% Mín (Apert.)", "pullback", "+", 2, True, 120,
    "Price bounces 75% from low toward today's open",
    "El precio rebota 75% desde el mínimo hacia la apertura",
    flip="PFH75O", keywords=["pullback", "bounce", "open"])
 
-_a("PFH25O","pullback_25_from_high_open",  "25% Pullback from Highs (Open)", "Retroceso 25% Máx (Apert.)", "pullback", "-", 2, False, 120,
+_a("PFH25O","pullback_25_from_high_open",  "25% Pullback from Highs (Open)", "Retroceso 25% Máx (Apert.)", "pullback", "-", 2, True, 120,
    "Price retraces 25% from high toward today's open",
    "El precio retrocede 25% desde el máximo hacia la apertura",
    flip="PFL25O", keywords=["pullback", "retrace", "open"])
 
-_a("PFL25O","pullback_25_from_low_open",   "25% Pullback from Lows (Open)",  "Retroceso 25% Mín (Apert.)", "pullback", "+", 2, False, 120,
+_a("PFL25O","pullback_25_from_low_open",   "25% Pullback from Lows (Open)",  "Retroceso 25% Mín (Apert.)", "pullback", "+", 2, True, 120,
    "Price bounces 25% from low toward today's open",
    "El precio rebota 25% desde el mínimo hacia la apertura",
    flip="PFH25O", keywords=["pullback", "bounce", "open"])
@@ -726,8 +770,8 @@ for tf in [1, 2, 5, 10, 15, 30]:
        flip=f"X5A8_{tf}", keywords=["sma", "cross", f"{tf}min"],
        requires=[f"sma_5_{tf}min", f"sma_8_{tf}min"])
 
-# --- SMA 8 vs 20 ---
-for tf in [2, 5, 15]:
+# --- SMA 8 vs 20 (2m and 15m — 5m already defined above as active) ---
+for tf in [2, 15]:
     _a(f"ECAY{tf}",  f"sma8_above_sma20_{tf}min",  f"SMA8 Crossed Above SMA20 ({tf}min)", f"SMA8 Cruzó Sobre SMA20 ({tf}min)", "indicator", "+", 4, False, tf * 4,
        f"8-period SMA crosses above 20-period SMA on {tf}-minute chart",
        f"SMA de 8 cruza sobre SMA de 20 en gráfico de {tf} minutos",
@@ -739,8 +783,8 @@ for tf in [2, 5, 15]:
        flip=f"ECAY{tf}", keywords=["sma", "cross", f"{tf}min"],
        requires=[f"sma_8_{tf}min", f"sma_20_{tf}min"])
 
-# --- MACD ---
-for tf in [5, 10, 15, 30, 60]:
+# --- MACD (10, 15, 30, 60 min — 5m already defined above as active) ---
+for tf in [10, 15, 30, 60]:
     _a(f"MDAS{tf}", f"macd_above_signal_{tf}min",  f"MACD Above Signal ({tf}min)",  f"MACD Sobre Señal ({tf}min)",  "indicator", "+", 4, False, tf * 3,
        f"MACD crosses above signal line on {tf}-minute chart",
        f"MACD cruza sobre la línea de señal en gráfico de {tf} minutos",
@@ -762,8 +806,8 @@ for tf in [5, 10, 15, 30, 60]:
        flip=f"MDAZ{tf}", keywords=["macd", "zero", f"{tf}min"],
        requires=[f"macd_{tf}min"])
 
-# --- Stochastic ---
-for tf in [5, 15, 60]:
+# --- Stochastic (15m, 60m — 5m already defined above as active) ---
+for tf in [15, 60]:
     _a(f"SC20_{tf}", f"stoch_above_20_{tf}min",  f"Stochastic Crossed Above 20 ({tf}min)", f"Estocástico Cruzó 20 ({tf}min)",  "indicator", "+", 4, False, tf * 3,
        f"Stochastic %K crosses above 20 (oversold exit) on {tf}-minute chart",
        f"Estocástico %K cruza sobre 20 (salida de sobreventa) en gráfico de {tf} minutos",

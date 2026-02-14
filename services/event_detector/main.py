@@ -25,6 +25,7 @@ from datetime import datetime, date
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
+import httpx
 import redis.asyncio as aioredis
 
 from shared.config.settings import settings
@@ -34,6 +35,7 @@ from shared.events import EventBus, EventType as BusEventType, Event
 from models import EventRecord, EventType, TickerState, TickerStateCache
 from detectors import ALL_DETECTOR_CLASSES, PriceEventsDetector
 from store import EventStore
+from persistence import EventWriter
 
 # Timezone
 ET = ZoneInfo("America/New_York")
@@ -52,9 +54,11 @@ logger = logging.getLogger("event-detector")
 redis_client: Optional[RedisClient] = None
 event_bus: Optional[EventBus] = None
 engine: Optional["EventEngine"] = None
+event_writer: Optional[EventWriter] = None
 
 is_holiday_mode: bool = False
 current_trading_date: Optional[date] = None
+current_market_session: str = "UNKNOWN"
 
 STREAM_EVENTS = "stream:events:market"
 
@@ -67,8 +71,9 @@ async def check_initial_market_status() -> None:
     """
     Lee el estado del mercado UNA VEZ al iniciar.
     Determina si es día festivo para evitar resetear cachés.
+    También inicializa current_market_session.
     """
-    global is_holiday_mode, current_trading_date
+    global is_holiday_mode, current_trading_date, current_market_session
 
     try:
         status_data = await redis_client.get(f"{settings.key_prefix_market}:session:status")
@@ -83,9 +88,13 @@ async def check_initial_market_status() -> None:
             if trading_date_str:
                 current_trading_date = date.fromisoformat(trading_date_str)
 
+            # Read current session
+            session_val = status_data.get('current_session', 'UNKNOWN')
+            current_market_session = session_val
             logger.info(
                 f"📅 Market status: holiday={is_holiday}, trading_day={is_trading_day}, "
-                f"holiday_mode={is_holiday_mode}, date={trading_date_str}"
+                f"holiday_mode={is_holiday_mode}, date={trading_date_str}, "
+                f"session={current_market_session}"
             )
 
             if is_holiday_mode:
@@ -131,9 +140,11 @@ async def handle_day_changed(event: Event) -> None:
 
 
 async def handle_session_changed(event: Event) -> None:
-    """Handler para SESSION_CHANGED - log informativo."""
+    """Handler para SESSION_CHANGED - actualiza sesión actual."""
+    global current_market_session
     from_session = event.data.get('from_session', '?')
     to_session = event.data.get('to_session', '?')
+    current_market_session = to_session
     logger.info(f"📊 Session changed: {from_session} → {to_session}")
 
 
@@ -149,8 +160,9 @@ class EventEngine:
     Uses RedisClient (shared wrapper) for all Redis operations.
     """
 
-    def __init__(self, redis: RedisClient):
+    def __init__(self, redis: RedisClient, writer: Optional[EventWriter] = None):
         self.redis = redis
+        self.writer = writer
         # Raw async redis client for stream operations (xread, xadd, etc.)
         self.raw_redis: Optional[aioredis.Redis] = None
         self.running = False
@@ -216,6 +228,11 @@ class EventEngine:
             asyncio.create_task(self._cleanup_loop()),
         ]
 
+        # Add persistence writer if available
+        if self.writer:
+            tasks.append(asyncio.create_task(self.writer.run()))
+            logger.info("✅ EventWriter persistence loop started")
+
         await asyncio.gather(*tasks)
 
     async def stop(self):
@@ -265,10 +282,6 @@ class EventEngine:
         # 5. Refresh enriched cache from fresh data
         await self._refresh_enriched_cache()
         logger.info(f"✅ Enriched cache refreshed: {len(self._enriched_cache)} tickers")
-
-        # 5b. Refresh screener daily indicators
-        await self._refresh_screener_cache()
-        logger.info(f"✅ Screener cache refreshed: {len(self._screener_cache)} tickers")
 
         # 6. Re-initialize tracked extremes from fresh enriched data
         if self.price_detector:
@@ -558,6 +571,8 @@ class EventEngine:
                 market_cap=enriched.get("market_cap"),
                 float_shares=enriched.get("float_shares"),
                 security_type=enriched.get("security_type"),
+                # Session context (for pre/post market detectors)
+                market_session=current_market_session,
             )
         except Exception as e:
             logger.error(f"Error building TickerState for {symbol}: {e}")
@@ -592,24 +607,86 @@ class EventEngine:
             else:
                 return
 
-            # Get enriched data
+            # ── Layer 1: Local enriched cache (fast, in-memory) ──
             enriched = self._enriched_cache.get(symbol, {})
             rvol = await self._get_rvol(symbol)
-            change_percent = enriched.get("change_percent")
+
+            # ── Layer 2: Full enriched blob from Redis hash ──
+            full_enriched = {}
+            try:
+                raw = await self.raw_redis.hget("snapshot:enriched:latest", symbol)
+                if raw:
+                    full_enriched = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
+            except Exception:
+                pass
+
+            price = (
+                full_enriched.get("current_price")
+                or enriched.get("current_price")
+                or halt_data.get("pause_threshold_price")
+            )
+
+            # ── Layer 3: Polygon API fallback (via api_gateway, cached 5 min) ──
+            # Only when we have no price — halts can be on tickers not in enriched cache
+            polygon_snapshot = {}
+            if not price:
+                polygon_snapshot = await self._fetch_polygon_snapshot(symbol)
+
+            # Resolve final values: enriched → full_enriched → polygon
+            if not price:
+                price = polygon_snapshot.get("price", 0)
+
+            open_price = enriched.get("open_price") or polygon_snapshot.get("open_price")
+            prev_close = enriched.get("prev_close") or polygon_snapshot.get("prev_close")
+            volume = full_enriched.get("current_volume") or polygon_snapshot.get("volume")
+            change_percent = enriched.get("change_percent") or polygon_snapshot.get("change_percent")
+            market_cap = full_enriched.get("market_cap") or enriched.get("market_cap")
+            float_shares = full_enriched.get("float_shares")
+            security_type = full_enriched.get("security_type")
+            sector = full_enriched.get("sector")
+
+            # Compute derived fields
+            change_from_open = None
+            gap_percent = None
+            if price and open_price and open_price > 0:
+                change_from_open = ((price - open_price) / open_price) * 100
+            if open_price and prev_close and prev_close > 0:
+                gap_percent = ((open_price - prev_close) / prev_close) * 100
 
             event = EventRecord(
                 event_type=event_type,
                 rule_id=f"event:system:{event_type.value}",
                 symbol=symbol,
                 timestamp=datetime.utcnow(),
-                price=halt_data.get("pause_threshold_price") or 0,
+                price=price,
                 change_percent=change_percent,
                 rvol=rvol,
+                volume=int(volume) if volume else None,
+                market_cap=market_cap,
+                gap_percent=gap_percent,
+                change_from_open=change_from_open,
+                open_price=open_price,
+                prev_close=prev_close,
+                vwap=enriched.get("vwap") or polygon_snapshot.get("vwap"),
+                atr_percent=enriched.get("atr_percent"),
+                intraday_high=enriched.get("intraday_high") or polygon_snapshot.get("intraday_high"),
+                intraday_low=enriched.get("intraday_low") or polygon_snapshot.get("intraday_low"),
+                chg_1min=enriched.get("chg_1min"),
+                chg_5min=enriched.get("chg_5min"),
+                chg_10min=enriched.get("chg_10min"),
+                chg_15min=enriched.get("chg_15min"),
+                chg_30min=enriched.get("chg_30min"),
+                vol_1min=enriched.get("vol_1min"),
+                vol_5min=enriched.get("vol_5min"),
+                float_shares=float_shares,
+                security_type=security_type,
+                sector=sector,
                 details={
                     "halt_reason": halt_data.get("halt_reason"),
                     "halt_reason_desc": halt_data.get("halt_reason_desc"),
                     "company_name": halt_data.get("company_name"),
                     "exchange": halt_data.get("exchange"),
+                    "data_source": "polygon_fallback" if polygon_snapshot else "enriched",
                 }
             )
 
@@ -618,23 +695,86 @@ class EventEngine:
         except Exception as e:
             logger.error(f"Error processing halt event: {e}")
 
+    async def _fetch_polygon_snapshot(self, symbol: str) -> Dict:
+        """
+        Fallback: fetch single-ticker snapshot from Polygon via api_gateway.
+        The api_gateway caches responses for 5 minutes, so repeated calls are cheap.
+        Only called when enriched cache has no data for this symbol.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"http://api_gateway:8000/api/v1/ticker/{symbol}/snapshot"
+                )
+                if resp.status_code != 200:
+                    logger.warning(f"Polygon snapshot fallback failed for {symbol}: HTTP {resp.status_code}")
+                    return {}
+
+                data = resp.json()
+                ticker = data.get("ticker", {})
+                if not ticker:
+                    return {}
+
+                day = ticker.get("day") or {}
+                prev_day = ticker.get("prevDay") or {}
+                last_trade = ticker.get("lastTrade") or {}
+                minute_bar = ticker.get("min") or {}
+
+                result = {
+                    "price": last_trade.get("p") or day.get("c") or minute_bar.get("c") or 0,
+                    "open_price": day.get("o"),
+                    "prev_close": prev_day.get("c"),
+                    "volume": int(day.get("v", 0)) if day.get("v") else None,
+                    "vwap": day.get("vw"),
+                    "intraday_high": day.get("h"),
+                    "intraday_low": day.get("l"),
+                    "change_percent": ticker.get("todaysChangePerc"),
+                }
+                logger.info(f"📡 Polygon fallback for {symbol}: price=${result['price']:.2f}, vol={result.get('volume')}")
+                return result
+
+        except httpx.TimeoutException:
+            logger.warning(f"Polygon snapshot timeout for {symbol}")
+            return {}
+        except Exception as e:
+            logger.warning(f"Polygon snapshot fallback error for {symbol}: {e}")
+            return {}
+
     # ========================================================================
     # EVENT PUBLISHING
     # ========================================================================
 
-    async def _publish_event(self, event: EventRecord):
-        """Publish event to Redis stream."""
+    async def _publish_event(self, event: EventRecord, enriched_override: Optional[Dict] = None):
+        """
+        Publish event to Redis stream and buffer for TimescaleDB persistence.
+
+        Args:
+            event: The event to publish
+            enriched_override: Optional full enriched snapshot to store in context JSONB.
+                              If None, falls back to self._enriched_cache (basic subset).
+                              Used by snapshot-driven events which have the full data.
+        """
         self.event_store.add(event)
+
+        event_dict = event.to_dict()
 
         try:
             await self.raw_redis.xadd(
                 STREAM_EVENTS,
-                event.to_dict(),
+                event_dict,
                 maxlen=10000
             )
             logger.info(f"Event: {event.event_type.value} | {event.symbol} @ ${event.price:.2f}")
         except Exception as e:
             logger.error(f"Error publishing event: {e}")
+
+        # Buffer for TimescaleDB persistence (fire-and-forget)
+        if self.writer:
+            try:
+                enriched = enriched_override or self._enriched_cache.get(event.symbol)
+                self.writer.buffer_event(event_dict, enriched)
+            except Exception as e:
+                logger.error(f"Error buffering event for persistence: {e}")
 
     # ========================================================================
     # DATA FETCHING
@@ -828,7 +968,8 @@ class EventEngine:
                     # Detect state transitions
                     events = self._detect_snapshot_transitions(sym, current, prev, now, COOLDOWN_SECONDS)
                     for event in events:
-                        await self._publish_event(event)
+                        # Pass full enriched snapshot for richer context in TimescaleDB
+                        await self._publish_event(event, enriched_override=current)
                         cycle_events += 1
 
                     # Update previous state
@@ -972,90 +1113,91 @@ class EventEngine:
             _fire(EventType.BB_LOWER_BREAKDOWN, prev_bb_lower, bb_lower,
                   {"bb_lower": bb_lower, "direction": "down"})
 
-        # --- EMA CROSSES (from BarEngine intraday 1-min bars) ---
-        ema_20 = current.get("ema_20")
-        prev_ema_20 = prev.get("ema_20")
-        if ema_20 and prev_ema_20:
-            if prev_price <= prev_ema_20 and price > ema_20:
-                _fire(EventType.CROSSED_ABOVE_EMA20, prev_ema_20, ema_20)
-            elif prev_price >= prev_ema_20 and price < ema_20:
-                _fire(EventType.CROSSED_BELOW_EMA20, prev_ema_20, ema_20)
+        # =====================================================================
+        # DAILY SMA CROSSES — Price vs Daily MAs (Trade Ideas CA20/CA50)
+        # These are the REAL MA cross alerts — rare, meaningful signals.
+        # =====================================================================
+        daily_sma_20 = current.get("daily_sma_20")
+        prev_daily_sma_20 = prev.get("daily_sma_20")
+        if daily_sma_20 and daily_sma_20 > 0 and prev_daily_sma_20 and prev_daily_sma_20 > 0:
+            if prev_price <= prev_daily_sma_20 and price > daily_sma_20:
+                _fire(EventType.CROSSED_ABOVE_SMA20_DAILY, prev_daily_sma_20, daily_sma_20,
+                      {"ma_type": "daily_sma_20", "ma_value": daily_sma_20})
+            elif prev_price >= prev_daily_sma_20 and price < daily_sma_20:
+                _fire(EventType.CROSSED_BELOW_SMA20_DAILY, prev_daily_sma_20, daily_sma_20,
+                      {"ma_type": "daily_sma_20", "ma_value": daily_sma_20})
 
-        ema_50 = current.get("ema_50")
-        prev_ema_50 = prev.get("ema_50")
-        if ema_50 and prev_ema_50:
-            if prev_price <= prev_ema_50 and price > ema_50:
-                _fire(EventType.CROSSED_ABOVE_EMA50, prev_ema_50, ema_50)
-            elif prev_price >= prev_ema_50 and price < ema_50:
-                _fire(EventType.CROSSED_BELOW_EMA50, prev_ema_50, ema_50)
+        daily_sma_50 = current.get("daily_sma_50")
+        prev_daily_sma_50 = prev.get("daily_sma_50")
+        if daily_sma_50 and daily_sma_50 > 0 and prev_daily_sma_50 and prev_daily_sma_50 > 0:
+            if prev_price <= prev_daily_sma_50 and price > daily_sma_50:
+                _fire(EventType.CROSSED_ABOVE_SMA50_DAILY, prev_daily_sma_50, daily_sma_50,
+                      {"ma_type": "daily_sma_50", "ma_value": daily_sma_50})
+            elif prev_price >= prev_daily_sma_50 and price < daily_sma_50:
+                _fire(EventType.CROSSED_BELOW_SMA50_DAILY, prev_daily_sma_50, daily_sma_50,
+                      {"ma_type": "daily_sma_50", "ma_value": daily_sma_50})
 
-        # --- SMA CROSSES (Trade Ideas alignment, from BarEngine 1-min bars) ---
-        for sma_field, et_above, et_below in [
-            ("sma_8",  EventType.CROSSED_ABOVE_SMA8,  EventType.CROSSED_BELOW_SMA8),
-            ("sma_20", EventType.CROSSED_ABOVE_SMA20, EventType.CROSSED_BELOW_SMA20),
-            ("sma_50", EventType.CROSSED_ABOVE_SMA50, EventType.CROSSED_BELOW_SMA50),
-        ]:
-            sma_val = current.get(sma_field)
-            prev_sma = prev.get(sma_field)
-            if sma_val and prev_sma:
-                if prev_price <= prev_sma and price > sma_val:
-                    _fire(et_above, prev_sma, sma_val,
-                          {"ma_type": sma_field, "ma_value": sma_val})
-                elif prev_price >= prev_sma and price < sma_val:
-                    _fire(et_below, prev_sma, sma_val,
-                          {"ma_type": sma_field, "ma_value": sma_val})
+        # =====================================================================
+        # 5-MIN MA-TO-MA CROSS — SMA(8) vs SMA(20) on 5m bars (Trade Ideas ECAY5)
+        # =====================================================================
+        sma_8_5m = current.get("sma_8_5m")
+        sma_20_5m = current.get("sma_20_5m")
+        prev_sma_8_5m = prev.get("sma_8_5m")
+        prev_sma_20_5m = prev.get("sma_20_5m")
+        if sma_8_5m and sma_20_5m and prev_sma_8_5m and prev_sma_20_5m:
+            if prev_sma_8_5m <= prev_sma_20_5m and sma_8_5m > sma_20_5m:
+                _fire(EventType.SMA8_ABOVE_SMA20_5M, prev_sma_8_5m, sma_8_5m,
+                      {"sma_8_5m": sma_8_5m, "sma_20_5m": sma_20_5m, "cross_type": "golden", "timeframe": "5m"})
+            elif prev_sma_8_5m >= prev_sma_20_5m and sma_8_5m < sma_20_5m:
+                _fire(EventType.SMA8_BELOW_SMA20_5M, prev_sma_8_5m, sma_8_5m,
+                      {"sma_8_5m": sma_8_5m, "sma_20_5m": sma_20_5m, "cross_type": "death", "timeframe": "5m"})
 
-        # --- SMA(8) cross SMA(20) — intraday golden/death cross ---
-        sma_8 = current.get("sma_8")
-        sma_20 = current.get("sma_20")
-        prev_sma_8 = prev.get("sma_8")
-        prev_sma_20 = prev.get("sma_20")
-        if sma_8 and sma_20 and prev_sma_8 and prev_sma_20:
-            if prev_sma_8 <= prev_sma_20 and sma_8 > sma_20:
-                _fire(EventType.SMA_8_CROSS_ABOVE_20, prev_sma_8, sma_8,
-                      {"sma_8": sma_8, "sma_20": sma_20, "cross_type": "golden"})
-            elif prev_sma_8 >= prev_sma_20 and sma_8 < sma_20:
-                _fire(EventType.SMA_8_CROSS_BELOW_20, prev_sma_8, sma_8,
-                      {"sma_8": sma_8, "sma_20": sma_20, "cross_type": "death"})
-
-        # --- MACD CROSSES (from BarEngine via enriched) ---
-        macd_l = current.get("macd_line")
-        macd_s = current.get("macd_signal")
-        prev_macd_l = prev.get("macd_line")
-        prev_macd_s = prev.get("macd_signal")
-        if macd_l is not None and macd_s is not None and prev_macd_l is not None and prev_macd_s is not None:
+        # =====================================================================
+        # 5-MIN MACD CROSSES (Trade Ideas MDAS5/MDBS5/MDAZ5/MDBZ5)
+        # =====================================================================
+        macd_l_5m = current.get("macd_line_5m")
+        macd_s_5m = current.get("macd_signal_5m")
+        prev_macd_l_5m = prev.get("macd_line_5m")
+        prev_macd_s_5m = prev.get("macd_signal_5m")
+        if macd_l_5m is not None and macd_s_5m is not None and prev_macd_l_5m is not None and prev_macd_s_5m is not None:
             # Signal cross
-            if prev_macd_l <= prev_macd_s and macd_l > macd_s:
-                _fire(EventType.MACD_CROSS_BULLISH, prev_macd_l, macd_l,
-                      {"macd_line": macd_l, "macd_signal": macd_s})
-            elif prev_macd_l >= prev_macd_s and macd_l < macd_s:
-                _fire(EventType.MACD_CROSS_BEARISH, prev_macd_l, macd_l,
-                      {"macd_line": macd_l, "macd_signal": macd_s})
+            if prev_macd_l_5m <= prev_macd_s_5m and macd_l_5m > macd_s_5m:
+                _fire(EventType.MACD_ABOVE_SIGNAL_5M, prev_macd_l_5m, macd_l_5m,
+                      {"macd_line_5m": macd_l_5m, "macd_signal_5m": macd_s_5m, "timeframe": "5m"})
+            elif prev_macd_l_5m >= prev_macd_s_5m and macd_l_5m < macd_s_5m:
+                _fire(EventType.MACD_BELOW_SIGNAL_5M, prev_macd_l_5m, macd_l_5m,
+                      {"macd_line_5m": macd_l_5m, "macd_signal_5m": macd_s_5m, "timeframe": "5m"})
             # Zero cross
-            if prev_macd_l <= 0 and macd_l > 0:
-                _fire(EventType.MACD_ZERO_CROSS_UP, prev_macd_l, macd_l)
-            elif prev_macd_l >= 0 and macd_l < 0:
-                _fire(EventType.MACD_ZERO_CROSS_DOWN, prev_macd_l, macd_l)
+            if prev_macd_l_5m <= 0 and macd_l_5m > 0:
+                _fire(EventType.MACD_ABOVE_ZERO_5M, prev_macd_l_5m, macd_l_5m,
+                      {"timeframe": "5m"})
+            elif prev_macd_l_5m >= 0 and macd_l_5m < 0:
+                _fire(EventType.MACD_BELOW_ZERO_5M, prev_macd_l_5m, macd_l_5m,
+                      {"timeframe": "5m"})
 
-        # --- STOCHASTIC CROSSES (from BarEngine via enriched) ---
-        stoch_k = current.get("stoch_k")
-        stoch_d = current.get("stoch_d")
-        prev_stoch_k = prev.get("stoch_k")
-        prev_stoch_d = prev.get("stoch_d")
-        if stoch_k is not None and stoch_d is not None and prev_stoch_k is not None and prev_stoch_d is not None:
-            # Bullish: %K crosses above %D while in oversold (<30)
-            if prev_stoch_k <= prev_stoch_d and stoch_k > stoch_d and stoch_k < 30:
-                _fire(EventType.STOCH_CROSS_BULLISH, prev_stoch_k, stoch_k,
-                      {"stoch_k": stoch_k, "stoch_d": stoch_d, "zone": "oversold"})
-            # Bearish: %K crosses below %D while in overbought (>70)
-            elif prev_stoch_k >= prev_stoch_d and stoch_k < stoch_d and stoch_k > 70:
-                _fire(EventType.STOCH_CROSS_BEARISH, prev_stoch_k, stoch_k,
-                      {"stoch_k": stoch_k, "stoch_d": stoch_d, "zone": "overbought"})
-            # Zone entries
-            if prev_stoch_k >= 20 and stoch_k < 20:
-                _fire(EventType.STOCH_OVERSOLD, prev_stoch_k, stoch_k)
-            elif prev_stoch_k <= 80 and stoch_k > 80:
-                _fire(EventType.STOCH_OVERBOUGHT, prev_stoch_k, stoch_k)
+        # =====================================================================
+        # 5-MIN STOCHASTIC CROSSES (Trade Ideas SC20_5/SC80_5)
+        # =====================================================================
+        stoch_k_5m = current.get("stoch_k_5m")
+        stoch_d_5m = current.get("stoch_d_5m")
+        prev_stoch_k_5m = prev.get("stoch_k_5m")
+        prev_stoch_d_5m = prev.get("stoch_d_5m")
+        if stoch_k_5m is not None and stoch_d_5m is not None and prev_stoch_k_5m is not None and prev_stoch_d_5m is not None:
+            # Bullish: %K crosses above %D while in oversold (<30) on 5m
+            if prev_stoch_k_5m <= prev_stoch_d_5m and stoch_k_5m > stoch_d_5m and stoch_k_5m < 30:
+                _fire(EventType.STOCH_CROSS_BULLISH_5M, prev_stoch_k_5m, stoch_k_5m,
+                      {"stoch_k_5m": stoch_k_5m, "stoch_d_5m": stoch_d_5m, "zone": "oversold", "timeframe": "5m"})
+            # Bearish: %K crosses below %D while in overbought (>70) on 5m
+            elif prev_stoch_k_5m >= prev_stoch_d_5m and stoch_k_5m < stoch_d_5m and stoch_k_5m > 70:
+                _fire(EventType.STOCH_CROSS_BEARISH_5M, prev_stoch_k_5m, stoch_k_5m,
+                      {"stoch_k_5m": stoch_k_5m, "stoch_d_5m": stoch_d_5m, "zone": "overbought", "timeframe": "5m"})
+            # Zone entries on 5m
+            if prev_stoch_k_5m >= 20 and stoch_k_5m < 20:
+                _fire(EventType.STOCH_OVERSOLD_5M, prev_stoch_k_5m, stoch_k_5m,
+                      {"timeframe": "5m"})
+            elif prev_stoch_k_5m <= 80 and stoch_k_5m > 80:
+                _fire(EventType.STOCH_OVERBOUGHT_5M, prev_stoch_k_5m, stoch_k_5m,
+                      {"timeframe": "5m"})
 
         # --- PERCENTAGE THRESHOLD CROSSES ---
         chg = current.get("todaysChangePerc")
@@ -1174,6 +1316,17 @@ class EventEngine:
                 _fire(EventType.RUNNING_DOWN_CONFIRMED, prev_chg_5, chg_5,
                       {"chg_5min": chg_5, "chg_15min": chg_15})
 
+        # --- DAILY SMA(200) CROSS ---
+        daily_sma_200 = current.get("daily_sma_200")
+        prev_daily_sma_200 = prev.get("daily_sma_200")
+        if daily_sma_200 and daily_sma_200 > 0 and prev_daily_sma_200 and prev_daily_sma_200 > 0:
+            if prev_price <= prev_daily_sma_200 and price > daily_sma_200:
+                _fire(EventType.CROSSED_ABOVE_SMA200, prev_daily_sma_200, daily_sma_200,
+                      {"ma_type": "daily_sma_200", "ma_value": daily_sma_200})
+            elif prev_price >= prev_daily_sma_200 and price < daily_sma_200:
+                _fire(EventType.CROSSED_BELOW_SMA200, prev_daily_sma_200, daily_sma_200,
+                      {"ma_type": "daily_sma_200", "ma_value": daily_sma_200})
+
         return events
 
     # ========================================================================
@@ -1228,7 +1381,7 @@ class EventEngine:
 # ============================================================================
 
 async def main():
-    global redis_client, event_bus, engine
+    global redis_client, event_bus, engine, event_writer
 
     logger.info("Starting Event Detector Service...")
 
@@ -1247,8 +1400,27 @@ async def main():
     await event_bus.start_listening()
     logger.info("✅ EventBus initialized - subscribed to DAY_CHANGED, SESSION_CHANGED")
 
+    # Initialize TimescaleDB for event persistence
+    event_writer = None
+    try:
+        from shared.utils.timescale_client import TimescaleClient
+        ts_client = TimescaleClient()
+        await ts_client.connect(min_size=2, max_size=5)
+        logger.info("✅ TimescaleDB connected for event persistence")
+
+        event_writer = EventWriter(ts_client)
+        table_ok = await event_writer.ensure_table()
+        if table_ok:
+            logger.info("✅ market_events table ready")
+        else:
+            logger.warning("⚠️ market_events table setup failed — events will stream-only")
+            event_writer = None
+    except Exception as e:
+        logger.warning(f"⚠️ TimescaleDB not available — events will stream-only: {e}")
+        event_writer = None
+
     # Initialize and start engine
-    engine = EventEngine(redis_client)
+    engine = EventEngine(redis_client, writer=event_writer)
 
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

@@ -89,6 +89,24 @@ body {
   }
 }
 
+/* Post-its flotantes detrás del form evento (/event) */
+@keyframes event-postit-float {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.event-postit-float {
+  animation: event-postit-float 4s ease-in-out infinite;
+  animation-fill-mode: both;
+}
+
 /* Landing Page Premium Animations */
 @keyframes slideUp {
   from {

@@ -421,6 +421,15 @@ class EnrichmentPipeline:
                 ticker_data['stoch_d'] = indicators.stoch_d
                 ticker_data['chg_60min'] = indicators.chg_60m
                 ticker_data['vol_60min'] = indicators.vol_60m
+
+                # Multi-timeframe indicators (flatten into enriched fields)
+                # Format: {indicator}_{period}m  e.g. sma_5_5m, macd_line_15m
+                if indicators.tf:
+                    for tf_period, tf_ind in indicators.tf.items():
+                        suffix = f"_{tf_period}m"
+                        for key, val in tf_ind.items():
+                            if key != 'bar_count' and val is not None:
+                                ticker_data[key + suffix] = val
             else:
                 # BarEngine has state but indicators not ready (warmup period)
                 for key in _indicator_keys:
@@ -502,10 +511,215 @@ class EnrichmentPipeline:
             ticker_data.setdefault('bid_size', None)
             ticker_data.setdefault('ask_size', None)
         
+        # ================================================================
+        # Computed derived fields (from data already on ticker_data)
+        # These fields are computed in real-time from existing enriched data.
+        # ================================================================
+        self._compute_derived_fields(ticker_data, symbol)
+        
+        # ================================================================
+        # Daily screener fields: multi-day changes, avg volumes, distances
+        # Source: screener:daily_indicators:latest (refreshed every 5 min)
+        # ================================================================
+        daily = self._screener_daily_cache.get(symbol, {})
+        ticker_data['daily_sma_20'] = daily.get('daily_sma_20')
+        ticker_data['daily_sma_50'] = daily.get('daily_sma_50')
+        ticker_data['daily_sma_200'] = daily.get('daily_sma_200')
+        ticker_data['daily_rsi'] = daily.get('daily_rsi')
+        ticker_data['daily_bb_upper'] = daily.get('daily_bb_upper')
+        ticker_data['daily_bb_lower'] = daily.get('daily_bb_lower')
+        ticker_data['high_52w'] = daily.get('high_52w')
+        ticker_data['low_52w'] = daily.get('low_52w')
+        # New: multi-day change percentages
+        ticker_data['change_1d'] = daily.get('change_1d')
+        ticker_data['change_3d'] = daily.get('change_3d')
+        ticker_data['change_5d'] = daily.get('change_5d')
+        ticker_data['change_10d'] = daily.get('change_10d')
+        ticker_data['change_20d'] = daily.get('change_20d')
+        # New: average daily volumes
+        ticker_data['avg_volume_5d'] = daily.get('avg_volume_5d')
+        ticker_data['avg_volume_10d'] = daily.get('avg_volume_10d')
+        ticker_data['avg_volume_20d'] = daily.get('avg_volume_20d')
+        # New: daily gap
+        ticker_data['daily_gap_percent'] = daily.get('daily_gap_percent')
+        # New: distance from daily SMAs (%)
+        ticker_data['dist_daily_sma_20'] = daily.get('dist_daily_sma_20')
+        ticker_data['dist_daily_sma_50'] = daily.get('dist_daily_sma_50')
+        # New: 52w distances
+        ticker_data['from_52w_high'] = daily.get('from_52w_high')
+        ticker_data['from_52w_low'] = daily.get('from_52w_low')
+        # New: daily ADX, ATR
+        ticker_data['daily_adx_14'] = daily.get('daily_adx_14')
+        ticker_data['daily_atr_percent'] = daily.get('daily_atr_percent')
+        # New: Bollinger position
+        ticker_data['daily_bb_position'] = daily.get('daily_bb_position')
+        
+        # ================================================================
+        # Additional derived fields (computed AFTER screener merge)
+        # These need avg_volume_10d which comes from screener daily cache.
+        # ================================================================
+        price = ticker_data.get('lastTrade', {}).get('p') if isinstance(ticker_data.get('lastTrade'), dict) else None
+        if not price:
+            _day = ticker_data.get('day', {})
+            price = _day.get('c') if isinstance(_day, dict) else None
+        _day_data = ticker_data.get('day', {}) if isinstance(ticker_data.get('day'), dict) else {}
+        
+        # Volume Today % = (volume / avg_volume_10d) * 100
+        _day_vol = _day_data.get('v')
+        _avg_vol_10d = ticker_data.get('avg_volume_10d')
+        if _day_vol and _avg_vol_10d and _avg_vol_10d > 0:
+            ticker_data['volume_today_pct'] = round((_day_vol / _avg_vol_10d) * 100, 1)
+        else:
+            ticker_data.setdefault('volume_today_pct', None)
+        
+        # Price from day high (%) = ((price - day.h) / day.h) * 100
+        _day_high = _day_data.get('h')
+        if price and _day_high and _day_high > 0:
+            ticker_data['price_from_high'] = round((price - _day_high) / _day_high * 100, 2)
+        else:
+            ticker_data.setdefault('price_from_high', None)
+        
+        # Distance from NBBO (%) = distance from inside market
+        _bid = ticker_data.get('bid')
+        _ask = ticker_data.get('ask')
+        if price and _bid and _ask and _bid > 0 and _ask > 0:
+            if price >= _bid and price <= _ask:
+                ticker_data['distance_from_nbbo'] = 0.0
+            elif price < _bid:
+                ticker_data['distance_from_nbbo'] = round((_bid - price) / _bid * 100, 2)
+            else:
+                ticker_data['distance_from_nbbo'] = round((price - _ask) / _ask * 100, 2)
+        else:
+            ticker_data.setdefault('distance_from_nbbo', None)
+        
+        # Minute volume (flat field from nested min.v)
+        _min_data = ticker_data.get('min', {}) if isinstance(ticker_data.get('min'), dict) else {}
+        _min_vol = _min_data.get('v')
+        if _min_vol is not None:
+            ticker_data['minute_volume'] = int(_min_vol)
+        else:
+            ticker_data.setdefault('minute_volume', None)
+        
         # Strip noisy/unused fields to reduce serialization and false changes
         self._strip_noisy_fields(ticker_data)
         
         return ticker_data
+    
+    def _compute_derived_fields(self, ticker_data: dict, symbol: str) -> None:
+        """
+        Compute derived real-time fields from existing enriched data.
+        All computations are simple arithmetic — zero external I/O.
+        """
+        # Current price
+        price = ticker_data.get('lastTrade', {}).get('p') if isinstance(ticker_data.get('lastTrade'), dict) else None
+        if not price:
+            day = ticker_data.get('day', {})
+            price = day.get('c') if isinstance(day, dict) else None
+        
+        day_data = ticker_data.get('day', {}) if isinstance(ticker_data.get('day'), dict) else {}
+        prev_day = ticker_data.get('prevDay', {}) if isinstance(ticker_data.get('prevDay'), dict) else {}
+        
+        day_open = day_data.get('o')
+        day_high = day_data.get('h')
+        day_low = day_data.get('l')
+        day_volume = day_data.get('v')
+        prev_close = prev_day.get('c')
+        prev_volume = prev_day.get('v')
+        
+        bid = ticker_data.get('bid')
+        ask = ticker_data.get('ask')
+        bid_size = ticker_data.get('bid_size')
+        ask_size = ticker_data.get('ask_size')
+        
+        intraday_high = ticker_data.get('intraday_high')
+        intraday_low = ticker_data.get('intraday_low')
+        
+        vwap = ticker_data.get('vwap')
+        float_shares = ticker_data.get('float_shares')
+        volume = day_volume or 0
+        
+        # Gap % (today's open vs prev close)
+        if day_open and prev_close and prev_close > 0:
+            ticker_data['gap_percent'] = round((day_open - prev_close) / prev_close * 100, 2)
+        else:
+            ticker_data.setdefault('gap_percent', None)
+        
+        # Dollar volume = price * volume
+        if price and price > 0 and volume > 0:
+            ticker_data['dollar_volume'] = round(price * volume, 0)
+        else:
+            ticker_data['dollar_volume'] = None
+        
+        # Today's range (dollars and %)
+        h = intraday_high or (day_high if day_high else None)
+        l = intraday_low or (day_low if day_low else None)
+        if h and l and l > 0:
+            ticker_data['todays_range'] = round(h - l, 4)
+            ticker_data['todays_range_pct'] = round((h - l) / l * 100, 2)
+        else:
+            ticker_data['todays_range'] = None
+            ticker_data['todays_range_pct'] = None
+        
+        # Bid/Ask ratio
+        if bid_size and ask_size and ask_size > 0:
+            ticker_data['bid_ask_ratio'] = round(bid_size / ask_size, 2)
+        else:
+            ticker_data['bid_ask_ratio'] = None
+        
+        # Float turnover = volume / float_shares
+        if float_shares and float_shares > 0 and volume > 0:
+            ticker_data['float_turnover'] = round(volume / float_shares, 4)
+        else:
+            ticker_data['float_turnover'] = None
+        
+        # Distance from VWAP (%)
+        if price and vwap and vwap > 0:
+            ticker_data['dist_from_vwap'] = round((price - vwap) / vwap * 100, 2)
+        else:
+            ticker_data['dist_from_vwap'] = None
+        
+        # Distance from intraday SMAs (%)
+        for sma_key in ('sma_5', 'sma_8', 'sma_20', 'sma_50', 'sma_200'):
+            sma_val = ticker_data.get(sma_key)
+            if price and sma_val and sma_val > 0:
+                ticker_data[f'dist_{sma_key}'] = round((price - sma_val) / sma_val * 100, 2)
+            else:
+                ticker_data[f'dist_{sma_key}'] = None
+        
+        # Position in today's range (0-100%)
+        if h and l and h != l and price:
+            ticker_data['pos_in_range'] = round((price - l) / (h - l) * 100, 2)
+        else:
+            ticker_data['pos_in_range'] = None
+        
+        # Below high / Above low ($ distance)
+        if intraday_high and price:
+            ticker_data['below_high'] = round(intraday_high - price, 4)
+        else:
+            ticker_data['below_high'] = None
+        
+        if intraday_low and price:
+            ticker_data['above_low'] = round(price - intraday_low, 4)
+        else:
+            ticker_data['above_low'] = None
+        
+        # Change from previous day close ($)
+        if price and prev_close and prev_close > 0:
+            ticker_data['change_from_close'] = round(price - prev_close, 4)
+        else:
+            ticker_data['change_from_close'] = None
+        
+        # Position of open in today's range (%)
+        if day_open and h and l and h != l:
+            ticker_data['pos_of_open'] = round((day_open - l) / (h - l) * 100, 2)
+        else:
+            ticker_data['pos_of_open'] = None
+        
+        # Previous day volume
+        if prev_volume and prev_volume > 0:
+            ticker_data['prev_day_volume'] = prev_volume
+        else:
+            ticker_data.setdefault('prev_day_volume', None)
     
     @staticmethod
     def _strip_noisy_fields(ticker_data: dict) -> None:
@@ -726,18 +940,44 @@ class EnrichmentPipeline:
                 return
             
             new_cache: Dict[str, dict] = {}
+            sf = self._safe_float
             for symbol, ind in tickers.items():
                 if not isinstance(ind, dict):
                     continue
                 new_cache[symbol] = {
-                    "daily_sma_20": self._safe_float(ind.get("sma_20")),
-                    "daily_sma_50": self._safe_float(ind.get("sma_50")),
-                    "daily_sma_200": self._safe_float(ind.get("sma_200")),
-                    "daily_rsi": self._safe_float(ind.get("rsi")),
-                    "daily_bb_upper": self._safe_float(ind.get("bb_upper")),
-                    "daily_bb_lower": self._safe_float(ind.get("bb_lower")),
-                    "high_52w": self._safe_float(ind.get("high_52w")),
-                    "low_52w": self._safe_float(ind.get("low_52w")),
+                    # Daily SMAs
+                    "daily_sma_20": sf(ind.get("sma_20")),
+                    "daily_sma_50": sf(ind.get("sma_50")),
+                    "daily_sma_200": sf(ind.get("sma_200")),
+                    # Daily RSI / ADX
+                    "daily_rsi": sf(ind.get("rsi")),
+                    "daily_adx_14": sf(ind.get("adx_14")),
+                    # Daily Bollinger
+                    "daily_bb_upper": sf(ind.get("bb_upper")),
+                    "daily_bb_lower": sf(ind.get("bb_lower")),
+                    "daily_bb_position": sf(ind.get("bb_position")),
+                    # 52-week
+                    "high_52w": sf(ind.get("high_52w")),
+                    "low_52w": sf(ind.get("low_52w")),
+                    "from_52w_high": sf(ind.get("from_52w_high")),
+                    "from_52w_low": sf(ind.get("from_52w_low")),
+                    # ATR daily
+                    "daily_atr_percent": sf(ind.get("atr_percent")),
+                    # Multi-day changes
+                    "change_1d": sf(ind.get("change_1d")),
+                    "change_3d": sf(ind.get("change_3d")),
+                    "change_5d": sf(ind.get("change_5d")),
+                    "change_10d": sf(ind.get("change_10d")),
+                    "change_20d": sf(ind.get("change_20d")),
+                    # Gap (daily)
+                    "daily_gap_percent": sf(ind.get("gap_percent")),
+                    # Average volumes
+                    "avg_volume_5d": sf(ind.get("avg_volume_5")),
+                    "avg_volume_10d": sf(ind.get("avg_volume_10")),
+                    "avg_volume_20d": sf(ind.get("avg_volume_20")),
+                    # Distance from daily SMAs (%)
+                    "dist_daily_sma_20": sf(ind.get("dist_sma_20")),
+                    "dist_daily_sma_50": sf(ind.get("dist_sma_50")),
                 }
             
             self._screener_daily_cache = new_cache

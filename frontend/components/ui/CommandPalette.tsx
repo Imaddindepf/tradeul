@@ -178,14 +178,6 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
             return;
         }
 
-        // SB abre directamente el Scan Builder
-        if (value === 'sb') {
-            executeCommand('sb');
-            setSearch('');
-            onOpenChange(false);
-            return;
-        }
-
         // Comando EVN expande el menú de eventos
         if (value === 'evn') {
             preventCloseRef.current = true;

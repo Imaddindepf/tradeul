@@ -17,8 +17,8 @@ import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { Z_INDEX } from '@/lib/z-index';
 
 interface WorkspaceTabsProps {
-  /** Función para obtener el contenido de una ventana por título */
-  getWindowContent: (title: string) => React.ReactNode;
+  /** Función para obtener el contenido de una ventana por layout */
+  getWindowContent: (layout: { title: string; componentState?: Record<string, unknown> }) => React.ReactNode;
 }
 
 // Mapeo de fuentes a font-family CSS
@@ -110,12 +110,12 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
   const handleDeleteWorkspace = useCallback((e: React.MouseEvent, workspaceId: string) => {
     e.stopPropagation();
     if (isMainWorkspace(workspaceId)) return;
-    
+
     // Si estamos eliminando el workspace activo, cambiar a Main primero
     if (workspaceId === activeWorkspaceId) {
       switchWorkspace('main', getWindowContent);
     }
-    
+
     // Pequeño delay para que el switch termine
     setTimeout(() => {
       deleteWorkspace(workspaceId);
@@ -131,7 +131,7 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
   }, [editingId, switchWorkspace, getWindowContent]);
 
   return (
-    <div 
+    <div
       className="fixed bottom-0 left-0 right-0 h-7 bg-white border-t border-slate-200 flex items-center select-none"
       style={{ zIndex: Z_INDEX.WORKSPACE_TABS, fontFamily }}
     >
@@ -150,8 +150,8 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
               className={`
                 group relative flex items-center h-full cursor-pointer
                 border-r border-slate-200 transition-colors duration-100
-                ${isActive 
-                  ? 'bg-blue-50 text-blue-700' 
+                ${isActive
+                  ? 'bg-blue-50 text-blue-700'
                   : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
                 }
               `}
@@ -181,7 +181,7 @@ export function WorkspaceTabs({ getWindowContent }: WorkspaceTabsProps) {
                   maxLength={30}
                 />
               ) : (
-                <span 
+                <span
                   className="text-xs whitespace-nowrap"
                   style={{ fontFamily }}
                 >

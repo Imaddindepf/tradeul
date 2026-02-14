@@ -14,12 +14,13 @@ export interface SECFilingsWindowData {
   wsUrl: string;
   workerUrl: string;
   secApiBaseUrl: string;
+  token?: string; // JWT token for WebSocket authentication
 }
 
-export function openSECFilingsWindow(
+export async function openSECFilingsWindow(
   data: SECFilingsWindowData,
   config: WindowConfig
-): Window | null {
+): Promise<Window | null> {
   const {
     width = 1300,
     height = 850,

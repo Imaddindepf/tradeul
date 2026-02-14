@@ -15,12 +15,13 @@ import HeatmapTreemap from './HeatmapTreemap';
 import HeatmapControls from './HeatmapControls';
 import HeatmapLegend from './HeatmapLegend';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useWindowState } from '@/contexts/FloatingWindowContext';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
-import { 
-  useMarketSessionStore, 
-  selectIsClosed, 
+import {
+  useMarketSessionStore,
+  selectIsClosed,
   selectSession,
-  getSessionLabel 
+  getSessionLabel
 } from '@/stores/useMarketSessionStore';
 
 // Custom hook for container dimensions with debounce
@@ -29,15 +30,15 @@ function useContainerSize(ref: React.RefObject<HTMLDivElement>) {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSizeRef = useRef({ width: 0, height: 0 });
-  
+
   useEffect(() => {
     if (!ref.current) return;
-    
+
     const updateSize = () => {
       if (ref.current) {
         const newWidth = ref.current.offsetWidth;
         const newHeight = ref.current.offsetHeight;
-        
+
         // Only update if size actually changed significantly (>5px)
         if (
           Math.abs(newWidth - lastSizeRef.current.width) > 5 ||
@@ -48,10 +49,10 @@ function useContainerSize(ref: React.RefObject<HTMLDivElement>) {
         }
       }
     };
-    
+
     // Initial size - immediate
     updateSize();
-    
+
     // Debounced resize handler - only fires after 400ms of no resize activity
     const debouncedUpdate = () => {
       if (timeoutRef.current) {
@@ -59,10 +60,10 @@ function useContainerSize(ref: React.RefObject<HTMLDivElement>) {
       }
       timeoutRef.current = setTimeout(updateSize, 400);
     };
-    
+
     const resizeObserver = new ResizeObserver(debouncedUpdate);
     resizeObserver.observe(ref.current);
-    
+
     return () => {
       resizeObserver.disconnect();
       if (timeoutRef.current) {
@@ -70,7 +71,7 @@ function useContainerSize(ref: React.RefObject<HTMLDivElement>) {
       }
     };
   }, [ref]);
-  
+
   return size;
 }
 
@@ -103,33 +104,41 @@ const formatMarketCap = (num: number): string => {
   return `$${(num / 1e6).toFixed(0)}M`;
 };
 
+type HeatmapWindowState = {
+  viewLevel?: 'market' | 'sector';
+  selectedSector?: string | null;
+  metric?: string;
+  sizeBy?: string;
+}
+
 function HeatmapContent({ onClose }: HeatmapContentProps) {
   const font = useUserPreferencesStore(selectFont);
   const fontClass = FONT_CLASSES[font] || 'font-jetbrains-mono';
-  
+  const { state: windowState, updateState: updateWindowState } = useWindowState<HeatmapWindowState>();
+
   // Market session state
   const isClosed = useMarketSessionStore(selectIsClosed);
   const session = useMarketSessionStore(selectSession);
   const startPolling = useMarketSessionStore(state => state.startPolling);
   const stopPolling = useMarketSessionStore(state => state.stopPolling);
-  
+
   // Start market session polling on mount
   useEffect(() => {
     startPolling(30000); // Poll every 30 seconds
     return () => stopPolling();
   }, [startPolling, stopPolling]);
-  
+
   // Container ref for responsive sizing
   const containerRef = useRef<HTMLDivElement>(null);
   const containerSize = useContainerSize(containerRef);
-  
-  // View state
-  const [viewLevel, setViewLevel] = useState<'market' | 'sector'>('market');
-  const [selectedSector, setSelectedSector] = useState<string | null>(null);
-  
+
+  // View state - restored from window state
+  const [viewLevel, setViewLevel] = useState<'market' | 'sector'>(windowState.viewLevel || 'market');
+  const [selectedSector, setSelectedSector] = useState<string | null>(windowState.selectedSector ?? null);
+
   // Command executor for opening ticker windows
   const { executeTickerCommand } = useCommandExecutor();
-  
+
   // Fetch heatmap data with polling
   const {
     data,
@@ -144,18 +153,39 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
     pollInterval: 15000,
     enabled: true,
   });
-  
+
+  // Restore saved filters on mount
+  useEffect(() => {
+    const savedFilters: Partial<typeof filters> = {};
+    if (windowState.metric) savedFilters.metric = windowState.metric as typeof filters.metric;
+    if (windowState.sizeBy) savedFilters.sizeBy = windowState.sizeBy as typeof filters.sizeBy;
+    if (Object.keys(savedFilters).length > 0) {
+      setFilters(savedFilters);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist state changes
+  useEffect(() => {
+    updateWindowState({
+      viewLevel,
+      selectedSector,
+      metric: filters.metric,
+      sizeBy: filters.sizeBy,
+    });
+  }, [viewLevel, selectedSector, filters.metric, filters.sizeBy, updateWindowState]);
+
   // Extract available sectors from data
   const availableSectors = useMemo(() => {
     if (!data?.sectors) return [];
     return data.sectors.map(s => s.sector);
   }, [data]);
-  
+
   // Handle ticker click - open description window
   const handleTickerClick = useCallback((symbol: string) => {
     executeTickerCommand(symbol, 'fan');
   }, [executeTickerCommand]);
-  
+
   // Handle sector click - drill down
   const handleSectorClick = useCallback((sector: string) => {
     if (viewLevel === 'market') {
@@ -163,13 +193,13 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
       setViewLevel('sector');
     }
   }, [viewLevel]);
-  
+
   // Handle back to market view
   const handleBackToMarket = useCallback(() => {
     setViewLevel('market');
     setSelectedSector(null);
   }, []);
-  
+
   return (
     <div className={`h-full flex flex-col bg-white ${fontClass}`}>
       {/* Header */}
@@ -192,7 +222,7 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
               {viewLevel === 'sector' && selectedSector ? selectedSector : 'HEATMAP'}
             </h2>
           </div>
-          
+
           {/* Stats */}
           {data && (
             <div className="flex items-center gap-3 text-[10px] text-slate-500">
@@ -213,32 +243,31 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
             </div>
           )}
         </div>
-        
+
         {/* Right side: Status and controls */}
         <div className="flex items-center gap-3">
           {/* Legend */}
           <HeatmapLegend metric={filters.metric} />
-          
+
           {/* Market session & data status */}
           <div className="flex items-center gap-2 text-[10px]">
             {/* Market session badge */}
             {session && (
-              <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
-                session.current_session === 'MARKET_OPEN' 
-                  ? 'bg-green-100 text-green-700' 
+              <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${session.current_session === 'MARKET_OPEN'
+                  ? 'bg-green-100 text-green-700'
                   : session.current_session === 'PRE_MARKET'
-                  ? 'bg-blue-100 text-blue-700'
-                  : session.current_session === 'POST_MARKET'
-                  ? 'bg-orange-100 text-orange-700'
-                  : 'bg-slate-100 text-slate-600'
-              }`}>
+                    ? 'bg-blue-100 text-blue-700'
+                    : session.current_session === 'POST_MARKET'
+                      ? 'bg-orange-100 text-orange-700'
+                      : 'bg-slate-100 text-slate-600'
+                }`}>
                 {getSessionLabel(session)}
               </span>
             )}
-            
+
             {/* Historical data indicator (when using last close) */}
             {data && !data.is_realtime && (
-              <span 
+              <span
                 className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px]"
                 title={`Data from: ${data.timestamp}`}
               >
@@ -246,22 +275,21 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
                 Last Close
               </span>
             )}
-            
+
             {/* Live indicator */}
             <div className="flex items-center gap-1">
-              <div className={`w-1.5 h-1.5 rounded-full ${
-                error 
-                  ? 'bg-red-500' 
-                  : data?.is_realtime 
-                  ? 'bg-green-500 animate-pulse' 
-                  : 'bg-amber-500'
-              }`} />
+              <div className={`w-1.5 h-1.5 rounded-full ${error
+                  ? 'bg-red-500'
+                  : data?.is_realtime
+                    ? 'bg-green-500 animate-pulse'
+                    : 'bg-amber-500'
+                }`} />
               <span className="text-slate-400">
                 {isLoading && !data ? 'Loading...' : formatTime(lastUpdate)}
               </span>
             </div>
           </div>
-          
+
           {/* Refresh button */}
           <button
             onClick={refresh}
@@ -273,7 +301,7 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
           </button>
         </div>
       </div>
-      
+
       {/* Controls */}
       <HeatmapControls
         filters={filters}
@@ -281,7 +309,7 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
         availableSectors={availableSectors}
         isCompact={false}
       />
-      
+
       {/* Main content - responsive container */}
       <div ref={containerRef} className="flex-1 relative overflow-hidden bg-white">
         {/* Updating overlay - subtle indicator */}
@@ -291,7 +319,7 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
             <span className="text-[9px] text-slate-500">Updating...</span>
           </div>
         )}
-        
+
         {/* Error state */}
         {error && !data && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -307,7 +335,7 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
             </div>
           </div>
         )}
-        
+
         {/* Loading state (initial only) */}
         {isLoading && !data && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -317,7 +345,7 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
             </div>
           </div>
         )}
-        
+
         {/* Treemap - responsive height */}
         {data && data.sectors && data.sectors.length > 0 && containerSize.height > 0 && (
           <HeatmapTreemap
@@ -332,7 +360,7 @@ function HeatmapContent({ onClose }: HeatmapContentProps) {
             width={containerSize.width}
           />
         )}
-        
+
         {/* Empty state */}
         {data && (!data.sectors || data.sectors.length === 0) && (
           <div className="absolute inset-0 flex items-center justify-center">

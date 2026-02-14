@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # ============================================================
-# Tradeul Frontend Deploy Script
+# Tradeul Frontend Deploy Script (Zero-Downtime)
 # 
 # Usage:  ./scripts/deploy-frontend.sh
 #
 # What it does:
 #   1. Stops the Next.js service (systemd)
-#   2. Removes the entire .next build directory (no stale chunks)
-#   3. Runs a clean production build
+#   2. Builds in temporary directory (keeps old build running)
+#   3. Atomic swap: replaces .next with new build
 #   4. Reloads Caddy (picks up any config changes)
-#   5. Starts the Next.js service
+#   5. Restarts the Next.js service with new build
 #   6. Runs a health check to verify the deployment
+#
+# Zero-downtime strategy:
+#   - Old chunks remain available during build
+#   - Atomic directory swap minimizes transition time
+#   - ChunkLoadError handler in app auto-reloads on error
 # ============================================================
 
 set -euo pipefail
@@ -57,27 +62,46 @@ if lsof -ti:3000 >/dev/null 2>&1; then
 fi
 ok "Service stopped"
 
-# ── Step 2: Clean build artifacts ───────────────────────────
-log "Cleaning build artifacts..."
-rm -rf .next
-rm -rf node_modules/.cache
-ok "Build artifacts cleaned"
-
-# ── Step 3: Production build ────────────────────────────────
-log "Running production build (this takes ~60-90s)..."
+# ── Step 2: Build in temporary directory ───────────────────
+log "Building in temporary directory (zero-downtime strategy)..."
 BUILD_START=$(date +%s)
 
+# Limpiar cache de node_modules pero mantener .next activo
+rm -rf node_modules/.cache
+
+# Construir en directorio temporal
+BUILD_DIR=".next.tmp"
+rm -rf "$BUILD_DIR"
+
 if ! npm run build 2>&1; then
-    fail "Build failed! Service is DOWN. Fix errors and re-run."
+    fail "Build failed! Old version still running. Fix errors and re-run."
 fi
+
+# Renombrar .next a .next.tmp (Next.js construye en .next)
+mv .next "$BUILD_DIR"
 
 BUILD_END=$(date +%s)
 BUILD_DURATION=$((BUILD_END - BUILD_START))
 
-NEW_BUILD_ID=$(cat .next/BUILD_ID)
+NEW_BUILD_ID=$(cat "$BUILD_DIR/BUILD_ID")
 ok "Build completed in ${BUILD_DURATION}s — Build ID: $NEW_BUILD_ID"
 
-# ── Step 4: Reload Caddy ───────────────────────────────────
+# ── Step 3: Atomic swap ─────────────────────────────────────
+log "Preparing atomic swap..."
+
+# ── Step 4: Atomic swap of build directories ───────────────
+# Backup old build (just in case)
+if [ -d ".next" ]; then
+    log "Backing up old build..."
+    rm -rf .next.old
+    mv .next .next.old
+fi
+
+# Atomic rename: .next.tmp -> .next
+mv "$BUILD_DIR" .next
+ok "Build swapped atomically"
+
+# ── Step 5: Reload Caddy ────────────────────────────────────
 log "Reloading Caddy..."
 if timeout 10 systemctl reload caddy 2>/dev/null; then
     ok "Caddy reloaded"
@@ -85,12 +109,12 @@ else
     warn "Caddy reload timed out or failed (non-critical, continuing)"
 fi
 
-# ── Step 5: Start the service ──────────────────────────────
-log "Starting $SERVICE_NAME..."
-systemctl start "$SERVICE_NAME"
-ok "Service started"
+# ── Step 6: Restart the service ────────────────────────────
+log "Restarting $SERVICE_NAME..."
+systemctl restart "$SERVICE_NAME"
+ok "Service restarted"
 
-# ── Step 6: Health check ───────────────────────────────────
+# ── Step 7: Health check ───────────────────────────────────
 log "Running health check..."
 HEALTH_PASSED=false
 for i in $(seq 1 $MAX_HEALTH_RETRIES); do

@@ -388,6 +388,18 @@ function handlePortMessage(port, data) {
         connectionInfo.waitingForToken = false;
         connectionInfo.reconnectAttempts = 0;
 
+        // Si ya estamos conectados, enviar status a este port específico
+        // (necesario para ventanas popup que se conectan después)
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          port.postMessage({
+            type: 'status',
+            isConnected: true,
+            reconnectAttempts: 0,
+            activePorts: ports.size,
+          });
+          return;
+        }
+
         // Cerrar WS anterior roto (CONNECTING, CLOSING, etc.)
         if (ws && ws.readyState !== WebSocket.OPEN) {
           try { ws.onclose = null; ws.onerror = null; ws.close(); } catch(e) {}

@@ -21,6 +21,7 @@ export interface NewsWindowData {
   apiBaseUrl: string;
   ticker?: string;
   existingArticles?: any[]; // Pass existing articles from store
+  token?: string; // JWT token for WebSocket authentication
 }
 
 export async function openNewsWindow(

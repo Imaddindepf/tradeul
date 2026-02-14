@@ -92,6 +92,7 @@ class ScannerTicker(BaseModel):
     market_cap: Optional[int] = Field(None, description="Market capitalization")
     
     # Fundamental data
+    security_type: Optional[str] = Field(None, description="Security type (CS, ETF, PFD, WARRANT)")
     sector: Optional[str] = Field(None, description="Sector")
     industry: Optional[str] = Field(None, description="Industry")
     exchange: Optional[str] = Field(None, description="Exchange")
@@ -128,6 +129,11 @@ class ScannerTicker(BaseModel):
     ema_9: Optional[float] = Field(None, description="EMA(9) on 1-minute closes")
     ema_20: Optional[float] = Field(None, description="EMA(20) on 1-minute closes")
     ema_50: Optional[float] = Field(None, description="EMA(50) on 1-minute closes")
+    sma_5: Optional[float] = Field(None, description="SMA(5) on 1-minute closes")
+    sma_8: Optional[float] = Field(None, description="SMA(8) on 1-minute closes")
+    sma_20: Optional[float] = Field(None, description="SMA(20) on 1-minute closes")
+    sma_50: Optional[float] = Field(None, description="SMA(50) on 1-minute closes")
+    sma_200: Optional[float] = Field(None, description="SMA(200) on 1-minute closes")
     macd_line: Optional[float] = Field(None, description="MACD line (EMA12 - EMA26)")
     macd_signal: Optional[float] = Field(None, description="MACD signal line (EMA9 of MACD)")
     macd_hist: Optional[float] = Field(None, description="MACD histogram (MACD - Signal)")
@@ -139,6 +145,51 @@ class ScannerTicker(BaseModel):
     stoch_d: Optional[float] = Field(None, description="Stochastic %D(14,3,3)")
     chg_60min: Optional[float] = Field(None, description="Price change % in last 60 minutes")
     vol_60min: Optional[int] = Field(None, description="Volume traded in last 60 minutes")
+    
+    # Daily Indicators (from screener / enriched cache)
+    daily_sma_20: Optional[float] = Field(None, description="20-day SMA")
+    daily_sma_50: Optional[float] = Field(None, description="50-day SMA")
+    daily_sma_200: Optional[float] = Field(None, description="200-day SMA")
+    daily_rsi: Optional[float] = Field(None, description="Daily RSI(14)")
+    daily_adx_14: Optional[float] = Field(None, description="Daily ADX(14)")
+    daily_atr_percent: Optional[float] = Field(None, description="Daily ATR as % of price")
+    daily_bb_position: Optional[float] = Field(None, description="Position in daily Bollinger Bands (0-100)")
+    
+    # 52-Week data
+    high_52w: Optional[float] = Field(None, description="52-week high price")
+    low_52w: Optional[float] = Field(None, description="52-week low price")
+    from_52w_high: Optional[float] = Field(None, description="% distance from 52-week high")
+    from_52w_low: Optional[float] = Field(None, description="% distance from 52-week low")
+    
+    # Multi-day changes (from screener / enriched cache)
+    change_1d: Optional[float] = Field(None, description="1-day price change %")
+    change_3d: Optional[float] = Field(None, description="3-day price change %")
+    change_5d: Optional[float] = Field(None, description="5-day price change %")
+    change_10d: Optional[float] = Field(None, description="10-day price change %")
+    change_20d: Optional[float] = Field(None, description="20-day price change %")
+    
+    # Average volumes (extended)
+    avg_volume_20d: Optional[int] = Field(None, description="20-day average daily volume")
+    prev_day_volume: Optional[int] = Field(None, description="Previous day total volume")
+    
+    # Distance metrics (% from indicators)
+    dist_from_vwap: Optional[float] = Field(None, description="% distance from VWAP")
+    dist_sma_5: Optional[float] = Field(None, description="% distance from SMA(5)")
+    dist_sma_8: Optional[float] = Field(None, description="% distance from SMA(8)")
+    dist_sma_20: Optional[float] = Field(None, description="% distance from SMA(20)")
+    dist_sma_50: Optional[float] = Field(None, description="% distance from SMA(50)")
+    dist_sma_200: Optional[float] = Field(None, description="% distance from SMA(200)")
+    dist_daily_sma_20: Optional[float] = Field(None, description="% distance from daily SMA(20)")
+    dist_daily_sma_50: Optional[float] = Field(None, description="% distance from daily SMA(50)")
+    
+    # Derived / computed fields
+    todays_range: Optional[float] = Field(None, description="Today's range (high - low) in $")
+    todays_range_pct: Optional[float] = Field(None, description="Today's range as % of price")
+    float_turnover: Optional[float] = Field(None, description="Volume / float shares ratio")
+    pos_in_range: Optional[float] = Field(None, description="Position in day range (0-100%)")
+    below_high: Optional[float] = Field(None, description="$ below day high")
+    above_low: Optional[float] = Field(None, description="$ above day low")
+    pos_of_open: Optional[float] = Field(None, description="Open position in day range (0-100%)")
     
     # Session context
     session: MarketSession = Field(..., description="Current market session")

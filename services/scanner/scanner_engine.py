@@ -190,11 +190,10 @@ class ScannerEngine:
             logger.info(f"Processing {len(enriched_snapshots)} enriched snapshots")
             
             # OPTIMIZADO: Enriquecer + Filtrar + Score en UN SOLO bucle
-            scored_tickers = await self._process_snapshots_optimized(enriched_snapshots)
+            all_valid_tickers = await self._process_snapshots_optimized(enriched_snapshots)
             
-            # Limit to max filtered tickers
-            if len(scored_tickers) > settings.max_filtered_tickers:
-                scored_tickers = scored_tickers[:settings.max_filtered_tickers]
+            # Recortar para categorías del sistema (top N por score)
+            scored_tickers = all_valid_tickers[:settings.max_filtered_tickers] if len(all_valid_tickers) > settings.max_filtered_tickers else all_valid_tickers
             
             # Guardar tickers filtrados en cache
             if scored_tickers:
@@ -205,8 +204,8 @@ class ScannerEngine:
                 # 2. Cache en Redis (persistente, TTL 60 seg)
                 await self._save_filtered_tickers_to_cache(scored_tickers)
                 
-                # 3. Categorizar (usa tickers en memoria)
-                await self.categorize_filtered_tickers(scored_tickers)
+                # 3. Categorizar sistema (top N) + User scans (universo completo)
+                await self.categorize_filtered_tickers(scored_tickers, all_valid_tickers)
                 
                 # 4. AUTO-SUSCRIPCIÓN a Polygon WS
                 await self._publish_filtered_tickers_for_subscription(scored_tickers)
@@ -304,32 +303,10 @@ class ScannerEngine:
                     snapshot = PolygonSnapshot(**ticker_data)
                     rvol = ticker_data.get('rvol')
                     
-                    atr_data = {
-                        'atr': ticker_data.get('atr'),
-                        'atr_percent': ticker_data.get('atr_percent'),
-                        'intraday_high': ticker_data.get('intraday_high'),
-                        'intraday_low': ticker_data.get('intraday_low'),
-                        'vwap': ticker_data.get('vwap'),
-                        'vol_1min': ticker_data.get('vol_1min'),
-                        'vol_5min': ticker_data.get('vol_5min'),
-                        'vol_10min': ticker_data.get('vol_10min'),
-                        'vol_15min': ticker_data.get('vol_15min'),
-                        'vol_30min': ticker_data.get('vol_30min'),
-                        'chg_1min': ticker_data.get('chg_1min'),
-                        'chg_5min': ticker_data.get('chg_5min'),
-                        'chg_10min': ticker_data.get('chg_10min'),
-                        'chg_15min': ticker_data.get('chg_15min'),
-                        'chg_30min': ticker_data.get('chg_30min'),
-                        'trades_today': ticker_data.get('trades_today'),
-                        'avg_trades_5d': ticker_data.get('avg_trades_5d'),
-                        'trades_z_score': ticker_data.get('trades_z_score'),
-                        'is_trade_anomaly': ticker_data.get('is_trade_anomaly'),
-                        # Bid/Ask flattened from lastQuote by enrichment pipeline
-                        'bid': ticker_data.get('bid'),
-                        'ask': ticker_data.get('ask'),
-                        'bid_size': ticker_data.get('bid_size'),
-                        'ask_size': ticker_data.get('ask_size'),
-                    }
+                    # Pasar todo el dict enriched como atr_data
+                    # Incluye: ATR, volumes, changes, daily indicators, 52-week,
+                    # multi-day changes, distances, bid/ask, etc.
+                    atr_data = ticker_data
                     
                     enriched_snapshots.append((snapshot, rvol, atr_data))
                     parsed_count += 1
@@ -813,6 +790,7 @@ class ScannerEngine:
                 float_rotation=round((volume_today / metadata.free_float) * 100, 2) if volume_today and metadata.free_float and metadata.free_float > 0 else None,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
+                security_type=atr_data.get('security_type') if atr_data else None,
                 sector=metadata.sector,
                 industry=metadata.industry,
                 exchange=metadata.exchange,
@@ -825,6 +803,66 @@ class ScannerEngine:
                 price_from_low=price_from_low,
                 price_from_intraday_high=price_from_intraday_high,
                 price_from_intraday_low=price_from_intraday_low,
+                # Streaming Technical Indicators (from BarEngine via enriched cache)
+                rsi_14=atr_data.get('rsi_14') if atr_data else None,
+                ema_9=atr_data.get('ema_9') if atr_data else None,
+                ema_20=atr_data.get('ema_20') if atr_data else None,
+                ema_50=atr_data.get('ema_50') if atr_data else None,
+                sma_5=atr_data.get('sma_5') if atr_data else None,
+                sma_8=atr_data.get('sma_8') if atr_data else None,
+                sma_20=atr_data.get('sma_20') if atr_data else None,
+                sma_50=atr_data.get('sma_50') if atr_data else None,
+                sma_200=atr_data.get('sma_200') if atr_data else None,
+                macd_line=atr_data.get('macd_line') if atr_data else None,
+                macd_signal=atr_data.get('macd_signal') if atr_data else None,
+                macd_hist=atr_data.get('macd_hist') if atr_data else None,
+                bb_upper=atr_data.get('bb_upper') if atr_data else None,
+                bb_mid=atr_data.get('bb_mid') if atr_data else None,
+                bb_lower=atr_data.get('bb_lower') if atr_data else None,
+                adx_14=atr_data.get('adx_14') if atr_data else None,
+                stoch_k=atr_data.get('stoch_k') if atr_data else None,
+                stoch_d=atr_data.get('stoch_d') if atr_data else None,
+                chg_60min=atr_data.get('chg_60min') if atr_data else None,
+                vol_60min=int(atr_data.get('vol_60min')) if atr_data and atr_data.get('vol_60min') is not None else None,
+                # Daily indicators (from screener via enriched cache)
+                daily_sma_20=atr_data.get('daily_sma_20') if atr_data else None,
+                daily_sma_50=atr_data.get('daily_sma_50') if atr_data else None,
+                daily_sma_200=atr_data.get('daily_sma_200') if atr_data else None,
+                daily_rsi=atr_data.get('daily_rsi') if atr_data else None,
+                daily_adx_14=atr_data.get('daily_adx_14') if atr_data else None,
+                daily_atr_percent=atr_data.get('daily_atr_percent') if atr_data else None,
+                daily_bb_position=atr_data.get('daily_bb_position') if atr_data else None,
+                # 52-week data
+                high_52w=atr_data.get('high_52w') if atr_data else None,
+                low_52w=atr_data.get('low_52w') if atr_data else None,
+                from_52w_high=atr_data.get('from_52w_high') if atr_data else None,
+                from_52w_low=atr_data.get('from_52w_low') if atr_data else None,
+                # Multi-day changes
+                change_1d=atr_data.get('change_1d') if atr_data else None,
+                change_3d=atr_data.get('change_3d') if atr_data else None,
+                change_5d=atr_data.get('change_5d') if atr_data else None,
+                change_10d=atr_data.get('change_10d') if atr_data else None,
+                change_20d=atr_data.get('change_20d') if atr_data else None,
+                # Average volumes (extended)
+                avg_volume_20d=int(atr_data.get('avg_volume_20d')) if atr_data and atr_data.get('avg_volume_20d') is not None else None,
+                prev_day_volume=int(atr_data.get('prev_day_volume')) if atr_data and atr_data.get('prev_day_volume') is not None else None,
+                # Distance metrics
+                dist_from_vwap=atr_data.get('dist_from_vwap') if atr_data else None,
+                dist_sma_5=atr_data.get('dist_sma_5') if atr_data else None,
+                dist_sma_8=atr_data.get('dist_sma_8') if atr_data else None,
+                dist_sma_20=atr_data.get('dist_sma_20') if atr_data else None,
+                dist_sma_50=atr_data.get('dist_sma_50') if atr_data else None,
+                dist_sma_200=atr_data.get('dist_sma_200') if atr_data else None,
+                dist_daily_sma_20=atr_data.get('dist_daily_sma_20') if atr_data else None,
+                dist_daily_sma_50=atr_data.get('dist_daily_sma_50') if atr_data else None,
+                # Derived fields
+                todays_range=atr_data.get('todays_range') if atr_data else None,
+                todays_range_pct=atr_data.get('todays_range_pct') if atr_data else None,
+                float_turnover=atr_data.get('float_turnover') if atr_data else None,
+                pos_in_range=atr_data.get('pos_in_range') if atr_data else None,
+                below_high=atr_data.get('below_high') if atr_data else None,
+                above_low=atr_data.get('above_low') if atr_data else None,
+                pos_of_open=atr_data.get('pos_of_open') if atr_data else None,
                 # Context
                 session=self.current_session,
                 score=0.0,  # Will be calculated later
@@ -996,6 +1034,7 @@ class ScannerEngine:
                 free_float_percent=metadata.free_float_percent,
                 shares_outstanding=metadata.shares_outstanding,
                 market_cap=metadata.market_cap,
+                security_type=atr_data.get('security_type') if atr_data else None,
                 sector=metadata.sector,
                 industry=metadata.industry,
                 exchange=metadata.exchange,
@@ -1012,6 +1051,67 @@ class ScannerEngine:
                 premarket_change_percent=premarket_change_percent,
                 postmarket_change_percent=postmarket_change_percent,
                 postmarket_volume=postmarket_volume,
+                # Streaming Technical Indicators (from BarEngine via enriched cache)
+                rsi_14=atr_data.get('rsi_14') if atr_data else None,
+                ema_9=atr_data.get('ema_9') if atr_data else None,
+                ema_20=atr_data.get('ema_20') if atr_data else None,
+                ema_50=atr_data.get('ema_50') if atr_data else None,
+                sma_5=atr_data.get('sma_5') if atr_data else None,
+                sma_8=atr_data.get('sma_8') if atr_data else None,
+                sma_20=atr_data.get('sma_20') if atr_data else None,
+                sma_50=atr_data.get('sma_50') if atr_data else None,
+                sma_200=atr_data.get('sma_200') if atr_data else None,
+                macd_line=atr_data.get('macd_line') if atr_data else None,
+                macd_signal=atr_data.get('macd_signal') if atr_data else None,
+                macd_hist=atr_data.get('macd_hist') if atr_data else None,
+                bb_upper=atr_data.get('bb_upper') if atr_data else None,
+                bb_mid=atr_data.get('bb_mid') if atr_data else None,
+                bb_lower=atr_data.get('bb_lower') if atr_data else None,
+                adx_14=atr_data.get('adx_14') if atr_data else None,
+                stoch_k=atr_data.get('stoch_k') if atr_data else None,
+                stoch_d=atr_data.get('stoch_d') if atr_data else None,
+                chg_60min=atr_data.get('chg_60min') if atr_data else None,
+                vol_60min=int(atr_data.get('vol_60min')) if atr_data and atr_data.get('vol_60min') is not None else None,
+                # Daily indicators (from screener via enriched cache)
+                daily_sma_20=atr_data.get('daily_sma_20') if atr_data else None,
+                daily_sma_50=atr_data.get('daily_sma_50') if atr_data else None,
+                daily_sma_200=atr_data.get('daily_sma_200') if atr_data else None,
+                daily_rsi=atr_data.get('daily_rsi') if atr_data else None,
+                daily_adx_14=atr_data.get('daily_adx_14') if atr_data else None,
+                daily_atr_percent=atr_data.get('daily_atr_percent') if atr_data else None,
+                daily_bb_position=atr_data.get('daily_bb_position') if atr_data else None,
+                # 52-week data
+                high_52w=atr_data.get('high_52w') if atr_data else None,
+                low_52w=atr_data.get('low_52w') if atr_data else None,
+                from_52w_high=atr_data.get('from_52w_high') if atr_data else None,
+                from_52w_low=atr_data.get('from_52w_low') if atr_data else None,
+                # Multi-day changes
+                change_1d=atr_data.get('change_1d') if atr_data else None,
+                change_3d=atr_data.get('change_3d') if atr_data else None,
+                change_5d=atr_data.get('change_5d') if atr_data else None,
+                change_10d=atr_data.get('change_10d') if atr_data else None,
+                change_20d=atr_data.get('change_20d') if atr_data else None,
+                # Average volumes (extended)
+                avg_volume_20d=int(atr_data.get('avg_volume_20d')) if atr_data and atr_data.get('avg_volume_20d') is not None else None,
+                prev_day_volume=int(atr_data.get('prev_day_volume')) if atr_data and atr_data.get('prev_day_volume') is not None else None,
+                # Distance metrics
+                dist_from_vwap=atr_data.get('dist_from_vwap') if atr_data else None,
+                dist_sma_5=atr_data.get('dist_sma_5') if atr_data else None,
+                dist_sma_8=atr_data.get('dist_sma_8') if atr_data else None,
+                dist_sma_20=atr_data.get('dist_sma_20') if atr_data else None,
+                dist_sma_50=atr_data.get('dist_sma_50') if atr_data else None,
+                dist_sma_200=atr_data.get('dist_sma_200') if atr_data else None,
+                dist_daily_sma_20=atr_data.get('dist_daily_sma_20') if atr_data else None,
+                dist_daily_sma_50=atr_data.get('dist_daily_sma_50') if atr_data else None,
+                # Derived fields
+                todays_range=atr_data.get('todays_range') if atr_data else None,
+                todays_range_pct=atr_data.get('todays_range_pct') if atr_data else None,
+                float_turnover=atr_data.get('float_turnover') if atr_data else None,
+                pos_in_range=atr_data.get('pos_in_range') if atr_data else None,
+                below_high=atr_data.get('below_high') if atr_data else None,
+                above_low=atr_data.get('above_low') if atr_data else None,
+                pos_of_open=atr_data.get('pos_of_open') if atr_data else None,
+                # Session
                 session=self.current_session,
                 score=0.0,
                 filters_matched=[]
@@ -1248,6 +1348,12 @@ class ScannerEngine:
                 if ticker.free_float is None or ticker.free_float > params.max_float:
                     return False
             
+            # Security Type filter
+            security_type_filter = getattr(params, 'security_type', None)
+            if security_type_filter and isinstance(security_type_filter, str) and security_type_filter.strip():
+                if ticker.security_type != security_type_filter.strip():
+                    return False
+            
             # Sector/Industry filters
             if params.sectors:
                 if ticker.sector not in params.sectors:
@@ -1440,13 +1546,17 @@ class ScannerEngine:
     async def categorize_filtered_tickers(
         self,
         tickers: List[ScannerTicker],
+        full_universe: Optional[List[ScannerTicker]] = None,
         emit_deltas: bool = True
     ) -> Dict[str, List[ScannerTicker]]:
         """
-        Categoriza tickers filtrados en múltiples scanners
+        Categoriza tickers filtrados en múltiples scanners.
         
         Args:
-            tickers: Tickers filtrados
+            tickers: Tickers filtrados (top N para categorías del sistema)
+            full_universe: Universo completo de tickers válidos (para user scans).
+                           Si None, usa tickers. Esto permite que los user scans
+                           evalúen contra TODOS los tickers, no solo el top N.
             emit_deltas: Si True, emite deltas incrementales
         
         Returns:
@@ -1500,9 +1610,13 @@ class ScannerEngine:
             # Publicar tickers para auto-suscripción en Polygon WS
             await self._publish_filtered_tickers_for_subscription(tickers)
             
-            # Procesar scans de usuarios (RETE)
+            # Procesar scans de usuarios (RETE) contra universo completo
+            # Los user scans usan full_universe (todos los tickers válidos, sin recorte)
+            # para que filtros específicos del usuario no pierdan tickers que estén
+            # fuera del top N por score pero cumplan sus criterios
             if self._rete_enabled:
-                await self._process_user_scans(tickers)
+                user_scan_universe = full_universe if full_universe is not None else tickers
+                await self._process_user_scans(user_scan_universe)
             
             # Actualizar cache
             self.last_categories = categories

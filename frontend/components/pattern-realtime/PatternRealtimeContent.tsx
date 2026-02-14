@@ -24,6 +24,7 @@ import {
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
 import { usePatternRealtimeWS, PredictionResult, PriceUpdate } from '@/hooks/usePatternRealtimeWS';
 import { cn } from '@/lib/utils';
+import { useWindowState } from '@/contexts/FloatingWindowContext';
 
 // Real-time price update tracking
 interface RealtimePriceData {
@@ -112,32 +113,45 @@ interface PatternRealtimeContentProps {
     initialSymbols?: string[];
 }
 
+type PatternRealtimeWindowState = {
+    symbolsText?: string;
+    k?: number;
+    horizon?: number;
+    alpha?: number;
+    weighting?: 'softmax' | 'uniform';
+    excludeSelf?: boolean;
+    sortBy?: SortField;
+    direction?: DirectionFilter;
+    showTopN?: number;
+}
+
 export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeContentProps) {
     const font = useUserPreferencesStore(selectFont);
+    const { state: windowState, updateState: updateWindowState } = useWindowState<PatternRealtimeWindowState>();
 
     // ========================================================================
-    // State - Parameters
+    // State - Parameters (restored from window state)
     // ========================================================================
     const [symbolsText, setSymbolsText] = useState(
-        initialSymbols?.join(' ') || DEFAULT_SYMBOLS
+        windowState.symbolsText || initialSymbols?.join(' ') || DEFAULT_SYMBOLS
     );
     const [timestamp, setTimestamp] = useState('');
     const [timezone, setTimezone] = useState<'ET' | 'UTC'>('ET');
-    const [k, setK] = useState(40);
+    const [k, setK] = useState(windowState.k ?? 40);
     const [extend, setExtend] = useState(45);
-    const [horizon, setHorizon] = useState(10);
-    const [weighting, setWeighting] = useState<'softmax' | 'uniform'>('softmax');
-    const [alpha, setAlpha] = useState(6);
-    const [excludeSelf, setExcludeSelf] = useState(true);
+    const [horizon, setHorizon] = useState(windowState.horizon ?? 10);
+    const [weighting, setWeighting] = useState<'softmax' | 'uniform'>(windowState.weighting || 'softmax');
+    const [alpha, setAlpha] = useState(windowState.alpha ?? 6);
+    const [excludeSelf, setExcludeSelf] = useState(windowState.excludeSelf ?? true);
     const [trimLo, setTrimLo] = useState(0);
     const [trimHi, setTrimHi] = useState(0);
     const [includeWeights, setIncludeWeights] = useState(false);
     const [useRealtime, setUseRealtime] = useState(true);
 
-    // State - Filters
-    const [sortBy, setSortBy] = useState<SortField>('edge');
-    const [direction, setDirection] = useState<DirectionFilter>('ALL');
-    const [showTopN, setShowTopN] = useState(50);
+    // State - Filters (restored from window state)
+    const [sortBy, setSortBy] = useState<SortField>(windowState.sortBy || 'edge');
+    const [direction, setDirection] = useState<DirectionFilter>(windowState.direction || 'ALL');
+    const [showTopN, setShowTopN] = useState(windowState.showTopN ?? 50);
     const [savedRuns, setSavedRuns] = useState<SavedRun[]>([]);
     const [selectedRun, setSelectedRun] = useState<string>('');
 
@@ -277,6 +291,21 @@ export function PatternRealtimeContent({ initialSymbols }: PatternRealtimeConten
         const interval = setInterval(updateTime, 1000);
         return () => clearInterval(interval);
     }, []);
+
+    // Persist important state changes
+    useEffect(() => {
+        updateWindowState({
+            symbolsText,
+            k,
+            horizon,
+            alpha,
+            weighting,
+            excludeSelf,
+            sortBy,
+            direction,
+            showTopN,
+        });
+    }, [symbolsText, k, horizon, alpha, weighting, excludeSelf, sortBy, direction, showTopN, updateWindowState]);
 
     const startScan = useCallback(async () => {
         if (symbols.length === 0) return;
