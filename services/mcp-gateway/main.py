@@ -71,18 +71,19 @@ from servers.patterns import mcp as patterns_mcp
 from servers.predictions import mcp as predictions_mcp
 
 # Mount each domain server with a prefix for namespacing
-gateway.mount("scanner", scanner_mcp)
-gateway.mount("events", events_mcp)
-gateway.mount("news", news_mcp)
-gateway.mount("earnings", earnings_mcp)
-gateway.mount("sec", sec_mcp)
-gateway.mount("financials", financials_mcp)
-gateway.mount("dilution", dilution_mcp)
-gateway.mount("screener", screener_mcp)
-gateway.mount("historical", historical_mcp)
-gateway.mount("analytics", analytics_mcp)
-gateway.mount("patterns", patterns_mcp)
-gateway.mount("predictions", predictions_mcp)
+# FastMCP mount signature: mount(server, prefix=)
+gateway.mount(scanner_mcp, prefix="scanner")
+gateway.mount(events_mcp, prefix="events")
+gateway.mount(news_mcp, prefix="news")
+gateway.mount(earnings_mcp, prefix="earnings")
+gateway.mount(sec_mcp, prefix="sec")
+gateway.mount(financials_mcp, prefix="financials")
+gateway.mount(dilution_mcp, prefix="dilution")
+gateway.mount(screener_mcp, prefix="screener")
+gateway.mount(historical_mcp, prefix="historical")
+gateway.mount(analytics_mcp, prefix="analytics")
+gateway.mount(patterns_mcp, prefix="patterns")
+gateway.mount(predictions_mcp, prefix="predictions")
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -176,18 +177,106 @@ async def cleanup():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Entry point
+# REST API for direct tool invocation (used by AI Agent V4)
+# Wraps FastMCP tools in a simple JSON POST endpoint.
+# ──────────────────────────────────────────────────────────────────────
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+import orjson
+import traceback
+
+rest_app = FastAPI(title="TradeUL MCP Gateway REST API")
+
+
+@rest_app.get("/health")
+async def health():
+    return {"status": "healthy", "service": "mcp-gateway"}
+
+
+@rest_app.get("/api/tools")
+async def list_tools():
+    """List all available MCP tools."""
+    tools_dict = await gateway.get_tools()
+    tools = []
+    for name, tool in tools_dict.items():
+        tools.append({
+            "name": name,
+            "description": getattr(tool, "description", ""),
+        })
+    return {"tools": tools, "total": len(tools)}
+
+
+@rest_app.post("/api/tool/{tool_name}")
+async def call_tool(tool_name: str, request: Request):
+    """Invoke an MCP tool directly via REST POST.
+
+    Body: JSON object with tool arguments.
+    Returns: {"result": ...} or {"error": "..."}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    try:
+        tool = await gateway.get_tool(tool_name)
+        result = await tool.run(body)
+
+        # Parse ToolResult into JSON-serializable output
+        # ToolResult has .content which is a list of content parts
+        if hasattr(result, 'content') and isinstance(result.content, list):
+            parts = []
+            for item in result.content:
+                if hasattr(item, 'text'):
+                    try:
+                        parts.append(orjson.loads(item.text))
+                    except Exception:
+                        parts.append(item.text)
+                elif hasattr(item, 'data'):
+                    parts.append(item.data)
+                else:
+                    parts.append(str(item))
+            return JSONResponse(content={"result": parts[0] if len(parts) == 1 else parts})
+        elif isinstance(result, str):
+            try:
+                return JSONResponse(content={"result": orjson.loads(result)})
+            except Exception:
+                return JSONResponse(content={"result": result})
+        else:
+            return JSONResponse(content={"result": str(result)})
+    except Exception as e:
+        tb = traceback.format_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "traceback": tb}
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Entry point - Mount both MCP + REST on the same Uvicorn server
 # ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
+    from starlette.routing import Mount
+    from starlette.applications import Starlette
 
     print(f"Starting TradeUL MCP Gateway on {config.mcp_host}:{config.mcp_port}")
     print(f"Redis: {config.redis_host}:{config.redis_port}")
     print(f"Domains: 12 | Tools: ~50")
 
-    # Run as streamable HTTP server for network access
-    gateway.run(
-        transport="streamable-http",
+    # Get the ASGI app from FastMCP for the /mcp path
+    mcp_app = gateway.http_app(path="/mcp")
+
+    # Combine: REST API on root, MCP on /mcp
+    combined = Starlette(
+        routes=[
+            Mount("/mcp", app=mcp_app),
+            Mount("/", app=rest_app),
+        ],
+    )
+
+    uvicorn.run(
+        combined,
         host=config.mcp_host,
         port=config.mcp_port,
     )

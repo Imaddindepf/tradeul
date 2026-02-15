@@ -37,36 +37,39 @@ Convert the user's natural-language screening request into a JSON array of filte
 
 Each filter object has exactly three keys:
   - "field"    : one of the available fields listed below
-  - "operator" : one of "gt", "gte", "lt", "lte", "eq", "neq", "between", "in"
+  - "operator" : one of ">", "<", ">=", "<=", "=", "!=", "between", "in"
   - "value"    : number, string, [min, max] for "between", or [val1, val2, ...] for "in"
 
 AVAILABLE FIELDS (partial list — use the most appropriate):
-  price, market_cap, volume, avg_volume_10d, relative_volume,
-  change_pct, gap_pct, float_shares, short_interest, short_ratio,
+  close, market_cap, volume, avg_volume_10d, relative_volume,
+  change_pct, gap_pct, float_shares,
   rsi_14, macd_signal, sma_20, sma_50, sma_200, ema_9, ema_21,
-  atr_14, beta, pe_ratio, pb_ratio, ps_ratio, dividend_yield,
-  revenue_growth, earnings_growth, profit_margin, debt_to_equity,
-  current_ratio, sector, industry, exchange, country
+  atr_14, bb_position, adx_14, stoch_k,
+  change_1d, change_3d, change_5d, change_10d, change_20d,
+  high_52w, low_52w, from_52w_high, from_52w_low,
+  sector, industry
 
 RULES:
 1. Output ONLY the JSON array — no markdown, no explanation.
-2. Use sensible defaults when the user is vague (e.g. "penny stocks" → price lt 5).
+2. Use sensible defaults when the user is vague (e.g. "penny stocks" → close < 5).
 3. Translate Spanish / English requests equally.
 4. Limit to 8 filters maximum; pick the most impactful ones.
 5. For "between", value must be [min, max]. For "in", value must be a list.
+6. Use "close" not "price" as the price field name.
+7. Use standard comparison operators: ">", "<", ">=", "<=", "=", "!="
 
 EXAMPLES:
 User: "small cap tech stocks under $10 with high volume"
 [
   {"field": "market_cap", "operator": "between", "value": [300000000, 2000000000]},
-  {"field": "sector", "operator": "eq", "value": "Technology"},
-  {"field": "price", "operator": "lt", "value": 10},
-  {"field": "relative_volume", "operator": "gt", "value": 2.0}
+  {"field": "sector", "operator": "=", "value": "Technology"},
+  {"field": "close", "operator": "<", "value": 10},
+  {"field": "relative_volume", "operator": ">", "value": 2.0}
 ]
 
 User: "oversold stocks with RSI below 30"
 [
-  {"field": "rsi_14", "operator": "lt", "value": 30}
+  {"field": "rsi_14", "operator": "<", "value": 30}
 ]
 """
 
@@ -118,11 +121,17 @@ async def screener_node(state: dict) -> dict:
     results["filters_generated"] = filters
 
     # ── Step 2: Call screener MCP tool ───────────────────────────
+    # Note: the MCP tool uses 'sort_order' (not 'sort_dir')
     try:
         screen_results = await call_mcp_tool(
             "screener",
             "run_screen",
-            {"filters": filters, "limit": 25, "sort_by": "relative_volume", "sort_dir": "desc"},
+            {
+                "filters": filters,
+                "limit": 50,
+                "sort_by": "relative_volume",
+                "sort_order": "desc",
+            },
         )
         results["screen_results"] = screen_results
     except Exception as exc:

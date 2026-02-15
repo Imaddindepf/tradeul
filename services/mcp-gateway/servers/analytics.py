@@ -3,7 +3,7 @@ MCP Server: Analytics
 Real-time analytics pipeline data - RVOL, VWAP, volume/price windows, technical indicators.
 """
 from fastmcp import FastMCP
-from clients.redis_client import get_redis, redis_hgetall_parsed
+from clients.redis_client import get_redis, redis_hgetall_parsed, redis_hget_enriched
 from clients.http_client import service_get
 from config import config
 from typing import Optional
@@ -54,11 +54,9 @@ async def get_rvol_batch(symbols: list[str]) -> dict:
 async def get_volume_windows(symbol: str) -> dict:
     """Get volume accumulation over multiple time windows for a ticker.
     Returns: vol_1min, vol_5min, vol_10min, vol_15min, vol_30min, vol_60min."""
-    r = await get_redis()
-    raw = await r.hget("snapshot:enriched:latest", symbol.upper())
-    if not raw:
+    data = await redis_hget_enriched(symbol)
+    if not data:
         return {"error": f"No data for {symbol}"}
-    data = orjson.loads(raw)
     return {
         "symbol": symbol,
         "vol_1min": data.get("vol_1min"),
@@ -75,11 +73,9 @@ async def get_volume_windows(symbol: str) -> dict:
 async def get_price_windows(symbol: str) -> dict:
     """Get price change over multiple time windows for a ticker.
     Returns: chg_1min, chg_5min, chg_10min, chg_15min, chg_30min, chg_60min."""
-    r = await get_redis()
-    raw = await r.hget("snapshot:enriched:latest", symbol.upper())
-    if not raw:
+    data = await redis_hget_enriched(symbol)
+    if not data:
         return {"error": f"No data for {symbol}"}
-    data = orjson.loads(raw)
     return {
         "symbol": symbol,
         "chg_1min": data.get("chg_1min"),
@@ -97,11 +93,9 @@ async def get_technical_snapshot(symbol: str) -> dict:
     """Get all technical indicators for a ticker from the enriched snapshot.
     Returns: RSI, MACD, Bollinger Bands, SMA, EMA, ADX, Stochastic, VWAP,
     ATR, and derived metrics like distance from SMAs, position in range, etc."""
-    r = await get_redis()
-    raw = await r.hget("snapshot:enriched:latest", symbol.upper())
-    if not raw:
+    data = await redis_hget_enriched(symbol)
+    if not data:
         return {"error": f"No data for {symbol}"}
-    data = orjson.loads(raw)
 
     technicals = {
         "symbol": symbol,

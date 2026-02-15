@@ -5,7 +5,7 @@ START -> supervisor -> [specialists] -> supervisor -> synthesizer -> END
 from __future__ import annotations
 import os
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.memory import MemorySaver
 from graph.state import AgentState
 from agents.supervisor import supervisor_node, route_after_supervisor
 from agents.synthesizer import synthesizer_node
@@ -17,9 +17,10 @@ from agents.code_exec import code_exec_node
 from agents.screener import screener_node
 
 
-def build_graph(redis_url: str = None) -> StateGraph:
-    redis_url = redis_url or os.getenv("REDIS_URL", "redis://redis:6379/5")
-    checkpointer = RedisSaver(redis_url)
+def build_graph() -> StateGraph:
+    # MemorySaver provides in-process checkpointing (thread-safe, no external deps).
+    # For production persistence, switch to RedisSaver with Redis Stack (RediSearch module).
+    checkpointer = MemorySaver()
     graph = StateGraph(AgentState)
 
     graph.add_node("supervisor", supervisor_node)

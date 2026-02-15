@@ -16,8 +16,9 @@ import {
   type NodeCategory,
   type CatalogNode,
 } from "../types"
+import type { LucideIcon } from "lucide-react"
 
-const ICON_MAP: Record<string, React.ComponentType<{ className?: string; size?: number }>> = {
+const ICON_MAP: Record<string, LucideIcon> = {
   TrendingUp, Newspaper, FileText, Search, Code, Filter,
   BarChart3, Database, Rss, Zap, Receipt, AlertTriangle,
   SlidersHorizontal, Calendar, GitBranch, GitFork, GitMerge,
@@ -25,7 +26,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; size?: 
   Download,
 }
 
-function getIcon(name: string) {
+function getIcon(name: string): LucideIcon {
   return ICON_MAP[name] || HelpCircle
 }
 

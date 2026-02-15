@@ -45,27 +45,27 @@ export interface NodeResult {
 }
 
 export const CATEGORY_COLORS: Record<NodeCategory, { border: string; bg: string; text: string; dot: string }> = {
-  agent:   { border: 'border-blue-500',   bg: 'bg-blue-500/10',   text: 'text-blue-400',   dot: 'bg-blue-500'   },
-  tool:    { border: 'border-purple-500',  bg: 'bg-purple-500/10',  text: 'text-purple-400',  dot: 'bg-purple-500'  },
-  control: { border: 'border-amber-500',   bg: 'bg-amber-500/10',   text: 'text-amber-400',   dot: 'bg-amber-500'   },
+  agent: { border: 'border-blue-500', bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-500' },
+  tool: { border: 'border-purple-500', bg: 'bg-purple-500/10', text: 'text-purple-400', dot: 'bg-purple-500' },
+  control: { border: 'border-amber-500', bg: 'bg-amber-500/10', text: 'text-amber-400', dot: 'bg-amber-500' },
   trigger: { border: 'border-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-500' },
-  output:  { border: 'border-red-500',     bg: 'bg-red-500/10',     text: 'text-red-400',     dot: 'bg-red-500'     },
+  output: { border: 'border-red-500', bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-500' },
 }
 
 export const CATEGORY_HEX: Record<NodeCategory, string> = {
-  agent:   '#3b82f6',
-  tool:    '#a855f7',
+  agent: '#3b82f6',
+  tool: '#a855f7',
   control: '#f59e0b',
   trigger: '#10b981',
-  output:  '#ef4444',
+  output: '#ef4444',
 }
 
 export const CATEGORY_LABELS: Record<NodeCategory, string> = {
-  agent:   'Agents',
-  tool:    'Tools',
+  agent: 'Agents',
+  tool: 'Tools',
   control: 'Control Flow',
   trigger: 'Triggers',
-  output:  'Outputs',
+  output: 'Outputs',
 }
 
 // Node catalog - all available nodes organized by category

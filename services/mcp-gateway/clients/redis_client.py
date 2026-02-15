@@ -64,6 +64,23 @@ async def redis_zrevrange_parsed(key: str, start: int = 0, stop: int = -1) -> li
     return results
 
 
+async def redis_hget_enriched(symbol: str) -> Optional[dict]:
+    """Get enriched snapshot for a symbol with fallback to last_close.
+    During market hours uses 'snapshot:enriched:latest'.
+    Outside market hours falls back to 'snapshot:enriched:last_close'.
+    """
+    r = await get_redis()
+    raw = await r.hget("snapshot:enriched:latest", symbol.upper())
+    if not raw:
+        raw = await r.hget("snapshot:enriched:last_close", symbol.upper())
+    if not raw:
+        return None
+    try:
+        return orjson.loads(raw)
+    except Exception:
+        return None
+
+
 async def redis_xrevrange(stream: str, count: int = 100) -> list:
     r = await get_redis()
     entries = await r.xrevrange(stream, count=count)

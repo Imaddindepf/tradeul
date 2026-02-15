@@ -11,7 +11,7 @@ import { useCallback, useRef, useState } from "react"
 import { useWorkflowStore } from "@/stores/useWorkflowStore"
 import type { NodeResult } from "@/components/workflow-builder-v2/types"
 
-const WS_URL = "ws://localhost:8031/ws/chat/workflow"
+const WS_URL = process.env.NEXT_PUBLIC_AI_AGENT_V4_WS_URL || "wss://agent.tradeul.com/v4/ws/chat/workflow"
 
 interface WorkflowEvent {
   type: "node_started" | "node_completed" | "node_error" | "workflow_completed" | "workflow_error"

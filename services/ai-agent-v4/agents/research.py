@@ -14,27 +14,9 @@ import re
 import time
 from typing import Any
 
+from agents._ticker_utils import extract_tickers as _extract_tickers
+
 logger = logging.getLogger(__name__)
-
-# ── Ticker extraction (shared pattern) ───────────────────────────
-_TICKER_RE = re.compile(r'(?<!\w)\$?([A-Z]{1,5})(?:\s|$|[,;.!?\)])')
-
-_STOPWORDS = {
-    "I", "A", "AM", "PM", "US", "CEO", "FDA", "SEC", "IPO", "ETF",
-    "GDP", "CPI", "ATH", "DD", "EPS", "PE", "API", "AI", "IT", "IS",
-    "ARE", "THE", "AND", "FOR", "TOP", "ALL", "BUY", "GET", "HAS",
-    "NEW", "NOW", "HOW", "WHY", "UP", "DE", "LA", "EL", "EN", "ES",
-    "LOS", "LAS", "QUE", "POR", "MAS", "CON", "UNA", "DEL", "DIA",
-    "HOY", "LOW", "HIGH",
-}
-
-
-def _extract_tickers(query: str) -> list[str]:
-    """Extract probable stock tickers from a user query."""
-    explicit = re.findall(r'\$([A-Z]{1,5})\b', query.upper())
-    implicit = _TICKER_RE.findall(query.upper())
-    combined = list(dict.fromkeys(explicit + implicit))
-    return [t for t in combined if t not in _STOPWORDS]
 
 
 # ── Grok (XAI) research ─────────────────────────────────────────

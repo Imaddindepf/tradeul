@@ -871,7 +871,8 @@ services:
       - GOOGLE_API_KEY=${GEMINI_TRADEUL_AGENT}
       - XAI_API_KEY=${XAI_API_KEY:-}
       - MCP_GATEWAY_URL=http://mcp_gateway:8050
-      - REDIS_URL=redis://redis:6379/5
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /tmp/tradeul_sandbox:/tmp/sandbox_data

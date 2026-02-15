@@ -1,12 +1,12 @@
 """
 Financial Agent - SEC financials, dilution analysis, and risk assessment.
 
-MCP tools used:
-  - financials.get_financial_statements → XBRL-sourced income / balance / cash-flow
-  - dilution.get_dilution_profile       → dilution history & outstanding warrants
-  - dilution.get_risk_ratings           → proprietary dilution risk score
-  - dilution.get_cash_runway            → estimated months of cash remaining
-  - sec.get_recent_filings              → latest SEC filings (10-K, 10-Q, 8-K, S-1…)
+MCP tools used (parameter names MUST match exactly):
+  - financials.get_financial_statements(symbol, period, limit)
+  - dilution.get_dilution_profile(ticker)
+  - dilution.get_dilution_risk_ratings(ticker)   ← NOT "get_risk_ratings"
+  - dilution.get_cash_runway(ticker)
+  - sec.get_recent_filings(count, ticker)        ← uses 'count' NOT 'limit'
 """
 from __future__ import annotations
 import re
@@ -14,26 +14,7 @@ import time
 from typing import Any
 
 from agents._mcp_tools import call_mcp_tool
-
-
-# ── Ticker extraction ────────────────────────────────────────────
-_TICKER_RE = re.compile(r'(?<!\w)\$?([A-Z]{1,5})(?:\s|$|[,;.!?\)])')
-
-_STOPWORDS = {
-    "I", "A", "AM", "PM", "US", "CEO", "FDA", "SEC", "IPO", "ETF",
-    "GDP", "CPI", "ATH", "DD", "EPS", "PE", "API", "AI", "IT", "IS",
-    "ARE", "THE", "AND", "FOR", "TOP", "ALL", "BUY", "GET", "HAS",
-    "NEW", "NOW", "HOW", "WHY", "UP", "DE", "LA", "EL", "EN", "ES",
-    "LOS", "LAS", "QUE", "POR", "MAS", "CON", "UNA", "DEL", "DIA",
-    "HOY", "LOW", "HIGH",
-}
-
-
-def _extract_tickers(query: str) -> list[str]:
-    explicit = re.findall(r'\$([A-Z]{1,5})\b', query.upper())
-    implicit = _TICKER_RE.findall(query.upper())
-    combined = list(dict.fromkeys(explicit + implicit))
-    return [t for t in combined if t not in _STOPWORDS]
+from agents._ticker_utils import extract_tickers as _extract_tickers
 
 
 # ── Keyword detectors ────────────────────────────────────────────
@@ -93,11 +74,12 @@ async def financial_node(state: dict) -> dict:
         ticker_data: dict[str, Any] = {}
 
         # 1. Core financial statements (always fetched)
+        #    MCP param: symbol (NOT ticker), period, limit
         try:
             financials = await call_mcp_tool(
                 "financials",
                 "get_financial_statements",
-                {"ticker": ticker},
+                {"symbol": ticker},
             )
             ticker_data["financial_statements"] = financials
         except Exception as exc:
@@ -118,12 +100,12 @@ async def financial_node(state: dict) -> dict:
             try:
                 risk = await call_mcp_tool(
                     "dilution",
-                    "get_risk_ratings",
+                    "get_dilution_risk_ratings",
                     {"ticker": ticker},
                 )
                 ticker_data["dilution_risk"] = risk
             except Exception as exc:
-                errors.append(f"risk_ratings/{ticker}: {exc}")
+                errors.append(f"dilution_risk_ratings/{ticker}: {exc}")
 
             try:
                 runway = await call_mcp_tool(
@@ -136,12 +118,13 @@ async def financial_node(state: dict) -> dict:
                 errors.append(f"cash_runway/{ticker}: {exc}")
 
         # 3. SEC filings (if keywords detected)
+        #    MCP param: count (NOT limit), ticker
         if check_sec:
             try:
                 filings = await call_mcp_tool(
                     "sec",
                     "get_recent_filings",
-                    {"ticker": ticker, "limit": 10},
+                    {"ticker": ticker, "count": 10},
                 )
                 ticker_data["sec_filings"] = filings
             except Exception as exc:

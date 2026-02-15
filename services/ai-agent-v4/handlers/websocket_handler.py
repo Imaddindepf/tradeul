@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import traceback
 from typing import Any
@@ -15,6 +16,26 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
+
+
+# ── Language detection ──────────────────────────────────────────────
+_SPANISH_MARKERS = re.compile(
+    r'\b(?:de|del|la|el|los|las|que|por|para|con|una|como|más|hoy|'
+    r'dame|muestra|quiero|busca|analiza|cuáles|mejores|peores|'
+    r'acciones|mercado|ganancias|perdedoras|ganadoras|volumen|'
+    r'qué|cómo|cuánto|dónde|viernes|lunes|martes|miércoles|jueves|'
+    r'sábado|domingo|ayer|semana|mes|año|últimos?|primeros?|'
+    r'premarket|después|antes|cierre|apertura)\b',
+    re.IGNORECASE,
+)
+
+
+def _detect_language(text: str) -> str:
+    """Detect if the query is in Spanish or English.
+    Returns 'es' or 'en'."""
+    matches = _SPANISH_MARKERS.findall(text)
+    # If 2+ Spanish markers found, it's Spanish
+    return "es" if len(matches) >= 2 else "en"
 
 
 async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
@@ -56,14 +77,14 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
             query = message.get("query", "").strip()
             if not query:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Missing 'query' field.",
-                })
+                # Empty query = heartbeat/ping, ignore silently
                 continue
 
             thread_id = message.get("thread_id", f"{client_id}-{int(time.time())}")
             market_context = message.get("market_context", {})
+
+            # ── Detect language from query ──
+            language = _detect_language(query)
 
             # Acknowledge receipt
             await websocket.send_json({
@@ -75,7 +96,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             initial_state: dict[str, Any] = {
                 "messages": [{"role": "user", "content": query}],
                 "query": query,
-                "language": "en",
+                "language": language,
                 "plan": "",
                 "active_agents": [],
                 "current_agent": "",
@@ -152,6 +173,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                     "metadata": {
                         "total_elapsed_ms": total_ms,
                         "client_id": client_id,
+                        "language": language,
                     },
                 })
 

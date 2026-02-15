@@ -15,17 +15,18 @@ class MCPGatewayConfig(BaseSettings):
     redis_db: int = 0
     redis_password: Optional[str] = None
 
-    # Service URLs (DNS-based, matching docker-compose)
+    # Service URLs (DNS-based, matching docker-compose service names)
+    # NOTE: Docker Compose DNS uses the service name as-is (hyphens, underscores)
     api_gateway_url: str = "http://api_gateway:8000"
     scanner_url: str = "http://scanner:8005"
     analytics_url: str = "http://analytics:8007"
-    screener_url: str = "http://screener:8026"
-    sec_filings_url: str = "http://sec_filings:8012"
+    screener_url: str = "http://screener:8000"
+    sec_filings_url: str = "http://sec-filings:8012"
     financials_url: str = "http://financials:8020"
-    dilution_tracker_url: str = "http://dilution_tracker:8009"
-    benzinga_news_url: str = "http://benzinga_news:8015"
-    benzinga_earnings_url: str = "http://benzinga_earnings:8022"
-    prediction_markets_url: str = "http://prediction_markets:8021"
+    dilution_tracker_url: str = "http://dilution_tracker:8000"
+    benzinga_news_url: str = "http://benzinga-news:8015"
+    benzinga_earnings_url: str = "http://benzinga-earnings:8022"
+    prediction_markets_url: str = "http://prediction-markets:8021"
     ticker_metadata_url: str = "http://ticker_metadata:8010"
     pattern_matching_url: str = "http://pattern_matching:8025"
     event_detector_url: str = "http://event_detector:8040"

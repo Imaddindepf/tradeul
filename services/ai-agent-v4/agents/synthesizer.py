@@ -1,8 +1,9 @@
 """
-Synthesizer Agent - Produces the final user-facing response.
+Synthesizer Agent - Premium response generation.
 
-Takes all agent_results from state, feeds them to Gemini Flash,
-and produces a polished markdown response.
+Takes all agent_results from state, constructs a rich context payload,
+and uses Gemini Flash to produce a polished, data-rich markdown response
+with tables, metrics, and actionable insights.
 """
 from __future__ import annotations
 import json
@@ -20,32 +21,86 @@ def _get_llm():
         _llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash",
             temperature=0.3,
-            max_output_tokens=4096,
+            max_output_tokens=8192,
         )
     return _llm
 
 
 SYNTHESIS_PROMPT = """\
-You are the final-stage synthesizer of TradeUL, a professional trading analysis platform.
+You are the final-stage synthesizer of TradeUL, a professional stock trading analysis platform.
 
-RULES:
-1. Be concise – avoid filler; every sentence must add value.
-2. Use **bold** for key numbers, percentages, prices, and important terms.
-3. Use markdown tables when comparing tickers, metrics, or time-series data.
-4. Use bullet points for lists of 3+ items.
-5. Add section headers (##) only when the response covers multiple topics.
-6. Match the user's language exactly (if the query is in Spanish, respond in Spanish).
-7. Never reveal internal tool names, agent names, or system architecture.
-8. If data is missing or unavailable, say so briefly – do not hallucinate numbers.
-9. End with a one-line actionable insight or caveat when appropriate.
-10. Keep total response under 800 words unless the data truly requires more.
+YOUR ROLE: Transform raw data from specialist agents into a polished, data-rich response.
 
-You will receive:
-- The original user query
-- Results collected from specialist agents (JSON)
+RESPONSE LANGUAGE: {language_instruction}
 
-Synthesize these into a single, polished markdown response for the end user.
+FORMATTING RULES:
+1. Use markdown tables when presenting ranked data, comparisons, or lists of stocks.
+   Format: | Column1 | Column2 | ... |
+2. Use **bold** for key numbers, prices, percentages, ticker symbols, and important terms.
+3. Use ## headers to separate major sections (only when response covers multiple topics).
+4. Use bullet points for qualitative observations and insights.
+5. Include specific numbers — never say "significant volume" when you can say "**161M shares** (RVOL **8.2x**)".
+6. For stock rankings, ALWAYS use a markdown table with columns like:
+   | # | Ticker | Price | Change % | Volume | RVOL | Sector |
+7. After data presentation, add a brief "Key Takeaways" or "Insights" section.
+8. If market is closed, mention the data is from the last trading session.
+9. Keep response comprehensive but focused. Use ALL the data provided.
+10. Never mention internal tool names, agent names, or system architecture.
+11. Never hallucinate data — only use what's provided in the agent results.
+12. If an agent returned an error, work with whatever data IS available.
+13. Clean up sector names: if a sector looks like a SIC code description (e.g. "PHONOGRAPH RECORDS & PRERECORDED AUDIO TAPES"), 
+    map it to a standard sector (Technology, Healthcare, Consumer, Energy, Finance, Industrial, etc.) or use "Other".
+
+DATA PRESENTATION PRIORITIES:
+- For "top gainers/losers" queries: Table with rank, ticker, price, change%, volume, sector
+- For ticker analysis: Key metrics card (price, change, volume, RSI, VWAP) + analysis
+- For screening results: Table with matching stocks + filter criteria summary
+- For news queries: Headlines with dates, sources, and brief summaries
+
+You will receive the original query and JSON results from specialist agents.
+Synthesize into a polished markdown response.
 """
+
+
+def _build_language_instruction(language: str) -> str:
+    """Build explicit language instruction."""
+    if language == "es":
+        return (
+            "RESPOND ENTIRELY IN SPANISH (Español). "
+            "All headers, descriptions, insights, and text must be in Spanish. "
+            "Table column headers can remain in English for financial terms (Ticker, Price, Volume, etc.) "
+            "but descriptions and insights MUST be in Spanish."
+        )
+    return "Respond in English."
+
+
+def _prepare_results_payload(agent_results: dict) -> dict:
+    """Prepare a clean, size-limited payload of agent results for the LLM."""
+    payload = {}
+    for agent_name, result in agent_results.items():
+        if isinstance(result, dict):
+            # For scanner snapshots, extract the ticker list directly
+            clean_result = {}
+            for key, value in result.items():
+                if key.startswith("_"):
+                    continue  # skip internal keys
+                value_str = json.dumps(value, default=str)
+                # Truncate very large values but keep enough for tables
+                if len(value_str) > 12000:
+                    value_str = value_str[:12000] + "...(truncated)"
+                    try:
+                        clean_result[key] = json.loads(value_str.rsplit("}", 1)[0] + "}]}")
+                    except Exception:
+                        clean_result[key] = value_str
+                else:
+                    clean_result[key] = value
+            payload[agent_name] = clean_result
+        else:
+            result_str = json.dumps(result, default=str)
+            if len(result_str) > 12000:
+                result_str = result_str[:12000] + "...(truncated)"
+            payload[agent_name] = result_str
+    return payload
 
 
 async def synthesizer_node(state: dict) -> dict:
@@ -57,22 +112,18 @@ async def synthesizer_node(state: dict) -> dict:
     agent_results = state.get("agent_results", {})
     language = state.get("language", "en")
 
-    # Build the data payload for the LLM
-    results_payload = {}
-    for agent_name, result in agent_results.items():
-        result_str = json.dumps(result, default=str)
-        # Truncate very large payloads to stay within context window
-        if len(result_str) > 8000:
-            result_str = result_str[:8000] + "...(truncated)"
-        results_payload[agent_name] = result_str
+    language_instruction = _build_language_instruction(language)
+    results_payload = _prepare_results_payload(agent_results)
+
+    system_prompt = SYNTHESIS_PROMPT.format(language_instruction=language_instruction)
 
     messages = [
-        SystemMessage(content=SYNTHESIS_PROMPT),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=json.dumps({
             "query": query,
             "language": language,
             "agent_results": results_payload,
-        }, ensure_ascii=False)),
+        }, ensure_ascii=False, default=str)),
     ]
 
     response = await llm.ainvoke(messages)
@@ -89,6 +140,7 @@ async def synthesizer_node(state: dict) -> dict:
                 "elapsed_ms": elapsed_ms,
                 "result_agents": list(agent_results.keys()),
                 "response_length": len(final_response),
+                "language": language,
             },
         },
     }

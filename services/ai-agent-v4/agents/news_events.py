@@ -2,40 +2,21 @@
 News & Events Agent - Benzinga news, market events, and earnings calendar.
 
 MCP tools used:
-  - news.get_news_by_ticker      → ticker-specific Benzinga news
-  - news.get_latest_news          → general / broad market news
-  - events.get_events_by_ticker   → breakouts, VWAP crosses, halts for a ticker
-  - events.get_earnings_calendar  → upcoming / recent earnings
+  - news.get_news_by_ticker(symbol, count)  - ticker-specific Benzinga news
+  - news.get_latest_news(count)             - general / broad market news
+  - events.get_events_by_ticker(symbol, count) - breakouts, VWAP crosses, halts
+  - earnings.get_earnings_by_ticker(ticker)  - earnings history for a ticker
+  - earnings.get_today_earnings()            - today's earnings calendar
 """
 from __future__ import annotations
-import re
 import time
 from typing import Any
 
 from agents._mcp_tools import call_mcp_tool
+from agents._ticker_utils import extract_tickers as _extract_tickers
 
 
-# ── Ticker extraction (shared pattern) ──────────────────────────
-_TICKER_RE = re.compile(r'(?<!\w)\$?([A-Z]{1,5})(?:\s|$|[,;.!?\)])')
-
-_STOPWORDS = {
-    "I", "A", "AM", "PM", "US", "CEO", "FDA", "SEC", "IPO", "ETF",
-    "GDP", "CPI", "ATH", "DD", "EPS", "PE", "API", "AI", "IT", "IS",
-    "ARE", "THE", "AND", "FOR", "TOP", "ALL", "BUY", "GET", "HAS",
-    "NEW", "NOW", "HOW", "WHY", "UP", "DE", "LA", "EL", "EN", "ES",
-    "LOS", "LAS", "QUE", "POR", "MAS", "CON", "UNA", "DEL", "DIA",
-    "HOY", "LOW", "HIGH", "NEWS",
-}
-
-
-def _extract_tickers(query: str) -> list[str]:
-    explicit = re.findall(r'\$([A-Z]{1,5})\b', query.upper())
-    implicit = _TICKER_RE.findall(query.upper())
-    combined = list(dict.fromkeys(explicit + implicit))
-    return [t for t in combined if t not in _STOPWORDS]
-
-
-# ── Earnings keywords ───────────────────────────────────────────
+# -- Earnings keywords --
 _EARNINGS_KEYWORDS = [
     "earnings", "earning", "er ", "eps", "revenue",
     "quarterly", "quarter", "q1", "q2", "q3", "q4",
@@ -50,7 +31,13 @@ def _wants_earnings(query: str) -> bool:
 
 
 async def news_events_node(state: dict) -> dict:
-    """Fetch news and events via MCP tools."""
+    """Fetch news and events via MCP tools.
+
+    IMPORTANT: MCP tool parameter names must match exactly:
+      - news tools use 'symbol' and 'count' (NOT 'ticker' / 'limit')
+      - events tools use 'symbol' and 'count'
+      - earnings tools use 'ticker'
+    """
     start_time = time.time()
 
     query = state.get("query", "")
@@ -61,53 +48,58 @@ async def news_events_node(state: dict) -> dict:
     errors: list[str] = []
 
     if tickers:
-        # ── Ticker-specific news & events ───────────────────────
-        for ticker in tickers[:5]:  # cap to 5 tickers
+        for ticker in tickers[:5]:
+            # News: uses 'symbol' and 'count' params
             try:
                 news = await call_mcp_tool(
-                    "news",
-                    "get_news_by_ticker",
-                    {"ticker": ticker, "limit": 10},
+                    "news", "get_news_by_ticker",
+                    {"symbol": ticker, "count": 10},
                 )
                 results.setdefault("ticker_news", {})[ticker] = news
             except Exception as exc:
                 errors.append(f"news/{ticker}: {exc}")
 
+            # Events: uses 'symbol' and 'count' params
             try:
                 events = await call_mcp_tool(
-                    "events",
-                    "get_events_by_ticker",
-                    {"ticker": ticker, "limit": 10},
+                    "events", "get_events_by_ticker",
+                    {"symbol": ticker, "count": 20},
                 )
                 results.setdefault("ticker_events", {})[ticker] = events
             except Exception as exc:
                 errors.append(f"events/{ticker}: {exc}")
     else:
-        # ── General / broad market news ─────────────────────────
+        # General / broad market news: uses 'count' param
         try:
             latest = await call_mcp_tool(
-                "news",
-                "get_latest_news",
-                {"limit": 15},
+                "news", "get_latest_news", {"count": 15},
             )
             results["latest_news"] = latest
         except Exception as exc:
             errors.append(f"latest_news: {exc}")
 
-    # ── Earnings calendar (if keywords detected) ────────────────
+    # Earnings
     if check_earnings:
-        try:
-            params: dict[str, Any] = {"limit": 20}
-            if tickers:
-                params["tickers"] = tickers[:5]
-            earnings = await call_mcp_tool(
-                "events",
-                "get_earnings_calendar",
-                params,
-            )
-            results["earnings"] = earnings
-        except Exception as exc:
-            errors.append(f"earnings: {exc}")
+        if tickers:
+            # Per-ticker earnings history: uses 'ticker' param
+            for ticker in tickers[:5]:
+                try:
+                    earnings = await call_mcp_tool(
+                        "earnings", "get_earnings_by_ticker",
+                        {"ticker": ticker},
+                    )
+                    results.setdefault("ticker_earnings", {})[ticker] = earnings
+                except Exception as exc:
+                    errors.append(f"earnings/{ticker}: {exc}")
+        else:
+            # Today's earnings calendar
+            try:
+                today_earnings = await call_mcp_tool(
+                    "earnings", "get_today_earnings", {},
+                )
+                results["today_earnings"] = today_earnings
+            except Exception as exc:
+                errors.append(f"today_earnings: {exc}")
 
     if errors:
         results["_errors"] = errors

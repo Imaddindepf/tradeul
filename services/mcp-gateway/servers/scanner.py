@@ -91,30 +91,30 @@ async def get_enriched_ticker(symbol: str) -> dict:
     SMA, EMA, ADX, Stochastic), volume windows, change windows, daily indicators,
     52-week data, derived metrics, and more.
     """
-    from clients.redis_client import get_redis
-    r = await get_redis()
-    raw = await r.hget("snapshot:enriched:latest", symbol.upper())
-    if not raw:
+    from clients.redis_client import redis_hget_enriched
+    data = await redis_hget_enriched(symbol)
+    if not data:
         return {"error": f"Ticker {symbol} not found in enriched snapshot"}
-    return {"symbol": symbol, "data": orjson.loads(raw)}
+    return {"symbol": symbol, "data": data}
 
 
 @mcp.tool()
 async def get_enriched_batch(symbols: list[str]) -> dict:
     """Get enriched data for multiple tickers at once.
-    More efficient than calling get_enriched_ticker multiple times."""
+    More efficient than calling get_enriched_ticker multiple times.
+    Falls back to last_close data when market is closed."""
     from clients.redis_client import get_redis
     r = await get_redis()
-    pipe = r.pipeline()
-    for s in symbols:
-        pipe.hget("snapshot:enriched:latest", s.upper())
-    results = await pipe.execute()
 
     tickers = {}
-    for s, raw in zip(symbols, results):
+    for s in symbols:
+        sym = s.upper()
+        raw = await r.hget("snapshot:enriched:latest", sym)
+        if not raw:
+            raw = await r.hget("snapshot:enriched:last_close", sym)
         if raw:
             try:
-                tickers[s.upper()] = orjson.loads(raw)
+                tickers[sym] = orjson.loads(raw)
             except Exception:
                 pass
     return {"tickers": tickers, "found": len(tickers), "requested": len(symbols)}

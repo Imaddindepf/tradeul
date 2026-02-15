@@ -177,11 +177,11 @@ export const useWorkflowStore = create<WorkflowState>()(
               workflows: state.workflows.map((w) =>
                 w.id === activeWorkflowId
                   ? {
-                      ...w,
-                      nodes: w.nodes.filter((n: any) => n.id !== nodeId),
-                      edges: w.edges.filter((e: any) => e.source !== nodeId && e.target !== nodeId),
-                      updatedAt: new Date().toISOString(),
-                    }
+                    ...w,
+                    nodes: w.nodes.filter((n: any) => n.id !== nodeId),
+                    edges: w.edges.filter((e: any) => e.source !== nodeId && e.target !== nodeId),
+                    updatedAt: new Date().toISOString(),
+                  }
                   : w
               ),
               selectedNodeId: state.selectedNodeId === nodeId ? null : state.selectedNodeId,
@@ -199,14 +199,14 @@ export const useWorkflowStore = create<WorkflowState>()(
               workflows: state.workflows.map((w) =>
                 w.id === activeWorkflowId
                   ? {
-                      ...w,
-                      nodes: w.nodes.map((n: any) =>
-                        n.id === nodeId
-                          ? { ...n, data: { ...n.data, config: { ...n.data.config, ...config } } }
-                          : n
-                      ),
-                      updatedAt: new Date().toISOString(),
-                    }
+                    ...w,
+                    nodes: w.nodes.map((n: any) =>
+                      n.id === nodeId
+                        ? { ...n, data: { ...n.data, config: { ...n.data.config, ...config } } }
+                        : n
+                    ),
+                    updatedAt: new Date().toISOString(),
+                  }
                   : w
               ),
             }),
