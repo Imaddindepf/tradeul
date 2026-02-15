@@ -15,6 +15,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from handlers.rest_handler import router as rest_router
+from handlers.trigger_handler import router as trigger_router
 from handlers.websocket_handler import handle_websocket
 
 logger = logging.getLogger(__name__)
@@ -41,9 +42,28 @@ async def lifespan(app: FastAPI):
     # Store graph ref on app state for access from handlers
     app.state.graph = graph
 
+    # Start the reactive trigger engine
+    from triggers.engine import TriggerEngine
+    trigger_engine = TriggerEngine()
+    await trigger_engine.start()
+    app.state.trigger_engine = trigger_engine
+    logger.info("Reactive Trigger Engine started")
+
+    # Initialize memory manager
+    from memory.manager import MemoryManager
+    memory_mgr = MemoryManager()
+    app.state.memory = memory_mgr
+    logger.info("Memory Manager initialized")
+
     yield  # ── app is running ──
 
     logger.info("AI Agent V4 shutting down...")
+
+    # Stop trigger engine
+    try:
+        await trigger_engine.stop()
+    except Exception:
+        pass
 
     # Clean up memory manager if initialized
     try:
@@ -83,6 +103,7 @@ app.add_middleware(
 # ── REST routes ──────────────────────────────────────────────────
 
 app.include_router(rest_router)
+app.include_router(trigger_router)
 
 # ── WebSocket endpoint ───────────────────────────────────────────
 
