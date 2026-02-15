@@ -41,6 +41,7 @@ import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
 import { formatDistanceToNowStrict } from 'date-fns';
+import { getColumnConfig, formatValue } from '@/lib/table/shared-column-configs';
 import {
   TrendingUp,
   TrendingDown,
@@ -78,6 +79,7 @@ export interface MarketEvent {
   prev_close?: number;
   vwap?: number;
   atr_percent?: number;
+  atr?: number;
   intraday_high?: number;
   intraday_low?: number;
   // Time-window changes
@@ -86,13 +88,94 @@ export interface MarketEvent {
   chg_10min?: number;
   chg_15min?: number;
   chg_30min?: number;
+  chg_60min?: number;
+  // Time-window volumes
   vol_1min?: number;
   vol_5min?: number;
-  // Daily indicators / fundamentals
+  vol_10min?: number;
+  vol_15min?: number;
+  vol_30min?: number;
+  // Quote data
+  bid?: number;
+  ask?: number;
+  bid_size?: number;
+  ask_size?: number;
+  spread?: number;
+  // Fundamentals
   float_shares?: number;
+  shares_outstanding?: number;
+  // Intraday indicators
   rsi?: number;
   ema_20?: number;
   ema_50?: number;
+  sma_5?: number;
+  sma_8?: number;
+  sma_20?: number;
+  sma_50?: number;
+  sma_200?: number;
+  macd_line?: number;
+  macd_hist?: number;
+  stoch_k?: number;
+  stoch_d?: number;
+  adx_14?: number;
+  bb_upper?: number;
+  bb_lower?: number;
+  // Daily indicators
+  daily_sma_20?: number;
+  daily_sma_50?: number;
+  daily_sma_200?: number;
+  daily_rsi?: number;
+  daily_adx_14?: number;
+  daily_atr_percent?: number;
+  daily_bb_position?: number;
+  // 52 week
+  high_52w?: number;
+  low_52w?: number;
+  from_52w_high?: number;
+  from_52w_low?: number;
+  // Derived/computed
+  dollar_volume?: number;
+  todays_range?: number;
+  todays_range_pct?: number;
+  bid_ask_ratio?: number;
+  float_turnover?: number;
+  pos_in_range?: number;
+  below_high?: number;
+  above_low?: number;
+  pos_of_open?: number;
+  prev_day_volume?: number;
+  // Distances
+  dist_from_vwap?: number;
+  dist_sma_5?: number;
+  dist_sma_8?: number;
+  dist_sma_20?: number;
+  dist_sma_50?: number;
+  dist_sma_200?: number;
+  dist_daily_sma_20?: number;
+  dist_daily_sma_50?: number;
+  // Multi-day changes
+  change_1d?: number;
+  change_3d?: number;
+  change_5d?: number;
+  change_10d?: number;
+  change_20d?: number;
+  // Average volumes
+  avg_volume_5d?: number;
+  avg_volume_10d?: number;
+  avg_volume_20d?: number;
+  avg_volume_3m?: number;
+  // Classification
+  security_type?: string;
+  sector?: string;
+  industry?: string;
+  // Other
+  volume_today_pct?: number;
+  price_from_high?: number;
+  distance_from_nbbo?: number;
+  premarket_change_percent?: number;
+  postmarket_change_percent?: number;
+  trades_today?: number;
+  trades_z_score?: number;
   metadata?: Record<string, unknown>;
 }
 
@@ -168,6 +251,7 @@ const EVENT_TYPE_CONFIG: Record<string, { label: string; color: string; icon: ty
 
 // Default column visibility for event tables
 const DEFAULT_EVENT_COLUMN_VISIBILITY: VisibilityState = {
+  // Siempre visibles
   row_number: true,
   timestamp: true,
   symbol: true,
@@ -176,11 +260,117 @@ const DEFAULT_EVENT_COLUMN_VISIBILITY: VisibilityState = {
   change_percent: true,
   volume: true,
   rvol: true,
+  // Ocultas por defecto pero disponibles
   gap_percent: false,
   change_from_open: false,
   market_cap: false,
   atr_percent: false,
+  atr: false,
   vwap: false,
+  // Campos de evento
+  prev_value: false,
+  new_value: false,
+  delta: false,
+  delta_percent: false,
+  // OHLC
+  open_price: false,
+  prev_close: false,
+  intraday_high: false,
+  intraday_low: false,
+  // Cambios por ventana de tiempo
+  chg_1min: false,
+  chg_5min: false,
+  chg_10min: false,
+  chg_15min: false,
+  chg_30min: false,
+  chg_60min: false,
+  // Volúmenes por ventana de tiempo
+  vol_1min: false,
+  vol_5min: false,
+  vol_10min: false,
+  vol_15min: false,
+  vol_30min: false,
+  // Quote data
+  bid: false,
+  ask: false,
+  bid_size: false,
+  ask_size: false,
+  spread: false,
+  // Fundamentales
+  float_shares: false,
+  shares_outstanding: false,
+  // Indicadores intraday
+  rsi: false,
+  ema_20: false,
+  ema_50: false,
+  sma_5: false,
+  sma_8: false,
+  sma_20: false,
+  sma_50: false,
+  sma_200: false,
+  macd_line: false,
+  macd_hist: false,
+  stoch_k: false,
+  stoch_d: false,
+  adx_14: false,
+  bb_upper: false,
+  bb_lower: false,
+  // Indicadores diarios
+  daily_sma_20: false,
+  daily_sma_50: false,
+  daily_sma_200: false,
+  daily_rsi: false,
+  daily_adx_14: false,
+  daily_atr_percent: false,
+  daily_bb_position: false,
+  // 52 semanas
+  high_52w: false,
+  low_52w: false,
+  from_52w_high: false,
+  from_52w_low: false,
+  // Derivados
+  dollar_volume: false,
+  todays_range: false,
+  todays_range_pct: false,
+  bid_ask_ratio: false,
+  float_turnover: false,
+  pos_in_range: false,
+  below_high: false,
+  above_low: false,
+  pos_of_open: false,
+  prev_day_volume: false,
+  // Distancias
+  dist_from_vwap: false,
+  dist_sma_5: false,
+  dist_sma_8: false,
+  dist_sma_20: false,
+  dist_sma_50: false,
+  dist_sma_200: false,
+  dist_daily_sma_20: false,
+  dist_daily_sma_50: false,
+  // Cambios multi-día
+  change_1d: false,
+  change_3d: false,
+  change_5d: false,
+  change_10d: false,
+  change_20d: false,
+  // Volúmenes promedio
+  avg_volume_5d: false,
+  avg_volume_10d: false,
+  avg_volume_20d: false,
+  avg_volume_3m: false,
+  // Clasificación
+  security_type: false,
+  sector: false,
+  industry: false,
+  // Otros
+  volume_today_pct: false,
+  price_from_high: false,
+  distance_from_nbbo: false,
+  premarket_change_percent: false,
+  postmarket_change_percent: false,
+  trades_today: false,
+  trades_z_score: false,
 };
 
 const columnHelper = createColumnHelper<MarketEvent>();
@@ -1023,6 +1213,1211 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           const value = info.getValue();
           if (!value) return <div className="text-slate-400 text-xs">-</div>;
           return <div className="font-mono text-xs text-slate-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      // ═══════════════════════════════════════════════════════════════
+      // NUEVAS COLUMNAS - Ocultas por defecto
+      // ═══════════════════════════════════════════════════════════════
+
+      // ── Campos de Evento ──
+      columnHelper.accessor('prev_value', {
+        header: 'Prev Val',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('new_value', {
+        header: 'New Val',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('delta', {
+        header: 'Delta',
+        size: 65,
+        minSize: 50,
+        maxSize: 85,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {isPositive ? '+' : ''}{value.toFixed(2)}
+          </div>;
+        },
+      }),
+
+      columnHelper.accessor('delta_percent', {
+        header: 'Delta %',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {formatPercent(value)}
+          </div>;
+        },
+      }),
+
+      // ── Contexto Básico ──
+      columnHelper.accessor('open_price', {
+        header: 'Open',
+        size: 65,
+        minSize: 50,
+        maxSize: 85,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('prev_close', {
+        header: 'Prev Close',
+        size: 75,
+        minSize: 60,
+        maxSize: 95,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('intraday_high', {
+        header: 'High',
+        size: 65,
+        minSize: 50,
+        maxSize: 85,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-green-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('intraday_low', {
+        header: 'Low',
+        size: 65,
+        minSize: 50,
+        maxSize: 85,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-red-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      // ── Ventanas de Tiempo ──
+      columnHelper.accessor('chg_1min', {
+        header: 'Chg 1m',
+        size: 65,
+        minSize: 50,
+        maxSize: 85,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {formatPercent(value)}
+          </div>;
+        },
+      }),
+
+      columnHelper.accessor('chg_5min', {
+        header: 'Chg 5m',
+        size: 65,
+        minSize: 50,
+        maxSize: 85,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {formatPercent(value)}
+          </div>;
+        },
+      }),
+
+      columnHelper.accessor('chg_10min', {
+        header: 'Chg 10m',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {formatPercent(value)}
+          </div>;
+        },
+      }),
+
+      columnHelper.accessor('chg_15min', {
+        header: 'Chg 15m',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {formatPercent(value)}
+          </div>;
+        },
+      }),
+
+      columnHelper.accessor('chg_30min', {
+        header: 'Chg 30m',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const isPositive = value > 0;
+          return <div className={`font-mono text-xs ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {formatPercent(value)}
+          </div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_1min', {
+        header: 'Vol 1m',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_5min', {
+        header: 'Vol 5m',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+
+      // ── Indicadores Técnicos ──
+      columnHelper.accessor('float_shares', {
+        header: 'Float',
+        size: 75,
+        minSize: 60,
+        maxSize: 100,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">{formatNumber(value)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('rsi', {
+        header: 'RSI',
+        size: 60,
+        minSize: 50,
+        maxSize: 80,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const colorClass = value > 70 ? 'text-red-600 font-semibold' : value < 30 ? 'text-green-600 font-semibold' : 'text-slate-600';
+          return <div className={`font-mono text-xs ${colorClass}`}>{value.toFixed(1)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('ema_20', {
+        header: 'EMA(20)',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      columnHelper.accessor('ema_50', {
+        header: 'EMA(50)',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="font-mono text-xs text-slate-600">${value.toFixed(2)}</div>;
+        },
+      }),
+
+      // ── Fundamentales ──
+      columnHelper.accessor('security_type', {
+        header: 'Type',
+        size: 70,
+        minSize: 55,
+        maxSize: 90,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="text-xs text-slate-700 font-medium">{value}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sector', {
+        header: 'Sector',
+        size: 90,
+        minSize: 75,
+        maxSize: 120,
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (!value) return <div className="text-slate-400 text-xs">-</div>;
+          return <div className="text-xs text-slate-700">{value}</div>;
+        },
+      }),
+
+      // ═══════════════════════════════════════════════════════════════
+      // COLUMNAS ADICIONALES - Auto-generadas desde shared-column-configs
+      // ═══════════════════════════════════════════════════════════════
+
+      columnHelper.accessor('chg_60min', {
+        ...getColumnConfig('chg_60min'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('chg_60min');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_10min', {
+        ...getColumnConfig('vol_10min'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_10min');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_15min', {
+        ...getColumnConfig('vol_15min'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_15min');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_30min', {
+        ...getColumnConfig('vol_30min'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_30min');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('bid', {
+        ...getColumnConfig('bid'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('bid');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('ask', {
+        ...getColumnConfig('ask'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('ask');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('bid_size', {
+        ...getColumnConfig('bid_size'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('bid_size');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('ask_size', {
+        ...getColumnConfig('ask_size'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('ask_size');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('spread', {
+        ...getColumnConfig('spread'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('spread');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('shares_outstanding', {
+        ...getColumnConfig('shares_outstanding'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('shares_outstanding');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_5', {
+        ...getColumnConfig('sma_5'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('sma_5');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_8', {
+        ...getColumnConfig('sma_8'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('sma_8');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_20', {
+        ...getColumnConfig('sma_20'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('sma_20');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_50', {
+        ...getColumnConfig('sma_50'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('sma_50');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('sma_200', {
+        ...getColumnConfig('sma_200'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('sma_200');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('macd_line', {
+        ...getColumnConfig('macd_line'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('macd_line');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('macd_hist', {
+        ...getColumnConfig('macd_hist'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('macd_hist');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('stoch_k', {
+        ...getColumnConfig('stoch_k'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('stoch_k');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('stoch_d', {
+        ...getColumnConfig('stoch_d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('stoch_d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('adx_14', {
+        ...getColumnConfig('adx_14'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('adx_14');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('bb_upper', {
+        ...getColumnConfig('bb_upper'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('bb_upper');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('bb_lower', {
+        ...getColumnConfig('bb_lower'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('bb_lower');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('atr', {
+        ...getColumnConfig('atr'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('atr');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_sma_20', {
+        ...getColumnConfig('daily_sma_20'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('daily_sma_20');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_sma_50', {
+        ...getColumnConfig('daily_sma_50'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('daily_sma_50');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_sma_200', {
+        ...getColumnConfig('daily_sma_200'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('daily_sma_200');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_rsi', {
+        ...getColumnConfig('daily_rsi'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('daily_rsi');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_adx_14', {
+        ...getColumnConfig('daily_adx_14'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('daily_adx_14');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_atr_percent', {
+        ...getColumnConfig('daily_atr_percent'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('daily_atr_percent');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('daily_bb_position', {
+        ...getColumnConfig('daily_bb_position'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('daily_bb_position');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('high_52w', {
+        ...getColumnConfig('high_52w'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('high_52w');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('low_52w', {
+        ...getColumnConfig('low_52w'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('low_52w');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('from_52w_high', {
+        ...getColumnConfig('from_52w_high'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('from_52w_high');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('from_52w_low', {
+        ...getColumnConfig('from_52w_low'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('from_52w_low');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dollar_volume', {
+        ...getColumnConfig('dollar_volume'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dollar_volume');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('todays_range', {
+        ...getColumnConfig('todays_range'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('todays_range');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('todays_range_pct', {
+        ...getColumnConfig('todays_range_pct'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('todays_range_pct');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('bid_ask_ratio', {
+        ...getColumnConfig('bid_ask_ratio'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('bid_ask_ratio');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('float_turnover', {
+        ...getColumnConfig('float_turnover'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('float_turnover');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('pos_in_range', {
+        ...getColumnConfig('pos_in_range'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('pos_in_range');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('below_high', {
+        ...getColumnConfig('below_high'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('below_high');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('above_low', {
+        ...getColumnConfig('above_low'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('above_low');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('pos_of_open', {
+        ...getColumnConfig('pos_of_open'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('pos_of_open');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('prev_day_volume', {
+        ...getColumnConfig('prev_day_volume'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('prev_day_volume');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_from_vwap', {
+        ...getColumnConfig('dist_from_vwap'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_from_vwap');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_5', {
+        ...getColumnConfig('dist_sma_5'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_sma_5');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_8', {
+        ...getColumnConfig('dist_sma_8'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_sma_8');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_20', {
+        ...getColumnConfig('dist_sma_20'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_sma_20');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_50', {
+        ...getColumnConfig('dist_sma_50'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_sma_50');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_sma_200', {
+        ...getColumnConfig('dist_sma_200'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_sma_200');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_daily_sma_20', {
+        ...getColumnConfig('dist_daily_sma_20'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_daily_sma_20');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('dist_daily_sma_50', {
+        ...getColumnConfig('dist_daily_sma_50'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('dist_daily_sma_50');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_1d', {
+        ...getColumnConfig('change_1d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('change_1d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_3d', {
+        ...getColumnConfig('change_3d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('change_3d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_5d', {
+        ...getColumnConfig('change_5d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('change_5d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_10d', {
+        ...getColumnConfig('change_10d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('change_10d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('change_20d', {
+        ...getColumnConfig('change_20d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('change_20d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('avg_volume_5d', {
+        ...getColumnConfig('avg_volume_5d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('avg_volume_5d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('avg_volume_10d', {
+        ...getColumnConfig('avg_volume_10d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('avg_volume_10d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('avg_volume_20d', {
+        ...getColumnConfig('avg_volume_20d'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('avg_volume_20d');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('avg_volume_3m', {
+        ...getColumnConfig('avg_volume_3m'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('avg_volume_3m');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('industry', {
+        ...getColumnConfig('industry'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('industry');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('volume_today_pct', {
+        ...getColumnConfig('volume_today_pct'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('volume_today_pct');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('price_from_high', {
+        ...getColumnConfig('price_from_high'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('price_from_high');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('distance_from_nbbo', {
+        ...getColumnConfig('distance_from_nbbo'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('distance_from_nbbo');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('premarket_change_percent', {
+        ...getColumnConfig('premarket_change_percent'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('premarket_change_percent');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('postmarket_change_percent', {
+        ...getColumnConfig('postmarket_change_percent'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('postmarket_change_percent');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('trades_today', {
+        ...getColumnConfig('trades_today'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('trades_today');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('trades_z_score', {
+        ...getColumnConfig('trades_z_score'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('trades_z_score');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
         },
       }),
     ],
