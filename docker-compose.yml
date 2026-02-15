@@ -857,6 +857,49 @@ services:
           memory: 256M
 
   # =============================================
+  # AI AGENT V4 - LangGraph Multi-Agent Orchestrator
+  # =============================================
+
+  ai_agent_v4:
+    build:
+      context: ./services/ai-agent-v4
+      dockerfile: Dockerfile
+    container_name: tradeul_ai_agent_v4
+    env_file:
+      - .env
+    environment:
+      - GOOGLE_API_KEY=${GEMINI_TRADEUL_AGENT}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - MCP_GATEWAY_URL=http://mcp_gateway:8050
+      - REDIS_URL=redis://redis:6379/5
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /tmp/tradeul_sandbox:/tmp/sandbox_data
+      - polygon_data:/data/polygon:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+      mcp_gateway:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8031:8031"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # =============================================
   # TODAY BARS WORKER - Minute bars de HOY
   # =============================================
 
