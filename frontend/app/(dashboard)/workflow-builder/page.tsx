@@ -4,7 +4,7 @@ import dynamic from 'next/dynamic'
 
 // Dynamically import to avoid SSR issues with React Flow
 const WorkflowCanvas = dynamic(
-  () => import('@/components/workflow-builder/WorkflowCanvas'),
+  () => import('@/components/workflow-builder-v2/WorkflowCanvas'),
   { 
     ssr: false,
     loading: () => (
