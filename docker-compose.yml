@@ -814,6 +814,49 @@ services:
           memory: 512M
 
   # =============================================
+  # MCP GATEWAY - Unified tool access layer
+  # =============================================
+
+  mcp_gateway:
+    build:
+      context: ./services/mcp-gateway
+      dockerfile: Dockerfile
+    container_name: tradeul_mcp_gateway
+    env_file:
+      - .env
+    environment:
+      - MCP_REDIS_HOST=redis
+      - MCP_REDIS_PORT=6379
+      - MCP_REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - MCP_DB_HOST=timescaledb
+      - MCP_DB_PORT=5432
+      - MCP_DB_USER=${POSTGRES_USER:-tradeul_user}
+      - MCP_DB_PASSWORD=${POSTGRES_PASSWORD}
+      - MCP_DB_NAME=${POSTGRES_DB:-tradeul}
+    volumes:
+      - polygon_data:/data/polygon:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8050:8050"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # =============================================
   # TODAY BARS WORKER - Minute bars de HOY
   # =============================================
 
