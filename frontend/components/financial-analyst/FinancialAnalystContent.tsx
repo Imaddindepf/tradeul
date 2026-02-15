@@ -120,7 +120,7 @@ const Row = ({ label, value, valueClass = '', loading }: { label: string; value:
 // MA indicator
 const MAArrow = ({ status }: { status?: string }) => {
     if (!status || status === 'Unknown') return null;
-    return status === 'Above'
+    return status === 'Above' 
         ? <ChevronUp className="w-3 h-3 text-green-500 inline" />
         : <ChevronDown className="w-3 h-3 text-red-500 inline" />;
 };
@@ -210,7 +210,7 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
             setReport(instantData);
             fetchCompanyData(normalizedSymbol);
             setLoadingInstant(false);
-
+            
             // === FASE 2: Datos de Gemini (en paralelo) ===
             setLoadingGemini(true);
             const lang = isSpanish ? 'es' : 'en';
@@ -239,15 +239,15 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
     useEffect(() => {
         const tickerToFetch = savedTicker || initialTicker;
         if (tickerToFetch) fetchReport(tickerToFetch);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
+    
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         tickerSearchRef.current?.close();
         if (inputValue.trim()) fetchReport(inputValue.trim());
     };
-
+    
     const handleOpenChart = useCallback(() => {
         openWindow({
             title: 'Chart', content: <ChartContent ticker={ticker} />,
@@ -277,9 +277,9 @@ export function FinancialAnalystContent({ initialTicker }: { initialTicker?: str
                         className="flex-1"
                         autoFocus={false}
                     />
-                    <button
-                        type="submit"
-                        disabled={loading || !inputValue.trim()}
+                    <button 
+                        type="submit" 
+                        disabled={loading || !inputValue.trim()} 
                         className="px-3 py-1 text-[11px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1.5"
                     >
                         {loading ? (

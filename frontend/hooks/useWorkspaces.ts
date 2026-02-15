@@ -16,9 +16,9 @@
 import { useCallback, useMemo, useRef, useEffect } from 'react';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useAuth } from '@clerk/nextjs';
-import {
-  useUserPreferencesStore,
-  Workspace,
+import { 
+  useUserPreferencesStore, 
+  Workspace, 
   WindowLayout,
   selectWorkspaces,
   selectActiveWorkspaceId,
@@ -54,7 +54,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const { windows, openWindow, closeWindow } = useFloatingWindow();
   const { getToken, isSignedIn } = useAuth();
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
+  
   // Store actions
   const storeCreateWorkspace = useUserPreferencesStore((s) => s.createWorkspace);
   const storeDeleteWorkspace = useUserPreferencesStore((s) => s.deleteWorkspace);
@@ -63,7 +63,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const storeSaveWorkspaceLayouts = useUserPreferencesStore((s) => s.saveWorkspaceLayouts);
   const syncWorkspacesToBackend = useUserPreferencesStore((s) => s.syncWorkspacesToBackend);
   const setWorkspaceSwitching = useUserPreferencesStore((s) => s.setWorkspaceSwitching);
-
+  
   // Store selectors
   const workspaces = useUserPreferencesStore(selectWorkspaces);
   const activeWorkspaceId = useUserPreferencesStore(selectActiveWorkspaceId);
@@ -76,7 +76,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
   const scheduleSyncToBackend = useCallback(() => {
     // Solo sincronizar si el usuario está autenticado
     if (!isSignedIn) return;
-
+    
     // Cancelar sync pendiente
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
@@ -166,7 +166,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
    * Flujo: guardar actual → cerrar ventanas → cambiar ID → restaurar destino.
    */
   const switchWorkspace = useCallback((
-    workspaceId: string,
+    workspaceId: string, 
     getWindowContent: (layout: { title: string; componentState?: Record<string, unknown> }) => React.ReactNode
   ) => {
     // Leer todo del store de forma síncrona (sin depender de closures de React)

@@ -102,8 +102,9 @@ async function subscribeToNewDayEvents(redisSubscriber, lastSnapshots) {
 /**
  * Suscribirse al canal Redis para eventos de cambio de sesión del mercado
  * @param {Object} redisSubscriber - Cliente Redis para suscripción
+ * @param {Function} onSessionChange - Callback para actualizar estado del mercado
  */
-async function subscribeToSessionChangeEvents(redisSubscriber) {
+async function subscribeToSessionChangeEvents(redisSubscriber, onSessionChange = null) {
   try {
     // IMPORTANTE: El canal debe coincidir con el que usa EventBus en Python
     // EventType.SESSION_CHANGED = "session:changed" → canal = "events:session:changed"
@@ -125,6 +126,11 @@ async function subscribeToSessionChangeEvents(redisSubscriber) {
           },
           "📊 Market session changed"
         );
+        
+        // Update market session state (for enriched cache key selection)
+        if (onSessionChange && typeof onSessionChange === 'function') {
+          onSessionChange(event.to_session);
+        }
         
         // Broadcast a todos los clientes conectados
         const wsMessage = {

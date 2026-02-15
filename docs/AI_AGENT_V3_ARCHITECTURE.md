@@ -1,4 +1,4 @@
-# TradeUL AI Agent V3 - Arquitectura Técnica Completa
+# Tradeul AI Agent V3 - Arquitectura Técnica Completa
 ## Documento para Pitch
 
 **Servicio:** ai-agent  

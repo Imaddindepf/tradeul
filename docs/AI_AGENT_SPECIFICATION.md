@@ -1,9 +1,9 @@
-# 🤖 TradeUL AI Agent - Especificación Técnica
+# 🤖 Tradeul AI Agent - Especificación Técnica
 
 ## Visión General
 
 Un agente conversacional que permite a los usuarios consultar datos del mercado en lenguaje natural.
-El agente genera código en un DSL propio que se ejecuta contra la infraestructura existente de TradeUL.
+El agente genera código en un DSL propio que se ejecuta contra la infraestructura existente de Tradeul.
 
 ---
 

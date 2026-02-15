@@ -133,8 +133,9 @@ function Dropdown<T extends string>({ value, options, onChange, className = '' }
             <button
               key={opt.value}
               onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-slate-50 transition-colors ${opt.value === value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
-                }`}
+              className={`w-full text-left px-3 py-1.5 text-[10px] hover:bg-slate-50 transition-colors ${
+                opt.value === value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-700'
+              }`}
             >
               {opt.label}
             </button>
@@ -211,7 +212,7 @@ export function InsiderTradingContent() {
   const [priceData, setPriceData] = useState<Array<{ date: string; open: number; high: number; low: number; close: number }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  
   // Filters (Bloomberg style) - restored from window state
   const [transactionFilter, setTransactionFilter] = useState<TransactionFilter>(windowState.transactionFilter || 'all');
   const [shareholderFilter, setShareholderFilter] = useState<ShareholderFilter>(windowState.shareholderFilter || 'all');
@@ -285,7 +286,7 @@ export function InsiderTradingContent() {
     } else if (viewMode === 'clusters') {
       fetchClusters();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fetch clusters when switching to clusters view
@@ -331,20 +332,20 @@ export function InsiderTradingContent() {
 
   // Flatten all transactions for table (filtered)
   const allTransactions = useMemo(() => {
-    const txs: Array<Transaction & {
-      insider_name: string;
-      insider_title: string | null;
+    const txs: Array<Transaction & { 
+      insider_name: string; 
+      insider_title: string | null; 
       filing_url: string | null;
       is_director: boolean;
       is_officer: boolean;
       is_ten_percent_owner: boolean;
     }> = [];
-
+    
     filteredFilings.forEach(f => {
       f.transactions.forEach(tx => {
         const code = tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D');
         if (!allowedCodes.has(code)) return;
-
+        
         txs.push({
           ...tx,
           insider_name: f.insider_name || 'Unknown',
@@ -364,11 +365,11 @@ export function InsiderTradingContent() {
   const largestTransactions = useMemo(() => {
     const buys = allTransactions.filter(tx => tx.transaction_code === 'P');
     const sells = allTransactions.filter(tx => tx.transaction_code === 'S');
-
-    const maxBuy = buys.length > 0
+    
+    const maxBuy = buys.length > 0 
       ? buys.reduce((max, tx) => tx.shares > max.shares ? tx : max, buys[0])
       : null;
-
+    
     const maxSell = sells.length > 0
       ? sells.reduce((max, tx) => tx.shares > max.shares ? tx : max, sells[0])
       : null;
@@ -378,7 +379,7 @@ export function InsiderTradingContent() {
 
   // Prepare chart transactions
   const chartTransactions = useMemo(() => {
-    return filteredFilings.flatMap(f =>
+    return filteredFilings.flatMap(f => 
       f.transactions
         .filter(tx => {
           const code = tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D');
@@ -402,15 +403,17 @@ export function InsiderTradingContent() {
         <div className="flex items-center bg-white rounded border border-slate-200 overflow-hidden">
           <button
             onClick={() => setViewMode('ticker')}
-            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'ticker' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
-              }`}
+            className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+              viewMode === 'ticker' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+            }`}
           >
             By Ticker
           </button>
           <button
             onClick={() => setViewMode('clusters')}
-            className={`px-2 py-1 text-[10px] font-medium transition-colors ${viewMode === 'clusters' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
-              }`}
+            className={`px-2 py-1 text-[10px] font-medium transition-colors ${
+              viewMode === 'clusters' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'
+            }`}
           >
             Clusters
           </button>
@@ -467,16 +470,18 @@ export function InsiderTradingContent() {
           <div className="flex items-center bg-white rounded border border-slate-200 overflow-hidden">
             <button
               onClick={() => setDisplayMode('chart')}
-              className={`p-1.5 transition-colors ${displayMode === 'chart' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'
-                }`}
+              className={`p-1.5 transition-colors ${
+                displayMode === 'chart' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'
+              }`}
               title="Chart view"
             >
               <BarChart3 className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setDisplayMode('table')}
-              className={`p-1.5 transition-colors ${displayMode === 'table' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'
-                }`}
+              className={`p-1.5 transition-colors ${
+                displayMode === 'table' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:bg-slate-50'
+              }`}
               title="Table view"
             >
               <Table2 className="w-3.5 h-3.5" />
@@ -537,9 +542,9 @@ export function InsiderTradingContent() {
                 <span className="text-slate-400">—</span>
               )}
             </div>
-
+            
             <div className="w-px bg-slate-200" />
-
+            
             {/* Max Sell */}
             <div className="flex items-center gap-2 min-w-0">
               <TrendingDown className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
@@ -574,10 +579,10 @@ export function InsiderTradingContent() {
           displayMode === 'chart' && priceData.length > 0 ? (
             // Chart View
             <div className="h-full">
-              <InsiderChartContent
-                ticker={ticker}
-                priceData={priceData}
-                transactions={chartTransactions}
+              <InsiderChartContent 
+                ticker={ticker} 
+                priceData={priceData} 
+                transactions={chartTransactions} 
               />
             </div>
           ) : (
@@ -606,7 +611,7 @@ export function InsiderTradingContent() {
                   allTransactions.map((tx, i) => {
                     const code = tx.transaction_code || (tx.transaction_type === 'A' ? 'A' : 'D');
                     const label = ACTION_LABELS[code] || (tx.transaction_type === 'A' ? '+' : '−');
-
+                    
                     return (
                       <tr key={i} className="hover:bg-slate-50 group">
                         <td className="px-2 py-1.5 text-slate-600 tabular-nums whitespace-nowrap">
@@ -619,17 +624,18 @@ export function InsiderTradingContent() {
                           {tx.insider_title || '—'}
                         </td>
                         <td className="px-2 py-1.5 text-center">
-                          <span
-                            className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold ${code === 'P' ? 'bg-emerald-100 text-emerald-800' :
-                                code === 'S' ? 'bg-red-100 text-red-800' :
-                                  code === 'M' ? 'bg-violet-100 text-violet-800' :
-                                    code === 'F' ? 'bg-amber-100 text-amber-800' :
-                                      code === 'G' ? 'bg-cyan-100 text-cyan-800' :
-                                        code === 'A' ? 'bg-blue-100 text-blue-800' :
-                                          code === 'J' ? 'bg-slate-100 text-slate-700' :
-                                            tx.transaction_type === 'A' ? 'bg-sky-50 text-sky-700' :
-                                              'bg-orange-50 text-orange-700'
-                              }`}
+                          <span 
+                            className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                              code === 'P' ? 'bg-emerald-100 text-emerald-800' :
+                              code === 'S' ? 'bg-red-100 text-red-800' :
+                              code === 'M' ? 'bg-violet-100 text-violet-800' :
+                              code === 'F' ? 'bg-amber-100 text-amber-800' :
+                              code === 'G' ? 'bg-cyan-100 text-cyan-800' :
+                              code === 'A' ? 'bg-blue-100 text-blue-800' :
+                              code === 'J' ? 'bg-slate-100 text-slate-700' :
+                              tx.transaction_type === 'A' ? 'bg-sky-50 text-sky-700' :
+                              'bg-orange-50 text-orange-700'
+                            }`}
                             title={tx.transaction_code_desc || (tx.transaction_type === 'A' ? 'Acquisition' : 'Disposition')}
                           >
                             {label}
@@ -701,10 +707,11 @@ export function InsiderTradingContent() {
                       {cluster.company}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold ${cluster.total_trades >= 10 ? 'bg-red-100 text-red-700' :
-                          cluster.total_trades >= 6 ? 'bg-orange-100 text-orange-700' :
-                            'bg-amber-100 text-amber-700'
-                        }`}>
+                      <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-semibold ${
+                        cluster.total_trades >= 10 ? 'bg-red-100 text-red-700' :
+                        cluster.total_trades >= 6 ? 'bg-orange-100 text-orange-700' :
+                        'bg-amber-100 text-amber-700'
+                      }`}>
                         {cluster.total_trades}
                       </span>
                     </td>

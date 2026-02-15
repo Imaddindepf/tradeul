@@ -130,7 +130,7 @@ LIMIT 10;
 
 ---
 
-## 🚀 Implementación en TradeUL
+## 🚀 Implementación en Tradeul
 
 ### Frontend: `/frontend/components/common/TickerSearch.tsx`
 

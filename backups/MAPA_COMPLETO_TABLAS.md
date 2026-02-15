@@ -1,4 +1,4 @@
-# 🗺️ MAPA COMPLETO DE TABLAS - TradeUL Database
+# 🗺️ MAPA COMPLETO DE TABLAS - Tradeul Database
 
 **Fecha**: 2025-11-23  
 **Base de Datos**: `tradeul` (TimescaleDB/PostgreSQL)  

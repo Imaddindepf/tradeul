@@ -562,22 +562,22 @@ export function IPOContent() {
             }}
             components={{
               Table: ({ style, ...props }) => (
-                <table
-                  {...props}
+                <table 
+                  {...props} 
                   style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
                   className="text-[10px]"
                 />
               ),
               TableHead: React.forwardRef(({ style, ...props }, ref) => (
-                <thead
-                  {...props}
+                <thead 
+                  {...props} 
                   ref={ref}
                   style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }}
                 />
               )),
               TableRow: ({ style, ...props }) => (
-                <tr
-                  {...props}
+                <tr 
+                  {...props} 
                   style={{ ...style }}
                   className="hover:bg-blue-50/50 group border-b border-slate-50"
                 />

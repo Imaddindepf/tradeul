@@ -1,4 +1,4 @@
-# TradeUL AI Agent - Informe Arquitectónico Completo
+# Tradeul AI Agent - Informe Arquitectónico Completo
 ## Estado Actual vs. SOTA 2025-2026
 
 **Fecha:** 2026-01-20  
@@ -23,7 +23,7 @@
 
 ### Diagnóstico
 
-La arquitectura actual del AI Agent de TradeUL utiliza un **Intent Router híbrido** (regex + embeddings locales) que **NO está alineado** con las mejores prácticas de 2025-2026.
+La arquitectura actual del AI Agent de Tradeul utiliza un **Intent Router híbrido** (regex + embeddings locales) que **NO está alineado** con las mejores prácticas de 2025-2026.
 
 | Aspecto | Actual | SOTA 2025-2026 |
 |---------|--------|----------------|

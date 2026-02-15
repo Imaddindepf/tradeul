@@ -19,7 +19,6 @@ import { useUserFilters } from '@/hooks/useUserFilters';
 import { BUILT_IN_PRESETS, type AlertPreset, BUILT_IN_TOP_LISTS, type TopListPreset, ALERT_CATEGORIES, ALERT_CATALOG, getAlertsByCategory, searchAlerts } from '@/lib/alert-catalog';
 import type { ActiveEventFilters } from '@/stores/useEventFiltersStore';
 import type { UserFilter } from '@/lib/types/scannerFilters';
-import { SECURITY_TYPES, SECTORS, INDUSTRIES } from '@/lib/constants/filters';
 
 // ============================================================================
 // Types
@@ -96,11 +95,6 @@ function fmtFilter(key: string, val: number): string {
 
 function filtersToDisplay(filters: Record<string, any>): string[] {
   const labels: Record<string, string> = {
-    // String filters
-    security_type: 'Type',
-    sector: 'Sector',
-    industry: 'Industry',
-    // Numeric filters
     min_price: 'Price >', max_price: 'Price <',
     min_vwap: 'VWAP >', max_vwap: 'VWAP <',
     min_spread: 'Spread >', max_spread: 'Spread <',
@@ -150,15 +144,8 @@ function filtersToDisplay(filters: Record<string, any>): string[] {
     min_bb_lower: 'BBL >', max_bb_lower: 'BBL <',
   };
   return Object.entries(filters)
-    .filter(([, v]) => v != null && (typeof v === 'number' || typeof v === 'string'))
-    .map(([k, v]) => {
-      const label = labels[k] || k;
-      // Handle string filters differently (no formatting needed)
-      if (typeof v === 'string') {
-        return `${label}: ${v}`;
-      }
-      return `${label} ${fmtFilter(k, v as number)}`;
-    });
+    .filter(([, v]) => v != null && typeof v === 'number')
+    .map(([k, v]) => `${labels[k] || k} ${fmtFilter(k, v)}`);
 }
 
 function alertTypeLabel(eventType: string): string {
@@ -268,11 +255,11 @@ export function ConfigWindow({
   // Load strategy into editor
   const loadStrategy = useCallback((eventTypes: string[], stratFilters: Record<string, any>, name?: string) => {
     setSelectedAlerts(new Set(eventTypes));
-    const allFilters: Record<string, number | string | undefined> = {};
+    const numFilters: Record<string, number | undefined> = {};
     for (const [k, v] of Object.entries(stratFilters)) {
-      if (typeof v === 'number' || typeof v === 'string') allFilters[k] = v;
+      if (typeof v === 'number') numFilters[k] = v;
     }
-    setFilters(allFilters);
+    setFilters(numFilters);
     if (name) setStrategyName(name);
     setActiveTab('summary');
   }, []);
@@ -1098,11 +1085,6 @@ export function ConfigWindow({
               ]
             },
             {
-              id: 'classification', group: 'Classification', filters: [
-                // String filters - estos se manejan con selects, no con inputs numéricos
-              ]
-            },
-            {
               id: 'trades', group: 'Trades Anomaly', filters: [
                 { label: 'Trades', minK: 'min_trades_today', maxK: 'max_trades_today', suf: '', units: ['', 'K'], defU: '', phMin: '100', phMax: '10000' },
                 { label: 'Z-Score', minK: 'min_trades_z_score', maxK: 'max_trades_z_score', suf: '', phMin: '1', phMax: '5' },
@@ -1245,31 +1227,24 @@ export function ConfigWindow({
                         <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Type</span>
                         <select value={(filters.security_type as string) || ''} onChange={e => setFilter('security_type', e.target.value || undefined)}
                           className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
-                          <option value="">All Types</option>
-                          {SECURITY_TYPES.map(st => (
-                            <option key={st.value} value={st.value}>{st.label}</option>
-                          ))}
+                          <option value="">All</option>
+                          <option value="CS">Stocks (CS)</option>
+                          <option value="ETF">ETF</option>
+                          <option value="PFD">Preferred</option>
+                          <option value="WARRANT">Warrants</option>
                         </select>
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Sector</span>
-                        <select value={(filters.sector as string) || ''} onChange={e => setFilter('sector', e.target.value || undefined)}
-                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
-                          <option value="">All Sectors</option>
-                          {SECTORS.map(s => (
-                            <option key={s.value} value={s.value}>{s.label}</option>
-                          ))}
-                        </select>
+                        <input type="text" value={(filters.sector as string) || ''} onChange={e => setFilter('sector', e.target.value || undefined)}
+                          placeholder="e.g. Technology"
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
                       </div>
                       <div className="flex items-center gap-1">
                         <span className="text-[10px] text-slate-500 w-[50px] flex-shrink-0 truncate">Industry</span>
-                        <select value={(filters.industry as string) || ''} onChange={e => setFilter('industry', e.target.value || undefined)}
-                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white">
-                          <option value="">All Industries</option>
-                          {INDUSTRIES.map(i => (
-                            <option key={i.value} value={i.value}>{i.label}</option>
-                          ))}
-                        </select>
+                        <input type="text" value={(filters.industry as string) || ''} onChange={e => setFilter('industry', e.target.value || undefined)}
+                          placeholder="e.g. Software"
+                          className="flex-1 px-1.5 py-[2px] text-[10px] border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white" />
                       </div>
                     </div>
                   )}

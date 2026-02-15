@@ -1,4 +1,4 @@
-# TradeUL AI Agent - Especificación Técnica
+# Tradeul AI Agent - Especificación Técnica
 ## Documento para Revisión de Arquitectura
 
 **Fecha:** 2026-01-20  
@@ -23,7 +23,7 @@
 
 ### 1.1 Propósito
 
-El AI Agent de TradeUL responde preguntas sobre el mercado financiero usando:
+El AI Agent de Tradeul responde preguntas sobre el mercado financiero usando:
 - Datos en tiempo real (Redis snapshot)
 - Datos históricos (DuckDB sobre Parquet)
 - Investigación externa (Grok, Web)

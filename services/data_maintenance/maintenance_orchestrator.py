@@ -8,12 +8,13 @@ Flujo:
 1. clear_caches         - Limpiar caches de tiempo real
 2. load_ohlc            - Cargar OHLC del día anterior
 3. load_volume_slots    - Cargar volume slots del día anterior
-4. calculate_atr        - Calcular ATR para todos los tickers
-5. calculate_rvol       - Calcular RVOL historical averages
-6. sync_ticker_universe - Sincronizar universo de tickers con Polygon (nuevos/delistados/nombres)
-7. enrich_metadata      - Enriquecer metadata de tickers (market_cap, sector, company_name)
-8. sync_redis           - Sincronizar Redis con datos frescos
-9. notify_services      - Notificar a otros servicios que hay nuevo día
+4. reconcile_splits     - Reconciliar datos históricos afectados por splits recientes
+5. calculate_atr        - Calcular ATR para todos los tickers
+6. calculate_rvol       - Calcular RVOL historical averages
+7. sync_ticker_universe - Sincronizar universo de tickers con Polygon (nuevos/delistados/nombres)
+8. export_screener_meta - Exportar metadata para Screener
+9. sync_redis           - Sincronizar Redis con datos frescos
+10. notify_services     - Notificar a otros servicios que hay nuevo día
 
 PRINCIPIOS:
 - Cada tarea es independiente y reporta su éxito/fallo
@@ -84,6 +85,7 @@ class MaintenanceOrchestrator:
             tasks = [
                 ("load_ohlc", self._task_load_ohlc),
                 ("load_volume_slots", self._task_load_volume_slots),
+                ("reconcile_splits", self._task_reconcile_splits),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
                 ("calculate_trades_baselines", self._task_calculate_trades_baselines),
@@ -97,6 +99,7 @@ class MaintenanceOrchestrator:
                 ("clear_caches", self._task_clear_caches),
                 ("load_ohlc", self._task_load_ohlc),
                 ("load_volume_slots", self._task_load_volume_slots),
+                ("reconcile_splits", self._task_reconcile_splits),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
                 ("calculate_trades_baselines", self._task_calculate_trades_baselines),
@@ -187,6 +190,7 @@ class MaintenanceOrchestrator:
                 "calculate_atr": TaskStatus.PENDING,
                 "calculate_rvol": TaskStatus.PENDING,
                 "calculate_trades_baselines": TaskStatus.PENDING,
+                "reconcile_splits": TaskStatus.PENDING,
                 "sync_ticker_universe": TaskStatus.PENDING,
                 # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
                 "export_screener_metadata": TaskStatus.PENDING,
@@ -294,6 +298,25 @@ class MaintenanceOrchestrator:
             
             loader = LoadVolumeSlotsTask(self.redis, self.db)
             result = await loader.execute(target_date)
+            
+            return result
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def _task_reconcile_splits(self, target_date: date) -> Dict:
+        """
+        Tarea 3.5: Reconciliar datos históricos afectados por splits recientes
+        
+        Detecta splits de los últimos 30 días y re-descarga datos de Polygon
+        (adjusted=true) para volume_slots y market_data_daily si hay discrepancias.
+        Se ejecuta DESPUÉS de load_ohlc y load_volume_slots, y ANTES de cálculos.
+        """
+        try:
+            from tasks.reconcile_splits import ReconcileSplitsTask
+            
+            task = ReconcileSplitsTask(self.redis, self.db)
+            result = await task.execute(target_date)
             
             return result
             

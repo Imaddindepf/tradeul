@@ -122,7 +122,7 @@ Los filings se dividen en 3 categorías:
 ```
 https://www.sec.gov/Archives/edgar/data/1813783/000110465925122686/0001104659-25-122686.txt
 ```
-- Headers: `User-Agent: "TradeUL Research contact@tradeul.com"`
+- Headers: `User-Agent: "Tradeul Research contact@tradeul.com"`
 
 **2️⃣ Si falla, usar SEC-API.io filing-reader (fallback):**
 ```

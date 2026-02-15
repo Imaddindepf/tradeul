@@ -1,4 +1,4 @@
-# TradeUL - Arquitectura Completa del Sistema
+# Tradeul - Arquitectura Completa del Sistema
 
 > Documento actualizado: 2026-02-06
 
@@ -6,7 +6,7 @@
 
 ## 1. Vision General
 
-TradeUL es una plataforma de trading en tiempo real que procesa +11,000 tickers del mercado americano. El sistema tiene dos pilares:
+Tradeul es una plataforma de trading en tiempo real que procesa +11,000 tickers del mercado americano. El sistema tiene dos pilares:
 
 | Pilar | Servicio | Pregunta que responde | Paradigma |
 |-------|----------|----------------------|-----------|

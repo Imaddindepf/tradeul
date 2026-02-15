@@ -183,14 +183,14 @@ function DescriptionContentComponent({ ticker: initialTicker, exchange }: Descri
   const { t } = useTranslation();
   const { openWindow } = useFloatingWindow();
   const { state: windowState, updateState: updateWindowState } = useWindowState<DescriptionWindowState>();
-
+  
   // Use persisted ticker or prop
   const ticker = windowState.ticker || initialTicker;
-
+  
   const [data, setData] = useState<TickerDescription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
+  
   // Persist ticker when it changes
   useEffect(() => {
     if (ticker) {
