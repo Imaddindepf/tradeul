@@ -14,6 +14,65 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from agents._mcp_tools import call_mcp_tool
 
+
+# ── Data cleaning ────────────────────────────────────────────────
+
+# Base fields always included in cleaned results
+_SCREEN_BASE = {"symbol", "price", "volume", "relative_volume", "market_cap", "sector"}
+
+# Map filter field names to result column names worth including
+_FILTER_FIELD_TO_RESULT = {
+    "rsi_14": "rsi_14", "adx_14": "adx_14",
+    "atr_14": "atr_14", "atr_percent": "atr_percent",
+    "sma_20": "sma_20", "sma_50": "sma_50", "sma_200": "sma_200",
+    "bb_upper": "bb_upper", "bb_lower": "bb_lower", "bb_width": "bb_width",
+    "bb_position": "bb_position", "squeeze_on": "squeeze_on",
+    "change_1d": "change_1d", "change_3d": "change_3d",
+    "change_5d": "change_5d", "change_10d": "change_10d", "change_20d": "change_20d",
+    "high_52w": "high_52w", "low_52w": "low_52w",
+    "from_52w_high": "from_52w_high", "from_52w_low": "from_52w_low",
+    "free_float": "free_float", "gap_percent": "gap_percent",
+}
+
+
+def _clean_screen_results(raw: Any, filters: list[dict]) -> dict:
+    """Clean screener results: keep base fields + filter-relevant fields only.
+    40 raw fields → ~10-12 essential fields per item.
+    """
+    if not isinstance(raw, dict):
+        return raw
+
+    # Determine which extra fields to include based on filters used
+    extra_fields = set()
+    for f in filters:
+        field = f.get("field", "")
+        if field in _FILTER_FIELD_TO_RESULT:
+            extra_fields.add(_FILTER_FIELD_TO_RESULT[field])
+
+    keep_fields = _SCREEN_BASE | extra_fields
+
+    items = raw.get("results", [])
+    cleaned = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        row = {}
+        for k in keep_fields:
+            if k in item and item[k] is not None:
+                # Round floats to 2 decimal places for readability
+                v = item[k]
+                if isinstance(v, float):
+                    v = round(v, 2)
+                row[k] = v
+        if row:
+            cleaned.append(row)
+
+    return {
+        "count": raw.get("count", len(cleaned)),
+        "total_matched": raw.get("total_matched", len(cleaned)),
+        "results": cleaned,
+    }
+
 # ── Lazy LLM singleton ──────────────────────────────────────────
 _llm = None
 
@@ -36,40 +95,83 @@ You are a stock-screener filter translator for TradeUL.
 Convert the user's natural-language screening request into a JSON array of filter objects.
 
 Each filter object has exactly three keys:
-  - "field"    : one of the available fields listed below
-  - "operator" : one of ">", "<", ">=", "<=", "=", "!=", "between", "in"
-  - "value"    : number, string, [min, max] for "between", or [val1, val2, ...] for "in"
+  - "field"    : one of the AVAILABLE FIELDS listed below (ONLY these work)
+  - "operator" : one of ">", "<", ">=", "<=", "=", "!=", "between"
+  - "value"    : number or [min, max] for "between"
 
-AVAILABLE FIELDS (partial list — use the most appropriate):
-  close, market_cap, volume, avg_volume_10d, relative_volume,
-  change_pct, gap_pct, float_shares,
-  rsi_14, macd_signal, sma_20, sma_50, sma_200, ema_9, ema_21,
-  atr_14, bb_position, adx_14, stoch_k,
-  change_1d, change_3d, change_5d, change_10d, change_20d,
-  high_52w, low_52w, from_52w_high, from_52w_low,
-  sector, industry
+AVAILABLE FIELDS (ONLY these fields exist — do NOT invent field names):
+  # Price & Volume
+  price            - Current price (NOT "close", "open", "high", "low")
+  volume           - Today's trading volume
+  relative_volume  - RVOL: volume vs avg. >2 = high, >5 = very high
+  gap_percent      - Gap % from previous close
+  
+  # Technical Indicators
+  rsi_14           - RSI 14-period (0-100). <30 oversold, >70 overbought
+  adx_14           - ADX trend strength. >25 = trending
+  atr_14           - Average True Range (absolute)
+  atr_percent      - ATR as % of price (volatility measure)
+  sma_20           - 20-day simple moving average
+  sma_50           - 50-day simple moving average
+  sma_200          - 200-day simple moving average
+  bb_upper         - Bollinger Band upper
+  bb_middle        - Bollinger Band middle
+  bb_lower         - Bollinger Band lower
+  bb_width         - BB width (squeeze detection: narrow = squeeze)
+  bb_position      - Price position within BBands (0-100)
+  squeeze_on       - Bollinger/Keltner squeeze active (0 or 1)
+  squeeze_momentum - Squeeze momentum value
+  
+  # Price Changes
+  change_1d        - 1-day change %
+  change_3d        - 3-day change %
+  change_5d        - 5-day change %
+  change_10d       - 10-day change %
+  change_20d       - 20-day change %
+  
+  # Range
+  high_52w         - 52-week high price
+  low_52w          - 52-week low price
+  from_52w_high    - Distance from 52-week high (negative %)
+  from_52w_low     - Distance from 52-week low (positive %)
+  
+  # Fundamentals
+  market_cap       - Market capitalization in USD
+  free_float       - Free float shares
+  sector           - Sector name (string, use "=" operator)
+
+NOT AVAILABLE (do NOT use): close, open, high, low, vwap, dollar_volume,
+  macd_*, ema_*, stoch_*, obv, rsi_7, sma_5, sma_10, industry, float_shares
 
 RULES:
 1. Output ONLY the JSON array — no markdown, no explanation.
-2. Use sensible defaults when the user is vague (e.g. "penny stocks" → close < 5).
-3. Translate Spanish / English requests equally.
-4. Limit to 8 filters maximum; pick the most impactful ones.
-5. For "between", value must be [min, max]. For "in", value must be a list.
-6. Use "close" not "price" as the price field name.
-7. Use standard comparison operators: ">", "<", ">=", "<=", "=", "!="
+2. Use sensible defaults (e.g. "penny stocks" → price < 5, "oversold" → rsi_14 < 30).
+3. Translate Spanish / English equally.
+4. Maximum 6 filters — pick the most impactful.
+5. For price use "price" NOT "close".
+6. For % change: change_1d (today), change_3d, change_5d (week), change_10d, change_20d (month).
+7. For volume screening use relative_volume (RVOL), not raw volume.
+8. For Bollinger squeeze use squeeze_on = 1 or bb_width < small_value.
+9. For sector filtering use "=" with standard sector names (e.g., "Technology", "Healthcare").
 
 EXAMPLES:
-User: "small cap tech stocks under $10 with high volume"
+User: "small cap stocks under $10 with high volume"
 [
   {"field": "market_cap", "operator": "between", "value": [300000000, 2000000000]},
-  {"field": "sector", "operator": "=", "value": "Technology"},
-  {"field": "close", "operator": "<", "value": 10},
+  {"field": "price", "operator": "<", "value": 10},
   {"field": "relative_volume", "operator": ">", "value": 2.0}
 ]
 
-User: "oversold stocks with RSI below 30"
+User: "oversold stocks bouncing"
 [
-  {"field": "rsi_14", "operator": "<", "value": 30}
+  {"field": "rsi_14", "operator": "<", "value": 30},
+  {"field": "relative_volume", "operator": ">", "value": 1.5}
+]
+
+User: "Bollinger squeeze with trending ADX"
+[
+  {"field": "bb_width", "operator": "<", "value": 5},
+  {"field": "adx_14", "operator": ">", "value": 25}
 ]
 """
 
@@ -121,7 +223,6 @@ async def screener_node(state: dict) -> dict:
     results["filters_generated"] = filters
 
     # ── Step 2: Call screener MCP tool ───────────────────────────
-    # Note: the MCP tool uses 'sort_order' (not 'sort_dir')
     try:
         screen_results = await call_mcp_tool(
             "screener",
@@ -133,7 +234,7 @@ async def screener_node(state: dict) -> dict:
                 "sort_order": "desc",
             },
         )
-        results["screen_results"] = screen_results
+        results["screen_results"] = _clean_screen_results(screen_results, filters)
     except Exception as exc:
         errors.append(f"screener/run_screen: {exc}")
 

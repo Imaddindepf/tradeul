@@ -97,6 +97,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "messages": [{"role": "user", "content": query}],
                 "query": query,
                 "language": language,
+                "tickers": [],
                 "plan": "",
                 "active_agents": [],
                 "current_agent": "",

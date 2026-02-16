@@ -1,7 +1,11 @@
 """
 MCP Server: Historical Data
 Access to 1760+ days of OHLCV data via DuckDB on Parquet flat files.
-Both day-level and minute-level granularity.
+
+Actual parquet columns:
+  day_aggs:    ticker, volume, open, close, high, low, window_start, transactions
+  minute_aggs: ticker, volume, open, close, high, low, window_start (BIGINT epoch ms), transactions
+  NOTE: no 'vwap' column. window_start in minute_aggs is epoch ms (BIGINT).
 """
 from fastmcp import FastMCP
 from config import config
@@ -13,13 +17,11 @@ from datetime import datetime, timedelta
 mcp = FastMCP(
     "TradeUL Historical Data",
     instructions="Historical market data service with 1760+ trading days of OHLCV data. "
-    "Minute-level and day-level granularity. Powered by DuckDB on Parquet flat files. "
-    "Use for backtesting, pattern analysis, and historical comparisons.",
+    "Minute-level and day-level granularity. Powered by DuckDB on Parquet flat files.",
 )
 
 
 def _get_duckdb():
-    """Create a fresh DuckDB connection (thread-safe)."""
     conn = duckdb.connect(":memory:")
     conn.execute("SET threads=2")
     conn.execute("SET memory_limit='1GB'")
@@ -27,7 +29,6 @@ def _get_duckdb():
 
 
 def _find_file(base_path: str, date_str: str) -> Optional[str]:
-    """Find data file for a date, preferring Parquet over CSV.gz."""
     parquet = os.path.join(base_path, f"{date_str}.parquet")
     if os.path.exists(parquet):
         return parquet
@@ -35,6 +36,24 @@ def _find_file(base_path: str, date_str: str) -> Optional[str]:
     if os.path.exists(csvgz):
         return csvgz
     return None
+
+
+def _resolve_date(date: str) -> str:
+    if date == "today":
+        return datetime.now().strftime("%Y-%m-%d")
+    elif date == "yesterday":
+        dt = datetime.now() - timedelta(days=1)
+        while dt.weekday() >= 5:
+            dt -= timedelta(days=1)
+        return dt.strftime("%Y-%m-%d")
+    return date
+
+
+def _rows_to_dicts(cursor) -> list[dict]:
+    """Convert DuckDB cursor to list of dicts without pandas/numpy."""
+    cols = [desc[0] for desc in cursor.description]
+    rows = cursor.fetchall()
+    return [dict(zip(cols, row)) for row in rows]
 
 
 @mcp.tool()
@@ -54,18 +73,9 @@ async def get_day_bars(
         sort_by: Column to sort by (volume, close, change_pct)
         sort_order: 'asc' or 'desc'
 
-    Returns: ticker, open, high, low, close, volume, vwap, transactions
+    Returns: ticker, open, high, low, close, volume, transactions, change_pct
     """
-    if date == "today":
-        date_str = datetime.now().strftime("%Y-%m-%d")
-    elif date == "yesterday":
-        dt = datetime.now() - timedelta(days=1)
-        while dt.weekday() >= 5:
-            dt -= timedelta(days=1)
-        date_str = dt.strftime("%Y-%m-%d")
-    else:
-        date_str = date
-
+    date_str = _resolve_date(date)
     filepath = _find_file(config.day_aggs_path, date_str)
     if not filepath:
         return {"error": f"No data found for {date_str}", "date": date_str}
@@ -78,16 +88,18 @@ async def get_day_bars(
             where_clause = f"WHERE ticker IN ({symbols_str})"
 
         sql = f"""
-        SELECT ticker, open, high, low, close, volume, vwap, transactions,
+        SELECT ticker, open, high, low, close, volume, transactions,
                ROUND((close - open) / NULLIF(open, 0) * 100, 2) as change_pct
         FROM read_parquet('{filepath}')
         {where_clause}
         ORDER BY {sort_by} {sort_order}
         LIMIT {limit}
         """
-        result = conn.execute(sql).fetchdf()
-        records = result.to_dict(orient="records")
+        cursor = conn.execute(sql)
+        records = _rows_to_dicts(cursor)
         return {"date": date_str, "bars": records, "count": len(records)}
+    except Exception as e:
+        return {"error": str(e), "date": date_str}
     finally:
         conn.close()
 
@@ -109,19 +121,12 @@ async def get_minute_bars(
 
     Returns: timestamp, open, high, low, close, volume for each minute.
     """
+    date_str = _resolve_date(date)
     if date == "today":
-        date_str = datetime.now().strftime("%Y-%m-%d")
         filepath = os.path.join(config.minute_aggs_path, "today.parquet")
         if not os.path.exists(filepath):
             filepath = _find_file(config.minute_aggs_path, date_str)
-    elif date == "yesterday":
-        dt = datetime.now() - timedelta(days=1)
-        while dt.weekday() >= 5:
-            dt -= timedelta(days=1)
-        date_str = dt.strftime("%Y-%m-%d")
-        filepath = _find_file(config.minute_aggs_path, date_str)
     else:
-        date_str = date
         filepath = _find_file(config.minute_aggs_path, date_str)
 
     if not filepath:
@@ -130,20 +135,20 @@ async def get_minute_bars(
     conn = _get_duckdb()
     try:
         sql = f"""
-        SELECT *,
-               EXTRACT(HOUR FROM window_start AT TIME ZONE 'America/New_York') as hour_et
+        SELECT ticker, open, high, low, close, volume, transactions,
+               window_start,
+               EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York') as hour_et
         FROM read_parquet('{filepath}')
         WHERE ticker = '{symbol.upper()}'
-          AND EXTRACT(HOUR FROM window_start AT TIME ZONE 'America/New_York') >= {start_hour}
-          AND EXTRACT(HOUR FROM window_start AT TIME ZONE 'America/New_York') < {end_hour}
+          AND EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York') >= {start_hour}
+          AND EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York') < {end_hour}
         ORDER BY window_start
         """
-        result = conn.execute(sql).fetchdf()
-        # Convert timestamps to strings for serialization
-        for col in result.select_dtypes(include=["datetime64"]).columns:
-            result[col] = result[col].astype(str)
-        records = result.to_dict(orient="records")
+        cursor = conn.execute(sql)
+        records = _rows_to_dicts(cursor)
         return {"date": date_str, "symbol": symbol, "bars": records, "count": len(records)}
+    except Exception as e:
+        return {"error": str(e), "date": date_str, "symbol": symbol}
     finally:
         conn.close()
 
@@ -157,34 +162,17 @@ async def get_top_movers(
     limit: int = 20,
     min_volume: int = 100000,
 ) -> dict:
-    """Get top gaining or losing stocks for a specific date and time range.
+    """Get top gaining or losing stocks for a specific date.
 
     Args:
         date: 'today', 'yesterday', or 'YYYY-MM-DD'
         direction: 'up' (gainers) or 'down' (losers)
-        start_hour: Start hour in ET
-        end_hour: End hour in ET
         limit: Number of results
         min_volume: Minimum volume filter
-
-    Returns: symbol, open_price, close_price, change_pct, volume
     """
-    if date == "today":
-        date_str = datetime.now().strftime("%Y-%m-%d")
-    elif date == "yesterday":
-        dt = datetime.now() - timedelta(days=1)
-        while dt.weekday() >= 5:
-            dt -= timedelta(days=1)
-        date_str = dt.strftime("%Y-%m-%d")
-    else:
-        date_str = date
-
-    filepath = _find_file(config.minute_aggs_path, date_str)
-    if not filepath:
-        filepath = _find_file(config.day_aggs_path, date_str)
-        if not filepath:
-            return {"error": f"No data for {date_str}"}
-        # Use day aggs as fallback
+    date_str = _resolve_date(date)
+    filepath = _find_file(config.day_aggs_path, date_str)
+    if filepath:
         conn = _get_duckdb()
         try:
             order = "DESC" if direction == "up" else "ASC"
@@ -197,10 +185,17 @@ async def get_top_movers(
             ORDER BY change_pct {order}
             LIMIT {limit}
             """
-            result = conn.execute(sql).fetchdf()
-            return {"date": date_str, "direction": direction, "movers": result.to_dict(orient="records")}
+            cursor = conn.execute(sql)
+            records = _rows_to_dicts(cursor)
+            return {"date": date_str, "direction": direction, "movers": records}
+        except Exception as e:
+            return {"error": str(e), "date": date_str}
         finally:
             conn.close()
+
+    filepath = _find_file(config.minute_aggs_path, date_str)
+    if not filepath:
+        return {"error": f"No data for {date_str}"}
 
     conn = _get_duckdb()
     try:
@@ -214,11 +209,11 @@ async def get_top_movers(
                    MAX(high) as high,
                    MIN(low) as low
             FROM read_parquet('{filepath}')
-            WHERE EXTRACT(HOUR FROM window_start AT TIME ZONE 'America/New_York') >= {start_hour}
-              AND EXTRACT(HOUR FROM window_start AT TIME ZONE 'America/New_York') < {end_hour}
+            WHERE EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York') >= {start_hour}
+              AND EXTRACT(HOUR FROM to_timestamp(window_start / 1000000000) AT TIME ZONE 'America/New_York') < {end_hour}
             GROUP BY ticker
         )
-        SELECT ticker as symbol, open_price, close_price,
+        SELECT ticker as symbol, open_price as open, close_price as close,
                ROUND((close_price - open_price) / NULLIF(open_price, 0) * 100, 2) as change_pct,
                total_volume as volume, high, low
         FROM bars
@@ -226,29 +221,28 @@ async def get_top_movers(
         ORDER BY change_pct {order}
         LIMIT {limit}
         """
-        result = conn.execute(sql).fetchdf()
-        return {"date": date_str, "direction": direction, "movers": result.to_dict(orient="records")}
+        cursor = conn.execute(sql)
+        records = _rows_to_dicts(cursor)
+        return {"date": date_str, "direction": direction, "movers": records}
+    except Exception as e:
+        return {"error": str(e), "date": date_str}
     finally:
         conn.close()
 
 
 @mcp.tool()
 async def available_dates() -> dict:
-    """List all available dates with data files.
-    Returns both day_aggs and minute_aggs available dates."""
+    """List all available dates with data files."""
     day_dates = []
     minute_dates = []
-
     if os.path.exists(config.day_aggs_path):
         for f in sorted(os.listdir(config.day_aggs_path)):
             if f.endswith((".parquet", ".csv.gz")):
                 day_dates.append(f.split(".")[0])
-
     if os.path.exists(config.minute_aggs_path):
         for f in sorted(os.listdir(config.minute_aggs_path)):
             if f.endswith((".parquet", ".csv.gz")) and f != "today.parquet":
                 minute_dates.append(f.split(".")[0])
-
     return {
         "day_aggs_dates": len(set(day_dates)),
         "minute_aggs_dates": len(set(minute_dates)),

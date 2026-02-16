@@ -1,6 +1,9 @@
 """
 MCP Server: Prediction Markets
 Polymarket prediction markets aggregation for macro and event analysis.
+
+Actual service: prediction-markets:8021
+Routes: /api/v1/predictions/events, /api/v1/predictions/event/{id}
 """
 from fastmcp import FastMCP
 from clients.http_client import service_get
@@ -24,8 +27,7 @@ async def get_prediction_events(
     """Get prediction market events from Polymarket.
 
     Args:
-        category: Filter by category (e.g., 'politics', 'crypto', 'economics',
-                 'sports', 'science', 'culture')
+        category: Filter by category (politics, crypto, economics, sports, science, culture)
         active: Only show active (open) markets
         limit: Max results
 
@@ -37,7 +39,7 @@ async def get_prediction_events(
         params["category"] = category
     try:
         return await service_get(
-            config.prediction_markets_url, "/api/v1/events", params=params
+            config.prediction_markets_url, "/api/v1/predictions/events", params=params
         )
     except Exception as e:
         return {"error": str(e)}
@@ -53,7 +55,7 @@ async def get_prediction_price_history(
     try:
         return await service_get(
             config.prediction_markets_url,
-            f"/api/v1/events/{event_id}/price-history",
+            f"/api/v1/predictions/event/{event_id}/detail",
             params={"interval": interval},
         )
     except Exception as e:

@@ -256,51 +256,48 @@ async def get_upcoming_earnings(
 ):
     """
     Get upcoming earnings for the next N days.
-    
-    - **days**: Number of days ahead to fetch (default 7)
-    - **min_importance**: Filter by minimum importance (0-5)
-    - **limit**: Maximum results to return
+
+    Aggregates from reliable per-date caches rather than the single
+    upcoming sorted-set (which can lose near-term entries due to eviction).
     """
     try:
         if not stream_manager:
             raise HTTPException(status_code=503, detail="Service not ready")
-        
-        earnings = await stream_manager.get_upcoming_earnings(limit=limit)
-        
-        # Filter by importance if specified
+
+        today = datetime.now()
+        all_earnings: List[dict] = []
+
+        for offset in range(days + 1):
+            d = today + timedelta(days=offset)
+            date_str = d.strftime("%Y-%m-%d")
+            day_earnings = await stream_manager.get_earnings_by_date(
+                date_str, limit=500
+            )
+            all_earnings.extend(day_earnings)
+
         if min_importance is not None:
-            earnings = [
-                e for e in earnings 
+            all_earnings = [
+                e for e in all_earnings
                 if (e.get("importance") or 0) >= min_importance
             ]
-        
-        # Filter by date range
-        today = datetime.now()
+
+        all_earnings.sort(key=lambda e: (e.get("date", ""), e.get("time", "")))
+
+        by_date: dict[str, int] = {}
+        for e in all_earnings:
+            dt = e.get("date", "unknown")
+            by_date[dt] = by_date.get(dt, 0) + 1
+
         end_date = today + timedelta(days=days)
-        end_str = end_date.strftime("%Y-%m-%d")
-        
-        earnings = [
-            e for e in earnings
-            if e.get("date", "") <= end_str
-        ]
-        
-        # Group by date
-        by_date = {}
-        for e in earnings:
-            date = e.get("date", "unknown")
-            if date not in by_date:
-                by_date[date] = 0
-            by_date[date] += 1
-        
         return {
             "status": "OK",
             "start_date": today.strftime("%Y-%m-%d"),
-            "end_date": end_str,
-            "count": len(earnings),
+            "end_date": end_date.strftime("%Y-%m-%d"),
+            "count": len(all_earnings),
             "by_date": by_date,
-            "results": earnings[:limit]
+            "results": all_earnings[:limit],
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:

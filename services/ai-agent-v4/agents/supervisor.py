@@ -1,14 +1,20 @@
 """
-Supervisor Agent - Intelligent query router with market context awareness.
+Supervisor Agent - LLM-first query understanding.
 
-Uses Gemini Flash to analyze the user query alongside real market state
-and routes to the minimum set of specialist agents needed.
+The LLM (Gemini Flash) handles EVERYTHING in a single call:
+  - Ticker extraction (understands company names, context, ANY language)
+  - Agent routing (which specialists to invoke)
+  - Execution planning
+
+Tickers are then validated against the real Redis universe
+to catch LLM hallucinations. No regex, no stopwords.
 """
 import json
 import logging
 from typing import Any
 
 from agents._mcp_tools import call_mcp_tool
+from agents._ticker_utils import validate_tickers
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +23,19 @@ _llm = None
 AVAILABLE_AGENTS = {
     "market_data": (
         "Real-time and historical price data, enriched snapshots with 100+ indicators, "
-        "scanner categories (winners, losers, gappers, momentum, volume leaders, halts, etc.). "
-        "Use for: top movers, gainers, losers, gappers, volume spikes, specific ticker quotes."
+        "scanner categories (winners, losers, gappers, momentum, volume leaders, halts, etc.), "
+        "historical daily bars, minute bars. "
+        "Use for: top movers, gainers, losers, gappers, volume spikes, specific ticker quotes, "
+        "historical daily/minute OHLCV data, price history."
     ),
     "news_events": (
         "Financial news from Benzinga, market events (breakouts, VWAP crosses, halts), "
         "earnings calendar with EPS/revenue estimates. "
-        "Use for: news queries, what happened with X, earnings, events."
+        "Use for: news queries, what happened with X, earnings dates, events."
     ),
     "financial": (
-        "Fundamental data: income statements, balance sheets, ratios, SEC filings, "
-        "dilution analysis, cash runway. "
-        "Use for: financial analysis, dilution, SEC filings, fundamentals."
+        "Fundamental data: income statements, balance sheets, ratios, SEC filings (10-K, 10-Q, 8-K, S-1). "
+        "Use for: financial analysis, SEC filings, fundamentals, revenue, EPS history, quarterly results."
     ),
     "research": (
         "Deep research using Grok (X.com search) or Gemini Pro. "
@@ -46,7 +53,6 @@ AVAILABLE_AGENTS = {
     ),
 }
 
-# Scanner categories available in the platform
 SCANNER_CATEGORIES = [
     "gappers_up", "gappers_down", "momentum_up", "momentum_down",
     "high_volume", "winners", "losers", "reversals", "anomalies",
@@ -54,9 +60,9 @@ SCANNER_CATEGORIES = [
 ]
 
 SYSTEM_PROMPT = """\
-You are the supervisor agent of TradeUL, a professional stock trading analysis platform.
+You are the supervisor of TradeUL, a professional stock trading analysis platform.
 
-Your job: analyze the user query + market context and decide which specialist agents to invoke.
+Your job: fully understand the user query, extract tickers, and route to the right agents.
 
 AVAILABLE AGENTS:
 {agents_desc}
@@ -64,38 +70,49 @@ AVAILABLE AGENTS:
 MARKET CONTEXT:
 {market_context}
 
-SCANNER CATEGORIES AVAILABLE (for market_data agent):
-{scanner_categories}
+SCANNER CATEGORIES: {scanner_categories}
+
+TICKER EXTRACTION RULES:
+1. Extract ALL stock ticker symbols mentioned or implied in the query.
+2. Map company names to tickers: "tesla" → "TSLA", "apple" → "AAPL", "nvidia" → "NVDA", "amazon" → "AMZN", etc.
+3. Recognize tickers in any format: $TSLA, TSLA, tsla, Tesla, etc.
+4. DO NOT extract common words as tickers. "ha hecho" is Spanish for "has done", NOT the ticker HA.
+5. "SEC" means Securities and Exchange Commission, NOT a ticker. Same for: CEO, CFO, IPO, ETF, GDP, CPI, FDA, EPS, RSI, AI (unless explicitly "$AI").
+6. If no specific stocks are mentioned, return an empty tickers array.
 
 ROUTING RULES:
-1. Analyze the query and determine the MINIMUM agents needed. Don't over-route.
-2. For "top gainers", "winners", "best performers", "mejores acciones" → market_data (uses winners category)
-3. For "top losers", "worst", "peores" → market_data (uses losers category)
-4. For "gappers", "gap up/down", "premarket" → market_data (uses gappers categories)
-5. For specific ticker analysis ($AAPL, NVDA, etc.) → market_data for data, optionally financial/news
-6. For screening with criteria (RSI < 30, volume > X, etc.) → screener
-7. For news, events, "what happened" → news_events
-8. For deep research, sentiment, analyst opinions → research
-9. For backtests, custom calculations → code_exec
-10. When market is CLOSED, market_data still has last-session data (last_close). Use it.
-11. Match the user's language in your plan description.
+1. Use the MINIMUM agents needed. Don't over-route.
+2. For "top gainers", "winners", "best performers", "mejores acciones" → market_data
+3. For "top losers", "worst", "peores" → market_data
+4. For "gappers", "gap up/down", "premarket" → market_data
+5. For specific ticker price/data → market_data
+6. For screening with criteria (RSI < 30, volume > X) → screener
+7. For news, events, "what happened", "noticias" → news_events
+8. For earnings dates/calendar → news_events
+9. For historical earnings (EPS, revenue, quarterly results, beats/misses) → financial
+10. For SEC filings, 10-K, 10-Q, 8-K → financial
+11. For fundamentals, income statements, balance sheets → financial
+12. For deep research, sentiment, analyst opinions → research
+13. For backtests, custom calculations → code_exec
+14. When market is CLOSED, data is still available via last_close snapshots.
+15. Match the user's language in your plan description.
 
 ALREADY COMPLETED AGENTS:
 {completed_info}
 
-IMPORTANT: If all needed agents already ran, return empty agents list to proceed to synthesis.
+If all needed agents already ran, return empty agents list.
 
-Respond ONLY with valid JSON (no markdown, no explanation):
+Respond ONLY with valid JSON:
 {{
-    "plan": "Brief execution plan (in the user's language)",
+    "tickers": ["TSLA", "AAPL"],
+    "plan": "Brief execution plan (in user's language)",
     "agents": ["agent1", "agent2"],
-    "reasoning": "Why these agents (English ok)"
+    "reasoning": "Why these agents and tickers"
 }}
 """
 
 
 def _get_llm():
-    """Lazily create the Gemini Flash LLM for routing decisions."""
     global _llm
     if _llm is None:
         from langchain_google_genai import ChatGoogleGenerativeAI
@@ -108,7 +125,6 @@ def _get_llm():
 
 
 def _build_completed_info(agent_results: dict[str, Any]) -> str:
-    """Summarize which agents have already returned results."""
     if not agent_results:
         return "No agents have run yet."
     lines = []
@@ -116,7 +132,6 @@ def _build_completed_info(agent_results: dict[str, Any]) -> str:
         if isinstance(result, dict) and "error" in result:
             lines.append(f"- {agent}: FAILED ({result['error'][:100]})")
         elif isinstance(result, dict):
-            # Show what data keys are available
             keys = [k for k in result.keys() if not k.startswith("_")]
             lines.append(f"- {agent}: completed (data keys: {keys})")
         else:
@@ -125,13 +140,10 @@ def _build_completed_info(agent_results: dict[str, Any]) -> str:
 
 
 def _build_agents_desc() -> str:
-    """Format agent descriptions for the system prompt."""
     return "\n".join(f"- {name}: {desc}" for name, desc in AVAILABLE_AGENTS.items())
 
 
 async def _get_market_context_str(state: dict) -> str:
-    """Build a human-readable market context string."""
-    # Try to get cached market session from state
     mc = state.get("market_context", {})
     if mc and mc.get("current_session"):
         session = mc.get("current_session", "UNKNOWN")
@@ -141,7 +153,6 @@ async def _get_market_context_str(state: dict) -> str:
             f"Note: When market is CLOSED, last-session data is still available via last_close snapshots."
         )
 
-    # Fetch from MCP if not in state
     try:
         session_data = await call_mcp_tool("scanner", "get_market_session", {})
         if isinstance(session_data, dict) and "error" not in session_data:
@@ -150,7 +161,7 @@ async def _get_market_context_str(state: dict) -> str:
             trading_date = session_data.get("trading_date", "unknown")
             return (
                 f"Session: {session}, Date: {trading_date}, Trading day: {is_trading}. "
-                f"Note: When CLOSED, last-session data is available. Scanner categories contain last session's data."
+                f"Note: When CLOSED, last-session data is available."
             )
     except Exception as e:
         logger.warning("Failed to get market session: %s", e)
@@ -159,13 +170,12 @@ async def _get_market_context_str(state: dict) -> str:
 
 
 async def supervisor_node(state: dict) -> dict:
-    """Analyze the query and decide which agents to invoke next."""
+    """Analyze the query: extract tickers + decide agents in ONE LLM call."""
     query = state.get("query", "")
     agent_results = state.get("agent_results", {})
     iteration = state.get("iteration", 0)
     language = state.get("language", "en")
 
-    # Guard against infinite loops
     max_iterations = 5
     if iteration >= max_iterations:
         logger.warning("Supervisor hit max iterations (%d), stopping.", max_iterations)
@@ -197,7 +207,6 @@ async def supervisor_node(state: dict) -> dict:
         response = await llm.ainvoke(messages)
         raw = response.content.strip()
 
-        # Strip markdown fences if present
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1]
         if raw.endswith("```"):
@@ -207,21 +216,36 @@ async def supervisor_node(state: dict) -> dict:
         decision = json.loads(raw)
     except (json.JSONDecodeError, Exception) as e:
         logger.error("Supervisor LLM parse error: %s — raw: %s", e, raw if 'raw' in dir() else "N/A")
-        # Fallback: route to market_data
         decision = {
+            "tickers": [],
             "plan": "Fallback: routing to market_data due to parse error",
             "agents": ["market_data"],
             "reasoning": f"LLM output could not be parsed: {e}",
         }
 
-    # Filter out agents that already ran successfully
+    # ── Ticker validation against Redis universe ──
+    # The LLM extracted tickers from context. Now validate they're real.
+    llm_tickers = decision.get("tickers", [])
+    if llm_tickers:
+        validated_tickers = await validate_tickers(llm_tickers)
+        rejected = set(llm_tickers) - set(validated_tickers)
+        if rejected:
+            logger.info("Supervisor: LLM suggested tickers %s but rejected by universe: %s",
+                        llm_tickers, rejected)
+        llm_tickers = validated_tickers
+
+    # On first iteration, set tickers. On subsequent, keep existing if LLM returns empty.
+    existing_tickers = state.get("tickers", [])
+    final_tickers = llm_tickers if llm_tickers else existing_tickers
+
+    # ── Agent routing ──
     requested = decision.get("agents", [])
     pending = [a for a in requested if a in AVAILABLE_AGENTS and a not in agent_results]
 
     if not pending:
-        # All requested agents already ran — we are done
         return {
             **state,
+            "tickers": final_tickers,
             "active_agents": [],
             "current_agent": "__end__",
             "plan": decision.get("plan", ""),
@@ -230,6 +254,7 @@ async def supervisor_node(state: dict) -> dict:
 
     return {
         **state,
+        "tickers": final_tickers,
         "active_agents": pending,
         "current_agent": pending[0],
         "plan": decision.get("plan", ""),
@@ -238,7 +263,6 @@ async def supervisor_node(state: dict) -> dict:
 
 
 def route_after_supervisor(state: dict) -> str:
-    """Conditional edge: return the name of the next agent node to execute."""
     current = state.get("current_agent", "__end__")
     active = state.get("active_agents", [])
 

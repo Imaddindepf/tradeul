@@ -404,10 +404,14 @@ class EarningsStreamManager:
                 )
             
             # Update upcoming cache if future date
+            # Use negative score so nearest dates have lowest rank and are
+            # preserved when we trim the highest-rank (most distant) entries.
             if earning.date >= today:
-                await self.redis.zadd(self.CACHE_UPCOMING_KEY, {data: score})
+                await self.redis.zadd(
+                    self.CACHE_UPCOMING_KEY, {data: -score}
+                )
                 await self.redis.zremrangebyrank(
-                    self.CACHE_UPCOMING_KEY, 0, -(self.CACHE_SIZE + 1)
+                    self.CACHE_UPCOMING_KEY, self.CACHE_SIZE, -1
                 )
             
         except Exception as e:

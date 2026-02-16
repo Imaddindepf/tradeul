@@ -28,6 +28,7 @@ class AgentState(TypedDict):
     # ── Query ──
     query: str                           # Original user query
     language: str                        # Detected language (es/en)
+    tickers: list[str]                   # Tickers extracted by supervisor LLM + validated against Redis
 
     # ── Planning ──
     plan: str                            # Supervisor's execution plan

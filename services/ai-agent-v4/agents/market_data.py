@@ -1,11 +1,14 @@
 """
 Market Data Agent - Real-time scanner snapshots and enriched ticker data.
 
-Uses MCP tools from the scanner service:
+MCP tools:
   - scanner.get_enriched_batch   → enriched data for specific tickers
   - scanner.get_scanner_snapshot → top movers / gappers / volume leaders
   - scanner.get_market_session   → current market session info
-  - scanner.get_enriched_ticker  → full 100+ indicator snapshot for one ticker
+
+Data cleaning:
+  - Enriched: 145 fields → ~25 essential fields per ticker
+  - Scanner: 100 items × 145 fields → capped + cleaned to key columns
 """
 from __future__ import annotations
 import re
@@ -13,121 +16,236 @@ import time
 from typing import Any
 
 from agents._mcp_tools import call_mcp_tool
-from agents._ticker_utils import extract_tickers as _extract_tickers
+
+
+# ── Historical data detection ────────────────────────────────────
+_HISTORICAL_DAILY_KW = [
+    "datos diarios", "daily data", "day bars", "barras diarias",
+    "historical", "historial", "precio de la semana", "última semana",
+    "last week", "chart", "gráfico",
+]
+
+_HISTORICAL_MINUTE_KW = [
+    "minuto", "minute", "intraday", "barras por minuto",
+    "minute bars", "intradía", "1min", "5min",
+]
+
+
+def _wants_historical_daily(q: str) -> bool:
+    return any(kw in q.lower() for kw in _HISTORICAL_DAILY_KW)
+
+
+def _wants_historical_minute(q: str) -> bool:
+    return any(kw in q.lower() for kw in _HISTORICAL_MINUTE_KW)
 
 
 # ── Category mapping ─────────────────────────────────────────────
-# Maps user intent keywords → actual scanner categories
 _CATEGORY_MAP: dict[str, list[str]] = {
-    # Gainers / Winners
-    "winners":    ["winners"],
-    "gainers":    ["winners"],
-    "ganadoras":  ["winners"],
-    "mejores":    ["winners"],
-    "top":        ["winners"],
-    "best":       ["winners"],
-    "subiendo":   ["winners"],
-    # Losers
-    "losers":     ["losers"],
-    "perdedoras": ["losers"],
-    "peores":     ["losers"],
-    "worst":      ["losers"],
-    "bajando":    ["losers"],
-    "caidas":     ["losers"],
-    # Gappers
-    "gapper":     ["gappers_up", "gappers_down"],
-    "gap up":     ["gappers_up"],
-    "gap down":   ["gappers_down"],
-    "gappers":    ["gappers_up"],
-    "premarket":  ["gappers_up", "gappers_down"],
-    # Momentum
-    "momentum":   ["momentum_up"],
-    "runners":    ["momentum_up"],
-    "running":    ["momentum_up"],
-    "movers":     ["momentum_up", "momentum_down"],
-    # Volume
-    "volume":     ["high_volume"],
-    "volumen":    ["high_volume"],
-    "vol":        ["high_volume"],
-    # Halts
-    "halt":       ["halts"],
-    "halted":     ["halts"],
-    "halts":      ["halts"],
-    # Other
-    "reversals":  ["reversals"],
-    "anomalies":  ["anomalies"],
-    "new highs":  ["new_highs"],
-    "new lows":   ["new_lows"],
-    "post market": ["post_market"],
-    "after hours": ["post_market"],
+    "winners": ["winners"], "gainers": ["winners"], "ganadoras": ["winners"],
+    "mejores": ["winners"], "top": ["winners"], "best": ["winners"],
+    "subiendo": ["winners"],
+    "losers": ["losers"], "perdedoras": ["losers"], "peores": ["losers"],
+    "worst": ["losers"], "bajando": ["losers"], "caidas": ["losers"],
+    "gapper": ["gappers_up", "gappers_down"], "gap up": ["gappers_up"],
+    "gap down": ["gappers_down"], "gappers": ["gappers_up"],
+    "premarket": ["gappers_up", "gappers_down"],
+    "momentum": ["momentum_up"], "runners": ["momentum_up"],
+    "running": ["momentum_up"], "movers": ["momentum_up", "momentum_down"],
+    "volume": ["high_volume"], "volumen": ["high_volume"], "vol": ["high_volume"],
+    "halt": ["halts"], "halted": ["halts"], "halts": ["halts"],
+    "reversals": ["reversals"], "anomalies": ["anomalies"],
+    "new highs": ["new_highs"], "new lows": ["new_lows"],
+    "post market": ["post_market"], "after hours": ["post_market"],
 }
 
 
 def _detect_categories(query: str) -> list[str]:
-    """Detect which scanner categories the user is asking about.
-    Returns actual category names valid for the scanner."""
+    """Detect which scanner categories the user is asking about."""
     q_lower = query.lower()
     categories: list[str] = []
-
     for keyword, cats in _CATEGORY_MAP.items():
         if keyword in q_lower:
             for c in cats:
                 if c not in categories:
                     categories.append(c)
-
-    return categories or ["winners"]  # default to winners
+    return categories
 
 
 def _extract_limit(query: str) -> int:
-    """Extract the requested limit from the query (e.g., 'top 50' → 50)."""
     match = re.search(r'\b(\d{1,3})\b', query)
     if match:
         n = int(match.group(1))
         if 1 <= n <= 200:
             return n
-    return 25  # sensible default
+    return 25
 
+
+# ── Data cleaning ───────────────────────────────────────────────────
+
+# Essential fields for enriched ticker data (25 of 145)
+_ENRICHED_FIELDS = {
+    "ticker", "current_price", "todaysChangePerc", "current_volume",
+    "prev_day_volume", "market_cap", "float_shares", "sector",
+    "rsi_14", "daily_rsi", "vwap", "dist_from_vwap",
+    "macd_line", "macd_signal", "macd_hist",
+    "bb_upper", "bb_lower", "bb_mid",
+    "sma_20", "sma_50", "sma_200",
+    "daily_sma_20", "daily_sma_50", "daily_sma_200",
+    "adx_14", "daily_adx_14",
+    "stoch_k", "stoch_d",
+    "atr_percent", "daily_atr_percent",
+    "high_52w", "low_52w", "from_52w_high", "from_52w_low",
+    "gap_percent", "daily_gap_percent",
+    "change_1d", "change_5d", "change_20d",
+    "rvol", "dollar_volume",
+    "intraday_high", "intraday_low",
+    "shares_outstanding",
+}
+
+
+def _clean_enriched(raw: dict) -> dict:
+    """Strip enriched data to essential fields only.
+    Input: raw MCP response (may have 'tickers' key or be flat).
+    Output: {ticker: {essential_fields}} 
+    """
+    tickers_data = raw
+    if isinstance(raw, dict) and "tickers" in raw:
+        tickers_data = raw["tickers"]
+
+    if not isinstance(tickers_data, dict):
+        return raw
+
+    cleaned = {}
+    for symbol, data in tickers_data.items():
+        if not isinstance(data, dict):
+            continue
+        row = {}
+        for k in _ENRICHED_FIELDS:
+            if k in data and data[k] is not None:
+                row[k] = data[k]
+        # Add formatted price from day data if present
+        day = data.get("day", {})
+        if isinstance(day, dict):
+            row["day_open"] = day.get("o")
+            row["day_high"] = day.get("h")
+            row["day_low"] = day.get("l")
+            row["day_close"] = day.get("c")
+            row["day_volume"] = day.get("v")
+            row["day_vwap"] = day.get("vw")
+        cleaned[symbol] = row
+
+    return cleaned
+
+
+# Essential fields for scanner snapshot items
+_SCANNER_FIELDS = {
+    "symbol", "price", "bid", "ask",
+    "todaysChangePerc", "change_pct",
+    "current_volume", "volume",
+    "rvol", "relative_volume",
+    "market_cap", "float_shares", "sector",
+    "gap_percent",
+}
+
+
+def _clean_scanner(raw: Any, limit: int = 50) -> list[dict]:
+    """Clean scanner snapshot: cap items and strip to essential fields.
+    Input: raw MCP response (list or dict with data key).
+    Output: list of clean dicts with ~10 fields each.
+    """
+    items = raw
+    if isinstance(raw, dict):
+        items = raw.get("data", raw.get("stocks", raw.get("tickers", [])))
+    if not isinstance(items, list):
+        return []
+
+    cleaned = []
+    for item in items[:limit]:
+        if not isinstance(item, dict):
+            continue
+        row = {}
+        for k in _SCANNER_FIELDS:
+            if k in item and item[k] is not None:
+                row[k] = item[k]
+        if row:
+            cleaned.append(row)
+
+    return cleaned
+
+
+# ── Main node ───────────────────────────────────────────────────────
 
 async def market_data_node(state: dict) -> dict:
     """Fetch market data via MCP scanner tools."""
     start_time = time.time()
 
     query = state.get("query", "")
-    tickers = _extract_tickers(query)
-    categories = _detect_categories(query)
+    tickers = state.get("tickers", [])
+    explicit_categories = _detect_categories(query)
     limit = _extract_limit(query)
 
     results: dict[str, Any] = {}
     errors: list[str] = []
 
-    # 1. Always get market session context
+    # 1. Market session context
     try:
         session = await call_mcp_tool("scanner", "get_market_session", {})
         results["market_session"] = session
     except Exception as exc:
         errors.append(f"market_session: {exc}")
 
-    # 2. If specific tickers requested → enriched batch
+    # 2. Enriched data for specific tickers — CLEANED
     if tickers:
         try:
-            enriched = await call_mcp_tool(
-                "scanner",
-                "get_enriched_batch",
-                {"symbols": tickers},
-            )
-            results["enriched"] = enriched
+            raw = await call_mcp_tool("scanner", "get_enriched_batch", {"symbols": tickers})
+            results["enriched"] = _clean_enriched(raw)
         except Exception as exc:
             errors.append(f"enriched_batch: {exc}")
 
-    # 3. Scanner snapshot for each detected category
+    # 3. Historical data — daily or minute bars if requested
+    if tickers and _wants_historical_daily(query):
+        # Fetch last 5 trading days for each ticker
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        for days_back in range(0, 10):
+            dt = today - timedelta(days=days_back)
+            if dt.weekday() >= 5:
+                continue
+            date_str = dt.strftime("%Y-%m-%d")
+            try:
+                raw = await call_mcp_tool("historical", "get_day_bars", {
+                    "date": date_str, "symbols": tickers[:3],
+                })
+                if raw and not raw.get("error"):
+                    results.setdefault("historical_daily", []).append({
+                        "date": date_str, "data": raw
+                    })
+            except Exception as exc:
+                errors.append(f"historical_daily/{date_str}: {exc}")
+                break
+
+    if tickers and _wants_historical_minute(query):
+        try:
+            raw = await call_mcp_tool("historical", "get_minute_bars", {
+                "date": "yesterday", "symbols": tickers[:2],
+            })
+            if raw and not raw.get("error"):
+                results["historical_minute"] = raw
+        except Exception as exc:
+            errors.append(f"historical_minute: {exc}")
+
+    # 4. Scanner snapshot — only if explicitly requested or no tickers
+    categories = explicit_categories
+    if not categories and not tickers:
+        categories = ["winners"]
+
     for category in categories:
         try:
-            snapshot = await call_mcp_tool(
-                "scanner",
-                "get_scanner_snapshot",
+            raw = await call_mcp_tool(
+                "scanner", "get_scanner_snapshot",
                 {"category": category, "limit": limit},
             )
-            results[f"snapshot_{category}"] = snapshot
+            results[f"snapshot_{category}"] = _clean_scanner(raw, limit=limit)
         except Exception as exc:
             errors.append(f"snapshot_{category}: {exc}")
 
@@ -139,7 +257,7 @@ async def market_data_node(state: dict) -> dict:
     return {
         "agent_results": {
             "market_data": {
-                "tickers_detected": tickers,
+                "tickers_queried": tickers,
                 "categories": categories,
                 "limit": limit,
                 **results,

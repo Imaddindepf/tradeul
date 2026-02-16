@@ -14,7 +14,7 @@ import re
 import time
 from typing import Any
 
-from agents._ticker_utils import extract_tickers as _extract_tickers
+# Tickers come from state (extracted by supervisor LLM, validated against Redis)
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,7 @@ async def research_node(state: dict) -> dict:
     start_time = time.time()
 
     query = state.get("query", "")
-    tickers = _extract_tickers(query)
+    tickers = state.get("tickers", [])
     xai_available = bool(os.getenv("XAI_API_KEY"))
 
     source_used = "none"

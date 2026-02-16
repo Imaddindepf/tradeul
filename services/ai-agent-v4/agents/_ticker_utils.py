@@ -1,119 +1,106 @@
 """
-Shared ticker extraction utility for all agents.
+Ticker Universe Validator — validates tickers against the real market.
 
-Centralizes:
-- Ticker regex patterns
-- Comprehensive stopword list (English + Spanish)
-- Common false-positive filtering
+The LLM (supervisor) handles ticker extraction from natural language.
+This module's only job: confirm that LLM-suggested tickers actually
+exist in our Redis market universe, catching hallucinations.
+
+Architecture:
+  LLM extracts tickers (understands context, language, company names)
+    → validate_tickers() confirms they exist in Redis
+    → Only real tickers reach the agents
+
+Redis keys used:
+  - snapshot:enriched:latest     (live market hours)
+  - snapshot:enriched:last_close (fallback, off-hours)
 """
 from __future__ import annotations
+
+import logging
+import os
 import re
+import time
+from typing import Optional
 
-# ── Regex patterns ──────────────────────────────────────────────────
-_TICKER_RE = re.compile(r'(?<!\w)\$?([A-Z]{1,5})(?:\s|$|[,;.!?\)])')
+import redis.asyncio as aioredis
 
-# ── Comprehensive stopword list ─────────────────────────────────────
-# Words that match ticker-like patterns but are NOT stock symbols.
-# Organized by category for maintainability.
+logger = logging.getLogger(__name__)
 
-_ENGLISH_COMMON = {
-    # Pronouns / articles / prepositions
-    "I", "A", "AM", "AN", "AS", "AT", "BE", "BY", "DO", "GO", "HE",
-    "IF", "IN", "IS", "IT", "ME", "MY", "NO", "OF", "ON", "OR", "SO",
-    "TO", "UP", "US", "WE",
-    # Common short words
-    "ALL", "AND", "ANY", "ARE", "BUT", "CAN", "DAY", "DID", "FOR",
-    "GET", "GOT", "HAS", "HAD", "HER", "HIM", "HIS", "HOW", "ITS",
-    "LET", "MAY", "NEW", "NOT", "NOW", "OLD", "ONE", "OUR", "OUT",
-    "OWN", "RAN", "RUN", "SAY", "SET", "SHE", "THE", "TOO", "TWO",
-    "USE", "WAS", "WAY", "WHO", "WHY", "WIN", "WON", "YET", "YOU",
-    # 4-5 letter common words
-    "ALSO", "BACK", "BEEN", "BEST", "BOTH", "CAME", "COME", "EACH",
-    "EVEN", "FIND", "FOUR", "FROM", "GAVE", "GIVE", "GOES", "GONE",
-    "GOOD", "HALF", "HAVE", "HERE", "HIGH", "HOLD", "HUGE", "JUST",
-    "KEEP", "KNEW", "KNOW", "LAST", "LEFT", "LIKE", "LIST", "LONG",
-    "LOOK", "LOSE", "LOST", "LOTS", "MADE", "MAIN", "MAKE", "MANY",
-    "MATH", "MORE", "MOST", "MUCH", "MUST", "NAME", "NEAR", "NEED",
-    "NEXT", "NINE", "NONE", "ONCE", "ONLY", "OPEN", "OVER", "PAID",
-    "PART", "PAST", "PICK", "PLAN", "PLUS", "PULL", "PUSH", "PUTS",
-    "RATE", "READ", "REAL", "REST", "RISE", "ROAD", "ROLE", "SAID",
-    "SAME", "SAVE", "SEEM", "SELL", "SENT", "SHOW", "SIDE", "SIGN",
-    "SOME", "SOON", "STAY", "STEP", "STOP", "SUCH", "SURE", "TAKE",
-    "TALK", "TELL", "TERM", "TEXT", "THAN", "THAT", "THEM", "THEN",
-    "THEY", "THIS", "TIME", "TOLD", "TOOK", "TURN", "TYPE", "UPON",
-    "VERY", "WANT", "WEEK", "WELL", "WENT", "WERE", "WHAT", "WHEN",
-    "WILL", "WITH", "WORD", "WORK", "YEAR", "YOUR",
-    "ABOUT", "ABOVE", "AFTER", "AGAIN", "BEING", "BELOW", "COULD",
-    "DOING", "EIGHT", "EVERY", "FIRST", "FOUND", "GOING", "GREAT",
-    "GUESS", "MONEY", "MONTH", "NEVER", "OTHER", "PLACE", "POINT",
-    "PRICE", "RIGHT", "SHALL", "SINCE", "STILL", "STOCK", "THEIR",
-    "THERE", "THESE", "THING", "THINK", "THREE", "TODAY", "TOTAL",
-    "UNDER", "UNTIL", "USING", "VALUE", "WATCH", "WHERE", "WHICH",
-    "WHILE", "WHOLE", "WORLD", "WORSE", "WORST", "WOULD", "COULD",
-}
+# ── Redis connection ────────────────────────────────────────────────
+# Enriched snapshots live in DB 0 (scanner's DB), NOT the agent's DB 5.
+_AGENT_REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/5")
+_SNAPSHOT_REDIS_URL = re.sub(r'/\d+$', '/0', _AGENT_REDIS_URL)
+_redis: Optional[aioredis.Redis] = None
 
-_SPANISH_COMMON = {
-    # Articles / prepositions / conjunctions
-    "DE", "LA", "EL", "EN", "ES", "UN", "SE", "NO", "SI", "YA", "LE",
-    "LO", "AL", "ME", "MI", "TE", "TU",
-    # Common 3-letter
-    "CON", "DEL", "LAS", "LOS", "MAS", "MIS", "UNA", "POR", "QUE",
-    "SER", "SIN", "SON", "SUS", "TAN", "VER", "VEZ",
-    # Common 4-letter
-    "ALGO", "AQUI", "BAJO", "BIEN", "CADA", "CASO", "COMO", "CREE",
-    "DADO", "DAME", "DICE", "DIJO", "ELLA", "ESAS", "ESOS", "ESTA",
-    "ESTO", "GRAN", "HACE", "HIZO", "HUBO", "LADO", "MAYO", "MIRA",
-    "MODO", "MUYA", "NADA", "OTRA", "OTRO", "PARA", "PASO", "POCO",
-    "PUDO", "PUES", "SEMI", "SERA", "SIDO", "SOLO", "TIPO", "TODA",
-    "TODO", "TRES", "TUVO", "VALE", "VIDA",
-    # Common 5-letter
-    "AHORA", "ANTES", "BUSCA", "BUENO", "CIELO", "CREER", "DESDE",
-    "DONDE", "ENTRE", "FECHA", "FORMA", "HASTA", "MEJOR", "MISMO",
-    "MUCHO", "MUNDO", "NUEVA", "NUEVO", "NUNCA", "PARTE", "PUEDE",
-    "QUIEN", "SOBRE", "TANTO", "TIENE", "TODAS", "TODOS", "VIENE",
-    # Question words
-    "CUAL", "DONDE", "QUIEN",
-    # Time words
-    "HOY", "DIA", "MES", "AYER", "LUNES",
-}
-
-_FINANCIAL_TERMS = {
-    # Common financial acronyms that aren't tickers
-    "CEO", "CFO", "CTO", "COO", "FDA", "SEC", "IPO", "ETF", "GDP",
-    "CPI", "ATH", "ATL", "DD", "EPS", "PE", "API", "AI", "ITM",
-    "OTM", "ATM", "RSI", "MACD", "VWAP", "SMA", "EMA", "ADX",
-    "BPS", "YOY", "QOQ", "MOM", "FED", "FOMC", "OPEX", "ER",
-    "IMO", "FOMO", "FUD", "HODL", "YOLO", "OTC", "NYSE", "AMEX",
-    # Common words that look like tickers in financial context
-    "BUY", "SELL", "CALL", "PUT", "LONG", "HOLD", "GAIN", "LOSS",
-    "BEAR", "BULL", "BOND", "CASH", "DEBT", "DUMP", "EARN", "EDGE",
-    "FEAR", "FLOW", "FREE", "FUND", "GOLD", "GROW", "HALT", "HOPE",
-    "JUMP", "LOAN", "MOVE", "NEWS", "PEAK", "PUMP", "PUSH", "RISK",
-    "SAFE", "SPIN", "SWAP", "TANK", "TOPS", "TRAP", "TRIM", "WEAK",
-    "DOWN", "LOW",
-}
-
-# Combined set
-STOPWORDS = _ENGLISH_COMMON | _SPANISH_COMMON | _FINANCIAL_TERMS
+# ── In-memory universe cache ───────────────────────────────────────
+_universe: set[str] = set()
+_universe_ts: float = 0.0
+_UNIVERSE_TTL = 300  # refresh every 5 min
 
 
-def extract_tickers(query: str) -> list[str]:
-    """Extract probable stock tickers from a user query.
+async def _get_redis() -> aioredis.Redis:
+    global _redis
+    if _redis is None:
+        _redis = aioredis.from_url(_SNAPSHOT_REDIS_URL, decode_responses=True)
+    return _redis
 
-    1. Explicit $TICKER mentions (highest confidence)
-    2. ALL-CAPS words that pass stopword filtering
-    3. Deduplication preserving order
 
-    Returns a list of likely ticker symbols.
+async def _load_universe() -> set[str]:
+    """Load all valid ticker symbols from Redis.
+
+    Tries live data first, falls back to last close.
+    Caches in memory for 5 minutes.
     """
-    upper = query.upper()
+    global _universe, _universe_ts
+    now = time.time()
+    if _universe and (now - _universe_ts) < _UNIVERSE_TTL:
+        return _universe
 
-    # Explicit $TICKER mentions — always trust these
-    explicit = re.findall(r'\$([A-Z]{1,5})\b', upper)
+    try:
+        r = await _get_redis()
 
-    # Implicit ALL-CAPS words — filter through stopwords
-    implicit = _TICKER_RE.findall(upper)
+        keys = await r.hkeys("snapshot:enriched:latest")
+        if not keys:
+            keys = await r.hkeys("snapshot:enriched:last_close")
 
-    # Combine, deduplicate, filter
-    combined = list(dict.fromkeys(explicit + implicit))
-    return [t for t in combined if t not in STOPWORDS and len(t) >= 2]
+        if keys:
+            _universe = set(keys)
+            _universe_ts = now
+            logger.info("Ticker universe loaded: %d symbols", len(_universe))
+        else:
+            logger.warning("No ticker universe found in Redis")
+    except Exception as exc:
+        logger.error("Failed to load ticker universe: %s", exc)
+
+    return _universe
+
+
+async def validate_tickers(tickers: list[str]) -> list[str]:
+    """Validate a list of ticker symbols against the Redis universe.
+
+    This is the primary function. Called by the supervisor after
+    the LLM extracts tickers from the user query.
+
+    Returns only tickers that exist in our market universe.
+    If the universe is unavailable, returns all tickers unchanged
+    (graceful degradation).
+    """
+    if not tickers:
+        return []
+
+    # Normalize: uppercase, strip whitespace
+    normalized = list(dict.fromkeys(t.strip().upper() for t in tickers if t.strip()))
+    if not normalized:
+        return []
+
+    universe = await _load_universe()
+
+    if universe:
+        validated = [t for t in normalized if t in universe]
+        rejected = set(normalized) - set(validated)
+        if rejected:
+            logger.info("Rejected tickers not in universe: %s", rejected)
+        return validated
+    else:
+        logger.warning("Universe unavailable — returning tickers unvalidated: %s", normalized)
+        return normalized
