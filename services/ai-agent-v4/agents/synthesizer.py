@@ -49,6 +49,11 @@ CRITICAL RULES:
 3. NEVER dump raw JSON. Present everything in formatted markdown tables.
 4. NEVER include null values, internal IDs, accession numbers, or technical metadata.
 5. If data is missing or an agent returned an error, say so honestly and briefly.
+6. MARKET SESSION AWARENESS: Check "market_session" in results.
+   - If current_session is "CLOSED" and it's a weekend/holiday: say "Market is closed. Showing data from the last trading session (Friday X)."
+   - If current_session is "CLOSED" and it's a weekday before open: say "Market hasn't opened yet. Showing pre-market/last session data."
+   - If current_session is "PRE_MARKET" or "POST_MARKET": mention it clearly.
+   - ALWAYS state the data timestamp context so traders know if data is live or stale.
 
 FORMATTING STANDARDS:
 - Use markdown tables (| Col1 | Col2 |) for ALL structured data
@@ -231,11 +236,20 @@ async def synthesizer_node(state: dict) -> dict:
 
     system_prompt = SYNTHESIS_PROMPT.format(language_instruction=language_instruction)
 
+    # Extract market session from agent results or state for context
+    market_session = {}
+    md_results = results_payload.get("market_data", {})
+    if isinstance(md_results, dict):
+        market_session = md_results.get("market_session", {})
+    if not market_session:
+        market_session = state.get("market_context", {})
+
     messages = [
         SystemMessage(content=system_prompt),
         HumanMessage(content=json.dumps({
             "query": query,
             "language": language,
+            "market_session": market_session,
             "agent_results": results_payload,
         }, ensure_ascii=False, default=str)),
     ]

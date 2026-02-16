@@ -140,11 +140,13 @@ def _clean_enriched(raw: dict) -> dict:
 # Essential fields for scanner snapshot items
 _SCANNER_FIELDS = {
     "symbol", "price", "bid", "ask",
-    "todaysChangePerc", "change_pct",
-    "current_volume", "volume",
-    "rvol", "relative_volume",
-    "market_cap", "float_shares", "sector",
-    "gap_percent",
+    "change_percent", "todaysChangePerc", "change_pct",
+    "current_volume", "volume", "volume_today",
+    "rvol",
+    "market_cap", "float_shares", "sector", "industry",
+    "gap_percent", "prev_close", "open",
+    "intraday_high", "intraday_low",
+    "session",
 }
 
 
@@ -152,6 +154,7 @@ def _clean_scanner(raw: Any, limit: int = 50) -> list[dict]:
     """Clean scanner snapshot: cap items and strip to essential fields.
     Input: raw MCP response (list or dict with data key).
     Output: list of clean dicts with ~10 fields each.
+    Normalizes field names for consistent downstream consumption.
     """
     items = raw
     if isinstance(raw, dict):
@@ -167,10 +170,60 @@ def _clean_scanner(raw: Any, limit: int = 50) -> list[dict]:
         for k in _SCANNER_FIELDS:
             if k in item and item[k] is not None:
                 row[k] = item[k]
+
+        # Normalize change_percent to a single key
+        chg = (row.pop("change_percent", None)
+               or row.pop("todaysChangePerc", None)
+               or row.pop("change_pct", None))
+        if chg is not None:
+            row["change_pct"] = round(chg, 2) if isinstance(chg, float) else chg
+
+        # Normalize volume to a single key
+        vol = (row.pop("volume_today", None)
+               or row.pop("current_volume", None)
+               or row.get("volume"))
+        if vol is not None:
+            row["volume"] = vol
+
+        # Clean sector: map SIC descriptions to standard names
+        sector = row.get("sector", "")
+        if sector and len(sector) > 25:
+            row["sector"] = _normalize_sector(sector)
+
         if row:
             cleaned.append(row)
 
     return cleaned
+
+
+_SIC_SECTOR_MAP = {
+    "semiconductor": "Technology", "software": "Technology", "computer": "Technology",
+    "electronic": "Technology", "data processing": "Technology", "telecom": "Communication Services",
+    "pharma": "Healthcare", "biotech": "Healthcare", "medical": "Healthcare", "surgical": "Healthcare",
+    "hospital": "Healthcare", "diagnostic": "Healthcare", "drug": "Healthcare",
+    "crude": "Energy", "petroleum": "Energy", "natural gas": "Energy", "oil": "Energy",
+    "mining": "Basic Materials", "metal": "Basic Materials", "chemical": "Basic Materials",
+    "steel": "Basic Materials",
+    "bank": "Financial Services", "insurance": "Financial Services", "invest": "Financial Services",
+    "real estate": "Real Estate", "reit": "Real Estate",
+    "motor": "Consumer Cyclical", "auto": "Consumer Cyclical", "retail": "Consumer Cyclical",
+    "apparel": "Consumer Cyclical", "restaurant": "Consumer Cyclical", "hotel": "Consumer Cyclical",
+    "food": "Consumer Defensive", "beverage": "Consumer Defensive", "tobacco": "Consumer Defensive",
+    "grocery": "Consumer Defensive",
+    "air transport": "Industrials", "railroad": "Industrials", "aerospace": "Industrials",
+    "construction": "Industrials", "electric": "Utilities", "water": "Utilities", "gas distrib": "Utilities",
+    "phonograph": "Communication Services", "broadcast": "Communication Services",
+    "motion picture": "Communication Services",
+}
+
+
+def _normalize_sector(sic_desc: str) -> str:
+    """Map SIC industry descriptions to standard sector names."""
+    desc_lower = sic_desc.lower()
+    for keyword, sector in _SIC_SECTOR_MAP.items():
+        if keyword in desc_lower:
+            return sector
+    return sic_desc[:30]
 
 
 # ── Main node ───────────────────────────────────────────────────────
