@@ -1,13 +1,11 @@
 """
-Supervisor Agent - LLM-first query understanding.
+Query Planner (Supervisor V2) - Parallel-first query understanding.
 
-The LLM (Gemini Flash) handles EVERYTHING in a single call:
-  - Ticker extraction (understands company names, context, ANY language)
-  - Agent routing (which specialists to invoke)
-  - Execution planning
+Single LLM call determines ALL agents needed + tickers, then the graph
+uses Send() to fan-out to all agents in parallel.
 
-Tickers are then validated against the real Redis universe
-to catch LLM hallucinations. No regex, no stopwords.
+No more sequential loop: supervisor -> agent -> supervisor -> agent.
+Now: planner -> [all agents in parallel] -> synthesizer.
 """
 import json
 import logging
@@ -22,16 +20,18 @@ _llm = None
 
 AVAILABLE_AGENTS = {
     "market_data": (
-        "Real-time and historical price data, enriched snapshots with 100+ indicators, "
+        "Real-time and historical price data, enriched snapshots with 145+ indicators, "
         "scanner categories (winners, losers, gappers, momentum, volume leaders, halts, etc.), "
-        "historical daily bars, minute bars. "
+        "historical daily bars, minute bars, dynamic filtering on full ticker universe. "
         "Use for: top movers, gainers, losers, gappers, volume spikes, specific ticker quotes, "
-        "historical daily/minute OHLCV data, price history."
+        "historical daily/minute OHLCV data, price history, stocks matching technical criteria."
     ),
     "news_events": (
-        "Financial news from Benzinga, market events (breakouts, VWAP crosses, halts), "
-        "earnings calendar with EPS/revenue estimates. "
-        "Use for: news queries, what happened with X, earnings dates, events."
+        "Financial news from Benzinga, real-time market events (85+ types: breakouts, VWAP crosses, "
+        "halts, volume spikes, momentum shifts, MA crosses, BB events), historical events from "
+        "TimescaleDB (60-day retention), earnings calendar with EPS/revenue estimates. "
+        "Use for: news queries, what happened with X, earnings dates, market events, "
+        "which stocks had breakouts/halts/volume spikes on a given day."
     ),
     "financial": (
         "Fundamental data: income statements, balance sheets, ratios, SEC filings (10-K, 10-Q, 8-K, S-1). "
@@ -47,9 +47,9 @@ AVAILABLE_AGENTS = {
         "Use for: backtesting, custom calculations, data analysis, comparisons."
     ),
     "screener": (
-        "DuckDB-powered stock screener with 60+ indicators. Natural language to filters. "
+        "DuckDB-powered stock screener with 60+ indicators on daily data. Natural language to filters. "
         "Use for: screening stocks by criteria (RSI, volume, market cap, sector, etc.), "
-        "finding stocks matching specific technical/fundamental criteria."
+        "finding stocks matching specific technical/fundamental criteria from historical daily data."
     ),
 }
 
@@ -60,9 +60,10 @@ SCANNER_CATEGORIES = [
 ]
 
 SYSTEM_PROMPT = """\
-You are the supervisor of TradeUL, a professional stock trading analysis platform.
+You are the query planner of TradeUL, a professional stock trading analysis platform.
 
-Your job: fully understand the user query, extract tickers, and route to the right agents.
+Your job: fully understand the user query, extract tickers, and decide ALL agents needed.
+ALL selected agents will run IN PARALLEL — choose them all at once.
 
 AVAILABLE AGENTS:
 {agents_desc}
@@ -74,33 +75,27 @@ SCANNER CATEGORIES: {scanner_categories}
 
 TICKER EXTRACTION RULES:
 1. Extract ALL stock ticker symbols mentioned or implied in the query.
-2. Map company names to tickers: "tesla" → "TSLA", "apple" → "AAPL", "nvidia" → "NVDA", "amazon" → "AMZN", etc.
+2. Map company names to tickers: "tesla" → "TSLA", "apple" → "AAPL", "nvidia" → "NVDA", etc.
 3. Recognize tickers in any format: $TSLA, TSLA, tsla, Tesla, etc.
-4. DO NOT extract common words as tickers. "ha hecho" is Spanish for "has done", NOT the ticker HA.
-5. "SEC" means Securities and Exchange Commission, NOT a ticker. Same for: CEO, CFO, IPO, ETF, GDP, CPI, FDA, EPS, RSI, AI (unless explicitly "$AI").
-6. If no specific stocks are mentioned, return an empty tickers array.
+4. DO NOT extract common words as tickers. "ha hecho" is Spanish for "has done", NOT ticker HA.
+5. "SEC" = Securities and Exchange Commission, NOT a ticker. Same for: CEO, CFO, IPO, ETF, GDP, CPI, FDA, EPS, RSI, AI.
+6. If no specific stocks are mentioned, return empty tickers array.
 
 ROUTING RULES:
-1. Use the MINIMUM agents needed. Don't over-route.
-2. For "top gainers", "winners", "best performers", "mejores acciones" → market_data
-3. For "top losers", "worst", "peores" → market_data
-4. For "gappers", "gap up/down", "premarket" → market_data
-5. For specific ticker price/data → market_data
-6. For screening with criteria (RSI < 30, volume > X) → screener
-7. For news, events, "what happened", "noticias" → news_events
-8. For earnings dates/calendar → news_events
-9. For historical earnings (EPS, revenue, quarterly results, beats/misses) → financial
-10. For SEC filings, 10-K, 10-Q, 8-K → financial
-11. For fundamentals, income statements, balance sheets → financial
-12. For deep research, sentiment, analyst opinions → research
-13. For backtests, custom calculations → code_exec
-14. When market is CLOSED, data is still available via last_close snapshots.
-15. Match the user's language in your plan description.
-
-ALREADY COMPLETED AGENTS:
-{completed_info}
-
-If all needed agents already ran, return empty agents list.
+1. Select ALL agents needed for a complete answer. They run in parallel.
+2. For "top gainers/losers", "winners", "gappers" → market_data
+3. For specific ticker price/data → market_data
+4. For screening with criteria (RSI < 30, volume > X, etc.) → screener
+5. For news, "what happened", "noticias" → news_events
+6. For earnings dates/calendar, "who reports earnings" → news_events
+7. For historical earnings (EPS, revenue, quarterly results) → financial
+8. For SEC filings, 10-K, 10-Q, 8-K → financial
+9. For fundamentals, income/balance sheets → financial
+10. For deep research, sentiment, analyst opinions → research
+11. For backtests, custom calculations → code_exec
+12. For "complete analysis of X" → market_data + news_events + financial (all 3)
+13. For "X with sentiment" → add research alongside other agents
+14. Match the user's language in your plan description.
 
 Respond ONLY with valid JSON:
 {{
@@ -122,21 +117,6 @@ def _get_llm():
             max_output_tokens=512,
         )
     return _llm
-
-
-def _build_completed_info(agent_results: dict[str, Any]) -> str:
-    if not agent_results:
-        return "No agents have run yet."
-    lines = []
-    for agent, result in agent_results.items():
-        if isinstance(result, dict) and "error" in result:
-            lines.append(f"- {agent}: FAILED ({result['error'][:100]})")
-        elif isinstance(result, dict):
-            keys = [k for k in result.keys() if not k.startswith("_")]
-            lines.append(f"- {agent}: completed (data keys: {keys})")
-        else:
-            lines.append(f"- {agent}: completed")
-    return "\n".join(lines)
 
 
 def _build_agents_desc() -> str:
@@ -169,24 +149,15 @@ async def _get_market_context_str(state: dict) -> str:
     return "Session: UNKNOWN. Assume last-session data is available."
 
 
-async def supervisor_node(state: dict) -> dict:
-    """Analyze the query: extract tickers + decide agents in ONE LLM call."""
+async def query_planner_node(state: dict) -> dict:
+    """Analyze the query and decide ALL agents to invoke in parallel.
+
+    This replaces the old sequential supervisor. It runs ONCE,
+    decides everything, and the graph fans out to all agents at once.
+    """
     query = state.get("query", "")
-    agent_results = state.get("agent_results", {})
-    iteration = state.get("iteration", 0)
     language = state.get("language", "en")
 
-    max_iterations = 5
-    if iteration >= max_iterations:
-        logger.warning("Supervisor hit max iterations (%d), stopping.", max_iterations)
-        return {
-            **state,
-            "active_agents": [],
-            "current_agent": "__end__",
-            "iteration": iteration,
-        }
-
-    completed_info = _build_completed_info(agent_results)
     agents_desc = _build_agents_desc()
     market_context = await _get_market_context_str(state)
 
@@ -194,7 +165,6 @@ async def supervisor_node(state: dict) -> dict:
         agents_desc=agents_desc,
         market_context=market_context,
         scanner_categories=", ".join(SCANNER_CATEGORIES),
-        completed_info=completed_info,
     )
 
     llm = _get_llm()
@@ -215,7 +185,7 @@ async def supervisor_node(state: dict) -> dict:
 
         decision = json.loads(raw)
     except (json.JSONDecodeError, Exception) as e:
-        logger.error("Supervisor LLM parse error: %s — raw: %s", e, raw if 'raw' in dir() else "N/A")
+        logger.error("Query planner LLM parse error: %s — raw: %s", e, raw if 'raw' in dir() else "N/A")
         decision = {
             "tickers": [],
             "plan": "Fallback: routing to market_data due to parse error",
@@ -223,54 +193,53 @@ async def supervisor_node(state: dict) -> dict:
             "reasoning": f"LLM output could not be parsed: {e}",
         }
 
-    # ── Ticker validation against Redis universe ──
-    # The LLM extracted tickers from context. Now validate they're real.
     llm_tickers = decision.get("tickers", [])
     if llm_tickers:
         validated_tickers = await validate_tickers(llm_tickers)
         rejected = set(llm_tickers) - set(validated_tickers)
         if rejected:
-            logger.info("Supervisor: LLM suggested tickers %s but rejected by universe: %s",
-                        llm_tickers, rejected)
+            logger.info("Planner: rejected tickers %s (not in universe)", rejected)
         llm_tickers = validated_tickers
 
-    # On first iteration, set tickers. On subsequent, keep existing if LLM returns empty.
-    existing_tickers = state.get("tickers", [])
-    final_tickers = llm_tickers if llm_tickers else existing_tickers
+    requested_agents = [a for a in decision.get("agents", []) if a in AVAILABLE_AGENTS]
+    if not requested_agents:
+        requested_agents = ["market_data"]
 
-    # ── Agent routing ──
-    requested = decision.get("agents", [])
-    pending = [a for a in requested if a in AVAILABLE_AGENTS and a not in agent_results]
-
-    if not pending:
-        return {
-            **state,
-            "tickers": final_tickers,
-            "active_agents": [],
-            "current_agent": "__end__",
-            "plan": decision.get("plan", ""),
-            "iteration": iteration + 1,
-        }
+    logger.info(
+        "Query planner: tickers=%s, agents=%s (parallel), plan=%s",
+        llm_tickers, requested_agents, decision.get("plan", "")[:100],
+    )
 
     return {
         **state,
-        "tickers": final_tickers,
-        "active_agents": pending,
-        "current_agent": pending[0],
+        "tickers": llm_tickers,
+        "active_agents": requested_agents,
         "plan": decision.get("plan", ""),
-        "iteration": iteration + 1,
+        "market_context": state.get("market_context", {}),
     }
 
 
-def route_after_supervisor(state: dict) -> str:
-    current = state.get("current_agent", "__end__")
-    active = state.get("active_agents", [])
+def fan_out_to_agents(state: dict):
+    """Conditional edge function: fan-out to all active agents in parallel via Send().
 
-    if current == "__end__" or not active:
+    Returns a list of Send() objects for parallel execution,
+    or routes directly to synthesizer if no agents needed.
+    """
+    from langgraph.types import Send
+
+    agents = state.get("active_agents", [])
+
+    if not agents:
         return "synthesizer"
 
-    if current in AVAILABLE_AGENTS:
-        return current
+    return [Send(agent, state) for agent in agents]
 
-    logger.warning("Unknown agent '%s', routing to synthesizer.", current)
+
+# Keep backward compatibility — the old name still works if referenced
+supervisor_node = query_planner_node
+
+
+def route_after_supervisor(state: dict) -> str:
+    """Legacy routing function — kept for backward compatibility.
+    Not used in v5 parallel graph, but kept so old code doesn't break."""
     return "synthesizer"

@@ -172,8 +172,10 @@ async def cleanup():
     """Cleanup connections on shutdown."""
     from clients.redis_client import close_redis
     from clients.http_client import close_http_client
+    from clients.db_client import close_db_pool
     await close_redis()
     await close_http_client()
+    await close_db_pool()
 
 
 # ──────────────────────────────────────────────────────────────────────

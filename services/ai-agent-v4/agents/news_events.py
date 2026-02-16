@@ -2,13 +2,14 @@
 News & Events Agent - Benzinga news, market events, and earnings calendar.
 
 MCP tools used:
-  - news.get_news_by_ticker(symbol, count)        - ticker-specific Benzinga news
-  - news.get_latest_news(count)                    - general / broad market news
-  - events.get_events_by_ticker(symbol, count)     - breakouts, VWAP crosses, halts
-  - earnings.get_earnings_by_ticker(ticker)        - earnings history for a ticker
-  - earnings.get_today_earnings()                  - today's earnings calendar
-  - earnings.get_upcoming_earnings(days)           - earnings next N days
-  - earnings.get_earnings_by_date(date)            - earnings on a specific date
+  - news.get_news_by_ticker(symbol, count)            - ticker-specific Benzinga news
+  - news.get_latest_news(count)                        - general / broad market news
+  - events.get_events_by_ticker(symbol, count)         - real-time events (Redis stream)
+  - events.query_historical_events(...)                - historical events (TimescaleDB)
+  - events.get_event_stats(date, symbol)               - event stats by type
+  - earnings.get_earnings_by_ticker(ticker)            - earnings history for a ticker
+  - earnings.get_today_earnings()                      - today's earnings calendar
+  - earnings.get_upcoming_earnings(days)               - earnings next N days
 
 Data cleaning:
   - News: strip body (full article text), keep only metadata + teaser
@@ -19,6 +20,7 @@ Data cleaning:
 from __future__ import annotations
 import re
 import time
+from datetime import datetime, timedelta
 from typing import Any
 
 from agents._mcp_tools import call_mcp_tool
@@ -49,12 +51,45 @@ _TODAY_KEYWORDS = [
     "today", "hoy", "today's",
 ]
 
+_HISTORICAL_EVENT_KEYWORDS = [
+    "breakout", "halt", "vwap cross", "volume spike", "momentum",
+    "events on", "events from", "eventos del", "eventos de",
+    "what happened", "qué pasó", "que paso",
+    "friday", "monday", "tuesday", "wednesday", "thursday",
+    "viernes", "lunes", "martes", "miércoles", "jueves",
+    "yesterday", "ayer", "last week", "semana pasada",
+]
+
+_EVENT_TYPE_MAP = {
+    "breakout": "orb_breakout_up",
+    "halt": "halt",
+    "halted": "halt",
+    "vwap cross": "vwap_cross_up",
+    "volume spike": "volume_surge",
+    "volume surge": "volume_surge",
+    "momentum": "running_up",
+    "new high": "new_high",
+    "new low": "new_low",
+    "gap up": "gap_up_reversal",
+    "gap down": "gap_down_reversal",
+}
+
 
 def _wants_earnings(q: str) -> bool:
     return any(kw in q.lower() for kw in _EARNINGS_KEYWORDS)
 
 def _wants_news(q: str) -> bool:
     return any(kw in q.lower() for kw in _NEWS_KEYWORDS)
+
+def _wants_historical_events(q: str) -> bool:
+    return any(kw in q.lower() for kw in _HISTORICAL_EVENT_KEYWORDS)
+
+def _detect_event_type(q: str) -> str | None:
+    ql = q.lower()
+    for kw, etype in _EVENT_TYPE_MAP.items():
+        if kw in ql:
+            return etype
+    return None
 
 def _earnings_timeframe(q: str) -> str:
     ql = q.lower()
@@ -69,6 +104,38 @@ def _extract_days(q: str) -> int:
     if match:
         return min(max(int(match.group(1)), 1), 30)
     return 7
+
+def _extract_date_reference(q: str) -> tuple[str | None, str | None]:
+    """Extract date_from and date_to from natural language references."""
+    ql = q.lower()
+    today = datetime.now()
+
+    day_map = {
+        "monday": 0, "lunes": 0,
+        "tuesday": 1, "martes": 1,
+        "wednesday": 2, "miércoles": 2, "miercoles": 2,
+        "thursday": 3, "jueves": 3,
+        "friday": 4, "viernes": 4,
+    }
+
+    for name, weekday in day_map.items():
+        if name in ql:
+            days_back = (today.weekday() - weekday) % 7
+            if days_back == 0:
+                days_back = 7
+            target = today - timedelta(days=days_back)
+            return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    if "yesterday" in ql or "ayer" in ql:
+        yest = today - timedelta(days=1)
+        return yest.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+
+    if "last week" in ql or "semana pasada" in ql:
+        start = today - timedelta(days=today.weekday() + 7)
+        end = start + timedelta(days=5)
+        return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+    return today.strftime("%Y-%m-%d"), (today + timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 # -- Data cleaning --
@@ -150,6 +217,7 @@ async def news_events_node(state: dict) -> dict:
 
     Strategy:
       - Tickers present: fetch per-ticker news + events + earnings (if wanted)
+      - Historical event queries: use query_historical_events (TimescaleDB)
       - No tickers, earnings wanted: use appropriate earnings calendar tool
       - No tickers, news wanted: fetch latest market news
       - Only fetch what the user actually asked for (don't mix irrelevant data)
@@ -160,6 +228,7 @@ async def news_events_node(state: dict) -> dict:
     tickers = state.get("tickers", [])
     wants_earn = _wants_earnings(query)
     wants_nws = _wants_news(query)
+    wants_hist_events = _wants_historical_events(query)
 
     results: dict[str, Any] = {}
     errors: list[str] = []
@@ -187,7 +256,25 @@ async def news_events_node(state: dict) -> dict:
                 except Exception as exc:
                     errors.append(f"earnings/{ticker}: {exc}")
 
-    # -- No tickers: calendar / general queries --
+        if wants_hist_events:
+            date_from, date_to = _extract_date_reference(query)
+            event_type = _detect_event_type(query)
+            for ticker in tickers[:3]:
+                try:
+                    params = {
+                        "symbol": ticker,
+                        "date_from": date_from,
+                        "date_to": date_to,
+                        "limit": 50,
+                    }
+                    if event_type:
+                        params["event_type"] = event_type
+                    raw = await call_mcp_tool("events", "query_historical_events", params)
+                    results.setdefault("historical_events", {})[ticker] = _clean_events(raw)
+                except Exception as exc:
+                    errors.append(f"hist_events/{ticker}: {exc}")
+
+    # -- No tickers: calendar / general / historical event queries --
     else:
         if wants_earn:
             timeframe = _earnings_timeframe(query)
@@ -211,7 +298,23 @@ async def news_events_node(state: dict) -> dict:
                 except Exception as exc:
                     errors.append(f"today_earnings: {exc}")
 
-        if wants_nws or not wants_earn:
+        if wants_hist_events:
+            date_from, date_to = _extract_date_reference(query)
+            event_type = _detect_event_type(query)
+            try:
+                params = {
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "limit": 100,
+                }
+                if event_type:
+                    params["event_type"] = event_type
+                raw = await call_mcp_tool("events", "query_historical_events", params)
+                results["historical_events"] = _clean_events(raw)
+            except Exception as exc:
+                errors.append(f"hist_events: {exc}")
+
+        if wants_nws or (not wants_earn and not wants_hist_events):
             try:
                 raw = await call_mcp_tool("news", "get_latest_news", {"count": 15})
                 results["latest_news"] = _clean_news(raw)
@@ -228,6 +331,7 @@ async def news_events_node(state: dict) -> dict:
             "news_events": {
                 "tickers_detected": tickers,
                 "earnings_checked": wants_earn,
+                "historical_events_checked": wants_hist_events,
                 **results,
             },
         },
@@ -237,6 +341,7 @@ async def news_events_node(state: dict) -> dict:
                 "elapsed_ms": elapsed_ms,
                 "tickers": tickers,
                 "earnings_checked": wants_earn,
+                "historical_events_checked": wants_hist_events,
                 "error_count": len(errors),
             },
         },

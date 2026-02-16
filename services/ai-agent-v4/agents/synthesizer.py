@@ -247,7 +247,6 @@ async def synthesizer_node(state: dict) -> dict:
 
     return {
         "final_response": final_response,
-        "current_agent": "done",
         "execution_metadata": {
             **(state.get("execution_metadata", {})),
             "synthesizer": {

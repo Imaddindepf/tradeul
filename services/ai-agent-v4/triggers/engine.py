@@ -365,7 +365,6 @@ class TriggerEngine:
                 "language": "en",
                 "plan": "",
                 "active_agents": [],
-                "current_agent": "",
                 "agent_results": {},
                 "charts": [],
                 "tables": [],
@@ -386,7 +385,6 @@ class TriggerEngine:
                 "node_config": None,
                 "final_response": "",
                 "execution_metadata": {},
-                "iteration_count": 0,
                 "error": None,
             }
 

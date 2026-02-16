@@ -1,13 +1,23 @@
 """
-LangGraph Multi-Agent Orchestrator
-START -> supervisor -> [specialists] -> supervisor -> synthesizer -> END
+LangGraph Multi-Agent Orchestrator V5 — Parallel Execution
+
+Architecture:
+  START -> query_planner -> [Send() fan-out to agents in parallel] -> synthesizer -> END
+
+Key improvement over V4:
+  - V4: supervisor -> agent1 -> supervisor -> agent2 -> supervisor -> synthesizer (sequential)
+  - V5: query_planner -> [agent1 | agent2 | agent3] -> synthesizer (parallel via Send())
+
+The query_planner decides ALL agents needed in one LLM call.
+Send() dispatches them all simultaneously.
+State merges via the agent_results reducer (merge_dicts).
+Synthesizer produces the final response from merged results.
 """
 from __future__ import annotations
-import os
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from graph.state import AgentState
-from agents.supervisor import supervisor_node, route_after_supervisor
+from agents.supervisor import query_planner_node, fan_out_to_agents
 from agents.synthesizer import synthesizer_node
 from agents.market_data import market_data_node
 from agents.news_events import news_events_node
@@ -16,14 +26,14 @@ from agents.research import research_node
 from agents.code_exec import code_exec_node
 from agents.screener import screener_node
 
+ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener"]
+
 
 def build_graph() -> StateGraph:
-    # MemorySaver provides in-process checkpointing (thread-safe, no external deps).
-    # For production persistence, switch to RedisSaver with Redis Stack (RediSearch module).
     checkpointer = MemorySaver()
     graph = StateGraph(AgentState)
 
-    graph.add_node("supervisor", supervisor_node)
+    graph.add_node("query_planner", query_planner_node)
     graph.add_node("market_data", market_data_node)
     graph.add_node("news_events", news_events_node)
     graph.add_node("financial", financial_node)
@@ -32,29 +42,24 @@ def build_graph() -> StateGraph:
     graph.add_node("screener", screener_node)
     graph.add_node("synthesizer", synthesizer_node)
 
-    graph.add_edge(START, "supervisor")
+    graph.add_edge(START, "query_planner")
+
     graph.add_conditional_edges(
-        "supervisor",
-        route_after_supervisor,
-        {
-            "market_data": "market_data",
-            "news_events": "news_events",
-            "financial": "financial",
-            "research": "research",
-            "code_exec": "code_exec",
-            "screener": "screener",
-            "synthesizer": "synthesizer",
-            "end": END,
-        },
+        "query_planner",
+        fan_out_to_agents,
+        ALL_AGENTS + ["synthesizer"],
     )
-    for name in ["market_data", "news_events", "financial", "research", "code_exec", "screener"]:
-        graph.add_edge(name, "supervisor")
+
+    for agent_name in ALL_AGENTS:
+        graph.add_edge(agent_name, "synthesizer")
+
     graph.add_edge("synthesizer", END)
 
     return graph.compile(checkpointer=checkpointer)
 
 
 _graph = None
+
 
 def get_graph():
     global _graph

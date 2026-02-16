@@ -67,9 +67,9 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         "messages": [{"role": "user", "content": request.query}],
         "query": request.query,
         "language": "en",
+        "tickers": [],
         "plan": "",
         "active_agents": [],
-        "current_agent": "",
         "agent_results": {},
         "charts": [],
         "tables": [],
@@ -80,7 +80,6 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         "node_config": None,
         "final_response": "",
         "execution_metadata": {},
-        "iteration_count": 0,
         "error": None,
     }
 

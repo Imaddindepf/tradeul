@@ -92,7 +92,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "thread_id": thread_id,
             })
 
-            # Build initial agent state
+            # Build initial agent state (V5 parallel architecture)
             initial_state: dict[str, Any] = {
                 "messages": [{"role": "user", "content": query}],
                 "query": query,
@@ -100,7 +100,6 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "tickers": [],
                 "plan": "",
                 "active_agents": [],
-                "current_agent": "",
                 "agent_results": {},
                 "charts": [],
                 "tables": [],
@@ -111,7 +110,6 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "node_config": None,
                 "final_response": "",
                 "execution_metadata": {},
-                "iteration_count": 0,
                 "error": None,
             }
 
