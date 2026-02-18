@@ -688,6 +688,7 @@ export function useCommandExecutor() {
                     y: Math.max(70, 90),
                     minWidth: 420,
                     minHeight: 400,
+                    hideHeader: true,
                 });
                 return null;
 
