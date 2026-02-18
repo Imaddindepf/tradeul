@@ -48,6 +48,7 @@ from routes.earnings import router as earnings_router
 from routes.halts import router as halts_router
 from routes.alerts import router as alerts_router
 from routes.alert_strategies import router as alert_strategies_router, set_timescale_client as set_alert_strategies_timescale_client
+from routes.performance import router as performance_router, set_redis_client as set_performance_redis, set_timescale_client as set_performance_timescale
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
@@ -94,6 +95,7 @@ async def lifespan(app: FastAPI):
     set_screener_templates_timescale_client(timescale_client)  # Para screener_templates
     set_symbols_timescale_client(timescale_client)  # Para symbols (indexed query ~150ms)
     set_alert_strategies_timescale_client(timescale_client)  # Para alert strategies
+    set_performance_timescale(timescale_client)  # Para performance aggregation
     logger.info("timescale_connected")
     
     # Router de financials ahora es un microservicio separado
@@ -118,6 +120,10 @@ async def lifespan(app: FastAPI):
     # Configurar router de scanner con Redis
     set_scanner_redis(redis_client)
     logger.info("scanner_router_configured")
+    
+    # Configurar router de performance con Redis
+    set_performance_redis(redis_client)
+    logger.info("performance_router_configured")
     
     # Configurar router de institutional con SEC API client
     # Nota: se configura después de http_clients.initialize()
@@ -236,6 +242,7 @@ app.include_router(earnings_router)  # Benzinga Earnings calendar
 app.include_router(halts_router)  # Trading halts from LULD stream
 app.include_router(alerts_router)  # Alert catalog and categories
 app.include_router(alert_strategies_router)  # User alert strategies (CRUD)
+app.include_router(performance_router)  # Market performance aggregation (sectors, industries, themes)
 
 
 # ============================================================================

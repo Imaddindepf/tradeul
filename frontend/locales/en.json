@@ -240,6 +240,10 @@
     "help": {
       "name": "Help",
       "description": "Help"
+    },
+    "pulse": {
+      "name": "Market Pulse",
+      "description": "Real-time sector, industry & theme performance"
     }
   },
   "scanner": {
@@ -630,6 +634,9 @@
       },
       "BUILD": {
         "description": "Create custom Top List or Alert Window"
+      },
+      "PULSE": {
+        "description": "Sector, industry & theme performance"
       }
     }
   },

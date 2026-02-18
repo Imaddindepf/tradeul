@@ -28,6 +28,7 @@ import {
   Globe,
   Grid3X3,
   Activity,
+  Gauge,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -71,6 +72,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'hds', label: 'HDS', description: 'commands.hds.description', icon: Users, isNew: true },
   { id: 'evn', label: 'EVN', description: 'commands.evn.description', icon: Activity, isNew: true },
   { id: 'build', label: 'BUILD', description: 'commands.build.description', icon: Zap },
+  { id: 'pulse', label: 'PULSE', description: 'commands.pulse.description', icon: Gauge, isNew: true },
 ];
 
 /**

@@ -30,6 +30,7 @@ import { FinancialAnalystContent } from '@/components/financial-analyst';
 import { AIAgentContent } from '@/components/ai-agent';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
+import { MarketPulseContent } from '@/components/market-pulse';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
 import { EventTableContent } from '@/components/events/EventTableContent';
@@ -672,6 +673,20 @@ export function useCommandExecutor() {
                     x: Math.max(50, screenWidth / 2 - 425),
                     y: Math.max(70, screenHeight / 2 - 275),
                     minWidth: 650,
+                    minHeight: 400,
+                });
+                return null;
+
+            case 'pulse':
+            case 'market-pulse':
+                openWindow({
+                    title: 'Market Pulse',
+                    content: <MarketPulseContent />,
+                    width: 520,
+                    height: 580,
+                    x: Math.max(50, screenWidth - 570),
+                    y: Math.max(70, 90),
+                    minWidth: 420,
                     minHeight: 400,
                 });
                 return null;

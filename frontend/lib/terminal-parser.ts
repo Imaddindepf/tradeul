@@ -283,6 +283,13 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.BUILD.description',
         shortcut: null
     },
+    PULSE: {
+        id: 'pulse',
+        label: 'PULSE',
+        name: 'Market Pulse',
+        descriptionKey: 'terminalCommands.globalCommands.PULSE.description',
+        shortcut: null
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;
