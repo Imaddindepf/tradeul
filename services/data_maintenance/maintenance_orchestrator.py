@@ -8,8 +8,9 @@ Flujo:
 1. clear_caches         - Limpiar caches de tiempo real
 2. load_ohlc            - Cargar OHLC del día anterior
 3. load_volume_slots    - Cargar volume slots del día anterior
-4. reconcile_splits     - Reconciliar datos históricos afectados por splits recientes
-5. calculate_atr        - Calcular ATR para todos los tickers
+4. reconcile_splits     - Reconciliar datos históricos afectados por splits recientes (DB)
+5. reconcile_parquet    - Reconciliar Parquet flat files afectados por splits (DuckDB/Screener)
+6. calculate_atr        - Calcular ATR para todos los tickers
 6. calculate_rvol       - Calcular RVOL historical averages
 7. sync_ticker_universe - Sincronizar universo de tickers con Polygon (nuevos/delistados/nombres)
 8. export_screener_meta - Exportar metadata para Screener
@@ -86,6 +87,7 @@ class MaintenanceOrchestrator:
                 ("load_ohlc", self._task_load_ohlc),
                 ("load_volume_slots", self._task_load_volume_slots),
                 ("reconcile_splits", self._task_reconcile_splits),
+                ("reconcile_parquet_splits", self._task_reconcile_parquet_splits),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
                 ("calculate_trades_baselines", self._task_calculate_trades_baselines),
@@ -100,6 +102,7 @@ class MaintenanceOrchestrator:
                 ("load_ohlc", self._task_load_ohlc),
                 ("load_volume_slots", self._task_load_volume_slots),
                 ("reconcile_splits", self._task_reconcile_splits),
+                ("reconcile_parquet_splits", self._task_reconcile_parquet_splits),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
                 ("calculate_trades_baselines", self._task_calculate_trades_baselines),
@@ -191,6 +194,7 @@ class MaintenanceOrchestrator:
                 "calculate_rvol": TaskStatus.PENDING,
                 "calculate_trades_baselines": TaskStatus.PENDING,
                 "reconcile_splits": TaskStatus.PENDING,
+                "reconcile_parquet_splits": TaskStatus.PENDING,
                 "sync_ticker_universe": TaskStatus.PENDING,
                 # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
                 "export_screener_metadata": TaskStatus.PENDING,
@@ -323,6 +327,26 @@ class MaintenanceOrchestrator:
         except Exception as e:
             return {"success": False, "error": str(e)}
     
+    async def _task_reconcile_parquet_splits(self, target_date: date) -> Dict:
+        """
+        Tarea 3.6: Reconciliar Parquet flat files afectados por splits recientes
+        
+        Los flat files de Polygon S3 no se ajustan retroactivamente al instante.
+        Esta tarea detecta discrepancias comparando Parquet vs market_data_daily
+        (ya ajustado por reconcile_splits) y aplica las correcciones.
+        Se ejecuta DESPUÉS de reconcile_splits (que arregla market_data_daily).
+        """
+        try:
+            from tasks.reconcile_parquet_splits import ReconcileParquetSplitsTask
+            
+            task = ReconcileParquetSplitsTask(self.redis, self.db)
+            result = await task.execute(target_date)
+            
+            return result
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     async def _task_calculate_atr(self, target_date: date) -> Dict:
         """
         Tarea 4: Calcular ATR para todos los tickers

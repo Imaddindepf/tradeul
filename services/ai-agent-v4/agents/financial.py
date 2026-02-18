@@ -12,7 +12,7 @@ Data cleaning:
 NOTE: Dilution MCP is disabled — dilution tools are skipped gracefully.
 """
 from __future__ import annotations
-import re
+import asyncio
 import time
 from typing import Any
 
@@ -111,9 +111,15 @@ def _humanize(n: float | int | None) -> str:
 
 
 def _pct(n: float | None) -> str:
+    """Format a ratio as a percentage.
+    
+    Values < 1 are ratios (0.25 → 25.0%), values >= 1 are already percentages (25.0 → 25.0%).
+    """
     if n is None:
         return "N/A"
-    return f"{n*100:.1f}%" if abs(n) < 10 else f"{n:.1f}%"
+    if abs(n) < 1:
+        return f"{n * 100:.1f}%"
+    return f"{n:.1f}%"
 
 
 # Key financial metrics to extract (in order of importance)
@@ -227,8 +233,9 @@ async def financial_node(state: dict) -> dict:
     fetch_financials = wants_fin or not wants_sec
     fetch_sec = wants_sec
 
-    for ticker in tickers[:3]:
+    async def _fetch_financials_for_ticker(ticker: str) -> tuple[str, dict[str, Any], list[str]]:
         ticker_data: dict[str, Any] = {}
+        ticker_errors: list[str] = []
 
         # 1. Financial statements — cleaned to key metrics only
         if fetch_financials:
@@ -240,7 +247,7 @@ async def financial_node(state: dict) -> dict:
                 raw = await call_mcp_tool("financials", "get_financial_statements", params)
                 ticker_data["financials"] = _clean_financial_statements(raw)
             except Exception as exc:
-                errors.append(f"financials/{ticker}: {exc}")
+                ticker_errors.append(f"financials/{ticker}: {exc}")
 
         # 2. SEC filings — cleaned to metadata rows only
         if fetch_sec:
@@ -248,13 +255,20 @@ async def financial_node(state: dict) -> dict:
                 raw = await call_mcp_tool("sec", "search_filings", {"ticker": ticker, "page_size": 10})
                 ticker_data["sec_filings"] = _clean_sec_filings(raw)
             except Exception as exc:
-                errors.append(f"sec_filings/{ticker}: {exc}")
+                ticker_errors.append(f"sec_filings/{ticker}: {exc}")
 
         # 3. Dilution — DISABLED
         if wants_dil:
             ticker_data["dilution_note"] = "Dilution analysis is temporarily unavailable."
 
+        return ticker, ticker_data, ticker_errors
+
+    ticker_results = await asyncio.gather(*[
+        _fetch_financials_for_ticker(t) for t in tickers[:3]
+    ])
+    for ticker, ticker_data, ticker_errors in ticker_results:
         results[ticker] = ticker_data
+        errors.extend(ticker_errors)
 
     if errors:
         results["_errors"] = errors

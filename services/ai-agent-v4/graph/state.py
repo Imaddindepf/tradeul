@@ -33,6 +33,7 @@ class AgentState(TypedDict):
     query: str                           # Original user query
     language: str                        # Detected language (es/en)
     tickers: list[str]                   # Tickers extracted by planner LLM + validated against Redis
+    ticker_info: dict[str, dict]         # Company metadata per ticker {TICKER: {company_name, sector, ...}}
 
     # ── Planning ──
     plan: str                            # Query planner's execution plan
@@ -56,5 +57,14 @@ class AgentState(TypedDict):
     final_response: str                  # Synthesized response for the user
     execution_metadata: Annotated[dict, merge_dicts]  # Timing, tokens used, agents activated
 
+    # ── Thematic ──
+    theme_tags: list[str]                # Canonical theme tags resolved by supervisor (e.g. ["robotics", "memory_chips"])
+
+    # ── Chart Analysis ──
+    chart_context: Optional[dict]        # Chart snapshot from frontend (ticker, bars, indicators, drawings)
+
     # ── Control ──
+    mode: str                            # Execution mode: "auto" | "quick" | "deep"
+    clarification: Optional[dict]        # Clarification options when confidence is low
+    clarification_hint: str              # Rewritten query from user's clarification choice
     error: Optional[str]                 # Last error message

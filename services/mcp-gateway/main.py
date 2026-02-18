@@ -1,5 +1,5 @@
 """
-TradeUL MCP Gateway
+Tradeul MCP Gateway
 Composite MCP server that exposes all 27 microservices as standardized tools.
 
 Architecture:
@@ -29,9 +29,9 @@ from config import config
 # Root MCP Server
 # ──────────────────────────────────────────────────────────────────────
 gateway = FastMCP(
-    "TradeUL Gateway",
+    "Tradeul Gateway",
     instructions=(
-        "TradeUL is a real-time stock trading platform processing 11,000+ tickers. "
+        "Tradeul is a real-time stock trading platform processing 11,000+ tickers. "
         "This gateway provides access to all platform services through standardized tools.\n\n"
         "AVAILABLE DOMAINS:\n"
         "- Scanner: Real-time rankings (gappers, momentum, volume, halts)\n"
@@ -187,7 +187,7 @@ from fastapi.responses import JSONResponse
 import orjson
 import traceback
 
-rest_app = FastAPI(title="TradeUL MCP Gateway REST API")
+rest_app = FastAPI(title="Tradeul MCP Gateway REST API")
 
 
 @rest_app.get("/health")
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     from starlette.routing import Mount
     from starlette.applications import Starlette
 
-    print(f"Starting TradeUL MCP Gateway on {config.mcp_host}:{config.mcp_port}")
+    print(f"Starting Tradeul MCP Gateway on {config.mcp_host}:{config.mcp_port}")
     print(f"Redis: {config.redis_host}:{config.redis_port}")
     print(f"Domains: 12 | Tools: ~50")
 

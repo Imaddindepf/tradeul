@@ -154,10 +154,33 @@ const QuoteRow = memo(function QuoteRow({ ticker, quote, onRemove, onRowClick, o
 // Quote Row with Real-time Hook
 // ============================================================================
 
-function QuoteRowWithData({ ticker, onRemove, onRowClick, onDragStart, isDragging }: Omit<QuoteRowProps, 'quote'>) {
-  const { quote } = useRealtimeQuote(ticker.symbol);
-  return <QuoteRow ticker={ticker} quote={quote} onRemove={onRemove} onRowClick={onRowClick} onDragStart={onDragStart} isDragging={isDragging} />;
+interface QuoteRowWithDataProps {
+  ticker: WatchlistTicker;
+  onRemoveBySymbol: (symbol: string) => void;
+  onRowClickBySymbol: (symbol: string) => void;
+  onDragStart?: (e: React.DragEvent, symbol: string) => void;
+  isDragging?: boolean;
 }
+
+const QuoteRowWithData = memo(function QuoteRowWithData({
+  ticker, onRemoveBySymbol, onRowClickBySymbol, onDragStart, isDragging
+}: QuoteRowWithDataProps) {
+  const { quote } = useRealtimeQuote(ticker.symbol);
+
+  const onRemove = useCallback(() => onRemoveBySymbol(ticker.symbol), [onRemoveBySymbol, ticker.symbol]);
+  const onRowClick = useCallback(() => onRowClickBySymbol(ticker.symbol), [onRowClickBySymbol, ticker.symbol]);
+
+  return (
+    <QuoteRow
+      ticker={ticker}
+      quote={quote}
+      onRemove={onRemove}
+      onRowClick={onRowClick}
+      onDragStart={onDragStart}
+      isDragging={isDragging}
+    />
+  );
+});
 
 // ============================================================================
 // Section Header Component
@@ -483,10 +506,16 @@ export function QuoteMonitor() {
     setIsAddingSection(false);
   };
 
+  // Stable callback refs for QuoteRowWithData (avoids inline arrow defeating memo)
+  const handleRemoveTicker = useCallback((symbol: string) => {
+    if (!activeWatchlistId) return;
+    removeTicker(activeWatchlistId, symbol);
+  }, [activeWatchlistId, removeTicker]);
+
   // Handle row click - open DES
-  const handleRowClick = (symbol: string) => {
+  const handleRowClick = useCallback((symbol: string) => {
     console.log('Open DES for', symbol);
-  };
+  }, []);
 
   // Drag & Drop handlers
   const handleDragStart = (e: React.DragEvent, symbol: string) => {
@@ -559,18 +588,13 @@ export function QuoteMonitor() {
     }
   }, [isAddingSection]);
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center bg-white">
-        <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
-      </div>
-    );
-  }
-
   // Compute all tickers (sections + unsorted)
   const hasSections = activeWatchlist?.sections && activeWatchlist.sections.length > 0;
   const hasUnsortedTickers = activeWatchlist?.tickers && activeWatchlist.tickers.length > 0;
   const totalItems = hasSections || hasUnsortedTickers;
+
+  // Only show full-page spinner on initial load (no data yet)
+  const showInitialLoader = loading && watchlists.length === 0;
 
   return (
     <div className="h-full flex flex-col bg-white relative">
@@ -688,7 +712,11 @@ export function QuoteMonitor() {
 
       {/* Table */}
       <div className="flex-1 overflow-auto bg-white">
-        {activeWatchlist ? (
+        {showInitialLoader ? (
+          <div className="h-full flex items-center justify-center">
+            <RefreshCw className="w-6 h-6 text-blue-500 animate-spin" />
+          </div>
+        ) : activeWatchlist ? (
           <table className="w-full border-collapse table-fixed">
             <thead className="sticky top-0 bg-slate-100 border-b border-slate-200 z-10">
               <tr className="h-[20px]">
@@ -714,8 +742,8 @@ export function QuoteMonitor() {
                   onToggle={() => toggleSectionCollapsed(activeWatchlist.id, section.id)}
                   onRename={(name) => updateSection(activeWatchlist.id, section.id, { name })}
                   onDelete={() => deleteSection(activeWatchlist.id, section.id)}
-                  onRemoveTicker={(symbol) => removeTicker(activeWatchlist.id, symbol)}
-                  onRowClick={handleRowClick}
+                  onRemoveBySymbol={handleRemoveTicker}
+                  onRowClickBySymbol={handleRowClick}
                   onDrop={handleDropOnSection}
                   onDragOver={handleDragOverSection}
                   onDragLeave={handleDragLeave}
@@ -744,19 +772,19 @@ export function QuoteMonitor() {
                 <QuoteRowWithData
                   key={ticker.symbol}
                   ticker={ticker}
-                  onRemove={() => removeTicker(activeWatchlist.id, ticker.symbol)}
-                  onRowClick={() => handleRowClick(ticker.symbol)}
+                  onRemoveBySymbol={handleRemoveTicker}
+                  onRowClickBySymbol={handleRowClick}
                   onDragStart={handleDragStart}
                   isDragging={draggedSymbol === ticker.symbol}
                 />
               ))}
             </tbody>
           </table>
-        ) : (
+        ) : !showInitialLoader ? (
           <div className="flex items-center justify-center h-full text-slate-400">
             No watchlist selected
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Add Ticker Input - Compact */}
@@ -812,8 +840,8 @@ interface SectionGroupProps {
   onToggle: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
-  onRemoveTicker: (symbol: string) => void;
-  onRowClick: (symbol: string) => void;
+  onRemoveBySymbol: (symbol: string) => void;
+  onRowClickBySymbol: (symbol: string) => void;
   onDrop?: (e: React.DragEvent, sectionId: string) => void;
   onDragOver?: (e: React.DragEvent, sectionId: string) => void;
   onDragLeave?: () => void;
@@ -823,7 +851,7 @@ interface SectionGroupProps {
 }
 
 function SectionGroup({
-  section, watchlistId, onToggle, onRename, onDelete, onRemoveTicker, onRowClick, onDrop, onDragOver, onDragLeave, isDragOver, onDragStart, draggedSymbol
+  section, watchlistId, onToggle, onRename, onDelete, onRemoveBySymbol, onRowClickBySymbol, onDrop, onDragOver, onDragLeave, isDragOver, onDragStart, draggedSymbol
 }: SectionGroupProps) {
   const tickerCount = section.tickers?.length || 0;
 
@@ -846,8 +874,8 @@ function SectionGroup({
         <QuoteRowWithData
           key={ticker.symbol}
           ticker={ticker}
-          onRemove={() => onRemoveTicker(ticker.symbol)}
-          onRowClick={() => onRowClick(ticker.symbol)}
+          onRemoveBySymbol={onRemoveBySymbol}
+          onRowClickBySymbol={onRowClickBySymbol}
           onDragStart={onDragStart}
           isDragging={draggedSymbol === ticker.symbol}
         />

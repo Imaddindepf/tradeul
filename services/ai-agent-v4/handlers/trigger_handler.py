@@ -148,26 +148,16 @@ async def list_triggers(
 ) -> TriggerListResponse:
     """List all triggers belonging to a user."""
     engine = _get_engine()
-    user_triggers = engine._triggers.get(user_id, {})
 
-    # Also fetch from Redis to include disabled triggers not in cache
-    import orjson
-    r = await engine._get_redis()
-    key = f"triggers:active:{user_id}"
-    raw_entries = await r.hgetall(key)
-
+    # Fetch from Redis (source of truth, includes disabled triggers)
+    redis_triggers = await engine.get_all_user_triggers_from_redis(user_id)
     triggers: dict[str, TriggerResponse] = {}
 
-    # From Redis (source of truth)
-    for _tid, raw in raw_entries.items():
-        try:
-            data = orjson.loads(raw)
-            triggers[data["id"]] = _trigger_to_response(data)
-        except Exception:
-            logger.warning("Skipping malformed trigger entry", exc_info=True)
+    for tid, data in redis_triggers.items():
+        triggers[tid] = _trigger_to_response(data)
 
     # Overlay in-memory cache (may have fresher last_triggered)
-    for tid, cfg in user_triggers.items():
+    for tid, cfg in engine.get_user_triggers(user_id).items():
         triggers[tid] = _trigger_to_response(cfg)
 
     items = list(triggers.values())

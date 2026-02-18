@@ -1,18 +1,24 @@
 /**
- * NewsStore - Store global de noticias
- * 
- * Arquitectura Enterprise:
- * - Estado centralizado de TODAS las noticias
- * - Persistente durante toda la sesión (no depende de componentes)
- * - Deduplicación automática
- * - Buffer de pausa
- * - Integración con WebSocket via NewsProvider
- * 
- * El componente NewsContent SOLO consume este store, no tiene estado propio de noticias.
+ * NewsStore v2 — Optimized global news store
+ *
+ * Fixes over v1:
+ * 1. Module-level _seenIds Set → O(1) dedup, ZERO Set copy per article
+ * 2. Automatic compaction → strips body/teaser/images from old articles (~80% RAM saved)
+ * 3. Hard cap MAX_ARTICLES=2000 → bounded memory, FIFO eviction
+ * 4. Pagination (loadOlderArticles) → user never loses history, loads on scroll
+ * 5. useArticlesByTicker selector → cleaner API for per-ticker consumers
  */
 
 import { create } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const MAX_ARTICLES = 2000;
+const COMPACT_AFTER = 500;
+export const PAGE_SIZE = 100;
 
 // ============================================================================
 // TYPES
@@ -30,26 +36,19 @@ export interface NewsArticle {
   teaser?: string;
   body?: string;
   isLive?: boolean;
-  receivedAt?: number; // Timestamp de cuando se recibió
-  tickerPrices?: Record<string, number>; // Precios capturados cuando llegó la noticia
+  receivedAt?: number;
+  tickerPrices?: Record<string, number>;
+  _compacted?: boolean;
 }
 
 interface NewsState {
-  // Noticias
   articles: NewsArticle[];
-  
-  // Deduplicación
-  seenIds: Set<string | number>;
-  
-  // Estado de conexión
   isConnected: boolean;
   isSubscribed: boolean;
-  
-  // Control de pausa
   isPaused: boolean;
   pausedBuffer: NewsArticle[];
-  
-  // Estadísticas
+  hasMore: boolean;
+  isLoadingMore: boolean;
   stats: {
     totalReceived: number;
     liveCount: number;
@@ -59,25 +58,72 @@ interface NewsState {
 }
 
 interface NewsActions {
-  // Agregar noticias
-  addArticle: (article: NewsArticle) => boolean; // Retorna true si se agregó (no duplicado)
-  addArticlesBatch: (articles: NewsArticle[], markAsLive?: boolean) => number; // Retorna cantidad agregada
-  
-  // Control de pausa
+  addArticle: (article: NewsArticle) => boolean;
+  addArticlesBatch: (articles: NewsArticle[], markAsLive?: boolean) => number;
+  loadOlderArticles: (articles: NewsArticle[]) => number;
   setPaused: (paused: boolean) => void;
   resumeWithBuffer: () => void;
-  
-  // Estado de conexión
   setConnected: (connected: boolean) => void;
   setSubscribed: (subscribed: boolean) => void;
-  
-  // Utilidades
   markInitialLoadComplete: () => void;
   getArticleById: (id: string | number) => NewsArticle | undefined;
   hasSeenId: (id: string | number) => boolean;
-  
-  // Reset
+  setHasMore: (hasMore: boolean) => void;
+  setLoadingMore: (loading: boolean) => void;
   reset: () => void;
+}
+
+// ============================================================================
+// MODULE-LEVEL INTERNALS
+// O(1) dedup without copying Sets on every addArticle call.
+// These live outside Zustand state because no component subscribes to them.
+// ============================================================================
+
+const _seenIds = new Set<string>();
+
+function getKey(article: NewsArticle): string | null {
+  const raw = article.benzinga_id ?? article.id;
+  return raw != null ? String(raw) : null;
+}
+
+function compactArticle(a: NewsArticle): NewsArticle {
+  if (a._compacted) return a;
+  return {
+    id: a.id,
+    benzinga_id: a.benzinga_id,
+    title: a.title,
+    author: a.author,
+    published: a.published,
+    url: a.url,
+    tickers: a.tickers,
+    isLive: a.isLive,
+    receivedAt: a.receivedAt,
+    tickerPrices: a.tickerPrices,
+    _compacted: true,
+  };
+}
+
+function enforceMemoryLimits(articles: NewsArticle[]): NewsArticle[] {
+  let result = articles;
+
+  if (result.length > COMPACT_AFTER) {
+    result = result.map((a, i) => (i < COMPACT_AFTER ? a : compactArticle(a)));
+  }
+
+  if (result.length > MAX_ARTICLES) {
+    const evicted = result.slice(MAX_ARTICLES);
+    result = result.slice(0, MAX_ARTICLES);
+    for (const a of evicted) {
+      const id = getKey(a);
+      if (id) _seenIds.delete(id);
+    }
+  }
+
+  return result;
+}
+
+function resetInternals() {
+  _seenIds.clear();
 }
 
 // ============================================================================
@@ -86,11 +132,12 @@ interface NewsActions {
 
 const initialState: NewsState = {
   articles: [],
-  seenIds: new Set(),
   isConnected: false,
   isSubscribed: false,
   isPaused: false,
   pausedBuffer: [],
+  hasMore: true,
+  isLoadingMore: false,
   stats: {
     totalReceived: 0,
     liveCount: 0,
@@ -109,45 +156,42 @@ export const useNewsStore = create<NewsState & NewsActions>()(
       ...initialState,
 
       // ============================================================
-      // ADD SINGLE ARTICLE (desde WebSocket en tiempo real)
+      // ADD SINGLE ARTICLE (WebSocket — hot path, must be fast)
       // ============================================================
       addArticle: (article) => {
-        const id = article.benzinga_id || article.id;
-        if (!id) return false;
-        
-        const state = get();
-        
-        // Verificar duplicado
-        if (state.seenIds.has(id)) {
-          return false;
-        }
-        
-        const enrichedArticle: NewsArticle = {
+        const id = getKey(article);
+        if (!id || _seenIds.has(id)) return false;
+
+        _seenIds.add(id);
+
+        const enriched: NewsArticle = {
           ...article,
           isLive: true,
           receivedAt: Date.now(),
         };
-        
+
         set((state) => {
-          const newSeenIds = new Set(state.seenIds);
-          newSeenIds.add(id);
-          
-          // Si está pausado, agregar al buffer
           if (state.isPaused) {
             return {
-              seenIds: newSeenIds,
-              pausedBuffer: [enrichedArticle, ...state.pausedBuffer],
+              pausedBuffer: [enriched, ...state.pausedBuffer],
               stats: {
                 ...state.stats,
                 totalReceived: state.stats.totalReceived + 1,
               },
             };
           }
-          
-          // Si no está pausado, agregar directamente
+
+          let articles = [enriched, ...state.articles];
+
+          if (articles.length > MAX_ARTICLES) {
+            const last = articles[articles.length - 1];
+            const lastId = getKey(last);
+            if (lastId) _seenIds.delete(lastId);
+            articles = articles.slice(0, MAX_ARTICLES);
+          }
+
           return {
-            articles: [enrichedArticle, ...state.articles],
-            seenIds: newSeenIds,
+            articles,
             stats: {
               ...state.stats,
               totalReceived: state.stats.totalReceived + 1,
@@ -156,28 +200,27 @@ export const useNewsStore = create<NewsState & NewsActions>()(
             },
           };
         }, false, 'addArticle');
-        
+
         return true;
       },
 
       // ============================================================
-      // ADD BATCH (para carga inicial desde API)
+      // ADD BATCH (initial load — runs once, can be heavier)
       // ============================================================
       addArticlesBatch: (articles, markAsLive = false) => {
         if (!articles || articles.length === 0) return 0;
-        
+
         let addedCount = 0;
         const now = Date.now();
-        
+
         set((state) => {
-          const newSeenIds = new Set(state.seenIds);
           const newArticles: NewsArticle[] = [];
-          
+
           for (const article of articles) {
-            const id = article.benzinga_id || article.id;
-            if (!id || newSeenIds.has(id)) continue;
-            
-            newSeenIds.add(id);
+            const id = getKey(article);
+            if (!id || _seenIds.has(id)) continue;
+
+            _seenIds.add(id);
             newArticles.push({
               ...article,
               isLive: markAsLive,
@@ -185,12 +228,13 @@ export const useNewsStore = create<NewsState & NewsActions>()(
             });
             addedCount++;
           }
-          
+
           if (addedCount === 0) return state;
-          
+
+          const merged = enforceMemoryLimits([...newArticles, ...state.articles]);
+
           return {
-            articles: [...newArticles, ...state.articles],
-            seenIds: newSeenIds,
+            articles: merged,
             stats: {
               ...state.stats,
               totalReceived: state.stats.totalReceived + addedCount,
@@ -198,7 +242,56 @@ export const useNewsStore = create<NewsState & NewsActions>()(
             },
           };
         }, false, 'addArticlesBatch');
-        
+
+        return addedCount;
+      },
+
+      // ============================================================
+      // LOAD OLDER ARTICLES (pagination — appends at END)
+      // ============================================================
+      loadOlderArticles: (articles) => {
+        if (!articles || articles.length === 0) {
+          set({ hasMore: false, isLoadingMore: false }, false, 'loadOlderArticles:empty');
+          return 0;
+        }
+
+        let addedCount = 0;
+        const now = Date.now();
+
+        set((state) => {
+          const olderArticles: NewsArticle[] = [];
+
+          for (const article of articles) {
+            const id = getKey(article);
+            if (!id || _seenIds.has(id)) continue;
+
+            _seenIds.add(id);
+            olderArticles.push({
+              ...article,
+              isLive: false,
+              receivedAt: now,
+            });
+            addedCount++;
+          }
+
+          if (addedCount === 0) {
+            return { hasMore: false, isLoadingMore: false };
+          }
+
+          const merged = enforceMemoryLimits([...state.articles, ...olderArticles]);
+
+          return {
+            articles: merged,
+            hasMore: addedCount >= PAGE_SIZE,
+            isLoadingMore: false,
+            stats: {
+              ...state.stats,
+              totalReceived: state.stats.totalReceived + addedCount,
+              lastUpdate: new Date(),
+            },
+          };
+        }, false, 'loadOlderArticles');
+
         return addedCount;
       },
 
@@ -208,15 +301,17 @@ export const useNewsStore = create<NewsState & NewsActions>()(
       setPaused: (paused) => {
         set({ isPaused: paused }, false, 'setPaused');
       },
-      
+
       resumeWithBuffer: () => {
         set((state) => {
           if (state.pausedBuffer.length === 0) {
             return { isPaused: false };
           }
-          
+
+          const merged = enforceMemoryLimits([...state.pausedBuffer, ...state.articles]);
+
           return {
-            articles: [...state.pausedBuffer, ...state.articles],
+            articles: merged,
             pausedBuffer: [],
             isPaused: false,
             stats: {
@@ -234,7 +329,7 @@ export const useNewsStore = create<NewsState & NewsActions>()(
       setConnected: (connected) => {
         set({ isConnected: connected }, false, 'setConnected');
       },
-      
+
       setSubscribed: (subscribed) => {
         set({ isSubscribed: subscribed }, false, 'setSubscribed');
       },
@@ -247,22 +342,27 @@ export const useNewsStore = create<NewsState & NewsActions>()(
           stats: { ...state.stats, initialLoadComplete: true },
         }), false, 'markInitialLoadComplete');
       },
-      
+
       getArticleById: (id) => {
-        return get().articles.find(a => 
-          (a.benzinga_id && a.benzinga_id === id) || 
-          (a.id && a.id === id)
-        );
+        const key = String(id);
+        return get().articles.find(a => getKey(a) === key);
       },
-      
-      hasSeenId: (id) => {
-        return get().seenIds.has(id);
+
+      hasSeenId: (id) => _seenIds.has(String(id)),
+
+      setHasMore: (hasMore) => {
+        set({ hasMore }, false, 'setHasMore');
+      },
+
+      setLoadingMore: (loading) => {
+        set({ isLoadingMore: loading }, false, 'setLoadingMore');
       },
 
       // ============================================================
       // RESET
       // ============================================================
       reset: () => {
+        resetInternals();
         set(initialState, false, 'reset');
       },
     })),
@@ -274,7 +374,7 @@ export const useNewsStore = create<NewsState & NewsActions>()(
 );
 
 // ============================================================================
-// SELECTORS (para optimizar re-renders)
+// SELECTORS
 // ============================================================================
 
 export const selectArticles = (state: NewsState & NewsActions) => state.articles;
@@ -282,22 +382,24 @@ export const selectIsPaused = (state: NewsState & NewsActions) => state.isPaused
 export const selectPausedBuffer = (state: NewsState & NewsActions) => state.pausedBuffer;
 export const selectIsConnected = (state: NewsState & NewsActions) => state.isConnected;
 export const selectStats = (state: NewsState & NewsActions) => state.stats;
+export const selectHasMore = (state: NewsState & NewsActions) => state.hasMore;
+export const selectIsLoadingMore = (state: NewsState & NewsActions) => state.isLoadingMore;
 
-// Selector para filtrar por ticker (memoizado internamente por Zustand)
-export const useFilteredArticles = (tickerFilter: string) => {
+export function useArticlesByTicker(ticker: string): NewsArticle[] {
   return useNewsStore((state) => {
-    if (!tickerFilter) return state.articles;
-    const upperFilter = tickerFilter.toUpperCase();
-    return state.articles.filter(article =>
-      article.tickers?.some(t => t.toUpperCase() === upperFilter)
+    if (!ticker) return state.articles;
+    const upper = ticker.toUpperCase();
+    return state.articles.filter(a =>
+      a.tickers?.some(t => t.toUpperCase() === upper)
     );
   });
+}
+
+/** @deprecated Use useArticlesByTicker */
+export const useFilteredArticles = (tickerFilter: string) => {
+  return useArticlesByTicker(tickerFilter);
 };
 
-// Estadísticas rápidas
 export const useLiveCount = () => {
-  return useNewsStore((state) => 
-    state.articles.filter(a => a.isLive).length
-  );
+  return useNewsStore((state) => state.stats.liveCount);
 };
-

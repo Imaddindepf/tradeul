@@ -18,10 +18,14 @@ Data cleaning:
   - Earnings history: keep all (already small)
 """
 from __future__ import annotations
+import asyncio
+import logging
 import re
 import time
 from datetime import datetime, timedelta
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from agents._mcp_tools import call_mcp_tool
 
@@ -29,7 +33,7 @@ from agents._mcp_tools import call_mcp_tool
 # -- Intent detection --
 
 _EARNINGS_KEYWORDS = [
-    "earnings", "earning", "er ", "eps", "revenue",
+    "earnings", "earning", "eps", "revenue",
     "quarterly", "quarter", "q1", "q2", "q3", "q4",
     "beat", "miss", "guidance", "forecast",
     "resultados", "ganancias", "trimestral", "reportan", "reporta",
@@ -52,26 +56,41 @@ _TODAY_KEYWORDS = [
 ]
 
 _HISTORICAL_EVENT_KEYWORDS = [
-    "breakout", "halt", "vwap cross", "volume spike", "momentum",
-    "events on", "events from", "eventos del", "eventos de",
-    "what happened", "qué pasó", "que paso",
+    "breakout", "halt", "halts", "halted",
+    "vwap cross", "vwap crosses", "volume spike", "volume spikes",
+    "momentum", "new high", "new low", "gap up", "gap down",
+    "squeeze", "running up", "running down",
+    "events", "event", "eventos", "evento",
+    "event stats", "event summary",
+    "what happened", "qué pasó", "que paso", "qué ocurrió",
     "friday", "monday", "tuesday", "wednesday", "thursday",
     "viernes", "lunes", "martes", "miércoles", "jueves",
     "yesterday", "ayer", "last week", "semana pasada",
+    "crossing", "crossed", "cruce", "cruces",
 ]
 
 _EVENT_TYPE_MAP = {
     "breakout": "orb_breakout_up",
     "halt": "halt",
+    "halts": "halt",
     "halted": "halt",
     "vwap cross": "vwap_cross_up",
+    "vwap crosses": "vwap_cross_up",
     "volume spike": "volume_surge",
+    "volume spikes": "volume_surge",
     "volume surge": "volume_surge",
     "momentum": "running_up",
+    "running up": "running_up",
+    "running down": "running_down",
     "new high": "new_high",
     "new low": "new_low",
     "gap up": "gap_up_reversal",
     "gap down": "gap_down_reversal",
+    "squeeze": "squeeze_fire",
+    "crossing sma": "sma_cross_up",
+    "crossed sma": "sma_cross_up",
+    "crossing": "sma_cross_up",
+    "crossed": "sma_cross_up",
 }
 
 
@@ -121,14 +140,21 @@ def _extract_date_reference(q: str) -> tuple[str | None, str | None]:
     for name, weekday in day_map.items():
         if name in ql:
             days_back = (today.weekday() - weekday) % 7
+            # days_back == 0 means "today is that day" → use today, not last week
             if days_back == 0:
-                days_back = 7
-            target = today - timedelta(days=days_back)
+                target = today
+            else:
+                target = today - timedelta(days=days_back)
             return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
 
     if "yesterday" in ql or "ayer" in ql:
         yest = today - timedelta(days=1)
-        return yest.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+        # Skip weekends: if yesterday is Sunday → use Friday
+        if yest.weekday() == 6:  # Sunday
+            yest = today - timedelta(days=2)
+        elif yest.weekday() == 5:  # Saturday
+            yest = today - timedelta(days=1)
+        return yest.strftime("%Y-%m-%d"), (yest + timedelta(days=1)).strftime("%Y-%m-%d")
 
     if "last week" in ql or "semana pasada" in ql:
         start = today - timedelta(days=today.weekday() + 7)
@@ -226,53 +252,141 @@ async def news_events_node(state: dict) -> dict:
 
     query = state.get("query", "")
     tickers = state.get("tickers", [])
+    chart_context = state.get("chart_context")
     wants_earn = _wants_earnings(query)
     wants_nws = _wants_news(query)
     wants_hist_events = _wants_historical_events(query)
 
+    # When a specific candle is targeted, force searches around that date
+    target_candle_date: str | None = None
+    if chart_context and chart_context.get("targetCandle"):
+        tc = chart_context["targetCandle"]
+        tc_ts = tc.get("date", 0)
+        if tc_ts:
+            target_candle_date = datetime.utcfromtimestamp(tc_ts).strftime("%Y-%m-%d")
+            wants_hist_events = True
+            wants_nws = True
+            wants_earn = True
+
     results: dict[str, Any] = {}
     errors: list[str] = []
 
-    # -- Per-ticker data --
+    # -- Per-ticker data (parallelized) --
     if tickers:
+        async def _fetch_ticker_news(t: str):
+            try:
+                raw = await call_mcp_tool("news", "get_news_by_ticker", {"symbol": t, "count": 10})
+                return ("ticker_news", t, _clean_news(raw), None)
+            except Exception as exc:
+                return ("ticker_news", t, None, f"news/{t}: {exc}")
+
+        async def _fetch_ticker_events(t: str):
+            try:
+                raw = await call_mcp_tool("events", "get_events_by_ticker", {"symbol": t, "count": 20})
+                return ("ticker_events", t, _clean_events(raw), None)
+            except Exception as exc:
+                return ("ticker_events", t, None, f"events/{t}: {exc}")
+
+        async def _fetch_ticker_earnings(t: str):
+            try:
+                raw = await call_mcp_tool("earnings", "get_earnings_by_ticker", {"ticker": t})
+                return ("ticker_earnings", t, _clean_earnings(raw), None)
+            except Exception as exc:
+                return ("ticker_earnings", t, None, f"earnings/{t}: {exc}")
+
+        async def _fetch_ticker_hist(t: str, df: str, dt: str, evt: str | None):
+            try:
+                params = {"symbol": t, "date_from": df, "date_to": dt, "limit": 50}
+                if evt:
+                    params["event_type"] = evt
+                raw = await call_mcp_tool("events", "query_historical_events", params)
+                return ("historical_events", t, _clean_events(raw), None)
+            except Exception as exc:
+                return ("historical_events", t, None, f"hist_events/{t}: {exc}")
+
+        async def _fetch_sec_filings(t: str, df: str, dt: str):
+            """Search SEC filings ±2 days around target candle (8-K = material events)."""
+            try:
+                raw = await call_mcp_tool("sec_filings", "search_filings", {
+                    "ticker": t, "date_from": df, "date_to": dt, "page_size": 10,
+                })
+                filings = raw.get("results", raw.get("filings", []))
+                if isinstance(filings, list):
+                    return ("sec_filings", t, filings, None)
+                return ("sec_filings", t, [], None)
+            except Exception as exc:
+                return ("sec_filings", t, None, f"sec_filings/{t}: {exc}")
+
+        tasks = []
         for ticker in tickers[:5]:
-            try:
-                raw = await call_mcp_tool("news", "get_news_by_ticker", {"symbol": ticker, "count": 10})
-                results.setdefault("ticker_news", {})[ticker] = _clean_news(raw)
-            except Exception as exc:
-                errors.append(f"news/{ticker}: {exc}")
-
-            try:
-                raw = await call_mcp_tool("events", "get_events_by_ticker", {"symbol": ticker, "count": 20})
-                results.setdefault("ticker_events", {})[ticker] = _clean_events(raw)
-            except Exception as exc:
-                errors.append(f"events/{ticker}: {exc}")
-
+            tasks.append(_fetch_ticker_news(ticker))
+            tasks.append(_fetch_ticker_events(ticker))
         if wants_earn:
             for ticker in tickers[:5]:
-                try:
-                    raw = await call_mcp_tool("earnings", "get_earnings_by_ticker", {"ticker": ticker})
-                    results.setdefault("ticker_earnings", {})[ticker] = _clean_earnings(raw)
-                except Exception as exc:
-                    errors.append(f"earnings/{ticker}: {exc}")
-
+                tasks.append(_fetch_ticker_earnings(ticker))
         if wants_hist_events:
-            date_from, date_to = _extract_date_reference(query)
+            if target_candle_date:
+                date_from = target_candle_date
+                next_day = (datetime.strptime(target_candle_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                date_to = next_day
+            else:
+                date_from, date_to = _extract_date_reference(query)
             event_type = _detect_event_type(query)
             for ticker in tickers[:3]:
-                try:
-                    params = {
-                        "symbol": ticker,
-                        "date_from": date_from,
-                        "date_to": date_to,
-                        "limit": 50,
-                    }
-                    if event_type:
-                        params["event_type"] = event_type
-                    raw = await call_mcp_tool("events", "query_historical_events", params)
-                    results.setdefault("historical_events", {})[ticker] = _clean_events(raw)
-                except Exception as exc:
-                    errors.append(f"hist_events/{ticker}: {exc}")
+                tasks.append(_fetch_ticker_hist(ticker, date_from, date_to, event_type))
+
+        # SEC filings search ±2 days around target candle
+        if target_candle_date:
+            tc_dt = datetime.strptime(target_candle_date, "%Y-%m-%d")
+            sec_from = (tc_dt - timedelta(days=2)).strftime("%Y-%m-%d")
+            sec_to = (tc_dt + timedelta(days=2)).strftime("%Y-%m-%d")
+            for ticker in tickers[:3]:
+                tasks.append(_fetch_sec_filings(ticker, sec_from, sec_to))
+
+        fetch_results = await asyncio.gather(*tasks)
+        for category, tkr, data, err in fetch_results:
+            if err:
+                errors.append(err)
+            elif data is not None:
+                results.setdefault(category, {})[tkr] = data
+
+        # Earnings cross-reference: match target candle date ±1 day
+        if target_candle_date and "ticker_earnings" in results:
+            tc_dt = datetime.strptime(target_candle_date, "%Y-%m-%d")
+            for tkr, earn_data in results["ticker_earnings"].items():
+                earn_list = earn_data if isinstance(earn_data, list) else (
+                    earn_data.get("earnings", earn_data.get("results", []))
+                    if isinstance(earn_data, dict) else []
+                )
+                if not isinstance(earn_list, list):
+                    continue
+                for earn in earn_list:
+                    if not isinstance(earn, dict):
+                        continue
+                    ed = earn.get("date", "")
+                    if not ed:
+                        continue
+                    try:
+                        earn_dt = datetime.strptime(ed[:10], "%Y-%m-%d")
+                    except (ValueError, TypeError):
+                        continue
+                    if abs((tc_dt - earn_dt).days) <= 1:
+                        results["earnings_match"] = {
+                            "ticker": tkr,
+                            "earnings_date": ed,
+                            "target_candle_date": target_candle_date,
+                            "fiscal_period": earn.get("fiscal_period", ""),
+                            "fiscal_year": earn.get("fiscal_year", ""),
+                            "estimated_eps": earn.get("estimated_eps"),
+                            "actual_eps": earn.get("actual_eps"),
+                            "eps_surprise_percent": earn.get("eps_surprise_percent"),
+                            "estimated_revenue": earn.get("estimated_revenue"),
+                            "actual_revenue": earn.get("actual_revenue"),
+                            "revenue_surprise_percent": earn.get("revenue_surprise_percent"),
+                            "time": earn.get("time", ""),
+                        }
+                        logger.info("Earnings match for %s on %s (target candle %s)", tkr, ed, target_candle_date)
+                        break
 
     # -- No tickers: calendar / general / historical event queries --
     else:
@@ -313,6 +427,14 @@ async def news_events_node(state: dict) -> dict:
                 results["historical_events"] = _clean_events(raw)
             except Exception as exc:
                 errors.append(f"hist_events: {exc}")
+
+            # Also fetch event stats for context
+            try:
+                stats_params = {"date": date_from}
+                raw_stats = await call_mcp_tool("events", "get_event_stats", stats_params)
+                results["event_stats"] = raw_stats
+            except Exception as exc:
+                errors.append(f"event_stats: {exc}")
 
         if wants_nws or (not wants_earn and not wants_hist_events):
             try:

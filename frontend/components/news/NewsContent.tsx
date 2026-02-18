@@ -19,7 +19,7 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TableVirtuoso } from 'react-virtuoso';
-import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected } from '@/stores/useNewsStore';
+import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected, selectHasMore, selectIsLoadingMore, PAGE_SIZE } from '@/stores/useNewsStore';
 import { useSquawk } from '@/contexts/SquawkContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
@@ -28,6 +28,7 @@ import { TickerSearch } from '@/components/common/TickerSearch';
 import { ExternalLink } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
 import { useWindowState } from '@/contexts/FloatingWindowContext';
+import { decodeHtmlEntities } from '@/lib/html-utils';
 
 // Mapeo de fuentes a font-family CSS
 const FONT_FAMILIES: Record<string, string> = {
@@ -40,31 +41,6 @@ const FONT_FAMILIES: Record<string, string> = {
 interface NewsWindowState {
   ticker?: string;
   [key: string]: unknown;
-}
-
-// Decodifica entidades HTML como &#39; &amp; &quot; etc.
-// Memoizado para evitar crear elementos DOM innecesarios
-const htmlDecodeCache = new Map<string, string>();
-function decodeHtmlEntities(text: string): string {
-  if (!text) return text;
-  if (typeof window === 'undefined') return text;
-
-  // Check cache first
-  const cached = htmlDecodeCache.get(text);
-  if (cached !== undefined) return cached;
-
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = text;
-  const decoded = textarea.value;
-
-  // Cache result (limit cache size to prevent memory issues)
-  if (htmlDecodeCache.size > 5000) {
-    // Clear oldest entries (simple approach: clear all when too big)
-    htmlDecodeCache.clear();
-  }
-  htmlDecodeCache.set(text, decoded);
-
-  return decoded;
 }
 
 interface NewsContentProps {
@@ -94,10 +70,14 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const isConnected = useNewsStore(selectIsConnected);
   const pausedBuffer = useNewsStore((state) => state.pausedBuffer);
   const stats = useNewsStore((state) => state.stats);
+  const hasMore = useNewsStore(selectHasMore);
+  const isLoadingMore = useNewsStore(selectIsLoadingMore);
 
   // Acciones del store
   const setPaused = useNewsStore((state) => state.setPaused);
   const resumeWithBuffer = useNewsStore((state) => state.resumeWithBuffer);
+  const loadOlderArticles = useNewsStore((state) => state.loadOlderArticles);
+  const setLoadingMore = useNewsStore((state) => state.setLoadingMore);
 
   // Squawk Service (para UI de botón, la lógica de speak está en NewsProvider)
   const squawk = useSquawk();
@@ -132,6 +112,30 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const liveCount = useMemo(() =>
     articles.filter(a => a.isLive).length
     , [articles]);
+
+  // Infinite scroll — load older articles from API when user reaches the bottom
+  const loadMoreRef = useRef(false);
+  const handleEndReached = useCallback(async () => {
+    if (loadMoreRef.current || !hasMore || isLoadingMore || tickerFilter) return;
+    loadMoreRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const offset = articles.length;
+      const response = await fetch(`${apiUrl}/news/api/v1/news?limit=${PAGE_SIZE}&offset=${offset}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.results && Array.isArray(data.results)) {
+          loadOlderArticles(data.results);
+        }
+      }
+    } catch (e) {
+      console.error('[NewsContent] Failed to load more:', e);
+    } finally {
+      loadMoreRef.current = false;
+    }
+  }, [hasMore, isLoadingMore, tickerFilter, articles.length, setLoadingMore, loadOlderArticles]);
 
   // ================================================================
   // EFECTOS
@@ -377,6 +381,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           style={{ height: '100%' }}
           data={filteredNews}
           overscan={20}
+          endReached={handleEndReached}
           fixedHeaderContent={() => (
             <tr className="text-left text-slate-600 uppercase tracking-wide bg-slate-100">
               <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>
@@ -491,6 +496,17 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                 className="hover:bg-slate-50 transition-colors border-b border-slate-100"
               />
             ),
+            TableFoot: React.forwardRef(({ style, ...props }, ref) => (
+              <tfoot {...props} ref={ref} style={style}>
+                {isLoadingMore && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-2 text-xs text-slate-400" style={{ fontFamily }}>
+                      Loading more...
+                    </td>
+                  </tr>
+                )}
+              </tfoot>
+            )),
           }}
         />
       </div>

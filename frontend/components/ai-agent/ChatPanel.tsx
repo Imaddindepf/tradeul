@@ -1,8 +1,9 @@
 'use client';
 
 import { memo, useState, useRef, useEffect, useCallback } from 'react';
+import { BarChart3, X } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
-import type { Message, MarketContext } from './types';
+import type { Message, MarketContext, ChartContext } from './types';
 
 interface ChatPanelProps {
   messages: Message[];
@@ -10,7 +11,10 @@ interface ChatPanelProps {
   isLoading: boolean;
   marketContext: MarketContext | null;
   error: string | null;
+  chartContext: ChartContext | null;
   onSendMessage: (content: string) => void;
+  onClearChartContext: () => void;
+  onClarificationChoice: (originalQuery: string, rewrite: string) => void;
   onClearHistory: () => void;
 }
 
@@ -19,7 +23,10 @@ export const ChatPanel = memo(function ChatPanel({
   isConnected,
   isLoading,
   error,
+  chartContext,
   onSendMessage,
+  onClearChartContext,
+  onClarificationChoice,
   onClearHistory
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
@@ -78,7 +85,13 @@ export const ChatPanel = memo(function ChatPanel({
           </div>
         ) : (
           <div>
-            {messages.map((m) => <ChatMessage key={m.id} message={m} />)}
+            {messages.map((m) => (
+              <ChatMessage
+                key={m.id}
+                message={m}
+                onClarificationChoice={onClarificationChoice}
+              />
+            ))}
           </div>
         )}
 
@@ -89,6 +102,36 @@ export const ChatPanel = memo(function ChatPanel({
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Chart context bar */}
+      {chartContext && (() => {
+        const snap = chartContext.snapshot;
+        const fmtDate = (ts: number) => new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+        const rangeFrom = snap.visibleDateRange?.from ? fmtDate(snap.visibleDateRange.from) : '';
+        const rangeTo = snap.visibleDateRange?.to ? fmtDate(snap.visibleDateRange.to) : '';
+        return (
+          <div className="flex-shrink-0 mx-2 mt-1 flex items-center gap-1.5 px-2 py-1.5 bg-blue-50 border border-blue-200 rounded text-[10px] flex-wrap">
+            <BarChart3 className="w-3 h-3 text-blue-500 flex-shrink-0" />
+            <span className="font-semibold text-blue-700">{chartContext.ticker}</span>
+            <span className="text-blue-500 font-medium">{chartContext.interval}</span>
+            {rangeFrom && rangeTo && (
+              <span className="text-blue-600">{rangeFrom} → {rangeTo}</span>
+            )}
+            <span className="text-slate-400">({snap.recentBars?.length || 0} bars)</span>
+            {chartContext.targetCandle && (
+              <span className="text-blue-400 font-medium">
+                candle: {fmtDate(chartContext.targetCandle.date)}
+              </span>
+            )}
+            {snap.isHistorical && (
+              <span className="text-amber-600 font-semibold bg-amber-50 px-1 rounded">Historical</span>
+            )}
+            <button onClick={onClearChartContext} className="ml-auto text-blue-400 hover:text-blue-600">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Input */}
       <div className="flex-shrink-0 p-2 border-t border-slate-200">

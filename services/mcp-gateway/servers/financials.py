@@ -8,7 +8,7 @@ from config import config
 from typing import Optional
 
 mcp = FastMCP(
-    "TradeUL Financials",
+    "Tradeul Financials",
     instructions="Financial statements extraction from SEC XBRL filings. "
     "Provides income statements, balance sheets, cash flow statements, "
     "segment breakdowns, financial ratios, margins, and YoY growth metrics.",

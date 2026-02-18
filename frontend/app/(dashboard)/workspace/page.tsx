@@ -9,7 +9,7 @@ import { PinnedCommands } from '@/components/layout/PinnedCommands';
 import { MarketStatusPopover } from '@/components/market/MarketStatusPopover';
 import { TerminalPalette } from '@/components/ui/TerminalPalette';
 import { HelpModal } from '@/components/ui/HelpModal';
-import { Settings2, LayoutGrid, HelpCircle } from 'lucide-react';
+import { Settings2, LayoutGrid } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
@@ -18,7 +18,6 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { WorkspaceTabs } from '@/components/layout/WorkspaceTabs';
 import { ScannerTableContent } from '@/components/scanner/ScannerTableContent';
-import { FilterManagerContent } from '@/components/scanner/FilterManagerContent';
 import { TickersWithNewsContent } from '@/components/scanner/TickersWithNewsContent';
 import { SettingsContent } from '@/components/settings/SettingsContent';
 import { DilutionTrackerContent } from '@/components/floating-window/DilutionTrackerContent';
@@ -114,7 +113,6 @@ export default function ScannerPage() {
 
     // === Ventanas generales (sin ticker específico) ===
     if (title === 'Settings') return <SettingsContent />;
-    if (title === 'Filter Manager' || title === 'Filtros') return <FilterManagerContent />;
     if (title === 'Dilution Tracker') return <DilutionTrackerContent />;
     if (title === 'SEC Filings') return <SECFilingsContent />;
     if (title === 'News') return <NewsContent />;
@@ -150,22 +148,26 @@ export default function ScannerPage() {
           const prefStore = useUserPreferencesStore.getState();
           const categoryId = `evt_custom_${Date.now()}`;
           filterStore.setAllFilters(categoryId, { ...config.filters, event_types: config.eventTypes });
+          const cs = { restoreType: 'event_table', categoryId, categoryName: config.name, eventTypes: config.eventTypes };
           const winId = openWindow({
             title: `Events: ${config.name}`,
             content: <EventTableContent categoryId={categoryId} categoryName={config.name} eventTypes={config.eventTypes} />,
             width: 800, height: 500, x: 220, y: 170, minWidth: 500, minHeight: 300, hideHeader: true,
+            componentState: cs,
           });
-          prefStore.updateWindowComponentState(winId, { restoreType: 'event_table', categoryId, categoryName: config.name, eventTypes: config.eventTypes });
+          prefStore.updateWindowComponentState(winId, cs);
         }}
         onCreateScannerWindow={(savedFilter: any) => {
           const prefStore = useUserPreferencesStore.getState();
           const categoryId = `uscan_${savedFilter.id}`;
+          const cs = { restoreType: 'user_scan', categoryId, categoryName: savedFilter.name, scanId: savedFilter.id };
           const winId = openWindow({
             title: `Scanner: ${savedFilter.name}`,
             content: <ScannerTableContent categoryId={categoryId} categoryName={savedFilter.name} />,
             width: 850, height: 500, x: 400, y: 200, minWidth: 500, minHeight: 300, hideHeader: true,
+            componentState: cs,
           });
-          prefStore.updateWindowComponentState(winId, { restoreType: 'user_scan', categoryId, categoryName: savedFilter.name, scanId: savedFilter.id });
+          prefStore.updateWindowComponentState(winId, cs);
         }}
       />
     );
@@ -314,6 +316,7 @@ export default function ScannerPage() {
               width: layout.size.width,
               height: layout.size.height,
               hideHeader,
+              componentState: layout.componentState,
             });
           }
         });
@@ -463,12 +466,12 @@ export default function ScannerPage() {
     <>
       {/* Navbar */}
       <Navbar>
-        <div className="flex items-center h-full w-full gap-3">
-          {/* Command Prompt / Quote Strip */}
-          <div className="flex-1 flex items-center gap-2 relative">
-            <span className="text-slate-400 font-mono text-sm select-none">{'>'}</span>
+        <div className="flex items-center h-full w-full">
+          {/* Left: Command Prompt / Quote Strip */}
+          <div className="flex items-center gap-1.5 relative min-w-0 w-[450px] shrink-0">
+            <span className="text-slate-300 font-mono text-xs select-none pl-1">{'>'}</span>
 
-            <div className="flex-1 relative">
+            <div className="flex-1 relative min-w-0">
               {/* Input siempre presente */}
               <input
                 ref={inputRef}
@@ -477,15 +480,12 @@ export default function ScannerPage() {
                 onChange={(e) => {
                   const newValue = e.target.value.toUpperCase();
 
-                  // Si hay un ticker activo y el usuario escribe algo nuevo
                   if (activeQuoteTicker && !commandInput && newValue) {
-                    // Prefijar con el ticker activo
                     setCommandInput(activeQuoteTicker + ' ' + newValue);
                   } else {
                     setCommandInput(newValue);
                   }
 
-                  // Abrir paleta cuando el usuario empieza a escribir
                   if (!commandPaletteOpen) {
                     setCommandPaletteOpen(true);
                   }
@@ -501,15 +501,15 @@ export default function ScannerPage() {
                     setCommandPaletteOpen(true);
                   }
                 }}
-                className={`w-full px-3 py-2 font-mono text-sm text-slate-900 bg-transparent
-                         border-b-2 border-transparent focus:border-blue-500
+                className={`w-full px-2 py-1.5 font-mono text-xs text-slate-800 bg-transparent
+                         border-b border-transparent focus:border-blue-400
                          outline-none transition-all ${activeQuoteTicker && !commandInput ? 'opacity-0 absolute' : ''}`}
               />
 
               {/* Mostrar TickerStrip encima cuando hay quote activo y no hay input */}
               {activeQuoteTicker && !commandInput && (
                 <div
-                  className="flex items-center py-2 cursor-text"
+                  className="flex items-center py-1.5 cursor-text"
                   onClick={() => inputRef.current?.focus()}
                 >
                   <TickerStrip symbol={activeQuoteTicker} exchange="US" />
@@ -518,27 +518,19 @@ export default function ScannerPage() {
 
               {/* Placeholder con cursor parpadeante */}
               {!commandInput && !activeQuoteTicker && (
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
-                  <span className="text-slate-400 font-mono text-sm">type a command</span>
-                  <span className="w-0.5 h-4 bg-blue-500 ml-0.5 animate-pulse" />
+                <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none flex items-center">
+                  <span className="text-slate-350 font-mono text-xs">command</span>
+                  <span className="w-[1.5px] h-3.5 bg-blue-400 ml-0.5 animate-pulse" />
                 </div>
               )}
             </div>
-
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setHelpOpen(true)}
-                className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-                title="Ayuda (?)"
-              >
-                <HelpCircle className="w-4 h-4" />
-              </button>
-              <kbd className="text-xs text-slate-400 font-mono px-1.5 py-0.5 bg-slate-100 rounded">Ctrl+K</kbd>
-            </div>
           </div>
 
-          {/* Pinned Commands */}
-          <div className="flex items-center px-4">
+          {/* Separator */}
+          <div className="w-px h-5 bg-slate-200 mx-1" />
+
+          {/* Center: Pinned Commands (centrados) */}
+          <div className="flex-1 flex justify-center min-w-0">
             <PinnedCommands
               onOpenCommandPalette={(value) => {
                 setCommandInput(value);
@@ -547,8 +539,11 @@ export default function ScannerPage() {
             />
           </div>
 
-          {/* Market Status + User Menu */}
-          <div className="flex-1 flex items-center justify-end gap-4">
+          {/* Separator */}
+          <div className="w-px h-5 bg-slate-200 mx-1" />
+
+          {/* Right: Market Status + User Menu */}
+          <div className="flex items-center gap-3 shrink-0">
             {session && mounted && <MarketStatusPopover status={adaptMarketSession(session)} />}
             <UserMenu />
           </div>
@@ -582,9 +577,9 @@ export default function ScannerPage() {
       <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       {/* Main Content - usa variable CSS para el fondo */}
-      {/* Altura: 100vh - 64px (navbar) - 32px (workspace tabs) */}
+      {/* Altura: 100vh - 40px (navbar h-10) - 32px (workspace tabs) */}
       <main
-        className="h-[calc(100vh-64px-32px)] relative overflow-hidden transition-colors duration-200"
+        className="h-[calc(100vh-40px-32px)] relative overflow-hidden transition-colors duration-200"
         style={{ backgroundColor: 'var(--color-background, #f8fafc)' }}
       >
         {/* Empty state cuando no hay ventanas */}

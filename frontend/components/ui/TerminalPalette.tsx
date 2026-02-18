@@ -317,7 +317,7 @@ export function TerminalPalette({
 
             <div
                 data-terminal-palette
-                className="fixed left-4 top-12 animate-slideDown"
+                className="fixed left-3 top-11 animate-slideDown"
                 style={{
                     zIndex: Z_INDEX.MODAL_BASE + 1,
                     maxHeight: 'calc(100vh - 80px)',

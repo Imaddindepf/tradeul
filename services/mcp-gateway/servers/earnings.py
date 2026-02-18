@@ -12,7 +12,7 @@ from config import config
 from typing import Optional
 
 mcp = FastMCP(
-    "TradeUL Earnings",
+    "Tradeul Earnings",
     instructions="Earnings calendar service with scheduled and reported earnings data. "
     "Includes EPS/revenue estimates vs actuals, surprise percentages, and guidance.",
 )

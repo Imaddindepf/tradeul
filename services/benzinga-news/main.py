@@ -173,7 +173,8 @@ async def get_news(
     author: Optional[str] = QueryParam(None, description="Filter by author"),
     date_from: Optional[str] = QueryParam(None, description="Start date (YYYY-MM-DD or ISO 8601)"),
     date_to: Optional[str] = QueryParam(None, description="End date (YYYY-MM-DD or ISO 8601)"),
-    limit: int = QueryParam(50, ge=1, le=2000, description="Limit results")
+    limit: int = QueryParam(50, ge=1, le=2000, description="Limit results"),
+    offset: int = QueryParam(0, ge=0, le=5000, description="Offset for pagination")
 ):
     """
     Get news articles with optional filters
@@ -182,14 +183,15 @@ async def get_news(
     - **channels**: Filter by news channels/categories
     - **date_from/date_to**: Date range filters
     - **limit**: Maximum articles to return
+    - **offset**: Offset for pagination (skip first N results)
     """
     try:
         # Si hay ticker específico, buscar en cache por ticker
         if ticker:
             articles = await stream_manager.get_news_by_ticker(ticker.upper(), limit)
         else:
-            # Obtener últimas noticias del cache
-            articles = await stream_manager.get_latest_news(limit)
+            # Obtener últimas noticias del cache (con offset para paginación)
+            articles = await stream_manager.get_latest_news(limit, offset=offset)
         
         # Aplicar filtros adicionales en memoria si es necesario
         if channels:

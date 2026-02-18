@@ -9,24 +9,10 @@ interface ChartContentProps {
     onTickerChange?: (ticker: string) => void;
 }
 
-/**
- * ChartContent - Professional Trading Chart
- * 
- * Uses lightweight-charts library for high-performance candlestick charts.
- * Data fetched from FMP API with intelligent caching.
- * 
- * Features:
- * - Multiple timeframes (1m, 5m, 15m, 30m, 1H, 4H, 1D)
- * - Candlestick chart with volume
- * - Moving averages (MA20, MA50)
- * - Bloomberg-inspired dark theme
- * - Responsive and fullscreen support
- */
-function ChartContentComponent({ ticker = 'AAPL', exchange, onTickerChange }: ChartContentProps) {
+function ChartContentComponent({ ticker = 'AAPL', onTickerChange }: ChartContentProps) {
     return (
         <TradingChart
             ticker={ticker}
-            exchange={exchange}
             onTickerChange={onTickerChange}
         />
     );

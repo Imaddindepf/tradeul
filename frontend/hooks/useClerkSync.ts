@@ -46,7 +46,6 @@ interface UserPreferencesAPI {
     colors: ColorPreferences;
     theme: { font: FontFamily; colorScheme: 'light' | 'dark' | 'system'; newsSquawkEnabled?: boolean };
     windowLayouts: WindowLayoutAPI[];
-    savedFilters: Record<string, any>;
     columnVisibility: Record<string, Record<string, boolean>>;
     columnOrder: Record<string, string[]>;
     updatedAt: string;
@@ -71,7 +70,6 @@ export function useClerkSync() {
     const colors = useUserPreferencesStore((s) => s.colors);
     const theme = useUserPreferencesStore((s) => s.theme);
     const windowLayouts = useUserPreferencesStore((s) => s.windowLayouts);
-    const savedFilters = useUserPreferencesStore((s) => s.savedFilters);
     const columnVisibility = useUserPreferencesStore((s) => s.columnVisibility);
     const columnOrder = useUserPreferencesStore((s) => s.columnOrder);
 
@@ -142,13 +140,6 @@ export function useClerkSync() {
                     saveWindowLayouts(layouts);
                 }
 
-                // Cargar filtros guardados
-                if (data.savedFilters && Object.keys(data.savedFilters).length > 0) {
-                    Object.entries(data.savedFilters).forEach(([key, value]) => {
-                        useUserPreferencesStore.getState().saveFilters(key, value);
-                    });
-                }
-
                 // Guardar timestamp de última sincronización
                 lastSyncRef.current = data.updatedAt;
                 hasLoadedRef.current = true;
@@ -191,7 +182,6 @@ export function useClerkSync() {
                     isMinimized: w.isMinimized,
                     zIndex: w.zIndex,
                 })),
-                savedFilters,
                 columnVisibility,
                 columnOrder,
             };
@@ -214,7 +204,7 @@ export function useClerkSync() {
         } catch (error) {
             console.error('[ClerkSync] Error guardando preferencias:', error);
         }
-    }, [userId, getToken, colors, theme, windowLayouts, savedFilters, columnVisibility, columnOrder]);
+    }, [userId, getToken, colors, theme, windowLayouts, columnVisibility, columnOrder]);
 
     /**
      * Sincronización debounced (evita muchas llamadas al servidor)
@@ -251,7 +241,7 @@ export function useClerkSync() {
                 clearTimeout(syncTimeoutRef.current);
             }
         };
-    }, [isSignedIn, colors, theme, windowLayouts, savedFilters, columnVisibility, columnOrder, debouncedSync]);
+    }, [isSignedIn, colors, theme, windowLayouts, columnVisibility, columnOrder, debouncedSync]);
 
     // Efecto: Limpiar al desloguearse
     useEffect(() => {

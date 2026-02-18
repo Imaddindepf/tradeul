@@ -39,10 +39,6 @@ import { useTickersStore, selectOrderedTickers } from '@/stores/useTickersStore'
 import { useListSubscription } from '@/hooks/useRxWebSocket';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 
-// User Filters - Zustand store para reactividad en tiempo real
-import { useFiltersStore } from '@/stores/useFiltersStore';
-import { passesFilter } from '@/lib/scanner/filterEngine';
-
 // User Preferences Store - para persistir configuración de columnas en BD
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 
@@ -158,25 +154,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const getList = useTickersStore((state) => state.getList);
 
   // Get tickers for this list (memoized selector)
-  const baseTickers = useTickersStore(selectOrderedTickers(listName));
-
-  // User filters - Zustand store para reactividad en tiempo real
-  const activeFilters = useFiltersStore((state) => state.activeFilters);
-  const hasActiveFilters = useFiltersStore((state) => state.hasActiveFilters);
-
-  // Serializar filtros para detectar cambios correctamente
-  const filtersKey = JSON.stringify(activeFilters);
-
-  // Apply filters with useMemo for performance
-  const tickers = useMemo(() => {
-    if (!hasActiveFilters) {
-      return baseTickers; // No filters = show all
-    }
-
-    // Aplicar filtros del store directamente
-    return baseTickers.filter(ticker => passesFilter(ticker, activeFilters));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseTickers, filtersKey, hasActiveFilters]);
+  const tickers = useTickersStore(selectOrderedTickers(listName));
 
   // Local UI state (no afecta datos)
   // Ordenamiento inicial según la categoría
@@ -1268,7 +1246,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
           return <div className="font-mono text-xs text-slate-700">${value.toFixed(2)}</div>;
         },
       }),
-      
+
       columnHelper.accessor('ask', {
         header: 'Ask',
         size: 70,

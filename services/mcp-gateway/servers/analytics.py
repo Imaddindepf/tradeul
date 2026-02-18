@@ -10,7 +10,7 @@ from typing import Optional
 import orjson
 
 mcp = FastMCP(
-    "TradeUL Analytics",
+    "Tradeul Analytics",
     instructions="Real-time analytics engine providing RVOL, VWAP, volume/price windows, "
     "and intraday technical indicators. Data refreshed every second from Polygon aggregates.",
 )

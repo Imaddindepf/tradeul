@@ -15,7 +15,7 @@ import os
 from datetime import datetime, timedelta
 
 mcp = FastMCP(
-    "TradeUL Historical Data",
+    "Tradeul Historical Data",
     instructions="Historical market data service with 1760+ trading days of OHLCV data. "
     "Minute-level and day-level granularity. Powered by DuckDB on Parquet flat files.",
 )

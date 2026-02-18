@@ -9,7 +9,7 @@ from config import config
 from typing import Optional
 
 mcp = FastMCP(
-    "TradeUL SEC Filings",
+    "Tradeul SEC Filings",
     instructions="SEC EDGAR filings service with real-time streaming and historical queries. "
     "Covers 8-K, 10-K, 10-Q, S-1, 424B, SC 13D/G, and all other SEC form types.",
 )

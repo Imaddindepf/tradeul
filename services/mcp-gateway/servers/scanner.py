@@ -19,7 +19,7 @@ import orjson
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
-    "TradeUL Scanner",
+    "Tradeul Scanner",
     instructions="Real-time stock scanner processing 11K+ tickers. Use for current market data, "
     "category rankings (gappers, momentum, volume leaders), enriched snapshots with 145+ indicators, "
     "and dynamic filtering on the full ticker universe.",

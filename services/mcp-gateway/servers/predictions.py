@@ -11,7 +11,7 @@ from config import config
 from typing import Optional
 
 mcp = FastMCP(
-    "TradeUL Prediction Markets",
+    "Tradeul Prediction Markets",
     instructions="Polymarket prediction markets data. Provides event probabilities, "
     "price history, and market sentiment for elections, economic events, "
     "Fed decisions, crypto events, and more.",

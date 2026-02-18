@@ -11,7 +11,6 @@ import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/cata
 import { NewsProvider } from '@/components/news/NewsProvider';
 import { InsightsProvider } from '@/components/insights';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
-import { useScannerFiltersSync } from '@/hooks/useScannerFiltersSync';
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
 
 interface AppShellProps {
@@ -23,8 +22,7 @@ interface AppShellProps {
  */
 function GlobalHooksHandler() {
   useTradingDayReset();
-  useScannerFiltersSync(); // Sincroniza filtros del scanner con BD
-  useWorkspaceSync({ enableInitialLoad: true }); // Sincroniza workspaces con backend
+  useWorkspaceSync({ enableInitialLoad: true });
   return null;
 }
 
@@ -32,33 +30,33 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <AuthWebSocketProvider>
       <SquawkProvider>
-      <FloatingWindowProvider>
+        <FloatingWindowProvider>
           {/* GlobalHooksHandler: hooks globales (reset dia, sync filtros) */}
           <GlobalHooksHandler />
-        {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
-        <NewsProvider>
-          {/* InsightsProvider: escucha notificaciones de Insights (Morning News, etc.) */}
-          <InsightsProvider>
-          {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
-          <CatalystDetectorProvider>
-            <div className="min-h-screen bg-slate-50 relative">
-              {/* Announcement Banner - floating toast */}
-              <AnnouncementBanner />
-              <Navbar />
-              <main className="w-full">
-                {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
-                <div className="min-h-screen bg-white w-full pt-11">
-                  {children}
+          {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
+          <NewsProvider>
+            {/* InsightsProvider: escucha notificaciones de Insights (Morning News, etc.) */}
+            <InsightsProvider>
+              {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
+              <CatalystDetectorProvider>
+                <div className="min-h-screen bg-slate-50 relative">
+                  {/* Announcement Banner - floating toast */}
+                  <AnnouncementBanner />
+                  <Navbar />
+                  <main className="w-full">
+                    {/* Contenido principal con padding-top para dejar espacio al navbar fijo */}
+                    <div className="min-h-screen bg-white w-full pt-11">
+                      {children}
+                    </div>
+                  </main>
+                  <FloatingWindowManager />
+                  {/* Catalyst Alerts Popup - floating notifications */}
+                  <CatalystAlertsPopup />
                 </div>
-              </main>
-              <FloatingWindowManager />
-              {/* Catalyst Alerts Popup - floating notifications */}
-              <CatalystAlertsPopup />
-            </div>
-          </CatalystDetectorProvider>
-          </InsightsProvider>
-        </NewsProvider>
-      </FloatingWindowProvider>
+              </CatalystDetectorProvider>
+            </InsightsProvider>
+          </NewsProvider>
+        </FloatingWindowProvider>
       </SquawkProvider>
     </AuthWebSocketProvider>
   );

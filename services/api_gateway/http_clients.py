@@ -825,10 +825,13 @@ class BenzingaNewsClient(InternalServiceClient):
         channels: Optional[str] = None,
         tags: Optional[str] = None,
         author: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        offset: int = 0
     ) -> Dict[str, Any]:
         """Obtiene noticias con filtros"""
         params = {"limit": limit}
+        if offset > 0:
+            params["offset"] = offset
         if ticker:
             params["ticker"] = ticker
         if channels:

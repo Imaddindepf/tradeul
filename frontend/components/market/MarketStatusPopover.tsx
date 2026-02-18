@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, Circle } from 'lucide-react';
+import { Circle } from 'lucide-react';
 import { Z_INDEX } from '@/lib/z-index';
 import { getUserTimezone } from '@/lib/date-utils';
 
@@ -46,33 +46,28 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
   const triggerRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
 
-  // Montar el componente e inicializar la hora solo en cliente
   useEffect(() => {
     setMounted(true);
     setCurrentTime(new Date());
   }, []);
 
-  // Actualizar hora cada segundo
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
-
     return () => clearInterval(timer);
   }, []);
 
-  // Calcular posición del popover basado en el trigger
   useEffect(() => {
     if (showPopover && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       setPopoverPosition({
-        top: rect.bottom + 8, // 8px debajo del trigger
-        right: window.innerWidth - rect.right, // Alineado a la derecha del trigger
+        top: rect.bottom + 4,
+        right: window.innerWidth - rect.right,
       });
     }
   }, [showPopover]);
 
-  // Formato de hora: HH:MM:SS (user timezone)
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', {
       timeZone: getUserTimezone(),
@@ -83,59 +78,20 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
     });
   };
 
-  // Formato de fecha: Day, Mon DD (user timezone)
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      timeZone: getUserTimezone(),
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  // Función para obtener el color del status
-  const getStatusColor = (statusValue?: string) => {
-    switch (statusValue) {
-      case 'open':
-        return 'text-green-500';
-      case 'extended-hours':
-        return 'text-orange-500';
-      case 'closed':
-        return 'text-gray-500';
-      default:
-        return 'text-gray-400';
-    }
-  };
-
-  // Función para obtener el dot de color
-  const getStatusDot = (statusValue?: string) => {
-    switch (statusValue) {
-      case 'open':
-        return 'bg-green-500';
-      case 'extended-hours':
-        return 'bg-orange-500';
-      case 'closed':
-        return 'bg-gray-500';
-      default:
-        return 'bg-gray-400';
-    }
-  };
-
-  // Obtener el estado general del mercado
   const getMarketState = () => {
-    if (!status) return { label: 'LOADING', color: 'text-gray-500' };
+    if (!status) return { label: '···', color: 'text-slate-400', dot: 'bg-slate-300' };
 
     if (status.market === 'open') {
-      return { label: 'OPEN', color: 'text-green-500' };
+      return { label: 'OPEN', color: 'text-emerald-600', dot: 'bg-emerald-500' };
     } else if (status.market === 'extended-hours') {
       if (status.earlyHours) {
-        return { label: 'PRE-MARKET', color: 'text-blue-500' };
+        return { label: 'PRE', color: 'text-blue-500', dot: 'bg-blue-400' };
       } else if (status.afterHours) {
-        return { label: 'POST-MARKET', color: 'text-orange-500' };
+        return { label: 'POST', color: 'text-amber-500', dot: 'bg-amber-400' };
       }
-      return { label: 'EXTENDED HOURS', color: 'text-purple-500' };
+      return { label: 'EXT', color: 'text-purple-500', dot: 'bg-purple-400' };
     } else {
-      return { label: 'CLOSED', color: 'text-gray-500' };
+      return { label: 'CLOSED', color: 'text-slate-400', dot: 'bg-slate-300' };
     }
   };
 
@@ -143,20 +99,20 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
 
   const popoverContent = showPopover && status && mounted && (
     <div
-      className="fixed w-72 bg-white rounded-lg shadow-2xl border border-slate-200 p-3"
+      className="fixed w-64 bg-white/95 backdrop-blur-sm rounded-md shadow-lg border border-slate-100 p-2.5"
       style={{
         top: `${popoverPosition.top}px`,
         right: `${popoverPosition.right}px`,
-        zIndex: Z_INDEX.NAVBAR_POPOVER
+        zIndex: Z_INDEX.NAVBAR_POPOVER,
       }}
       onMouseEnter={() => setShowPopover(true)}
       onMouseLeave={() => setShowPopover(false)}
     >
       {/* Header */}
-      <div className="mb-3 pb-2 border-b border-slate-200">
+      <div className="mb-2 pb-1.5 border-b border-slate-100">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-slate-600">Market Status</span>
-          <span className={`text-xs font-bold ${marketState.color}`}>
+          <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Market Status</span>
+          <span className={`text-[10px] font-bold ${marketState.color}`}>
             {marketState.label}
           </span>
         </div>
@@ -164,11 +120,11 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
 
       {/* US Stock Exchanges */}
       {status.exchanges && (
-        <div className="mb-3">
-          <h4 className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
+        <div className="mb-2">
+          <h4 className="text-[9px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
             US Exchanges
           </h4>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <StatusItemCompact label="NYSE" status={status.exchanges.nyse} />
             <StatusItemCompact label="Nasdaq" status={status.exchanges.nasdaq} />
             <StatusItemCompact label="OTC" status={status.exchanges.otc} />
@@ -179,10 +135,10 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
       {/* Currencies */}
       {status.currencies && (
         <div>
-          <h4 className="text-[10px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
+          <h4 className="text-[9px] font-bold text-slate-400 mb-1 uppercase tracking-wider">
             Currencies
           </h4>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <StatusItemCompact label="Crypto" status={status.currencies.crypto} />
             <StatusItemCompact label="Forex" status={status.currencies.fx} />
           </div>
@@ -193,77 +149,70 @@ export function MarketStatusPopover({ status }: MarketStatusPopoverProps) {
 
   return (
     <>
-      {/* Trigger - Hora del usuario */}
+      {/* Trigger — flush with navbar, no border, no card look */}
       <div
         ref={triggerRef}
-        className="flex items-center gap-3 px-4 py-2 rounded-lg border border-slate-200 bg-white hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
+        className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-slate-50 rounded-sm transition-colors"
         onMouseEnter={() => setShowPopover(true)}
         onMouseLeave={() => setShowPopover(false)}
       >
-        <Clock className="h-4 w-4 text-slate-600" />
-        <div className="flex flex-col">
-          <span className="text-sm font-mono font-bold text-slate-900 leading-none">
-            {currentTime ? formatTime(currentTime) : '--:--:--'}
-          </span>
-          <span className="text-xs text-slate-500 leading-none mt-0.5">
-            {currentTime ? formatDate(currentTime) : '---'}
-          </span>
-        </div>
+        {/* Status dot */}
+        <span className={`w-1.5 h-1.5 rounded-full ${marketState.dot}`} />
+
+        {/* Time */}
+        <span className="text-xs font-mono font-medium text-slate-700 leading-none tabular-nums">
+          {currentTime ? formatTime(currentTime) : '--:--:--'}
+        </span>
+
+        {/* Market label */}
+        <span className={`text-[9px] font-semibold uppercase tracking-wider ${marketState.color} leading-none`}>
+          {marketState.label}
+        </span>
       </div>
 
-      {/* Popover - Renderizado en portal */}
+      {/* Popover */}
       {mounted && typeof document !== 'undefined' && popoverContent &&
         createPortal(popoverContent, document.getElementById('portal-root')!)}
     </>
   );
 }
 
-// Componente compacto para items
 function StatusItemCompact({ label, status }: { label: string; status?: string }) {
-  const getStatusColor = (statusValue?: string) => {
-    switch (statusValue) {
-      case 'open':
-        return 'text-green-600';
-      case 'extended-hours':
-        return 'text-orange-600';
-      case 'closed':
-        return 'text-gray-500';
-      default:
-        return 'text-gray-400';
+  const getColor = (s?: string) => {
+    switch (s) {
+      case 'open': return 'text-emerald-600';
+      case 'extended-hours': return 'text-amber-600';
+      case 'closed': return 'text-slate-400';
+      default: return 'text-slate-300';
     }
   };
 
-  const getStatusDot = (statusValue?: string) => {
-    switch (statusValue) {
-      case 'open':
-        return 'bg-green-500';
-      case 'extended-hours':
-        return 'bg-orange-500';
-      case 'closed':
-        return 'bg-gray-400';
-      default:
-        return 'bg-gray-300';
+  const getDot = (s?: string) => {
+    switch (s) {
+      case 'open': return 'bg-emerald-500';
+      case 'extended-hours': return 'bg-amber-400';
+      case 'closed': return 'bg-slate-300';
+      default: return 'bg-slate-200';
     }
   };
 
-  const getStatusLabel = (statusValue?: string) => {
-    if (!statusValue) return 'N/A';
-    if (statusValue === 'extended-hours') return 'Extended';
-    if (statusValue === 'open') return 'Open';
-    if (statusValue === 'closed') return 'Closed';
-    return statusValue;
+  const getLabel = (s?: string) => {
+    if (!s) return 'N/A';
+    if (s === 'extended-hours') return 'Extended';
+    if (s === 'open') return 'Open';
+    if (s === 'closed') return 'Closed';
+    return s;
   };
 
   return (
-    <div className="flex items-center justify-between text-xs">
-      <span className="text-slate-700 font-medium">{label}</span>
+    <div className="flex items-center justify-between text-[10px] py-0.5">
+      <span className="text-slate-600 font-medium">{label}</span>
       <div className="flex items-center gap-1.5">
-        <Circle className={`h-2 w-2 fill-current ${getStatusDot(status)}`} />
-        <span className={`font-semibold ${getStatusColor(status)} min-w-[55px] text-right`}>
-          {getStatusLabel(status)}
+        <span className={`w-1.5 h-1.5 rounded-full ${getDot(status)}`} />
+        <span className={`font-semibold ${getColor(status)} min-w-[48px] text-right`}>
+          {getLabel(status)}
         </span>
       </div>
     </div>
   );
 }
-

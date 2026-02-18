@@ -2,7 +2,7 @@
  * Hook for managing watchlists with real-time quotes
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -80,20 +80,29 @@ export function useWatchlists() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch watchlists
+  // Ref to track if initial load is done (avoid setLoading on refetch)
+  const initialLoadDone = useRef(false);
+  // Ref for activeWatchlistId to avoid dependency in fetchWatchlists
+  const activeWatchlistIdRef = useRef(activeWatchlistId);
+  activeWatchlistIdRef.current = activeWatchlistId;
+
+  // Fetch watchlists — NEVER sets loading=true after initial load
   const fetchWatchlists = useCallback(async () => {
     if (!userId) return;
 
     try {
-      setLoading(true);
+      if (!initialLoadDone.current) {
+        setLoading(true);
+      }
+
       const res = await fetch(`${API_URL}/api/v1/watchlists?user_id=${userId}`);
       if (!res.ok) throw new Error('Failed to fetch watchlists');
 
       const data = await res.json();
       setWatchlists(data);
 
-      // Set active watchlist if not set
-      if (!activeWatchlistId && data.length > 0) {
+      // Set active watchlist if not set (read from ref to avoid dependency)
+      if (!activeWatchlistIdRef.current && data.length > 0) {
         setActiveWatchlistId(data[0].id);
       }
 
@@ -102,11 +111,13 @@ export function useWatchlists() {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
+      initialLoadDone.current = true;
     }
-  }, [userId, activeWatchlistId]);
+  }, [userId]);
 
-  // Initial fetch
+  // Initial fetch — only depends on userId, not activeWatchlistId
   useEffect(() => {
+    initialLoadDone.current = false;
     fetchWatchlists();
   }, [fetchWatchlists]);
 
@@ -168,20 +179,21 @@ export function useWatchlists() {
 
       if (!res.ok) throw new Error('Failed to delete watchlist');
 
-      setWatchlists(prev => prev.filter(w => w.id !== id));
-
-      // Set new active if deleted was active
-      if (activeWatchlistId === id) {
-        const remaining = watchlists.filter(w => w.id !== id);
-        setActiveWatchlistId(remaining.length > 0 ? remaining[0].id : null);
-      }
+      setWatchlists(prev => {
+        const remaining = prev.filter(w => w.id !== id);
+        // Set new active if deleted was active (use ref to avoid dependency)
+        if (activeWatchlistIdRef.current === id) {
+          setActiveWatchlistId(remaining.length > 0 ? remaining[0].id : null);
+        }
+        return remaining;
+      });
 
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       return false;
     }
-  }, [userId, activeWatchlistId, watchlists]);
+  }, [userId]);
 
   // Add ticker
   const addTicker = useCallback(async (watchlistId: string, symbol: string): Promise<boolean> => {
@@ -210,7 +222,7 @@ export function useWatchlists() {
     }
   }, [userId]);
 
-  // Add batch tickers
+  // Add batch tickers — background refetch, no loading flash
   const addTickersBatch = useCallback(async (watchlistId: string, symbols: string[]): Promise<number> => {
     if (!userId) return 0;
 
@@ -225,8 +237,8 @@ export function useWatchlists() {
 
       const result = await res.json();
 
-      // Refresh watchlists to get updated tickers
-      await fetchWatchlists();
+      // Background refetch (fetchWatchlists no longer sets loading=true on refetch)
+      fetchWatchlists();
 
       return result.added;
     } catch (err) {
@@ -325,7 +337,7 @@ export function useWatchlists() {
     }
   }, [userId]);
 
-  // Delete section
+  // Delete section — optimistic update, no full refetch
   const deleteSection = useCallback(async (
     watchlistId: string,
     sectionId: string,
@@ -344,17 +356,40 @@ export function useWatchlists() {
 
       if (!res.ok) throw new Error('Failed to delete section');
 
-      // Refresh to get updated state
-      await fetchWatchlists();
+      // Optimistic update: move tickers from deleted section and remove it
+      setWatchlists(prev => prev.map(w => {
+        if (w.id !== watchlistId) return w;
+        const deletedSection = w.sections.find(s => s.id === sectionId);
+        const orphanedTickers = deletedSection?.tickers || [];
+        const newSections = w.sections.filter(s => s.id !== sectionId);
+
+        if (moveTickersTo && moveTickersTo !== 'unsorted') {
+          // Move tickers to target section
+          return {
+            ...w,
+            sections: newSections.map(s =>
+              s.id === moveTickersTo
+                ? { ...s, tickers: [...s.tickers, ...orphanedTickers] }
+                : s
+            ),
+          };
+        }
+        // Move tickers to unsorted
+        return {
+          ...w,
+          sections: newSections,
+          tickers: [...w.tickers, ...orphanedTickers],
+        };
+      }));
 
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       return false;
     }
-  }, [userId, fetchWatchlists]);
+  }, [userId]);
 
-  // Move tickers to section
+  // Move tickers to section — optimistic update, no full refetch
   const moveTickersToSection = useCallback(async (
     watchlistId: string,
     sectionId: string,  // Use 'unsorted' for no section
@@ -374,15 +409,53 @@ export function useWatchlists() {
 
       if (!res.ok) throw new Error('Failed to move tickers');
 
-      // Refresh to get updated state
-      await fetchWatchlists();
+      // Optimistic update: move tickers between sections locally
+      const symbolSet = new Set(symbols.map(s => s.toUpperCase()));
+
+      setWatchlists(prev => prev.map(w => {
+        if (w.id !== watchlistId) return w;
+
+        // Collect matching tickers from all sources (sections + unsorted)
+        const movedTickers: WatchlistTicker[] = [];
+        const newSections = w.sections.map(s => {
+          const kept: WatchlistTicker[] = [];
+          for (const t of s.tickers) {
+            if (symbolSet.has(t.symbol)) {
+              movedTickers.push(t);
+            } else {
+              kept.push(t);
+            }
+          }
+          return { ...s, tickers: kept };
+        });
+
+        const keptUnsorted: WatchlistTicker[] = [];
+        for (const t of w.tickers) {
+          if (symbolSet.has(t.symbol)) {
+            movedTickers.push(t);
+          } else {
+            keptUnsorted.push(t);
+          }
+        }
+
+        if (sectionId === 'unsorted') {
+          return { ...w, sections: newSections, tickers: [...keptUnsorted, ...movedTickers] };
+        }
+        return {
+          ...w,
+          sections: newSections.map(s =>
+            s.id === sectionId ? { ...s, tickers: [...s.tickers, ...movedTickers] } : s
+          ),
+          tickers: keptUnsorted,
+        };
+      }));
 
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       return false;
     }
-  }, [userId, fetchWatchlists]);
+  }, [userId]);
 
   // Toggle section collapsed state
   const toggleSectionCollapsed = useCallback(async (

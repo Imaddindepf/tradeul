@@ -7,7 +7,7 @@ from clients.http_client import service_get
 from config import config
 
 mcp = FastMCP(
-    "TradeUL Pattern Matching",
+    "Tradeul Pattern Matching",
     instructions="FAISS-powered pattern similarity search. Finds historical chart patterns "
     "similar to current price action. Use for technical analysis and pattern recognition.",
 )

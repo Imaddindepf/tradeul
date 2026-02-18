@@ -757,63 +757,6 @@ services:
           memory: 512M
 
   # =============================================
-  # AI AGENT SERVICE
-  # =============================================
-
-  ai_agent:
-    build:
-      context: .
-      dockerfile: services/ai-agent/Dockerfile
-    container_name: tradeul_ai_agent
-    env_file:
-      - .env
-    environment:
-      - GOOGLE_API_KEY=${GEMINI_TRADEUL_AGENT}
-      - POLYGON_API_KEY=${POLYGON_API_KEY}
-      - POSTGRES_HOST=timescaledb
-      - POSTGRES_PORT=5432
-      - POSTGRES_USER=${POSTGRES_USER:-tradeul_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB:-tradeul}
-      # Sandbox configuration
-      - SANDBOX_IMAGE=tradeul-sandbox:latest
-      - SANDBOX_TIMEOUT=30
-      - SANDBOX_MEMORY=1g
-    volumes:
-      # Docker socket for sandbox container management
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Temporary directory for sandbox data exchange
-      - /tmp/tradeul_sandbox:/tmp/sandbox_data
-      # Polygon historical data (minute_aggs, day_aggs)
-      - polygon_data:/data/polygon:ro
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    depends_on:
-      redis:
-        condition: service_healthy
-      timescaledb:
-        condition: service_healthy
-      scanner:
-        condition: service_started
-      today_bars_worker:
-        condition: service_started
-    restart: unless-stopped
-    networks:
-      - tradeul_network
-    ports:
-      - "127.0.0.1:8030:8030"
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 1G
-        reservations:
-          memory: 512M
-
-  # =============================================
   # MCP GATEWAY - Unified tool access layer
   # =============================================
 

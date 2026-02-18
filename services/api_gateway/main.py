@@ -1609,7 +1609,8 @@ async def proxy_news(
     channels: Optional[str] = Query(None, description="Filter by channels"),
     tags: Optional[str] = Query(None, description="Filter by tags"),
     author: Optional[str] = Query(None, description="Filter by author"),
-    limit: int = Query(50, ge=1, le=2000, description="Limit results")
+    limit: int = Query(50, ge=1, le=2000, description="Limit results"),
+    offset: int = Query(0, ge=0, le=5000, description="Offset for pagination")
 ):
     """
     Proxy para el servicio de News (Benzinga y futuras fuentes)
@@ -1621,7 +1622,8 @@ async def proxy_news(
             channels=channels,
             tags=tags,
             author=author,
-            limit=limit
+            limit=limit,
+            offset=offset
         )
     
     except httpx.TimeoutException:

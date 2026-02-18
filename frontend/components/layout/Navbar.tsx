@@ -27,13 +27,12 @@ export function Navbar({ children }: NavbarProps) {
 
   return (
     <nav
-      className="fixed top-0 left-0 right-0 h-11 bg-white border-b border-slate-200 shadow-sm"
+      className="fixed top-0 left-0 right-0 h-10 bg-white/80 backdrop-blur-sm border-b border-slate-150"
       style={{
         zIndex: Z_INDEX.NAVBAR,
       }}
     >
-      <div className="h-full w-full px-4">
-        {/* Contenido dinámico inyectado por cada página */}
+      <div className="h-full w-full px-3">
         {children}
       </div>
     </nav>
@@ -105,13 +104,13 @@ export function UserMenu() {
       {/* Avatar Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-medium text-[11px] hover:from-blue-600 hover:to-blue-700 transition-all"
+        className="w-6 h-6 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white font-medium text-[10px] hover:from-slate-700 hover:to-slate-800 transition-all"
       >
         {user?.imageUrl ? (
           <img
             src={user.imageUrl}
             alt="Avatar"
-            className="w-7 h-7 rounded-full object-cover"
+            className="w-6 h-6 rounded-full object-cover"
           />
         ) : (
           initials

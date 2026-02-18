@@ -26,6 +26,8 @@ router = APIRouter(prefix="/api", tags=["agent-v4"])
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, description="User query text")
     thread_id: Optional[str] = Field(None, description="Conversation thread ID")
+    mode: str = Field("auto", description="Execution mode: auto, quick, deep")
+    language: Optional[str] = Field(None, description="Response language: en, es")
     market_context: dict[str, Any] = Field(
         default_factory=dict,
         description="Optional market context (session, time, etc.)",
@@ -66,8 +68,10 @@ async def run_query(request: QueryRequest) -> QueryResponse:
     initial_state: dict[str, Any] = {
         "messages": [{"role": "user", "content": request.query}],
         "query": request.query,
-        "language": "en",
+        "language": request.language or "en",
+        "mode": request.mode if request.mode in ("auto", "quick", "deep") else "auto",
         "tickers": [],
+        "ticker_info": {},
         "plan": "",
         "active_agents": [],
         "agent_results": {},
@@ -80,6 +84,9 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         "node_config": None,
         "final_response": "",
         "execution_metadata": {},
+        "chart_context": None,
+        "clarification": None,
+        "clarification_hint": "",
         "error": None,
     }
 

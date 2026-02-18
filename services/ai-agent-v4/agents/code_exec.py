@@ -12,6 +12,8 @@ import re
 import time
 from typing import Any
 
+from agents._llm_retry import llm_invoke_with_retry
+
 logger = logging.getLogger(__name__)
 
 _llm = None
@@ -101,20 +103,18 @@ async def code_exec_node(state: dict) -> dict:
     start_time = time.time()
 
     query = state.get("query", "")
-    agent_results = state.get("agent_results", {})
+    tickers = state.get("tickers", [])
+    active_agents = state.get("active_agents", [])
 
-    # Build context from other agents' results (if available)
+    # Build context from planner state (agent_results is empty in parallel arch)
     context_parts: list[str] = []
-    if "market_data" in agent_results:
-        md = agent_results["market_data"]
-        tickers = md.get("tickers_detected", [])
-        if tickers:
-            context_parts.append(f"Available tickers from market data: {', '.join(tickers)}")
-    if "financial" in agent_results:
-        fin = agent_results["financial"]
-        analyzed = fin.get("tickers_analyzed", [])
-        if analyzed:
-            context_parts.append(f"Financial data available for: {', '.join(analyzed)}")
+    if tickers:
+        context_parts.append(f"Available tickers: {', '.join(tickers)}")
+    if active_agents:
+        context_parts.append(f"Other agents running in parallel: {', '.join(active_agents)}")
+    plan = state.get("plan", "")
+    if plan:
+        context_parts.append(f"Execution plan: {plan}")
 
     context = "\n".join(context_parts) if context_parts else "No additional context."
 
@@ -123,7 +123,7 @@ async def code_exec_node(state: dict) -> dict:
     try:
         llm = _get_llm()
         prompt = CODE_GEN_PROMPT.format(query=query, context=context)
-        response = await llm.ainvoke([{"role": "user", "content": prompt}])
+        response = await llm_invoke_with_retry(llm, [{"role": "user", "content": prompt}])
 
         raw_response = response.content
         generated_code = _extract_code(raw_response)

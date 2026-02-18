@@ -5,13 +5,16 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
-  IChartApi,
-  ISeriesApi,
-  CandlestickData,
-  Time,
-  UTCTimestamp,
-  SeriesMarker,
+  CandlestickSeries,
+  LineSeries,
+  createSeriesMarkers,
   LineStyle,
+  type IChartApi,
+  type ISeriesApi,
+  type CandlestickData,
+  type Time,
+  type UTCTimestamp,
+  type SeriesMarker,
 } from 'lightweight-charts';
 import { LineChart, CandlestickChart, ZoomIn, ZoomOut, RotateCcw, X } from 'lucide-react';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
@@ -129,7 +132,8 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
 
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | ISeriesApi<'Line'> | null>(null);
+  const seriesRef = useRef<ISeriesApi<any> | null>(null);
+  const markersRef = useRef<any>(null);
 
   const [chartType, setChartType] = useState<ChartType>('line');
   const [selectedGroup, setSelectedGroup] = useState<TransactionGroup | null>(null);
@@ -333,9 +337,9 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
       seriesRef.current = null;
     }
 
-    // Create new series based on type
+    // Create new series based on type (v5 API)
     if (chartType === 'candlestick') {
-      const series = chartRef.current.addCandlestickSeries({
+      const series = chartRef.current.addSeries(CandlestickSeries, {
         upColor: CHART_COLORS.upColor,
         downColor: CHART_COLORS.downColor,
         borderUpColor: CHART_COLORS.upColor,
@@ -344,17 +348,17 @@ export function InsiderChartContent({ ticker, priceData, transactions }: Insider
         wickDownColor: CHART_COLORS.downColor,
       });
       series.setData(chartData as CandlestickData<Time>[]);
-      series.setMarkers(markers);
+      markersRef.current = createSeriesMarkers(series, markers);
       seriesRef.current = series;
     } else {
-      const series = chartRef.current.addLineSeries({
+      const series = chartRef.current.addSeries(LineSeries, {
         color: CHART_COLORS.lineColor,
         lineWidth: 2,
         crosshairMarkerVisible: true,
         crosshairMarkerRadius: 4,
       });
       series.setData(chartData.map(d => ({ time: d.time, value: d.close })));
-      series.setMarkers(markers);
+      markersRef.current = createSeriesMarkers(series, markers);
       seriesRef.current = series;
     }
 

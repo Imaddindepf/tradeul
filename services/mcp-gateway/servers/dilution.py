@@ -7,7 +7,7 @@ from clients.http_client import service_get
 from config import config
 
 mcp = FastMCP(
-    "TradeUL Dilution Tracker",
+    "Tradeul Dilution Tracker",
     instructions="Stock dilution analysis service that tracks SEC filings for dilution risk. "
     "Analyzes warrants, ATM offerings, shelf registrations, cash runway, and risk scores. "
     "Critical for small-cap and micro-cap stock analysis.",

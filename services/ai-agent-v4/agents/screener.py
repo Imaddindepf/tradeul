@@ -13,6 +13,7 @@ from typing import Any
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from agents._mcp_tools import call_mcp_tool
+from agents._llm_retry import llm_invoke_with_retry
 
 
 # ── Data cleaning ────────────────────────────────────────────────
@@ -90,13 +91,13 @@ def _get_llm():
 
 
 FILTER_PROMPT = """\
-You are a stock-screener filter translator for TradeUL.
+You are a stock-screener filter translator for Tradeul.
 
 Convert the user's natural-language screening request into a JSON array of filter objects.
 
 Each filter object has exactly three keys:
   - "field"    : one of the AVAILABLE FIELDS listed below (ONLY these work)
-  - "operator" : one of ">", "<", ">=", "<=", "=", "!=", "between"
+  - "operator" : one of "gt", "lt", "gte", "lte", "eq", "neq", "between"
   - "value"    : number or [min, max] for "between"
 
 AVAILABLE FIELDS (ONLY these fields exist — do NOT invent field names):
@@ -158,20 +159,20 @@ EXAMPLES:
 User: "small cap stocks under $10 with high volume"
 [
   {"field": "market_cap", "operator": "between", "value": [300000000, 2000000000]},
-  {"field": "price", "operator": "<", "value": 10},
-  {"field": "relative_volume", "operator": ">", "value": 2.0}
+  {"field": "price", "operator": "lt", "value": 10},
+  {"field": "relative_volume", "operator": "gt", "value": 2.0}
 ]
 
 User: "oversold stocks bouncing"
 [
-  {"field": "rsi_14", "operator": "<", "value": 30},
-  {"field": "relative_volume", "operator": ">", "value": 1.5}
+  {"field": "rsi_14", "operator": "lt", "value": 30},
+  {"field": "relative_volume", "operator": "gt", "value": 1.5}
 ]
 
 User: "Bollinger squeeze with trending ADX"
 [
-  {"field": "bb_width", "operator": "<", "value": 5},
-  {"field": "adx_14", "operator": ">", "value": 25}
+  {"field": "bb_width", "operator": "lt", "value": 5},
+  {"field": "adx_14", "operator": "gt", "value": 25}
 ]
 """
 
@@ -191,13 +192,13 @@ async def screener_node(state: dict) -> dict:
         HumanMessage(content=query),
     ]
 
-    response = await llm.ainvoke(messages)
+    response = await llm_invoke_with_retry(llm, messages)
     raw_filters = response.content.strip()
 
-    # Strip markdown fences if the model wraps them
+    # Strip markdown fences if the model wraps them (case-insensitive)
     if raw_filters.startswith("```"):
         raw_filters = raw_filters.split("```")[1]
-        if raw_filters.startswith("json"):
+        if raw_filters.lower().startswith("json"):
             raw_filters = raw_filters[4:]
         raw_filters = raw_filters.strip()
 

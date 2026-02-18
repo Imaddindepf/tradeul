@@ -45,6 +45,14 @@ async def _get_redis() -> aioredis.Redis:
     return _redis
 
 
+async def close_redis() -> None:
+    """Close the shared Redis client (called during app shutdown)."""
+    global _redis
+    if _redis is not None:
+        await _redis.aclose()
+        _redis = None
+
+
 async def _load_universe() -> set[str]:
     """Load all valid ticker symbols from Redis.
 
@@ -73,6 +81,41 @@ async def _load_universe() -> set[str]:
         logger.error("Failed to load ticker universe: %s", exc)
 
     return _universe
+
+
+async def get_ticker_info(tickers: list[str]) -> dict[str, dict[str, str]]:
+    """Fetch company metadata for validated tickers from Redis.
+
+    Returns a dict mapping each ticker to its metadata:
+      {"LFS": {"company_name": "LEIFRAS Co., Ltd.", "sector": "Consumer Defensive",
+               "industry": "Education & Training Services", "description": "..."}}
+
+    This metadata is stored in the state so downstream agents (especially research)
+    know which company each ticker represents, preventing hallucination.
+    """
+    if not tickers:
+        return {}
+
+    try:
+        r = await _get_redis()
+        # metadata:ticker:* keys live in DB 0 (same as enriched snapshots)
+        info: dict[str, dict[str, str]] = {}
+        for t in tickers:
+            sym = t.strip().upper()
+            raw = await r.get(f"metadata:ticker:{sym}")
+            if raw:
+                import orjson
+                data = orjson.loads(raw if isinstance(raw, bytes) else raw.encode())
+                info[sym] = {
+                    "company_name": data.get("company_name", ""),
+                    "sector": data.get("sector", ""),
+                    "industry": data.get("industry", ""),
+                    "description": data.get("description", ""),
+                }
+        return info
+    except Exception as exc:
+        logger.warning("Failed to fetch ticker info: %s", exc)
+        return {}
 
 
 async def validate_tickers(tickers: list[str]) -> list[str]:

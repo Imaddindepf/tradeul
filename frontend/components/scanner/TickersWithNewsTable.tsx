@@ -34,8 +34,6 @@ import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 
 // Zustand stores
 import { useTickersStore } from '@/stores/useTickersStore';
-import { useFiltersStore } from '@/stores/useFiltersStore';
-import { passesFilter } from '@/lib/scanner/filterEngine';
 
 // WebSocket (ya autenticado desde AuthWebSocketProvider)
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
@@ -204,10 +202,6 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   // WebSocket (ya autenticado desde AuthWebSocketProvider)
   const ws = useWebSocket();
 
-  // User Filters - Zustand store para reactividad en tiempo real
-  const activeFilters = useFiltersStore((state) => state.activeFilters);
-  const hasActiveFilters = useFiltersStore((state) => state.hasActiveFilters);
-  const filtersKey = JSON.stringify(activeFilters); // Para detectar cambios
 
   // ======================================================================
   // SUSCRIBIRSE A TODAS LAS CATEGORÍAS DEL SCANNER
@@ -366,19 +360,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
     return result;
   }, [tickerLists, allNews]);
 
-  // ======================================================================
-  // APLICAR FILTROS DEL FILTER MANAGER
-  // ======================================================================
-
-  const tickersWithNews = useMemo(() => {
-    if (!hasActiveFilters) {
-      return baseTickersWithNews; // Sin filtros = mostrar todos
-    }
-
-    // Aplicar filtros del store
-    return baseTickersWithNews.filter(ticker => passesFilter(ticker, activeFilters));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseTickersWithNews, filtersKey, hasActiveFilters]);
+  const tickersWithNews = baseTickersWithNews;
 
   // ======================================================================
   // ABRIR MINI VENTANA DE NOTICIAS
@@ -403,7 +385,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
 
   // Helper para localStorage key
   const STORAGE_KEY_PREFIX = 'scanner_table_with_news';
-  
+
   const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
     if (typeof window === 'undefined') return defaultValue;
     try {
@@ -423,13 +405,13 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
     }
   };
 
-  const [sorting, setSorting] = useState<SortingState>(() => 
+  const [sorting, setSorting] = useState<SortingState>(() =>
     loadFromStorage('sorting', [{ id: 'newsCount', desc: true }])
   );
-  const [columnOrder, setColumnOrder] = useState<string[]>(() => 
+  const [columnOrder, setColumnOrder] = useState<string[]>(() =>
     loadFromStorage('columnOrder', [])
   );
-  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => 
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() =>
     loadFromStorage('columnVisibility', {})
   );
   const [columnResizeMode] = useState<ColumnResizeMode>('onChange');

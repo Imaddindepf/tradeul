@@ -8,6 +8,21 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
+// Holds componentState for newly created windows that haven't been auto-saved yet.
+// Solves the race condition: openWindow() → updateComponentState() → auto-save (3s later).
+const _pendingComponentStates = new Map<string, Record<string, unknown>>();
+export function setPendingComponentState(windowId: string, state: Record<string, unknown>) {
+  _pendingComponentStates.set(windowId, state);
+}
+export function getPendingComponentState(windowId: string): Record<string, unknown> | undefined {
+  return _pendingComponentStates.get(windowId);
+}
+export function consumePendingComponentStates(): Map<string, Record<string, unknown>> {
+  const copy = new Map(_pendingComponentStates);
+  _pendingComponentStates.clear();
+  return copy;
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -89,9 +104,6 @@ export interface UserPreferences {
   workspaces: Workspace[];
   activeWorkspaceId: string;
   
-  // Filtros guardados por lista
-  savedFilters: Record<string, any>;
-  
   // Columnas visibles por lista
   columnVisibility: Record<string, Record<string, boolean>>;
   
@@ -148,10 +160,6 @@ interface UserPreferencesState extends UserPreferences {
   isWorkspaceSwitching: boolean;
   setWorkspaceSwitching: (switching: boolean) => void;
   
-  // Actions - Filters
-  saveFilters: (listName: string, filters: any) => void;
-  clearFilters: (listName: string) => void;
-  
   // Actions - Columns
   saveColumnVisibility: (listName: string, visibility: Record<string, boolean>) => void;
   saveColumnOrder: (listName: string, order: string[]) => void;
@@ -196,7 +204,6 @@ const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt:
   layoutInitialized: false,
   workspaces: [DEFAULT_MAIN_WORKSPACE],
   activeWorkspaceId: 'main',
-  savedFilters: {},
   // Sync state (not persisted)
   isSyncing: false,
   lastSyncedAt: null,
@@ -275,11 +282,11 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       setLayoutInitialized: (initialized) =>
         set({ layoutInitialized: initialized }),
 
-      updateWindowComponentState: (windowId, componentState) =>
+      updateWindowComponentState: (windowId, componentState) => {
+        _pendingComponentStates.set(windowId, componentState);
         set((s) => {
           const activeWsId = s.activeWorkspaceId;
           
-          // Solo actualizar si el layout YA existe (no crear fantasmas)
           const updateExisting = (layouts: WindowLayout[]): WindowLayout[] =>
             layouts.map((w) =>
               w.id === windowId ? { ...w, componentState } : w
@@ -293,7 +300,8 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             ),
             windowLayouts: updateExisting(s.windowLayouts),
           };
-        }),
+        });
+      },
 
       getWindowComponentState: (windowId) => {
         const state = get();
@@ -481,7 +489,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
               activeWorkspaceId: data.activeWorkspaceId || 'main',
               colors: data.colors || DEFAULT_COLORS,
               theme: data.theme || DEFAULT_THEME,
-              savedFilters: data.savedFilters || {},
               columnVisibility: data.columnVisibility || {},
               columnOrder: data.columnOrder || {},
               lastSyncedAt: Date.now(),
@@ -499,20 +506,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
 
       // Workspace Switching Flag
       setWorkspaceSwitching: (switching: boolean) => set({ isWorkspaceSwitching: switching }),
-
-      // ========================================
-      // Filters Actions
-      // ========================================
-      saveFilters: (listName, filters) =>
-        set((state) => ({
-          savedFilters: { ...state.savedFilters, [listName]: filters },
-        })),
-
-      clearFilters: (listName) =>
-        set((state) => {
-          const { [listName]: _, ...rest } = state.savedFilters;
-          return { savedFilters: rest };
-        }),
 
       // ========================================
       // Columns Actions
@@ -544,7 +537,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           layoutInitialized: state.layoutInitialized,
           workspaces: state.workspaces,
           activeWorkspaceId: state.activeWorkspaceId,
-          savedFilters: state.savedFilters,
           columnVisibility: state.columnVisibility,
           columnOrder: state.columnOrder,
         }, null, 2);
@@ -560,7 +552,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             layoutInitialized: data.layoutInitialized ?? false,
             workspaces: data.workspaces || [DEFAULT_MAIN_WORKSPACE],
             activeWorkspaceId: data.activeWorkspaceId || 'main',
-            savedFilters: data.savedFilters || {},
             columnVisibility: data.columnVisibility || {},
             columnOrder: data.columnOrder || {},
           });
@@ -580,7 +571,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         layoutInitialized: state.layoutInitialized,
         workspaces: state.workspaces,
         activeWorkspaceId: state.activeWorkspaceId,
-        savedFilters: state.savedFilters,
         columnVisibility: state.columnVisibility,
         columnOrder: state.columnOrder,
       }),

@@ -1,55 +1,65 @@
 """
-Query Planner (Supervisor V2) - Parallel-first query understanding.
+Query Planner (Supervisor V3) — Intent-first parallel query routing.
 
-Single LLM call determines ALL agents needed + tickers, then the graph
-uses Send() to fan-out to all agents in parallel.
+Prompt engineering standards applied (2025-2026):
+  - Gemini native JSON output (response_mime_type: application/json)
+  - Intent classification BEFORE agent routing (MasRouter pattern)
+  - Few-shot examples (8 diverse intent types)
+  - XML-structured prompt sections (OpenAI/Anthropic best practice)
+  - Positive instruction framing (avoid negations)
+  - PTCF framework: Persona · Task · Context · Format (Google)
+  - max_output_tokens raised to 1024 (avoid truncation)
 
-No more sequential loop: supervisor -> agent -> supervisor -> agent.
-Now: planner -> [all agents in parallel] -> synthesizer.
+Architecture:
+  Single LLM call → classify intent → extract tickers → select agents
+  Graph fans out to all selected agents in parallel via Send().
 """
 import json
 import logging
 from typing import Any
 
 from agents._mcp_tools import call_mcp_tool
-from agents._ticker_utils import validate_tickers
+from agents._ticker_utils import get_ticker_info, validate_tickers
+from agents._llm_retry import llm_invoke_with_retry
 
 logger = logging.getLogger(__name__)
 
 _llm = None
 
+# ── Agent registry (intent-focused descriptions) ─────────────────
+
 AVAILABLE_AGENTS = {
     "market_data": (
-        "Real-time and historical price data, enriched snapshots with 145+ indicators, "
-        "scanner categories (winners, losers, gappers, momentum, volume leaders, halts, etc.), "
-        "historical daily bars, minute bars, dynamic filtering on full ticker universe. "
-        "Use for: top movers, gainers, losers, gappers, volume spikes, specific ticker quotes, "
-        "historical daily/minute OHLCV data, price history, stocks matching technical criteria."
+        "Real-time price data, enriched snapshots (145+ indicators), "
+        "scanner rankings (winners, losers, gappers, momentum, volume, halts), "
+        "historical daily/minute bars. "
+        "Capabilities: current quotes, technicals, top movers, price history, OHLCV data."
     ),
     "news_events": (
-        "Financial news from Benzinga, real-time market events (85+ types: breakouts, VWAP crosses, "
-        "halts, volume spikes, momentum shifts, MA crosses, BB events), historical events from "
-        "TimescaleDB (60-day retention), earnings calendar with EPS/revenue estimates. "
-        "Use for: news queries, what happened with X, earnings dates, market events, "
-        "which stocks had breakouts/halts/volume spikes on a given day."
+        "Benzinga financial news, real-time market events (85+ types: breakouts, VWAP crosses, "
+        "halts, volume spikes, momentum shifts), historical events (TimescaleDB, 60-day retention), "
+        "earnings calendar with EPS/revenue estimates. "
+        "Capabilities: ticker news, market headlines, event history by date, earnings calendar."
     ),
     "financial": (
-        "Fundamental data: income statements, balance sheets, ratios, SEC filings (10-K, 10-Q, 8-K, S-1). "
-        "Use for: financial analysis, SEC filings, fundamentals, revenue, EPS history, quarterly results."
+        "Fundamental data: income statements, balance sheets, cash flow, SEC filings. "
+        "Capabilities: quarterly/annual financials, SEC 10-K/10-Q/8-K, EPS history, ratios."
     ),
     "research": (
-        "Deep research using Grok (X.com search) or Gemini Pro. "
-        "Analyst ratings, social sentiment, comprehensive analysis. "
-        "Use for: deep research, sentiment, analyst opinions, comprehensive analysis."
+        "Real-time web and X.com search via Grok, or Gemini Pro fallback. "
+        "Searches social media posts, analyst commentary, breaking rumors, and web articles IN REAL TIME. "
+        "This is the ONLY agent that can explain WHY a stock is moving — "
+        "it finds catalysts, rumors, and breaking info not yet in structured feeds. "
+        "Capabilities: why a stock moves, social sentiment, analyst opinions, real-time catalysts."
     ),
     "code_exec": (
-        "Python code generation for custom calculations, backtests, data transformations. "
-        "Use for: backtesting, custom calculations, data analysis, comparisons."
+        "Python/DuckDB code generation for custom analysis. "
+        "Capabilities: backtesting, custom calculations, data transformations, comparisons."
     ),
     "screener": (
-        "DuckDB-powered stock screener with 60+ indicators on daily data. Natural language to filters. "
-        "Use for: screening stocks by criteria (RSI, volume, market cap, sector, etc.), "
-        "finding stocks matching specific technical/fundamental criteria from historical daily data."
+        "DuckDB-powered stock screener on daily data with 60+ indicators. "
+        "Translates natural language criteria into database filters. "
+        "Capabilities: find stocks matching specific numeric criteria (RSI, volume, market cap, sector)."
     ),
 }
 
@@ -59,53 +69,185 @@ SCANNER_CATEGORIES = [
     "new_highs", "new_lows", "post_market", "halts",
 ]
 
-SYSTEM_PROMPT = """\
-You are the query planner of TradeUL, a professional stock trading analysis platform.
+# ── Prompt builder ────────────────────────────────────────────────
 
-Your job: fully understand the user query, extract tickers, and decide ALL agents needed.
-ALL selected agents will run IN PARALLEL — choose them all at once.
 
-AVAILABLE AGENTS:
+def _build_system_prompt(agents_desc: str, market_context: str, scanner_cats: str) -> str:
+    """Build the structured system prompt with XML sections and few-shot examples.
+
+    Uses f-string with doubled braces for literal JSON in examples.
+    """
+    return f"""<role>
+You are the senior query router for Tradeul, a professional stock trading intelligence platform serving day traders and institutional analysts. You have deep expertise in financial markets, trading terminology in both English and Spanish, and precise information routing. Your routing decisions directly determine the quality of answers for thousands of active traders.
+</role>
+
+<task>
+For each user query, follow these steps in order:
+1. Classify the user's INTENT — what type of answer do they need?
+2. Extract any ticker symbols mentioned or implied in the query.
+3. Select ALL specialist agents required to FULLY answer the question.
+All selected agents execute IN PARALLEL — select every needed agent at once.
+</task>
+
+<agents>
 {agents_desc}
+</agents>
 
-MARKET CONTEXT:
-{market_context}
+<context>
+Market session: {market_context}
+Scanner categories: {scanner_cats}
+</context>
 
-SCANNER CATEGORIES: {scanner_categories}
+<intent_types>
+Classify the query into one or more of these intent types, then route to the corresponding agents:
 
-TICKER EXTRACTION RULES:
-1. Extract ALL stock ticker symbols mentioned or implied in the query.
-2. Map company names to tickers: "tesla" → "TSLA", "apple" → "AAPL", "nvidia" → "NVDA", etc.
-3. Recognize tickers in any format: $TSLA, TSLA, tsla, Tesla, etc.
-4. DO NOT extract common words as tickers. "ha hecho" is Spanish for "has done", NOT ticker HA.
-5. "SEC" = Securities and Exchange Commission, NOT a ticker. Same for: CEO, CFO, IPO, ETF, GDP, CPI, FDA, EPS, RSI, AI.
-6. If no specific stocks are mentioned, return empty tickers array.
+GREETING — Non-financial message (hello, thanks, who are you, ok, ninguna) → no agents
+DATA_LOOKUP — Current price, volume, technicals for specific tickers → market_data
+RANKING — Top/bottom lists: gainers, losers, gappers, halts, volume leaders → market_data
+CAUSAL — WHY something is happening: "why is X up/down/moving?", "por qué sube/baja X?", "what's driving X?", "what caused X to spike?" → research + news_events + market_data
+NEWS — Recent news, headlines, "what happened with X" → news_events
+EVENTS — Market events by date: breakouts, halts, VWAP crosses on a given day → news_events
+EARNINGS_CALENDAR — Upcoming earnings dates, "who reports this week" → news_events
+EARNINGS_HISTORY — Past EPS, revenue, quarterly results for a ticker → financial
+FUNDAMENTALS — Financial statements, balance sheets, ratios → financial
+SEC_FILINGS — SEC documents: 10-K, 10-Q, 8-K, S-1 → financial
+SCREENING — Filter stocks by specific numeric criteria (without ranking) → screener
+THEMATIC — Find stocks by investment theme, sector vertical, or industry category. The user is explicitly looking for a LIST of companies in a specific theme. Examples: "robotics stocks", "empresas de memoria", "quantum computing companies", "acciones de energía nuclear", "cybersecurity zero trust", "EV charging", "GLP-1 weight loss drugs", "chip foundry stocks", "defense tech", "lithium miners" → market_data. IMPORTANT: Broad market questions like "what theme is driving the market today?", "que tema mueve el mercado?", "what sectors are hot?" are NOT THEMATIC — they are RANKING queries because the user wants to see current market movers, not a static list of themed companies.
+DEEP_RESEARCH — Comprehensive analysis, sentiment, analyst opinions → research
+COMPLETE_ANALYSIS — Full picture: "análisis completo", "deep dive", "full breakdown" → market_data + news_events + financial (add research if sentiment/opinions requested)
+CODE — Custom calculations, backtesting → code_exec
+CHART_ANALYSIS — User is asking about a specific chart they are viewing (technical analysis, patterns, support/resistance, trend) → market_data (add research if "why" is asked, add news_events for context)
 
-ROUTING RULES:
-1. Select ALL agents needed for a complete answer. They run in parallel.
-2. For "top gainers/losers", "winners", "gappers" → market_data
-3. For specific ticker price/data → market_data
-4. For screening with criteria (RSI < 30, volume > X, etc.) → screener
-5. For news, "what happened", "noticias" → news_events
-6. For earnings dates/calendar, "who reports earnings" → news_events
-7. For historical earnings (EPS, revenue, quarterly results) → financial
-8. For SEC filings, 10-K, 10-Q, 8-K → financial
-9. For fundamentals, income/balance sheets → financial
-10. For deep research, sentiment, analyst opinions → research
-11. For backtests, custom calculations → code_exec
-12. For "complete analysis of X" → market_data + news_events + financial (all 3)
-13. For "X with sentiment" → add research alongside other agents
-14. Match the user's language in your plan description.
+A single query can combine MULTIPLE intents — select agents for ALL detected intents.
+Example: "Why is TSLA up? Show me the financials too" = CAUSAL + FUNDAMENTALS → research + news_events + market_data + financial
+</intent_types>
 
-Respond ONLY with valid JSON:
+<routing_principles>
+1. CAUSAL queries (why, por qué, what's causing, what's driving, what triggered) ALWAYS include the research agent. It is the ONLY agent that searches X.com and the web in real time for catalysts and breaking information. Without it, causal questions cannot be answered.
+
+2. When a query mentions a specific ticker, include market_data alongside other agents to provide current price context.
+
+3. RANKING queries use market_data with the appropriate scanner category. The screener agent is only for custom numeric filtering without a ranking.
+
+4. For COMPLETE_ANALYSIS, select at least market_data + news_events + financial. Add research when the user mentions sentiment, opinions, research, or "con sentimiento".
+
+5. THEMATIC queries ask for stocks by theme, sector, or industry vertical. Route to market_data ONLY — it resolves themes via the classification database (124 pre-computed themes, no LLM needed at query time). You MUST populate the "theme_tags" field with canonical tags from the thematic catalog below. Map the user's natural language to one or more canonical tags. Examples: "robótica" → ["robotics"], "chips de memoria" → ["memory_chips"], "IA generativa" → ["generative_ai"], "cybersecurity zero trust" → ["cybersecurity", "identity_zero_trust"].
+
+6. Write the plan field in the same language the user used in their query.
+
+7. CHART_ANALYSIS queries come with a chart_context containing the user's visible chart data (OHLCV bars, indicators, drawings). Always include market_data for enrichment. Add research if the user asks "why" something happened.
+</routing_principles>
+
+<thematic_catalog>
+When intent is THEMATIC, you MUST set "theme_tags" to one or more of these canonical tags:
+
+SEMICONDUCTORS: semiconductors, semiconductor_equipment, memory_chips, gpu_accelerators, cpu_processors, analog_mixed_signal, networking_chips, rf_wireless_chips, chip_foundry, power_semiconductors, eda_chip_design
+AI & SOFTWARE: artificial_intelligence, generative_ai, machine_learning, data_infrastructure, cloud_computing, edge_computing, saas, enterprise_software, crm_marketing_tech, developer_tools, big_data_analytics, cybersecurity, identity_zero_trust, endpoint_network_security, ar_vr
+CONNECTIVITY: 5g_iot, satellite_internet, fiber_optics
+ROBOTICS: robotics, surgical_robotics, industrial_automation, autonomous_vehicles, lidar, drones, 3d_printing
+FRONTIER: quantum_computing, blockchain_crypto, crypto_exchange, space_technology
+FINTECH: fintech, digital_payments, buy_now_pay_later, neobanking, insurtech, lending_platforms, wealthtech, payroll_hr_tech, online_gambling
+BIOTECH & PHARMA: biotech, genomics, gene_editing_crispr, mrna_therapeutics, cell_gene_therapy, immunotherapy, oncology, glp1_weight_loss, diabetes, neuroscience, cardiovascular, rare_disease, vaccines, psychedelics, cannabis
+MEDTECH: digital_health, telehealth, medical_devices, diagnostics, medical_imaging, dental, animal_health, cro_cdmo, aging_population
+OIL & GAS: oil_exploration, oil_refining, oil_services, midstream_pipelines, natural_gas
+CLEAN ENERGY: clean_energy, solar, wind, nuclear_energy, uranium, hydrogen_fuel_cells, battery_storage, lithium, carbon_capture, smart_grid
+TRANSPORTATION: electric_vehicles, ev_charging, ride_sharing, shipping, rails_freight, airlines
+MINING: gold_mining, silver_mining, copper, rare_earths, steel, aluminum, agriculture_agtech
+CONSUMER DIGITAL: e_commerce, social_media, streaming, esports_gaming, food_delivery, education_tech
+CONSUMER LIFESTYLE: travel_tech, gig_economy, luxury_brands, restaurant_tech, pet_economy, athleisure_wellness
+DEFENSE: defense_contractors, defense_tech, commercial_aerospace, hypersonics_missiles, border_surveillance
+INFRASTRUCTURE: construction_engineering, water_treatment, waste_management
+REAL ESTATE: data_center_reits, cell_tower_reits, healthcare_reits
+</thematic_catalog>
+
+<ticker_extraction>
+Extract valid US stock ticker symbols (1-5 uppercase letters):
+- Map company names: "tesla" → TSLA, "apple" → AAPL, "nvidia" → NVDA, "palantir" → PLTR
+- Accept any format: $TSLA, TSLA, tsla, Tesla
+- Abbreviations that are organizations/concepts, not tickers: SEC, CEO, CFO, IPO, ETF, GDP, CPI, FDA, EPS, RSI, AI, ER, ATR, MACD, VWAP, BB
+- Spanish words that are not tickers: HA (ha hecho), SI (si puede), DE, LA, EL, ES, UN, MAS, POR, QUE
+- Return an empty array when no specific stock is referenced
+</ticker_extraction>
+
+<confidence_scoring>
+Rate your confidence from 0.0 to 1.0:
+- 0.9–1.0: Clear intent, obvious routing
+- 0.7–0.89: Clear intent, minor ambiguity
+- 0.5–0.69: Ambiguous query — provide 2-3 clarification options
+- Below 0.5: Very unclear — provide clarification options
+
+When confidence < 0.65, include a "clarification" object with a message and 2-3 options. Each option has a "label" and a "rewrite" (unambiguous rewritten query).
+</confidence_scoring>
+
+<output_format>
+Respond with ONLY a JSON object containing these exact fields:
 {{
-    "tickers": ["TSLA", "AAPL"],
-    "plan": "Brief execution plan (in user's language)",
-    "agents": ["agent1", "agent2"],
-    "reasoning": "Why these agents and tickers"
+  "intent": "PRIMARY_INTENT_TYPE",
+  "tickers": ["TICKER1", "TICKER2"],
+  "agents": ["agent1", "agent2"],
+  "theme_tags": [],
+  "plan": "Brief execution plan in the user's language",
+  "confidence": 0.95,
+  "reasoning": "One sentence explaining why you chose these agents",
+  "clarification": null
 }}
-"""
 
+IMPORTANT: "theme_tags" is an array of canonical theme tag strings from the thematic catalog. 
+It MUST be populated when intent is THEMATIC. Leave as empty array [] for all other intents.
+</output_format>
+
+<examples>
+User: "hola buenos días"
+{{"intent": "GREETING", "tickers": [], "agents": [], "theme_tags": [], "plan": "Saludo — responder conversacionalmente", "confidence": 1.0, "reasoning": "Non-financial greeting in Spanish", "clarification": null}}
+
+User: "NVDA price"
+{{"intent": "DATA_LOOKUP", "tickers": ["NVDA"], "agents": ["market_data"], "theme_tags": [], "plan": "Fetch current NVDA price and technicals", "confidence": 1.0, "reasoning": "Simple price lookup for a specific ticker", "clarification": null}}
+
+User: "why is LFS moving?"
+{{"intent": "CAUSAL", "tickers": ["LFS"], "agents": ["research", "news_events", "market_data"], "theme_tags": [], "plan": "Investigate why LFS is moving: search X.com/web for catalysts, check news, get price data", "confidence": 0.95, "reasoning": "Causal query — research agent searches real-time sources for the reason behind the move", "clarification": null}}
+
+User: "top 20 gappers"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "plan": "Fetch top 20 gappers from scanner", "confidence": 1.0, "reasoning": "Ranking query for gappers_up scanner category", "clarification": null}}
+
+User: "stocks con RSI menor a 30 y volumen mayor a 1M"
+{{"intent": "SCREENING", "tickers": [], "agents": ["screener"], "theme_tags": [], "plan": "Screener: filtrar acciones con RSI < 30 y volumen > 1M", "confidence": 1.0, "reasoning": "Numeric criteria screening without ranking implied", "clarification": null}}
+
+User: "top 10 robotics stocks"
+{{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["robotics"], "plan": "Find top 10 robotics companies by theme classification and enrich with live market data", "confidence": 1.0, "reasoning": "Thematic query — resolve via classification database then enrich with market data", "clarification": null}}
+
+User: "empresas de chips de memoria"
+{{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["memory_chips"], "plan": "Buscar empresas de semiconductores de memoria via clasificación temática", "confidence": 1.0, "reasoning": "Thematic query for memory semiconductor companies", "clarification": null}}
+
+User: "cybersecurity companies focused on zero trust"
+{{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["cybersecurity", "identity_zero_trust"], "plan": "Find cybersecurity companies with zero-trust focus via thematic classification", "confidence": 1.0, "reasoning": "Multi-theme thematic query — combining cybersecurity + identity_zero_trust", "clarification": null}}
+
+User: "acciones de energía nuclear y uranio"
+{{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["nuclear_energy", "uranium"], "plan": "Buscar acciones de energía nuclear y mineras de uranio", "confidence": 1.0, "reasoning": "Thematic query for nuclear energy and uranium mining stocks", "clarification": null}}
+
+User: "que tema está moviendo el mercado hoy?"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "plan": "Mostrar los principales ganadores del mercado hoy agrupados por sector", "confidence": 0.95, "reasoning": "Broad market question about current movers — this is a ranking, not a thematic search for a specific sector", "clarification": null}}
+
+User: "what sectors are hot right now?"
+{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "plan": "Show top gainers grouped by sector to identify hot sectors", "confidence": 0.95, "reasoning": "Broad market question about sector performance — ranking of current movers, not thematic search", "clarification": null}}
+
+User: "noticias de AAPL"
+{{"intent": "NEWS", "tickers": ["AAPL"], "agents": ["news_events", "market_data"], "theme_tags": [], "plan": "Obtener noticias recientes de AAPL con contexto de precio", "confidence": 1.0, "reasoning": "News query for specific ticker with price context", "clarification": null}}
+
+User: "análisis completo de PLTR con sentimiento"
+{{"intent": "COMPLETE_ANALYSIS", "tickers": ["PLTR"], "agents": ["market_data", "news_events", "financial", "research"], "theme_tags": [], "plan": "Análisis completo de PLTR: precio, noticias, fundamentales y sentimiento via X.com", "confidence": 0.95, "reasoning": "Complete analysis with sentiment requested — needs all four agents", "clarification": null}}
+
+User: "ninguna"
+{{"intent": "GREETING", "tickers": [], "agents": [], "theme_tags": [], "plan": "Dismissal — responder brevemente", "confidence": 1.0, "reasoning": "User dismissal, not a financial query", "clarification": null}}
+
+User: "Full technical analysis of TSLA chart" [chart_context attached]
+{{"intent": "CHART_ANALYSIS", "tickers": ["TSLA"], "agents": ["market_data", "news_events"], "theme_tags": [], "plan": "Analyze TSLA chart: read visible bars/indicators from chart context, enrich with current data and recent news", "confidence": 1.0, "reasoning": "Chart analysis with chart_context — market_data for enrichment, news for context", "clarification": null}}
+
+User: "Why did NVDA move like this on 2025-12-15?" [chart_context attached]
+{{"intent": "CHART_ANALYSIS", "tickers": ["NVDA"], "agents": ["market_data", "news_events", "research"], "theme_tags": [], "plan": "Analyze NVDA chart candle movement: search for catalysts on that date via research, check news, get price context", "confidence": 0.95, "reasoning": "Chart analysis with causal why — needs research agent for catalyst discovery", "clarification": null}}
+</examples>"""
+
+
+# ── LLM singleton ─────────────────────────────────────────────────
 
 def _get_llm():
     global _llm
@@ -114,7 +256,8 @@ def _get_llm():
         _llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash",
             temperature=0.0,
-            max_output_tokens=512,
+            max_output_tokens=1024,
+            response_mime_type="application/json",
         )
     return _llm
 
@@ -123,6 +266,8 @@ def _build_agents_desc() -> str:
     return "\n".join(f"- {name}: {desc}" for name, desc in AVAILABLE_AGENTS.items())
 
 
+# ── Market context helper ─────────────────────────────────────────
+
 async def _get_market_context_str(state: dict) -> str:
     mc = state.get("market_context", {})
     if mc and mc.get("current_session"):
@@ -130,7 +275,7 @@ async def _get_market_context_str(state: dict) -> str:
         is_trading = mc.get("is_trading_day", True)
         return (
             f"Session: {session}, Trading day: {is_trading}. "
-            f"Note: When market is CLOSED, last-session data is still available via last_close snapshots."
+            f"When market is CLOSED, last-session data is available via last_close snapshots."
         )
 
     try:
@@ -141,7 +286,7 @@ async def _get_market_context_str(state: dict) -> str:
             trading_date = session_data.get("trading_date", "unknown")
             return (
                 f"Session: {session}, Date: {trading_date}, Trading day: {is_trading}. "
-                f"Note: When CLOSED, last-session data is available."
+                f"When CLOSED, last-session data is available."
             )
     except Exception as e:
         logger.warning("Failed to get market session: %s", e)
@@ -149,32 +294,88 @@ async def _get_market_context_str(state: dict) -> str:
     return "Session: UNKNOWN. Assume last-session data is available."
 
 
-async def query_planner_node(state: dict) -> dict:
-    """Analyze the query and decide ALL agents to invoke in parallel.
+# ── Main planner node ─────────────────────────────────────────────
 
-    This replaces the old sequential supervisor. It runs ONCE,
-    decides everything, and the graph fans out to all agents at once.
+async def query_planner_node(state: dict) -> dict:
+    """Classify intent, extract tickers, and select ALL agents for parallel execution.
+
+    Steps:
+      1. Build structured system prompt with XML sections + few-shot examples
+      2. Invoke Gemini with native JSON output (response_mime_type)
+      3. Validate tickers against Redis universe
+      4. Return routing decision or clarification request
     """
     query = state.get("query", "")
     language = state.get("language", "en")
 
     agents_desc = _build_agents_desc()
     market_context = await _get_market_context_str(state)
+    scanner_cats = ", ".join(SCANNER_CATEGORIES)
 
-    prompt = SYSTEM_PROMPT.format(
-        agents_desc=agents_desc,
-        market_context=market_context,
-        scanner_categories=", ".join(SCANNER_CATEGORIES),
-    )
+    system_prompt = _build_system_prompt(agents_desc, market_context, scanner_cats)
+
+    # ── CHART_ANALYSIS fast-path: deterministic routing when chart_context is present ──
+    chart_context = state.get("chart_context")
+    if chart_context:
+        cc = chart_context
+        snap = cc.get("snapshot", {})
+        ticker = cc.get("ticker", "")
+        is_hist = snap.get("isHistorical", False)
+        has_why = any(kw in query.lower() for kw in ["why", "por qué", "por que", "what caused", "what's driving"])
+
+        has_target_candle = bool(cc.get("targetCandle"))
+        agents = ["market_data", "news_events"]
+        if has_why or has_target_candle:
+            agents.append("research")
+
+        visible_range = snap.get("visibleDateRange", {})
+        from_date = visible_range.get("from", 0)
+        to_date = visible_range.get("to", 0)
+        from_str = __import__("datetime").datetime.utcfromtimestamp(from_date).strftime("%Y-%m-%d") if from_date else "?"
+        to_str = __import__("datetime").datetime.utcfromtimestamp(to_date).strftime("%Y-%m-%d") if to_date else "?"
+
+        plan = (
+            f"Chart analysis: {ticker} {cc.get('interval', '?')} "
+            f"visible range {from_str} to {to_str} "
+            f"({'HISTORICAL view' if is_hist else 'current view'}) — "
+            f"analyze {len(snap.get('recentBars', []))} visible bars, "
+            f"indicators, user-drawn levels"
+        )
+
+        logger.info(
+            "Query planner: CHART_ANALYSIS (deterministic) ticker=%s interval=%s historical=%s range=%s→%s agents=%s",
+            ticker, cc.get("interval"), is_hist, from_str, to_str, agents,
+        )
+
+        llm_tickers = [ticker] if ticker else []
+        ticker_info: dict = {}
+        if llm_tickers:
+            validated = await validate_tickers(llm_tickers)
+            llm_tickers = validated
+            if llm_tickers:
+                ticker_info = await get_ticker_info(llm_tickers)
+
+        return {
+            **state,
+            "tickers": llm_tickers,
+            "ticker_info": ticker_info,
+            "active_agents": agents,
+            "plan": plan,
+            "clarification": None,
+            "market_context": state.get("market_context", {}),
+        }
+
+    # ── Standard LLM-based routing ──
+    user_content = f"[Language: {language}] {query}"
 
     llm = _get_llm()
     messages = [
-        {"role": "system", "content": prompt},
-        {"role": "user", "content": f"[Language: {language}] {query}"},
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
     ]
 
     try:
-        response = await llm.ainvoke(messages)
+        response = await llm_invoke_with_retry(llm, messages)
         raw = response.content.strip()
 
         if raw.startswith("```"):
@@ -185,15 +386,43 @@ async def query_planner_node(state: dict) -> dict:
 
         decision = json.loads(raw)
     except (json.JSONDecodeError, Exception) as e:
-        logger.error("Query planner LLM parse error: %s — raw: %s", e, raw if 'raw' in dir() else "N/A")
+        logger.error("Query planner parse error: %s — raw: %s", e, raw if "raw" in dir() else "N/A")
         decision = {
+            "intent": "FALLBACK",
             "tickers": [],
             "plan": "Fallback: routing to market_data due to parse error",
             "agents": ["market_data"],
+            "confidence": 0.5,
             "reasoning": f"LLM output could not be parsed: {e}",
         }
 
+    # ── Clarification handling ──
+    confidence = decision.get("confidence", 1.0)
+    clarification = decision.get("clarification")
+    clarification_hint = state.get("clarification_hint", "")
+
+    # Re-execution after user chose a clarification option → skip confidence check
+    if clarification_hint:
+        confidence = 1.0
+        clarification = None
+
+    if confidence < 0.65 and clarification and isinstance(clarification, dict):
+        logger.info(
+            "Query planner: LOW CONFIDENCE (%.2f) [intent=%s], requesting clarification",
+            confidence, decision.get("intent", "?"),
+        )
+        return {
+            **state,
+            "tickers": [],
+            "active_agents": [],
+            "plan": "clarification_needed",
+            "clarification": clarification,
+            "market_context": state.get("market_context", {}),
+        }
+
+    # ── Ticker validation + metadata ──
     llm_tickers = decision.get("tickers", [])
+    ticker_info: dict = {}
     if llm_tickers:
         validated_tickers = await validate_tickers(llm_tickers)
         rejected = set(llm_tickers) - set(validated_tickers)
@@ -201,31 +430,49 @@ async def query_planner_node(state: dict) -> dict:
             logger.info("Planner: rejected tickers %s (not in universe)", rejected)
         llm_tickers = validated_tickers
 
+        # Fetch company metadata so downstream agents know the exact company
+        if llm_tickers:
+            ticker_info = await get_ticker_info(llm_tickers)
+            if ticker_info:
+                names = {t: info.get("company_name", "?") for t, info in ticker_info.items()}
+                logger.info("Planner: ticker metadata loaded: %s", names)
+
     requested_agents = [a for a in decision.get("agents", []) if a in AVAILABLE_AGENTS]
-    if not requested_agents:
-        requested_agents = ["market_data"]
+    theme_tags = decision.get("theme_tags", [])
+    if theme_tags:
+        theme_tags = [t.strip() for t in theme_tags if isinstance(t, str) and t.strip()]
 
     logger.info(
-        "Query planner: tickers=%s, agents=%s (parallel), plan=%s",
-        llm_tickers, requested_agents, decision.get("plan", "")[:100],
+        "Query planner: intent=%s confidence=%.2f tickers=%s agents=%s themes=%s plan=%s",
+        decision.get("intent", "?"), confidence, llm_tickers,
+        requested_agents, theme_tags, decision.get("plan", "")[:120],
     )
 
     return {
         **state,
         "tickers": llm_tickers,
+        "ticker_info": ticker_info,
         "active_agents": requested_agents,
+        "theme_tags": theme_tags,
         "plan": decision.get("plan", ""),
+        "clarification": None,
         "market_context": state.get("market_context", {}),
     }
 
 
+# ── Fan-out edge function ─────────────────────────────────────────
+
 def fan_out_to_agents(state: dict):
-    """Conditional edge function: fan-out to all active agents in parallel via Send().
+    """Conditional edge: fan-out to all active agents in parallel via Send().
 
     Returns a list of Send() objects for parallel execution,
-    or routes directly to synthesizer if no agents needed.
+    routes directly to synthesizer if no agents needed,
+    or routes to END if clarification is requested.
     """
     from langgraph.types import Send
+
+    if state.get("clarification") and state.get("plan") == "clarification_needed":
+        return "__end__"
 
     agents = state.get("active_agents", [])
 
@@ -233,13 +480,3 @@ def fan_out_to_agents(state: dict):
         return "synthesizer"
 
     return [Send(agent, state) for agent in agents]
-
-
-# Keep backward compatibility — the old name still works if referenced
-supervisor_node = query_planner_node
-
-
-def route_after_supervisor(state: dict) -> str:
-    """Legacy routing function — kept for backward compatibility.
-    Not used in v5 parallel graph, but kept so old code doesn't break."""
-    return "synthesizer"

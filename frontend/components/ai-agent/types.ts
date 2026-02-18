@@ -15,14 +15,26 @@ export interface AgentStep {
   details?: string;
 }
 
+export interface ClarificationOption {
+  label: string;
+  rewrite: string;
+}
+
+export interface ClarificationData {
+  message: string;
+  options: ClarificationOption[];
+  originalQuery: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
-  status?: 'thinking' | 'executing' | 'complete' | 'error';
+  status?: 'thinking' | 'executing' | 'complete' | 'error' | 'clarification';
   steps?: AgentStep[];
   thinkingStartTime?: number;
+  clarification?: ClarificationData;
 }
 
 export interface TableData {
@@ -89,8 +101,9 @@ export interface ExecutionResult {
 }
 
 export interface ResultBlockData {
-  id: string;  // ID unico: message_id-block_id
-  messageId?: string;  // ID del mensaje al que pertenece
+  id: string;
+  messageId?: string;
+  query?: string;
   title: string;
   status: 'running' | 'fixing' | 'success' | 'error';
   code: string;
@@ -106,78 +119,58 @@ export interface MarketContext {
   category_stats: Record<string, unknown>;
 }
 
-// WebSocket message types
+// ── Chart Analysis Context ──
+
+export interface ChartSnapshot {
+  recentBars: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
+  indicators: {
+    rsi?: number;
+    rsi_trajectory?: number[];
+    macd_line?: number;
+    macd_signal?: number;
+    macd_histogram?: number;
+    macd_hist_trajectory?: number[];
+    sma20?: number;
+    sma50?: number;
+    sma200?: number;
+    ema12?: number;
+    ema26?: number;
+    bb_upper?: number;
+    bb_mid?: number;
+    bb_lower?: number;
+    vwap?: number;
+    atr?: number;
+    stoch_k?: number;
+    stoch_d?: number;
+    adx?: number;
+    adx_pdi?: number;
+    adx_mdi?: number;
+  };
+  levels: { price: number; label?: string }[];
+  visibleDateRange: { from: number; to: number };
+  isHistorical: boolean;
+}
+
+export interface ChartContext {
+  ticker: string;
+  interval: string;
+  range: string;
+  activeIndicators: string[];
+  currentPrice: number | null;
+  snapshot: ChartSnapshot;
+  targetCandle: {
+    date: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+  } | null;
+}
+
+// V4 WebSocket protocol types
 export interface WSMessage {
   type: string;
   [key: string]: unknown;
-}
-
-export interface WSConnectedMessage extends WSMessage {
-  type: 'connected';
-  client_id: string;
-  market_context: MarketContext;
-}
-
-export interface WSResponseStartMessage extends WSMessage {
-  type: 'response_start';
-  message_id: string;
-}
-
-export interface WSAssistantTextMessage extends WSMessage {
-  type: 'assistant_text';
-  message_id: string;
-  delta: string;
-}
-
-export interface WSCodeExecutionMessage extends WSMessage {
-  type: 'code_execution';
-  message_id: string;
-  block_id: number;
-  status: 'running' | 'fixing';
-  code: string;
-}
-
-export interface WSResultMessage extends WSMessage {
-  type: 'result';
-  message_id: string;
-  block_id: number;
-  status: 'success' | 'error';
-  success: boolean;
-  code: string;
-  outputs: OutputBlock[];
-  error?: string;
-  execution_time_ms: number;
-  timestamp: string;
-}
-
-export interface WSResponseEndMessage extends WSMessage {
-  type: 'response_end';
-  message_id: string;
-}
-
-export interface WSErrorMessage extends WSMessage {
-  type: 'error';
-  message_id?: string;
-  error: string;
-}
-
-export interface WSMarketUpdateMessage extends WSMessage {
-  type: 'market_update';
-  session: string;
-  timestamp: string;
-}
-
-export interface WSAgentStepMessage extends WSMessage {
-  type: 'agent_step';
-  message_id: string;
-  step: AgentStep;
-}
-
-export interface WSAgentStepUpdateMessage extends WSMessage {
-  type: 'agent_step_update';
-  message_id: string;
-  step_id: string;
-  status: AgentStep['status'];
-  description?: string;
 }
 

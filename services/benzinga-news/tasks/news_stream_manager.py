@@ -422,13 +422,13 @@ class BenzingaNewsStreamManager:
         """Guarda el timestamp del último poll"""
         await self.redis.set(self.LAST_POLL_KEY, timestamp)
     
-    async def get_latest_news(self, count: int = 100) -> List[Dict[str, Any]]:
-        """Obtiene las últimas N noticias del cache"""
+    async def get_latest_news(self, count: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """Obtiene las últimas N noticias del cache (con offset para paginación)"""
         try:
             results = await self.redis.zrevrange(
                 self.CACHE_LATEST_KEY,
-                0,
-                count - 1,
+                offset,
+                offset + count - 1,
                 withscores=False
             )
             

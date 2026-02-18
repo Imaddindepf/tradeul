@@ -9,7 +9,7 @@ from config import config
 from typing import Optional
 
 mcp = FastMCP(
-    "TradeUL News",
+    "Tradeul News",
     instructions="Benzinga news feed with real-time articles and catalyst alerts. "
     "Use for breaking news, ticker-specific news, and understanding why stocks are moving.",
 )

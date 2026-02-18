@@ -82,6 +82,9 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
             thread_id = message.get("thread_id", f"{client_id}-{int(time.time())}")
             market_context = message.get("market_context", {})
+            mode = message.get("mode", "auto")
+            clarification_hint = message.get("clarification_hint", "")
+            chart_context = message.get("chart_context", None)
 
             # ── Detect language from query ──
             language = _detect_language(query)
@@ -93,11 +96,18 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             })
 
             # Build initial agent state (V5 parallel architecture)
+            # If user chose a clarification option, prepend context
+            effective_query = query
+            if clarification_hint:
+                effective_query = f"{query}\n[User clarified: {clarification_hint}]"
+
             initial_state: dict[str, Any] = {
-                "messages": [{"role": "user", "content": query}],
-                "query": query,
+                "messages": [{"role": "user", "content": effective_query}],
+                "query": effective_query,
                 "language": language,
+                "mode": mode if mode in ("auto", "quick", "deep") else "auto",
                 "tickers": [],
+                "ticker_info": {},
                 "plan": "",
                 "active_agents": [],
                 "agent_results": {},
@@ -110,6 +120,9 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "node_config": None,
                 "final_response": "",
                 "execution_metadata": {},
+                "chart_context": chart_context,
+                "clarification": None,
+                "clarification_hint": clarification_hint,
                 "error": None,
             }
 
@@ -118,21 +131,37 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             # Stream graph execution events
             graph = get_graph()
             start_time = time.time()
+            node_start_times: dict[str, float] = {}
+
+            # Known graph node names for filtering astream_events
+            _GRAPH_NODES = {
+                "query_planner", "market_data",
+                "news_events", "financial", "research", "code_exec",
+                "screener", "synthesizer",
+            }
 
             try:
-                async for event in graph.astream(initial_state, config=config):
-                    # Each event is a dict with the node name as key
-                    for node_name, node_output in event.items():
-                        node_ts = time.time()
+                async for event in graph.astream_events(initial_state, config=config, version="v2"):
+                    kind = event.get("event", "")
+                    node_name = event.get("name", "")
 
-                        # Send node_started
+                    # Only process events for our actual graph nodes
+                    if node_name not in _GRAPH_NODES:
+                        continue
+
+                    if kind == "on_chain_start":
+                        node_start_times[node_name] = time.time()
                         await websocket.send_json({
                             "type": "node_started",
                             "node": node_name,
-                            "timestamp": node_ts,
+                            "timestamp": time.time(),
                         })
 
-                        # Build a preview of the node output
+                    elif kind == "on_chain_end":
+                        node_start = node_start_times.pop(node_name, start_time)
+                        node_elapsed_ms = int((time.time() - node_start) * 1000)
+
+                        node_output = event.get("data", {}).get("output", {})
                         preview = ""
                         if isinstance(node_output, dict):
                             ar = node_output.get("agent_results", {})
@@ -147,13 +176,10 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                                     else:
                                         preview = str(result)[:200]
 
-                        elapsed_node_ms = int((node_ts - start_time) * 1000)
-
-                        # Send node_completed
                         await websocket.send_json({
                             "type": "node_completed",
                             "node": node_name,
-                            "elapsed_ms": elapsed_node_ms,
+                            "elapsed_ms": node_elapsed_ms,
                             "preview": preview[:300],
                         })
 
@@ -161,9 +187,25 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
 
                 # Get the final state to extract the response
                 final_state = graph.get_state(config)
+                clarification_data = None
                 final_response = ""
                 if hasattr(final_state, "values"):
+                    clarification_data = final_state.values.get("clarification")
                     final_response = final_state.values.get("final_response", "")
+
+                # If the planner requested clarification, send it instead
+                if clarification_data and isinstance(clarification_data, dict):
+                    await websocket.send_json({
+                        "type": "clarification",
+                        "message": clarification_data.get("message", ""),
+                        "options": clarification_data.get("options", []),
+                        "original_query": query,
+                        "thread_id": thread_id,
+                        "metadata": {
+                            "total_elapsed_ms": total_ms,
+                        },
+                    })
+                    continue
 
                 await websocket.send_json({
                     "type": "final_response",

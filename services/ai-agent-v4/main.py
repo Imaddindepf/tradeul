@@ -2,7 +2,7 @@
 AI Agent V4 - FastAPI entry point.
 
 Multi-agent LangGraph orchestrator with WebSocket streaming and REST API.
-Port 8031 (ai-agent v3 runs on 8030).
+Port 8031.
 """
 from __future__ import annotations
 
@@ -44,9 +44,11 @@ async def lifespan(app: FastAPI):
 
     # Start the reactive trigger engine
     from triggers.engine import TriggerEngine
+    from handlers.trigger_handler import set_engine
     trigger_engine = TriggerEngine()
     await trigger_engine.start()
     app.state.trigger_engine = trigger_engine
+    set_engine(trigger_engine)
     logger.info("Reactive Trigger Engine started")
 
     # Initialize memory manager
@@ -65,11 +67,23 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    # Clean up memory manager if initialized
+    # Clean up memory manager (use the same instance, not a new one)
     try:
-        from memory.manager import MemoryManager
-        mm = MemoryManager()
-        await mm.close()
+        await memory_mgr.close()
+    except Exception:
+        pass
+
+    # Close shared httpx client for MCP tools
+    try:
+        from agents._mcp_tools import close_client
+        await close_client()
+    except Exception:
+        pass
+
+    # Close shared Redis client for ticker validation
+    try:
+        from agents._ticker_utils import close_redis
+        await close_redis()
     except Exception:
         pass
 
@@ -79,7 +93,7 @@ async def lifespan(app: FastAPI):
 # ── App ──────────────────────────────────────────────────────────
 
 app = FastAPI(
-    title="TradeUL AI Agent V4",
+    title="Tradeul AI Agent V4",
     description="Multi-agent LangGraph orchestrator for financial intelligence",
     version="4.0.0",
     lifespan=lifespan,

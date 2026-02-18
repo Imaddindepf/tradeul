@@ -22,13 +22,7 @@ import { useCatalystDetector } from '@/hooks/useCatalystDetector';
 import { useNewsStore, NewsArticle } from '@/stores/useNewsStore';
 import { useNewsTickersStore } from '@/stores/useNewsTickersStore';
 
-// Decodifica entidades HTML
-function decodeHtmlEntities(text: string): string {
-  if (!text || typeof window === 'undefined') return text;
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = text;
-  return textarea.value;
-}
+import { decodeHtmlEntities } from '@/lib/html-utils';
 
 interface NewsProviderProps {
   children?: React.ReactNode;
@@ -36,16 +30,16 @@ interface NewsProviderProps {
 
 export function NewsProvider({ children }: NewsProviderProps) {
   const { t } = useTranslation();
-  
+
   // WebSocket (ya autenticado desde AuthWebSocketProvider)
   const ws = useWebSocket();
-  
+
   // Squawk Service (contexto global)
   const squawk = useSquawk();
-  
+
   // Catalyst detector
   const { processNews: processCatalystNews } = useCatalystDetector();
-  
+
   // News Store (acciones estables)
   const addArticle = useNewsStore((state) => state.addArticle);
   const addArticlesBatch = useNewsStore((state) => state.addArticlesBatch);
@@ -53,40 +47,40 @@ export function NewsProvider({ children }: NewsProviderProps) {
   const setSubscribed = useNewsStore((state) => state.setSubscribed);
   const markInitialLoadComplete = useNewsStore((state) => state.markInitialLoadComplete);
   const isPaused = useNewsStore((state) => state.isPaused);
-  
+
   // News Tickers Store (para intersección scanner+news)
   const addNewsArticleToTickers = useNewsTickersStore((state) => state.addNewsArticle);
   const addNewsArticlesBatchToTickers = useNewsTickersStore((state) => state.addNewsArticlesBatch);
-  
+
   // Refs para evitar re-ejecuciones innecesarias
   const initialLoadDoneRef = useRef(false);
   const isSubscribedRef = useRef(false);
   const wsSendRef = useRef(ws.send);
   wsSendRef.current = ws.send;
-  
+
   // ================================================================
   // CARGA INICIAL DE NOTICIAS (una sola vez)
   // ================================================================
   useEffect(() => {
     if (initialLoadDoneRef.current) return;
     initialLoadDoneRef.current = true;
-    
+
     const fetchInitialNews = async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const response = await fetch(`${apiUrl}/news/api/v1/news?limit=1000`);
-        
+        const response = await fetch(`${apiUrl}/news/api/v1/news?limit=200`);
+
         if (!response.ok) {
           console.error('[NewsProvider] Failed to fetch initial news:', response.status);
           return;
         }
-        
+
         const data = await response.json();
-        
+
         if (data.results && Array.isArray(data.results)) {
           // Agregar al store principal
           const addedCount = addArticlesBatch(data.results, false);
-          
+
           // Agregar al store de tickers (para intersección scanner+news)
           const tickerArticles = data.results
             .filter((a: NewsArticle) => a.tickers && a.tickers.length > 0)
@@ -99,11 +93,11 @@ export function NewsProvider({ children }: NewsProviderProps) {
               tickers: a.tickers || [],
               teaser: a.teaser,
             }));
-          
+
           if (tickerArticles.length > 0) {
             addNewsArticlesBatchToTickers(tickerArticles);
           }
-          
+
           console.log(`[NewsProvider] Initial load: ${addedCount} articles`);
           markInitialLoadComplete();
         }
@@ -111,17 +105,17 @@ export function NewsProvider({ children }: NewsProviderProps) {
         console.error('[NewsProvider] Error fetching initial news:', error);
       }
     };
-    
+
     fetchInitialNews();
   }, [addArticlesBatch, addNewsArticlesBatchToTickers, markInitialLoadComplete]);
-  
+
   // ================================================================
   // SINCRONIZAR ESTADO DE CONEXIÓN
   // ================================================================
   useEffect(() => {
     setConnected(ws.isConnected);
   }, [ws.isConnected, setConnected]);
-  
+
   // ================================================================
   // SUSCRIPCIÓN AL WEBSOCKET (solo cuando cambia isConnected)
   // Sin dependencias de store para evitar re-renders que disparen cleanup
@@ -134,23 +128,23 @@ export function NewsProvider({ children }: NewsProviderProps) {
       }
       return;
     }
-    
+
     // Solo suscribir si no estamos ya suscritos
     if (isSubscribedRef.current) {
       return;
     }
-    
+
     // Suscribir a noticias usando el método dedicado del SharedWorker
     console.log('[NewsProvider] 📰 Subscribing to benzinga news...');
     ws.subscribeNews();
     isSubscribedRef.current = true;
     setSubscribed(true);
     console.log('[NewsProvider] ✅ Subscribed to benzinga news');
-    
+
     // NO retornamos cleanup aquí - la desuscripción solo ocurre cuando
     // isConnected cambia a false (manejado arriba)
   }, [ws.isConnected, ws.subscribeNews]); // Añadir ws.subscribeNews a dependencias
-  
+
   // Cleanup al desmontar el componente
   useEffect(() => {
     return () => {
@@ -161,7 +155,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
       }
     };
   }, [ws.unsubscribeNews]);
-  
+
   // ================================================================
   // PROCESAR MENSAJES DE NOTICIAS
   // ================================================================
@@ -171,13 +165,13 @@ export function NewsProvider({ children }: NewsProviderProps) {
       if (message.type !== 'news' && message.type !== 'benzinga_news') {
         return;
       }
-      
+
       if (!message.article) {
         return;
       }
-      
+
       const article = message.article as NewsArticle;
-      
+
       // Añadir precios capturados si vienen en el mensaje
       if (message.ticker_prices) {
         try {
@@ -188,15 +182,15 @@ export function NewsProvider({ children }: NewsProviderProps) {
           // Ignorar si no se puede parsear
         }
       }
-      
+
       // Agregar al store (el store maneja deduplicación y pausa)
       const wasAdded = addArticle(article);
-      
+
       if (!wasAdded) {
         // Artículo duplicado, ignorar
         return;
       }
-      
+
       // Agregar al store de tickers (para intersección scanner+news)
       if (article.tickers && article.tickers.length > 0) {
         addNewsArticleToTickers({
@@ -209,7 +203,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
           teaser: article.teaser,
         });
       }
-      
+
       // Procesar Catalyst Alerts
       if (message.catalyst_metrics) {
         processCatalystNews({
@@ -219,7 +213,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
             : message.catalyst_metrics,
         });
       }
-      
+
       // Squawk (solo si no está pausado)
       if (!isPaused && squawk.isEnabled) {
         const ticker = article.tickers?.[0] || '';
@@ -230,7 +224,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
         squawk.speak(squawkText);
       }
     });
-    
+
     return () => subscription.unsubscribe();
   }, [
     ws.messages$,
@@ -241,7 +235,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
     isPaused,
     t
   ]);
-  
+
   // El provider no renderiza nada visible, solo procesa
   return <>{children}</>;
 }

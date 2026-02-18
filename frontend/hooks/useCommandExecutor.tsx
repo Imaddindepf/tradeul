@@ -114,6 +114,13 @@ export function useCommandExecutor() {
         const offsetX = (index % 5) * 50;
         const offsetY = (index % 5) * 40;
 
+        const cs = {
+            restoreType: 'event_table',
+            categoryId,
+            categoryName: category.name,
+            eventTypes: category.eventTypes,
+            defaultFilters: category.defaultFilters,
+        };
         const winId = openWindow({
             title,
             content: (
@@ -131,15 +138,9 @@ export function useCommandExecutor() {
             minWidth: 500,
             minHeight: 300,
             hideHeader: true,
+            componentState: cs,
         });
-        // Persist restoration metadata
-        useUserPreferencesStore.getState().updateWindowComponentState(winId, {
-            restoreType: 'event_table',
-            categoryId,
-            categoryName: category.name,
-            eventTypes: category.eventTypes,
-            defaultFilters: category.defaultFilters,
-        });
+        useUserPreferencesStore.getState().updateWindowComponentState(winId, cs);
         return winId;
     }, [openWindow, getEventCategory]);
 
@@ -268,6 +269,12 @@ export function useCommandExecutor() {
                                         ...config.filters,
                                         event_types: config.eventTypes,
                                     });
+                                    const evtCs = {
+                                        restoreType: 'event_table',
+                                        categoryId: activeCategoryId,
+                                        categoryName: config.name,
+                                        eventTypes: config.eventTypes,
+                                    };
                                     const winId = openWindow({
                                         title: `Events: ${config.name}`,
                                         content: (
@@ -284,19 +291,20 @@ export function useCommandExecutor() {
                                         minWidth: 500,
                                         minHeight: 300,
                                         hideHeader: true,
+                                        componentState: evtCs,
                                     });
-                                    // Persist restoration metadata
-                                    prefStore.updateWindowComponentState(winId, {
-                                        restoreType: 'event_table',
-                                        categoryId: activeCategoryId,
-                                        categoryName: config.name,
-                                        eventTypes: config.eventTypes,
-                                    });
+                                    prefStore.updateWindowComponentState(winId, evtCs);
                                 }
                             }}
                             onCreateScannerWindow={(savedFilter: UserFilter) => {
                                 const prefStore = useUserPreferencesStore.getState();
                                 const categoryId = `uscan_${savedFilter.id}`;
+                                const scanCs = {
+                                    restoreType: 'user_scan',
+                                    categoryId,
+                                    categoryName: savedFilter.name,
+                                    scanId: savedFilter.id,
+                                };
                                 const winId = openWindow({
                                     title: `Scanner: ${savedFilter.name}`,
                                     content: (
@@ -312,14 +320,9 @@ export function useCommandExecutor() {
                                     minWidth: 500,
                                     minHeight: 300,
                                     hideHeader: true,
+                                    componentState: scanCs,
                                 });
-                                // Persist restoration metadata
-                                prefStore.updateWindowComponentState(winId, {
-                                    restoreType: 'user_scan',
-                                    categoryId,
-                                    categoryName: savedFilter.name,
-                                    scanId: savedFilter.id,
-                                });
+                                prefStore.updateWindowComponentState(winId, scanCs);
                             }}
                         />
                     ),
@@ -898,9 +901,13 @@ export function useCommandExecutor() {
         const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1920;
         const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
 
-        // categoryId debe coincidir con el backend: uscan_{filterId}
         const categoryId = `uscan_${scan.id}`;
-
+        const cs = {
+            restoreType: 'user_scan',
+            categoryId,
+            categoryName: scan.name,
+            scanId: scan.id,
+        };
         const winId = openWindow({
             title: `Scanner: ${scan.name}`,
             content: (
@@ -916,14 +923,9 @@ export function useCommandExecutor() {
             minWidth: 500,
             minHeight: 300,
             hideHeader: true,
+            componentState: cs,
         });
-        // Persist restoration metadata
-        useUserPreferencesStore.getState().updateWindowComponentState(winId, {
-            restoreType: 'user_scan',
-            categoryId,
-            categoryName: scan.name,
-            scanId: scan.id,
-        });
+        useUserPreferencesStore.getState().updateWindowComponentState(winId, cs);
     }, [openWindow]);
 
     /**
@@ -940,6 +942,14 @@ export function useCommandExecutor() {
         const offsetX = (index % 5) * 50;
         const offsetY = (index % 5) * 40;
 
+        const cs = {
+            restoreType: 'user_strategy',
+            categoryId,
+            categoryName: strategy.name,
+            eventTypes: strategy.eventTypes,
+            strategyId: strategy.id,
+            filters: strategy.filters,
+        };
         const winId = openWindow({
             title: `Events: ${strategy.name}`,
             content: (
@@ -956,16 +966,9 @@ export function useCommandExecutor() {
             minWidth: 500,
             minHeight: 300,
             hideHeader: true,
+            componentState: cs,
         });
-        // Persist restoration metadata
-        useUserPreferencesStore.getState().updateWindowComponentState(winId, {
-            restoreType: 'user_strategy',
-            categoryId,
-            categoryName: strategy.name,
-            eventTypes: strategy.eventTypes,
-            strategyId: strategy.id,
-            filters: strategy.filters,
-        });
+        useUserPreferencesStore.getState().updateWindowComponentState(winId, cs);
         return winId;
     }, [openWindow]);
 

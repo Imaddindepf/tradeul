@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
-    "TradeUL Market Events",
+    "Tradeul Market Events",
     instructions="Market event detection system with 85+ event types. Supports real-time stream "
     "queries and historical TimescaleDB queries with full filtering (date range, event type, "
     "ticker, price, volume, sector, technical indicators).",
@@ -149,12 +149,16 @@ async def query_historical_events(
     if not date_to:
         date_to = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    conditions.append(f"ts >= ${idx}::timestamptz")
-    params.append(date_from)
+    # asyncpg needs datetime objects, not strings
+    dt_from = datetime.strptime(date_from, "%Y-%m-%d") if isinstance(date_from, str) else date_from
+    dt_to = datetime.strptime(date_to, "%Y-%m-%d") if isinstance(date_to, str) else date_to
+
+    conditions.append(f"ts >= ${idx}")
+    params.append(dt_from)
     idx += 1
 
-    conditions.append(f"ts < ${idx}::timestamptz")
-    params.append(date_to)
+    conditions.append(f"ts < ${idx}")
+    params.append(dt_to)
     idx += 1
 
     if event_type:
@@ -258,9 +262,12 @@ async def get_event_stats(
     if not date:
         date = datetime.now().strftime("%Y-%m-%d")
 
-    conditions = ["ts >= $1::timestamptz", "ts < ($1::date + interval '1 day')::timestamptz"]
-    params: list = [date]
-    idx = 2
+    dt_date = datetime.strptime(date, "%Y-%m-%d") if isinstance(date, str) else date
+    dt_next = dt_date + timedelta(days=1)
+
+    conditions = ["ts >= $1", "ts < $2"]
+    params: list = [dt_date, dt_next]
+    idx = 3
 
     if symbol:
         conditions.append(f"symbol = ${idx}")

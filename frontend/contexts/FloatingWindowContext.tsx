@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect, useMemo } from 'react';
 import { floatingZIndexManager } from '@/lib/z-index';
-import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
+import { useUserPreferencesStore, consumePendingComponentStates } from '@/stores/useUserPreferencesStore';
 import { getWindowType } from '@/lib/window-config';
 
 // ============================================================================
@@ -247,6 +247,8 @@ export interface FloatingWindow {
   isPoppedOut?: boolean;
   /** Referencia a la ventana externa (about:blank) para poder cerrarla */
   poppedOutWindow?: Window | null;
+  /** Restoration metadata — persisted with the window to avoid race conditions */
+  componentState?: Record<string, unknown>;
 }
 
 /** Layout serializable de una ventana (sin contenido) */
@@ -292,6 +294,47 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   // Ref para debounce del auto-guardado
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitializedRef = useRef(false);
+
+  // Force-save layout on page unload (prevents data loss on reload)
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+        autoSaveTimeoutRef.current = null;
+      }
+      const store = useUserPreferencesStore.getState();
+      if (store.isWorkspaceSwitching) return;
+
+      const currentWindows = windowsRef.current;
+      if (currentWindows.length === 0) return;
+
+      const activeWorkspaceId = store.activeWorkspaceId;
+      const activeWorkspace = store.workspaces.find(w => w.id === activeWorkspaceId);
+      const existingLayouts = activeWorkspace?.windowLayouts || store.windowLayouts;
+      const csMap = new Map(existingLayouts.map(l => [l.id, l.componentState]));
+      const pendingCs = consumePendingComponentStates();
+
+      const layouts = currentWindows.map((w) => ({
+        id: w.id,
+        type: getWindowType(w.title),
+        title: w.title,
+        position: { x: w.x, y: w.y },
+        size: { width: w.width, height: w.height },
+        isMinimized: w.isMinimized,
+        zIndex: w.zIndex,
+        componentState: w.componentState || csMap.get(w.id) || pendingCs.get(w.id),
+      }));
+
+      if (activeWorkspaceId) {
+        store.saveWorkspaceLayouts(activeWorkspaceId, layouts);
+      } else {
+        saveWindowLayouts(layouts);
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [saveWindowLayouts]);
 
   const getMaxZIndex = useCallback(() => {
     return floatingZIndexManager.getCurrent();
@@ -398,6 +441,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       const activeWorkspace = store.workspaces.find(w => w.id === activeWorkspaceId);
       const existingLayouts = activeWorkspace?.windowLayouts || store.windowLayouts;
       const csMap = new Map(existingLayouts.map(l => [l.id, l.componentState]));
+      const pendingCs = consumePendingComponentStates();
 
       const layouts = windows.map((w) => ({
         id: w.id,
@@ -407,7 +451,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         size: { width: w.width, height: w.height },
         isMinimized: w.isMinimized,
         zIndex: w.zIndex,
-        componentState: csMap.get(w.id),
+        componentState: w.componentState || csMap.get(w.id) || pendingCs.get(w.id),
       }));
 
       if (activeWorkspaceId) {

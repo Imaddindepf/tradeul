@@ -123,7 +123,7 @@ if [ "$COMPONENT" = "all" ] || [ "$COMPONENT" = "db" ]; then
             tradeul_benzinga_earnings
             tradeul_prediction_markets
             tradeul_analytics
-            tradeul_ai_agent
+            tradeul_ai_agent_v4
         )
         
         for svc in "${DEPENDENT_SERVICES[@]}"; do

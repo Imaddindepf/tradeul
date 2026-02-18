@@ -118,8 +118,15 @@ class TriggerEngine:
         key = f"{ACTIVE_KEY_PREFIX}:{user_id}"
         await r.hset(key, config.id, orjson.dumps(config.model_dump()))
 
-        self._triggers.setdefault(user_id, {})[config.id] = config
-        logger.info("Registered trigger %s for user %s", config.id, user_id)
+        # Only cache enabled triggers for evaluation (disabled ones stay in Redis only)
+        if config.enabled:
+            self._triggers.setdefault(user_id, {})[config.id] = config
+        else:
+            user_triggers = self._triggers.get(user_id, {})
+            user_triggers.pop(config.id, None)
+            if not user_triggers and user_id in self._triggers:
+                del self._triggers[user_id]
+        logger.info("Registered trigger %s for user %s (enabled=%s)", config.id, user_id, config.enabled)
         return config
 
     async def unregister_trigger(self, user_id: str, trigger_id: str) -> bool:
@@ -139,6 +146,24 @@ class TriggerEngine:
 
         logger.info("Unregistered trigger %s for user %s (existed=%s)", trigger_id, user_id, bool(removed))
         return bool(removed)
+
+    def get_user_triggers(self, user_id: str) -> dict[str, TriggerConfig]:
+        """Return the in-memory cache of triggers for a user (public API)."""
+        return dict(self._triggers.get(user_id, {}))
+
+    async def get_all_user_triggers_from_redis(self, user_id: str) -> dict[str, dict]:
+        """Fetch all triggers for a user directly from Redis (source of truth)."""
+        r = await self._get_redis()
+        key = f"{ACTIVE_KEY_PREFIX}:{user_id}"
+        raw_entries = await r.hgetall(key)
+        result: dict[str, dict] = {}
+        for _tid, raw in raw_entries.items():
+            try:
+                data = orjson.loads(raw)
+                result[data["id"]] = data
+            except Exception:
+                logger.warning("Skipping malformed trigger in %s:%s", key, _tid)
+        return result
 
     # ── internal: hydration ──────────────────────────────────────
 
@@ -363,6 +388,8 @@ class TriggerEngine:
                 ],
                 "query": f"Trigger '{trigger.name}' fired for {event.symbol}",
                 "language": "en",
+                "mode": "auto",
+                "tickers": [],
                 "plan": "",
                 "active_agents": [],
                 "agent_results": {},
@@ -385,6 +412,8 @@ class TriggerEngine:
                 "node_config": None,
                 "final_response": "",
                 "execution_metadata": {},
+                "clarification": None,
+                "clarification_hint": "",
                 "error": None,
             }
 

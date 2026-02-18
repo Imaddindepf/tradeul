@@ -4,10 +4,6 @@ LangGraph Multi-Agent Orchestrator V5 — Parallel Execution
 Architecture:
   START -> query_planner -> [Send() fan-out to agents in parallel] -> synthesizer -> END
 
-Key improvement over V4:
-  - V4: supervisor -> agent1 -> supervisor -> agent2 -> supervisor -> synthesizer (sequential)
-  - V5: query_planner -> [agent1 | agent2 | agent3] -> synthesizer (parallel via Send())
-
 The query_planner decides ALL agents needed in one LLM call.
 Send() dispatches them all simultaneously.
 State merges via the agent_results reducer (merge_dicts).
@@ -47,7 +43,7 @@ def build_graph() -> StateGraph:
     graph.add_conditional_edges(
         "query_planner",
         fan_out_to_agents,
-        ALL_AGENTS + ["synthesizer"],
+        ALL_AGENTS + ["synthesizer", END],
     )
 
     for agent_name in ALL_AGENTS:
