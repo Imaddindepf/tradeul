@@ -626,9 +626,10 @@ export function ConfigWindow({
 
   const activeFilterCount = Object.values(filters).filter(v => v !== undefined).length;
 
-  // When switching modes, if on alerts tab (not available in toplist), redirect
+  // When switching modes, clear selection and redirect incompatible tabs
   const handleModeSwitch = useCallback((mode: BuilderMode) => {
     setBuilderMode(mode);
+    setSelectedStrategy(null);
     if (mode === 'toplist' && activeTab === 'alerts') {
       setActiveTab('filters');
     }
