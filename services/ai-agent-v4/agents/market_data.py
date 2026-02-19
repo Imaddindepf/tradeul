@@ -383,12 +383,18 @@ async def market_data_node(state: dict) -> dict:
             try:
                 raw = await call_mcp_tool("scanner", "get_enriched_batch", {"symbols": tickers})
                 enriched = _clean_enriched(raw)
-                results["current_reference"] = {
+                ref = {
                     t: {"current_price": d.get("current_price"), "todaysChangePerc": d.get("todaysChangePerc")}
                     for t, d in enriched.items()
                 }
-            except Exception:
-                pass
+                if ref:
+                    results["current_reference"] = ref
+                else:
+                    results["current_reference"] = {"note": "Market data temporarily unavailable"}
+            except Exception as exc:
+                import logging as _log
+                _log.getLogger(__name__).warning("current_reference fetch failed: %s", exc)
+                results["current_reference"] = {"note": "Market data temporarily unavailable"}
 
             elapsed_ms = int((time.time() - start_time) * 1000)
             return {

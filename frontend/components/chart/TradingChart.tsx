@@ -78,9 +78,11 @@ function buildChartSnapshot(
     const rightTime = data[rightEdge]?.time;
 
     const findValue = (arr?: { time: number; value: number }[]) => {
-        if (!arr || !rightTime) return undefined;
+        if (!arr?.length || !rightTime) return undefined;
         const pt = arr.find(p => p.time === rightTime);
-        return pt?.value;
+        if (pt) return pt.value;
+        // Fallback: use the last computed value (closest to right edge)
+        return arr[arr.length - 1]?.value;
     };
 
     const trajectory = (arr?: { time: number; value: number }[], count = 5) => {
@@ -203,6 +205,14 @@ function buildChartSnapshot(
         indicators.atr = r2(trs.reduce((s, t) => s + t, 0) / trs.length);
     }
 
+    // Strip undefined/NaN values so JSON.stringify preserves all computed indicators
+    const cleanIndicators: ChartSnapshot['indicators'] = {};
+    for (const [k, v] of Object.entries(indicators)) {
+        if (v !== undefined && v !== null && (typeof v !== 'number' || !isNaN(v))) {
+            (cleanIndicators as Record<string, unknown>)[k] = v;
+        }
+    }
+
     const levels = drawings
         .filter((d): d is Drawing & { type: 'horizontal_line' } => d.type === 'horizontal_line')
         .map(d => ({ price: d.price, label: d.label }));
@@ -211,7 +221,7 @@ function buildChartSnapshot(
 
     return {
         recentBars: recentBars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume })),
-        indicators,
+        indicators: cleanIndicators,
         levels,
         visibleDateRange: {
             from: data[fromIdx]?.time ?? 0,

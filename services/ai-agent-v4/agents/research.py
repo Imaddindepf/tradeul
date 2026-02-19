@@ -47,31 +47,56 @@ def _build_ticker_context(tickers: list[str], ticker_info: dict) -> str:
     return ", ".join(parts)
 
 
+_ANTI_HALLUCINATION = (
+    "ABSOLUTE RULE: Only report information you actually found in search results. "
+    "If you cannot find the specific catalyst or event, say clearly: "
+    "'No specific catalyst identified in available sources.' "
+    "NEVER fabricate hypothetical scenarios, fictional analyst ratings, "
+    "invented price targets, or made-up regulatory events. Accuracy over completeness."
+)
+
+
 # ── Grok (XAI) research ─────────────────────────────────────────
 
-async def _research_with_grok(query: str, tickers: list[str], ticker_info: dict) -> dict[str, Any]:
+async def _research_with_grok(
+    query: str, tickers: list[str], ticker_info: dict, *, is_historical: bool = False,
+) -> dict[str, Any]:
     """Call Grok-3-mini via xai-sdk with live search enabled."""
     from xai_sdk import Client
 
     client = Client()
     ticker_context = _build_ticker_context(tickers, ticker_info)
 
-    prompt = (
-        f"You are a financial research analyst. Search X.com and the web "
-        f"for the LATEST information about {ticker_context}.\n\n"
-        f"CRITICAL: The ticker(s) and company name(s) above are VERIFIED from our database. "
-        f"Use the exact company name provided. Do NOT confuse with other companies "
-        f"that may share similar ticker symbols.\n\n"
-        f"User query: {query}\n\n"
-        f"Focus on:\n"
-        f"1. WHY is this stock moving right now? What is the specific catalyst?\n"
-        f"2. Latest social sentiment from X.com posts (last 24-48 hours)\n"
-        f"3. Recent news and developments about this specific company\n"
-        f"4. Key analyst opinions or price targets mentioned\n"
-        f"5. Any upcoming catalysts or events\n\n"
-        f"Prioritize the most RECENT information (today and this week). "
-        f"Include source URLs where available."
-    )
+    if is_historical:
+        prompt = (
+            f"You are a financial research analyst. Search X.com and the web "
+            f"for information about {ticker_context}.\n\n"
+            f"CRITICAL: The ticker(s) and company name(s) above are VERIFIED from our database. "
+            f"Use the exact company name provided. Do NOT confuse with other companies "
+            f"that may share similar ticker symbols.\n\n"
+            f"{_ANTI_HALLUCINATION}\n\n"
+            f"User query: {query}\n\n"
+            f"Search for the SPECIFIC event or catalyst on the date mentioned in the query. "
+            f"Include source URLs where available."
+        )
+    else:
+        prompt = (
+            f"You are a financial research analyst. Search X.com and the web "
+            f"for the LATEST information about {ticker_context}.\n\n"
+            f"CRITICAL: The ticker(s) and company name(s) above are VERIFIED from our database. "
+            f"Use the exact company name provided. Do NOT confuse with other companies "
+            f"that may share similar ticker symbols.\n\n"
+            f"{_ANTI_HALLUCINATION}\n\n"
+            f"User query: {query}\n\n"
+            f"Focus on:\n"
+            f"1. WHY is this stock moving right now? What is the specific catalyst?\n"
+            f"2. Latest social sentiment from X.com posts (last 24-48 hours)\n"
+            f"3. Recent news and developments about this specific company\n"
+            f"4. Key analyst opinions or price targets mentioned\n"
+            f"5. Any upcoming catalysts or events\n\n"
+            f"Prioritize the most RECENT information (today and this week). "
+            f"Include source URLs where available."
+        )
 
     response_text = ""
     citations: list[str] = []
@@ -114,13 +139,14 @@ def _get_gemini_llm():
     return _gemini_llm
 
 
-async def _research_with_gemini(query: str, tickers: list[str], ticker_info: dict) -> dict[str, Any]:
+async def _research_with_gemini(
+    query: str, tickers: list[str], ticker_info: dict, *, is_historical: bool = False,
+) -> dict[str, Any]:
     """Fallback: use Gemini 2.5 Pro for research synthesis."""
     llm = _get_gemini_llm()
 
     ticker_context = _build_ticker_context(tickers, ticker_info) if tickers else "general market"
 
-    # Build company description context from metadata
     company_desc = ""
     for t in tickers:
         info = ticker_info.get(t, {})
@@ -133,20 +159,31 @@ async def _research_with_gemini(query: str, tickers: list[str], ticker_info: dic
         f"briefing about {ticker_context} based on your training data.\n\n"
         f"CRITICAL: The ticker(s) and company name(s) above are VERIFIED from our database. "
         f"Use the exact company name provided. Do NOT confuse with other companies.\n\n"
+        f"{_ANTI_HALLUCINATION}\n\n"
     )
 
     if company_desc:
         prompt += f"Company descriptions from our database:{company_desc}\n\n"
 
-    prompt += (
-        f"User query: {query}\n\n"
-        f"Cover:\n"
-        f"1. Company overview based on the verified name and description above\n"
-        f"2. Key financial metrics and trends\n"
-        f"3. Market sentiment and analyst consensus\n"
-        f"4. Potential risks and catalysts\n\n"
-        f"Note: This is based on training data, not real-time search."
-    )
+    if is_historical:
+        prompt += (
+            f"User query: {query}\n\n"
+            f"The user is asking about a SPECIFIC PAST DATE. Only provide information "
+            f"you are confident actually happened. If you do not have reliable data for "
+            f"the specific date, say: 'I don't have reliable information for this specific date.' "
+            f"Do NOT generate fictional or hypothetical scenarios.\n\n"
+            f"Note: This is based on training data, not real-time search."
+        )
+    else:
+        prompt += (
+            f"User query: {query}\n\n"
+            f"Cover:\n"
+            f"1. Company overview based on the verified name and description above\n"
+            f"2. Key financial metrics and trends\n"
+            f"3. Market sentiment and analyst consensus\n"
+            f"4. Potential risks and catalysts\n\n"
+            f"Note: This is based on training data, not real-time search."
+        )
 
     response = await llm_invoke_with_retry(llm, [{"role": "user", "content": prompt}])
 
@@ -177,7 +214,9 @@ async def research_node(state: dict) -> dict:
     # Enrich query with target candle context for date-specific research
     chart_context = state.get("chart_context")
     research_query = query
+    is_historical_research = False
     if chart_context and chart_context.get("targetCandle"):
+        is_historical_research = True
         from datetime import datetime as dt
         tc = chart_context["targetCandle"]
         tc_date = dt.utcfromtimestamp(tc.get("date", 0)).strftime("%B %d, %Y")
@@ -204,22 +243,27 @@ async def research_node(state: dict) -> dict:
     try:
         if xai_available and tickers:
             logger.info("Research: using Grok (XAI) for tickers %s", tickers)
-            research_result = await _research_with_grok(research_query, tickers, ticker_info)
+            research_result = await _research_with_grok(
+                research_query, tickers, ticker_info, is_historical=is_historical_research,
+            )
             source_used = "grok"
         else:
             if not xai_available:
                 logger.info("Research: XAI_API_KEY not set, falling back to Gemini")
             elif not tickers:
                 logger.info("Research: no tickers detected, using Gemini for general research")
-            research_result = await _research_with_gemini(research_query, tickers, ticker_info)
+            research_result = await _research_with_gemini(
+                research_query, tickers, ticker_info, is_historical=is_historical_research,
+            )
             source_used = "gemini"
     except Exception as exc:
         logger.error("Research (%s) failed: %s", source_used or "grok", exc)
-        # If Grok fails, try Gemini as secondary fallback
         if source_used != "gemini":
             try:
                 logger.info("Research: Grok failed, retrying with Gemini fallback")
-                research_result = await _research_with_gemini(research_query, tickers, ticker_info)
+                research_result = await _research_with_gemini(
+                    research_query, tickers, ticker_info, is_historical=is_historical_research,
+                )
                 source_used = "gemini-fallback"
             except Exception as fallback_exc:
                 logger.error("Research Gemini fallback also failed: %s", fallback_exc)
