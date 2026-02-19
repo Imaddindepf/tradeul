@@ -237,7 +237,10 @@ function parseMarkdown(content: string): ParsedElement[] {
     // Fenced code blocks
     if (trimmed.startsWith('```')) {
       if (inCode) {
-        elements.push({ type: 'code', content: codeLines.join('\n') });
+        const codeContent = codeLines.join('\n').trim();
+        if (codeContent) {
+          elements.push({ type: 'code', content: codeContent });
+        }
         codeLines = [];
         inCode = false;
       } else {
