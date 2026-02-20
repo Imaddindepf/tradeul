@@ -67,6 +67,14 @@ const redisSubscriber = new Redis({
   lazyConnect: false,
 });
 
+// Redis Pub/Sub client for chart trade micro-aggregates (from chart_aggregator)
+const redisChartTrades = new Redis({
+  ...redisConfig,
+  retryStrategy: (times) => Math.min(times * 50, 2000),
+  enableReadyCheck: false,
+  lazyConnect: false,
+});
+
 // Clientes Redis DEDICADOS para cada stream bloqueante
 // Cada XREAD/XREADGROUP bloqueante necesita su propio cliente para evitar conflictos
 
@@ -382,6 +390,11 @@ redisSubscriber.on("error", (err) => {
     return; // Silenciar este error específico
   }
   logger.error({ err }, "Redis Subscriber error");
+});
+
+redisChartTrades.on("error", (err) => {
+  if (err.message && err.message.includes("subscriber mode")) return;
+  logger.error({ err }, "Redis Chart Trades PubSub error");
 });
 
 redisQuotes.on("error", (err) => {
@@ -1020,6 +1033,7 @@ function applyNumericFilterUpdates(sub, data) {
 // =============================================
 // Mapeo ticker → Set<connectionId> (quién tiene un chart abierto de este ticker)
 const chartSubscribers = new Map();
+const tradeSubscribedSymbols = new Set();
 
 // Contador de referencias por ticker para charts
 const chartRefCount = new Map();
@@ -2073,17 +2087,26 @@ async function subscribeClientToChart(connectionId, symbol) {
   const currentCount = chartRefCount.get(symbolUpper) || 0;
   chartRefCount.set(symbolUpper, currentCount + 1);
   
-  // Si es el primer suscriptor, notificar a polygon_ws
-  // (Solo si el ticker no está ya suscrito por el Scanner)
-  if (currentCount === 0 && !symbolToLists.has(symbolUpper)) {
+  // Si es el primer suscriptor, SIEMPRE notificar a polygon_ws para A.*
+  // (No depender del scanner — el scanner puede quitar el symbol en cualquier momento)
+  if (currentCount === 0) {
     try {
+      // Always ensure A.* subscription for chart data
       await redisCommands.xadd(
         "polygon_ws:subscriptions",
         "*",
         "action", "subscribe",
         "symbol", symbolUpper
       );
-      logger.info({ symbol: symbolUpper }, "📊 Chart: First subscriber - notified polygon_ws");
+      // Also subscribe to trades for tick-by-tick real-time
+      await redisCommands.xadd(
+        "polygon_ws:trade_subscriptions",
+        "*",
+        "action", "subscribe",
+        "symbol", symbolUpper
+      );
+      tradeSubscribedSymbols.add(symbolUpper);
+      logger.info({ symbol: symbolUpper }, "📊 Chart: First subscriber - notified polygon_ws (A.* + T.*)");
     } catch (err) {
       logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart");
     }
@@ -2129,7 +2152,15 @@ async function unsubscribeClientFromChart(connectionId, symbol) {
           "action", "unsubscribe",
           "symbol", symbolUpper
         );
-        logger.info({ symbol: symbolUpper }, "📊 Chart: Last subscriber gone - notified polygon_ws");
+        // Also unsubscribe from trades
+        await redisCommands.xadd(
+          "polygon_ws:trade_subscriptions",
+          "*",
+          "action", "unsubscribe",
+          "symbol", symbolUpper
+        );
+        tradeSubscribedSymbols.delete(symbolUpper);
+        logger.info({ symbol: symbolUpper }, "📊 Chart: Last subscriber gone - notified polygon_ws (A.* + T.*)");
       } catch (err) {
         logger.error({ err, symbol: symbolUpper }, "Error notifying polygon_ws for chart unsubscription");
       }
@@ -2167,6 +2198,7 @@ async function unsubscribeClientFromAllCharts(connectionId) {
 function broadcastChartAggregate(symbol, aggregateData) {
   const subscribers = chartSubscribers.get(symbol);
   if (!subscribers || subscribers.size === 0) return 0;
+
   
   const message = {
     type: "chart_aggregate",
@@ -2483,8 +2515,9 @@ async function processAggregatesStream() {
                 bufferAggregate(symbolUpper, data);
               }
               
-              // NUEVO: Enviar a chart subscribers (sin throttle, cada segundo)
+              // Chart subscribers
               const chartSubs = chartSubscribers.get(symbolUpper);
+
               if (chartSubs && chartSubs.size > 0) {
                 const chartData = {
                   o: parseFloat(data.open || 0),
@@ -4143,6 +4176,54 @@ async function broadcastPolygonSubscriptionStatus() {
 }
 
 // 🔥 Suscribirse a eventos de nuevo día y cambio de sesión (después de que Redis conecte)
+// ── Chart Trades Pub/Sub (tick-by-tick micro-aggregates from chart_aggregator) ──
+redisChartTrades.on("connect", () => {
+  logger.info("Redis Chart Trades PubSub connected — subscribing to chart:trades:*");
+  redisChartTrades.psubscribe("chart:trades:*", (err) => {
+    if (err) logger.error({ err }, "Failed to psubscribe chart:trades:*");
+    else logger.info("✅ Subscribed to chart:trades:* pattern");
+  });
+});
+
+redisChartTrades.on("pmessage", (pattern, channel, message) => {
+  try {
+    // channel = "chart:trades:AAPL" → extract symbol
+    const symbol = channel.slice(14); // "chart:trades:".length = 14
+    const subscribers = chartSubscribers.get(symbol);
+    if (!subscribers || subscribers.size === 0) return;
+
+    const data = JSON.parse(message);
+    const payload = JSON.stringify({
+      type: "chart_aggregate",
+      symbol: symbol,
+      data: data,
+      timestamp: new Date().toISOString(),
+      source: "trades"
+    });
+
+    const disconnected = [];
+    subscribers.forEach((connectionId) => {
+      const conn = connections.get(connectionId);
+      if (!conn || conn.ws.readyState !== 1) { // WebSocket.OPEN = 1
+        disconnected.push(connectionId);
+        return;
+      }
+      try {
+        conn.ws.send(payload);
+      } catch (err) {
+        disconnected.push(connectionId);
+      }
+    });
+
+    // Cleanup disconnected
+    for (const connId of disconnected) {
+      subscribers.delete(connId);
+    }
+  } catch (err) {
+    logger.error({ err, channel }, "Error processing chart trade message");
+  }
+});
+
 redisSubscriber.on("connect", () => {
   logger.info("📡 Redis Subscriber connected");
   

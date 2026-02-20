@@ -54,6 +54,7 @@ reconciler_task: Optional[asyncio.Task] = None
 
 # Set de tickers suscritos a Quotes (separado de Aggregates)
 quote_subscribed_tickers: Set[str] = set()
+trade_subscribed_tickers: Set[str] = set()
 
 # Set de tickers suscritos temporalmente para Catalyst Alerts (Aggregates sin reconciler)
 catalyst_subscribed_tickers: Set[str] = set()
@@ -82,7 +83,7 @@ async def lifespan(app: FastAPI):
     # Ahora usamos Aggregates (Scanner) + Quotes (Tickers individuales/Watchlists) + LULD (todo mercado)
     ws_client = PolygonWebSocketClient(
         api_key=settings.POLYGON_API_KEY,
-        on_trade=None,  # Desactivado - no necesario
+        on_trade=handle_trade,  # ✅ Activado para chart real-time tick-by-tick
         on_quote=handle_quote,  # ✅ ACTIVADO para tickers individuales
         on_aggregate=handle_aggregate,  # Para Scanner (A.* per-second)
         on_minute_aggregate=handle_minute_aggregate,  # ✅ AM.* para BarEngine (todo mercado)
@@ -97,7 +98,7 @@ async def lifespan(app: FastAPI):
         ws_client=ws_client,
         event_types={"A"},  # Solo Aggregates
         interval_seconds=30,  # Reconciliar cada 30 segundos
-        exclude_sets=[catalyst_subscribed_tickers]  # No tocar suscripciones de catalyst
+        exclude_sets=[catalyst_subscribed_tickers, trade_subscribed_tickers]  # No tocar suscripciones de catalyst
     )
     
     # Iniciar tareas en background
@@ -108,6 +109,7 @@ async def lifespan(app: FastAPI):
     luld_subscription_task = asyncio.create_task(manage_luld_subscription())  # LULD para todo el mercado
     minute_agg_subscription_task = asyncio.create_task(manage_minute_agg_subscription())  # AM.* para todo el mercado
     nasdaq_rss_task = asyncio.create_task(poll_nasdaq_rss_halts())  # RSS feed de alta frecuencia
+    trade_subscription_task = asyncio.create_task(manage_trade_subscriptions())
     reconciler_task = asyncio.create_task(reconciler.start())
     
     logger.info(
@@ -1256,6 +1258,128 @@ async def manage_minute_agg_subscription():
                 error_type=type(e).__name__
             )
             minute_agg_subscribed = False
+            await asyncio.sleep(5)
+
+
+
+
+# ============================================================================
+# Trade Subscriptions Manager (T.* for tick-by-tick chart real-time)
+# ============================================================================
+
+async def manage_trade_subscriptions():
+    """
+    Gestiona suscripciones dinámicas de TRADES (T.*) para chart real-time.
+    
+    Cuando un usuario abre un chart, el websocket_server envía un comando
+    a polygon_ws:trade_subscriptions con action=subscribe/unsubscribe.
+    
+    Los trades recibidos se publican a stream:realtime:trades (ya existente
+    en handle_trade), y el chart_aggregator los agrega en micro-velas de 150ms.
+    """
+    global trade_subscribed_tickers
+    
+    logger.info("trade_subscription_manager_started")
+    
+    input_stream = "polygon_ws:trade_subscriptions"
+    consumer_group = "polygon_ws_trades_group"
+    consumer_name = "polygon_ws_trades_consumer"
+    
+    # Crear consumer group si no existe
+    try:
+        await redis_client.create_consumer_group(
+            input_stream,
+            consumer_group,
+            mkstream=True
+        )
+        logger.info(f"Consumer group '{consumer_group}' created for trades")
+    except Exception as e:
+        logger.debug("trades_consumer_group_already_exists", error=str(e))
+    
+    was_authenticated = False
+    
+    while True:
+        try:
+            # Re-suscribir tras reconexión
+            if ws_client.is_authenticated and not was_authenticated:
+                if trade_subscribed_tickers:
+                    logger.info(
+                        "re_subscribing_trades_after_reconnection",
+                        count=len(trade_subscribed_tickers)
+                    )
+                    await ws_client.subscribe_to_tickers(trade_subscribed_tickers, {"T"})
+                was_authenticated = True
+            elif not ws_client.is_authenticated:
+                was_authenticated = False
+            
+            # Leer comandos de suscripción
+            messages = await redis_client.read_stream(
+                stream_name=input_stream,
+                consumer_group=consumer_group,
+                consumer_name=consumer_name,
+                count=100,
+                block=5000
+            )
+            
+            if not messages:
+                continue
+            
+            message_ids_to_ack = []
+            
+            for stream_name, stream_messages in messages:
+                for message_id, data in stream_messages:
+                    action = data.get("action", "").lower()
+                    symbol = data.get("symbol", "").upper()
+                    
+                    if not symbol or not action:
+                        message_ids_to_ack.append(message_id)
+                        continue
+                    
+                    if action == "subscribe":
+                        if symbol not in trade_subscribed_tickers:
+                            trade_subscribed_tickers.add(symbol)
+                            if ws_client.is_authenticated:
+                                await ws_client.subscribe_to_tickers({symbol}, {"T"})
+                                logger.info(
+                                    "trade_subscribed",
+                                    symbol=symbol,
+                                    total=len(trade_subscribed_tickers)
+                                )
+                    
+                    elif action == "unsubscribe":
+                        if symbol in trade_subscribed_tickers:
+                            trade_subscribed_tickers.discard(symbol)
+                            if ws_client.is_authenticated:
+                                await ws_client.unsubscribe_from_tickers({symbol}, {"T"})
+                                logger.info(
+                                    "trade_unsubscribed",
+                                    symbol=symbol,
+                                    total=len(trade_subscribed_tickers)
+                                )
+                    
+                    message_ids_to_ack.append(message_id)
+            
+            # ACK processed messages
+            if message_ids_to_ack:
+                try:
+                    await redis_client.xack(
+                        input_stream,
+                        consumer_group,
+                        *message_ids_to_ack
+                    )
+                except Exception as e:
+                    logger.warning("trade_xack_error", error=str(e))
+        
+        except asyncio.CancelledError:
+            logger.info("trade_subscription_manager_cancelled")
+            raise
+        
+        except Exception as e:
+            logger.error(
+                "trade_subscription_manager_error",
+                error=str(e),
+                error_type=type(e).__name__
+            )
             await asyncio.sleep(5)
 
 

@@ -349,14 +349,18 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openWindow = useCallback((config: Omit<FloatingWindow, 'id' | 'zIndex' | 'isMinimized' | 'isMaximized'> & { id?: string }) => {
-    // Usar ID proporcionado (para restauración) o generar uno nuevo
     const id = config.id || generateWindowId();
     const zIndex = floatingZIndexManager.getNext();
 
-    // Offset para ventanas con el mismo título (cascade effect) - solo si es nueva
     const currentWindows = windowsRef.current;
+
+    // Prevent duplicate windows with the same ID (race condition guard)
+    if (config.id && currentWindows.some((w) => w.id === config.id)) {
+      return id;
+    }
+
     const sameTypeCount = currentWindows.filter((w) => w.title === config.title).length;
-    const offset = config.id ? 0 : sameTypeCount * 30; // Sin offset si restaurando
+    const offset = config.id ? 0 : sameTypeCount * 30;
 
     const newWindow: FloatingWindow = {
       ...config,

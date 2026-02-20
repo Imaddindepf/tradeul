@@ -12,6 +12,8 @@ import { NewsProvider } from '@/components/news/NewsProvider';
 import { InsightsProvider } from '@/components/insights';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
+import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
+import { useEffect } from 'react';
 
 interface AppShellProps {
   children: ReactNode;
@@ -21,6 +23,12 @@ interface AppShellProps {
  * Componente interno que usa hooks globales
  */
 function GlobalHooksHandler() {
+  // Hydrate store from localStorage BEFORE any layout restoration runs.
+  // The store uses skipHydration:true (SSR-safe) so we must manually trigger it.
+  useEffect(() => {
+    useUserPreferencesStore.persist.rehydrate();
+  }, []);
+
   useTradingDayReset();
   useWorkspaceSync({ enableInitialLoad: true });
   return null;

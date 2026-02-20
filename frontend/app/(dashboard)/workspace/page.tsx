@@ -294,13 +294,14 @@ export default function ScannerPage() {
   // Restaurar layout del workspace activo O abrir tablas por defecto
   useEffect(() => {
     if (!mounted) return;
+    // Already restored — skip all branches
+    if (layoutRestoredRef.current) return;
 
-    // NUEVO: Usar workspaces si está disponible
     const workspaceLayouts = activeWorkspace?.windowLayouts || [];
     const hasWorkspaceLayouts = workspaceLayouts.length > 0;
 
     // Caso 1: Workspace tiene ventanas guardadas → restaurarlas
-    if (hasWorkspaceLayouts && !layoutRestoredRef.current) {
+    if (hasWorkspaceLayouts) {
       layoutRestoredRef.current = true;
       initialTablesOpenedRef.current = true;
 
@@ -327,7 +328,7 @@ export default function ScannerPage() {
     }
 
     // LEGACY: Compatibilidad con sistema antiguo (windowLayouts sin workspaces)
-    if (!hasWorkspaceLayouts && hasLayout && !layoutRestoredRef.current) {
+    if (!hasWorkspaceLayouts && hasLayout) {
       layoutRestoredRef.current = true;
       initialTablesOpenedRef.current = true;
       const savedLayout = getSavedLayout();
@@ -360,11 +361,20 @@ export default function ScannerPage() {
       return;
     }
 
-    // Caso 3: Primera vez (nunca ha usado el sistema)
+    // Caso 3: Primera vez — wait for store hydration before opening defaults.
+    // If layoutInitialized is false AND no layouts exist, the store may not be
+    // hydrated yet (skipHydration: true). Only open defaults once we're confident
+    // this is truly a first-time user (layoutInitialized would be true after hydration
+    // for any returning user).
     if (!isLayoutInitialized && !hasLayout && !hasWorkspaceLayouts && !initialTablesOpenedRef.current) {
+      // Check if Zustand has finished hydrating from localStorage.
+      // If it hasn't, skip and let the effect re-run after hydration.
+      const hasHydrated = useUserPreferencesStore.persist?.hasHydrated?.() ?? true;
+      if (!hasHydrated) return;
+
+      layoutRestoredRef.current = true;
       initialTablesOpenedRef.current = true;
 
-      // Cargar categorías de localStorage o usar default
       let categories = DEFAULT_CATEGORIES;
       try {
         const saved = localStorage.getItem('scanner_categories');
@@ -378,7 +388,6 @@ export default function ScannerPage() {
         console.error('Error loading saved categories:', e);
       }
 
-      // Abrir las tablas por defecto con delay para escalonar
       setTimeout(() => {
         categories.forEach((categoryId, index) => {
           setTimeout(() => {
