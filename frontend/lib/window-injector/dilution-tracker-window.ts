@@ -126,7 +126,6 @@ function injectDilutionTrackerContent(
       ></iframe>
     \`;
     
-    console.log('✅ Dilution Tracker loaded in about:blank');
   </script>
 </body>
 </html>
@@ -136,6 +135,5 @@ function injectDilutionTrackerContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] Dilution Tracker injected');
 }
 

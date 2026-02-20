@@ -347,7 +347,6 @@ const DashboardNode = memo(({ data, selected }: NodeProps<WorkflowNodeData>) => 
     // Debug: log when data changes
     useEffect(() => {
         if (data.icon === 'display') {
-            console.log(`[Display Node] hasData=${hasData}, data.data=`, data.data);
         }
     }, [data.data, hasData, data.icon]);
 
@@ -2118,12 +2117,10 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
 
             // Update nodes with real results
             if (result.nodeResults) {
-                console.log('Workflow results:', result.nodeResults);
 
                 setNodes(prev => prev.map(node => {
                     const nodeResult = result.nodeResults[node.id];
                     if (nodeResult) {
-                        console.log(`Node ${node.id} result:`, nodeResult);
 
                         // Parse result data into table format
                         let tableData = node.data.data;
@@ -2138,7 +2135,6 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                                 // Handle combined sources (multiple inputs)
                                 if (toolResult?.displayType === 'combined' && Array.isArray(toolResult?.sources)) {
                                     const sources = toolResult.sources as Array<{ source: string; data: unknown }>;
-                                    console.log(`Display node has ${sources.length} combined sources`);
                                     // Use first source's data
                                     if (sources.length > 0 && sources[0].data) {
                                         const firstData = sources[0].data as Record<string, unknown>;
@@ -2162,14 +2158,7 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                                 }
                             }
 
-                            console.log(`Parsing node ${node.id} (icon=${node.data.icon}):`, {
-                                toolResultKeys: toolResult ? Object.keys(toolResult) : null,
-                                toolResultType: toolResult?.type,
-                                innerDataType: innerData ? (innerData.type || typeof innerData) : null,
-                                hasSectors: !!toolResult?.sectors,
-                                sectorsType: toolResult?.sectors?.type,
-                                sectorsDataIsArray: Array.isArray(toolResult?.sectors?.data)
-                            });
+
 
                             // Handle DataFrame format: { type: 'dataframe', columns: [...], data: [...] }
                             if (innerData?.type === 'dataframe' && Array.isArray(innerData.data)) {
@@ -2232,7 +2221,6 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                             }
                             // Handle sectors format: { sectors: { type: 'dataframe', data: [...] } }
                             else if (toolResult?.sectors?.type === 'dataframe' && Array.isArray(toolResult.sectors.data)) {
-                                console.log(`Node ${node.id}: MATCHED sectors dataframe format!`);
                                 const sectorsData = toolResult.sectors.data;
                                 // Find columns for sector display
                                 const sectorCols = ['sector', 'ticker_count', 'avg_change'];
@@ -2275,7 +2263,6 @@ export const WorkflowEditor = memo(({ onClose, onExecute }: WorkflowEditorProps)
                             console.warn('Error parsing node result:', e);
                         }
 
-                        console.log(`Node ${node.id} tableData:`, tableData);
 
                         return {
                             ...node,

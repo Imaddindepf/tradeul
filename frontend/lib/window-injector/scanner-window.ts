@@ -254,14 +254,12 @@ function injectScannerContent(
     let sortColumn = null;
     let sortDirection = 'desc'; // 'asc' o 'desc'
     
-    console.log('🚀 [Scanner Window] Init:', CONFIG.listName);
     
     // ============================================================
     // WEBSOCKET (SharedWorker)
     // ============================================================
     function initWebSocket() {
       try {
-        console.log('🔌 [Scanner Window] Connecting to SharedWorker:', CONFIG.workerUrl);
         
         sharedWorker = new SharedWorker(CONFIG.workerUrl, {
           name: 'tradeul-websocket'
@@ -285,19 +283,16 @@ function injectScannerContent(
               }
               
               if (msg.isConnected) {
-                console.log('📡 [Scanner Window] Subscribing to list:', CONFIG.listName);
                 workerPort.postMessage({
                   action: 'subscribe_list',
                   list: CONFIG.listName
                 });
-                console.log('✅ [Scanner Window] Subscription sent');
               }
               break;
           }
         };
         
         workerPort.start();
-        console.log('✅ [Scanner Window] Worker port started');
         
         // Escuchar errores del worker
         sharedWorker.onerror = (error) => {
@@ -308,7 +303,6 @@ function injectScannerContent(
           action: 'connect',
           url: CONFIG.wsUrl
         });
-        console.log('📡 [Scanner Window] Connect message sent to worker');
         
       } catch (error) {
         console.error('❌ [Scanner Window] Failed to initialize WebSocket:', error);
@@ -512,7 +506,6 @@ function injectScannerContent(
         sortDirection = 'desc';
       }
       
-      console.log('🔄 [Scanner Window] Sorting by', column, sortDirection);
       renderTable();
     }
     
@@ -881,7 +874,6 @@ function injectScannerContent(
     // INIT
     // ============================================================
     initWebSocket();
-    console.log('✅ Initialized');
   </script>
 </body>
 </html>
@@ -891,5 +883,4 @@ function injectScannerContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] Injected');
 }

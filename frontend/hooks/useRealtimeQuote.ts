@@ -203,7 +203,6 @@ class QuoteManager {
       this.snapshotCache.set(symbol, quote);
 
       if (this.debug) {
-        console.log(`📊 [QuoteManager] Fetched snapshot for ${symbol}: bid=${bidPrice}, ask=${askPrice}`);
       }
 
       return quote;
@@ -227,12 +226,10 @@ class QuoteManager {
   connect(url: string, debug: boolean = false) {
     // Si la URL cambió (ej: se añadió token de auth), reconectar
     if (this.url && this.url !== url && this._isConnected) {
-      if (debug) console.log('📊 [QuoteManager] URL changed, reconnecting...', { old: this.url.substring(0, 50), new: url.substring(0, 50) });
       this.disconnect();
     }
 
     if (this.ws && this.url === url && this._isConnected) {
-      if (debug) console.log('📊 [QuoteManager] Already connected');
       return;
     }
 
@@ -242,13 +239,11 @@ class QuoteManager {
   }
 
   private doConnect() {
-    if (this.debug) console.log('📊 [QuoteManager] Connecting to:', this.url);
 
     try {
       this.ws = new WebSocket(this.url);
 
       this.ws.onopen = () => {
-        if (this.debug) console.log('📊 [QuoteManager] Connected');
         this._isConnected = true;
         this.startHeartbeat();
 
@@ -271,7 +266,6 @@ class QuoteManager {
       };
 
       this.ws.onclose = () => {
-        if (this.debug) console.log('📊 [QuoteManager] Disconnected');
         this._isConnected = false;
         this.stopHeartbeat();
         this.scheduleReconnect();
@@ -349,7 +343,6 @@ class QuoteManager {
       // Fetch prevClose in background (lightweight endpoint)
       this.fetchPrevClose(symbolUpper, this.getTokenFn || undefined).then(prevClose => {
         if (this.debug && prevClose) {
-          console.log(`📊 [QuoteManager] Got prevClose for ${symbolUpper}: $${prevClose}`);
         }
       });
     }
@@ -357,7 +350,6 @@ class QuoteManager {
     this.subscriptions.get(symbolUpper)!.add(callback);
 
     if (this.debug) {
-      console.log(`📊 [QuoteManager] Subscribed to ${symbolUpper} (${this.subscriptions.get(symbolUpper)!.size} listeners)`);
     }
 
     // Enviar último quote conocido inmediatamente
@@ -396,7 +388,6 @@ class QuoteManager {
           }
 
           if (this.debug) {
-            console.log(`📊 [QuoteManager] Last listener removed for ${symbolUpper}`);
           }
         }
       }
@@ -417,7 +408,6 @@ class QuoteManager {
         action: 'subscribe_quote',
         symbol: symbol
       }));
-      if (this.debug) console.log(`📊 [QuoteManager] Sent subscribe for ${symbol}`);
     }
   }
 
@@ -427,7 +417,6 @@ class QuoteManager {
         action: 'unsubscribe_quote',
         symbol: symbol
       }));
-      if (this.debug) console.log(`📊 [QuoteManager] Sent unsubscribe for ${symbol}`);
     }
   }
 
@@ -452,7 +441,6 @@ class QuoteManager {
 
     this.reconnectTimeout = setTimeout(() => {
       this.reconnectTimeout = null;
-      if (this.debug) console.log('📊 [QuoteManager] Reconnecting...');
       this.doConnect();
     }, 3000);
   }
@@ -544,14 +532,12 @@ export function useRealtimeQuote(
             // Añadir token a la URL
             const separator = baseUrl.includes('?') ? '&' : '?';
             wsUrl = `${baseUrl}${separator}token=${token}`;
-            if (debug) console.log('📊 [QuoteManager] Connecting with auth token');
           }
 
           managerRef.current.connect(wsUrl, debug);
           initializedRef.current = true;
         } catch (error) {
           // Si falla obtener token, conectar sin auth
-          console.warn('📊 [QuoteManager] Failed to get token, connecting without auth:', error);
           managerRef.current.connect(baseUrl, debug);
           initializedRef.current = true;
         }
@@ -576,7 +562,6 @@ export function useRealtimeQuote(
               action: 'refresh_token',
               token: newToken,
             }));
-            if (debug) console.log('📊 [QuoteManager] Token refreshed');
           }
         }
       } catch (error) {

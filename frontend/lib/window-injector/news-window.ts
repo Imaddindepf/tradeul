@@ -53,7 +53,6 @@ export async function openNewsWindow(
   if (data.existingArticles && data.existingArticles.length > 0) {
     // Use articles from the store (already accumulated)
     initialNews = data.existingArticles;
-    console.log(`✅ [News Window] Using ${initialNews.length} existing articles from store`);
   } else {
     // Fallback: Pre-fetch news data BEFORE opening about:blank
     try {
@@ -169,14 +168,12 @@ function injectNewsContent(
     
     const VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
     
-    console.log('🚀 [News Window] Init with', newsData.length, 'articles');
     
     // ============================================================
     // WEBSOCKET (SharedWorker)
     // ============================================================
     function initWebSocket() {
       try {
-        console.log('🔌 [News Window] Connecting to SharedWorker');
         
         sharedWorker = new SharedWorker(CONFIG.workerUrl, { name: 'tradeul-websocket' });
         workerPort = sharedWorker.port;
@@ -192,7 +189,6 @@ function injectNewsContent(
               updateConnectionStatus(msg.isConnected);
               if (msg.isConnected) {
                 workerPort.postMessage({ action: 'subscribe_news' });
-                console.log('✅ [News Window] Subscribed to news');
               }
               break;
           }
@@ -367,9 +363,7 @@ function injectNewsContent(
     }
     
     window.selectArticle = function(id) {
-      console.log('selectArticle called with id:', id);
       selectedArticle = newsData.find(a => String(a.benzinga_id || a.id) === String(id)) || null;
-      console.log('selectedArticle:', selectedArticle ? selectedArticle.title : 'not found');
       render();
     }
     
@@ -388,7 +382,6 @@ function injectNewsContent(
         const row = e.target.closest('[data-article-id]');
         if (row) {
           const id = row.getAttribute('data-article-id');
-          console.log('Row clicked, article id:', id);
           selectArticle(id);
         }
       });
@@ -625,7 +618,6 @@ function injectNewsContent(
     setupClickHandlers();
     render();
     initWebSocket();
-    console.log('✅ News Window initialized');
   <\/script>
 </body>
 </html>
@@ -635,6 +627,5 @@ function injectNewsContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] News injected');
 }
 

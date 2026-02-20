@@ -419,11 +419,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     isConnectingRef.current = true;
 
     const wsUrl = `${WS_BASE}/ws/chat/${clientIdRef.current}`;
-    console.log('Connecting to AI Agent V4:', wsUrl);
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log('AI Agent V4 WebSocket connected');
       isConnectingRef.current = false;
       reconnectAttemptsRef.current = 0;
       setIsConnected(true);
@@ -433,7 +431,6 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     ws.onmessage = handleWSMessage;
 
     ws.onclose = (event) => {
-      console.log('AI Agent V4 WebSocket closed:', event.code, event.reason);
       setIsConnected(false);
       isConnectingRef.current = false;
       wsRef.current = null;
@@ -450,7 +447,6 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
       const maxDelay = 30000;
       const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
       reconnectAttemptsRef.current = attempt + 1;
-      console.log(`WebSocket reconnect in ${Math.round(delay)}ms (attempt ${attempt + 1})`);
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
       }, delay);

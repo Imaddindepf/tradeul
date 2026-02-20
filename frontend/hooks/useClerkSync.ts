@@ -144,7 +144,6 @@ export function useClerkSync() {
                 lastSyncRef.current = data.updatedAt;
                 hasLoadedRef.current = true;
 
-                // console.log('[ClerkSync] Preferencias cargadas del servidor');
             }
         } catch (error) {
             console.error('[ClerkSync] Error cargando preferencias:', error);
@@ -199,7 +198,6 @@ export function useClerkSync() {
             if (response.ok) {
                 const result = await response.json();
                 lastSyncRef.current = result.updatedAt;
-                // console.log('[ClerkSync] Preferencias guardadas en servidor');
             }
         } catch (error) {
             console.error('[ClerkSync] Error guardando preferencias:', error);
@@ -271,7 +269,6 @@ export function useSaveLayoutToCloud() {
 
     const saveLayout = useCallback(async () => {
         if (!isSignedIn || !userId) {
-            console.warn('[ClerkSync] Usuario no autenticado, guardando solo en local');
             return false;
         }
 

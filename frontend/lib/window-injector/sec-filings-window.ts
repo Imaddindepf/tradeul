@@ -172,7 +172,6 @@ function injectSECFilingsContent(
       distress: { label: 'Distress', categories: ['distress'], items8K: ['1.03', '2.04', '3.01'] },
     };
     
-    console.log('🚀 [SEC Window] Init');
     
     // ============================================================
     // HELPERS
@@ -234,7 +233,6 @@ function injectSECFilingsContent(
         params.append('page_size', PAGE_SIZE.toString());
         params.append('from_index', ((page - 1) * PAGE_SIZE).toString());
         
-        console.log('📄 SEC Query:', CONFIG.secApiBaseUrl + '/api/v1/filings/live?' + params);
         const response = await fetch(CONFIG.secApiBaseUrl + '/api/v1/filings/live?' + params);
         
         if (!response.ok) throw new Error('HTTP ' + response.status);
@@ -578,7 +576,6 @@ function injectSECFilingsContent(
     // ============================================================
     fetchFilings(1);
     initWebSocket();
-    console.log('✅ SEC Window initialized');
   </script>
 </body>
 </html>
@@ -588,6 +585,5 @@ function injectSECFilingsContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] SEC Filings injected');
 }
 

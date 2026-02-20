@@ -237,7 +237,6 @@ function injectNotesContent(
     let activeNoteId = ${JSON.stringify(data.activeNoteId)};
     let saveTimeout = null;
     
-    console.log('📝 [Notes] Init with', notes.length, 'notes');
     
     // ============================================================
     // PERSISTENCE
@@ -550,7 +549,6 @@ function injectNotesContent(
     }
     
     init();
-    console.log('✅ [Notes] Initialized');
   </script>
 </body>
 </html>
@@ -560,6 +558,5 @@ function injectNotesContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] Notes injected');
 }
 

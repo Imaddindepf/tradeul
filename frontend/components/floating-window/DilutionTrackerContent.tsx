@@ -92,7 +92,6 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
           ticker={ticker}
           companyName={companyName}
           onComplete={(success) => {
-            console.log(`[DilutionTracker] AI Terminal completed for ${ticker}, success=${success}`);
           }}
         />
       ),
@@ -109,7 +108,6 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
   // Callback cuando un job de scraping completa
   const handleJobComplete = useCallback(async (ticker: string) => {
-    console.log(`[DilutionTracker] Job completed for ${ticker}, selectedTicker=${selectedTicker}`);
 
     // Remover de pending
     setPendingJobs(prev => {
@@ -120,30 +118,24 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
     // Si el ticker completado es el que estamos viendo
     if (ticker.toUpperCase() === selectedTicker?.toUpperCase()) {
-      console.log(`[DilutionTracker] Refreshing SEC data for active ticker ${ticker}...`);
 
       // Re-chequear caché (ahora debería tener datos)
       try {
         const cacheResult = await checkSECCache(ticker, false);
-        console.log(`[DilutionTracker] Cache check result:`, cacheResult.status, cacheResult);
 
         if (cacheResult.status === 'cached' && cacheResult.data) {
-          console.log(`[DilutionTracker] Got fresh SEC data for ${ticker}`);
           setSecCacheData(cacheResult.data);
           setSecJobStatus('none');
           // La terminal AI sigue corriendo independientemente - no la cerramos
         } else {
-          console.warn(`[DilutionTracker] Cache still empty after job complete for ${ticker}`);
           setSecJobStatus('none');
         }
       } catch (err) {
-        console.error('[DilutionTracker] Failed to refresh SEC data:', err);
         setSecJobStatus('none');
       }
 
     } else {
       // Si es otro ticker, mostrar notificación
-      console.log(`[DilutionTracker] Job for ${ticker} but viewing ${selectedTicker}, showing notification`);
       setJobNotification({
         ticker,
         message: `${ticker} analysis ready!`
@@ -161,7 +153,6 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
     tickers: selectedTicker ? [selectedTicker] : [],
     onJobComplete: handleJobComplete,
     onJobFailed: (ticker, error) => {
-      console.error(`[DilutionTracker] Job failed for ${ticker}:`, error);
       setPendingJobs(prev => {
         const next = new Set(prev);
         next.delete(ticker);
@@ -217,20 +208,16 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
 
     // 🆕 PASO 1: Chequear caché SEC (NO BLOQUEA)
     // Este es el cambio clave - primero chequeamos si hay datos cacheados
-    console.log(`[DilutionTracker] Checking SEC cache for ${ticker}...`);
 
     try {
       const cacheResult = await checkSECCache(ticker, !options?.skipEnqueue);
-      console.log(`[DilutionTracker] Cache check result:`, cacheResult.status);
 
       if (cacheResult.status === 'cached' && cacheResult.data) {
         // ✅ HAY DATOS EN CACHÉ - mostrar inmediatamente
-        console.log(`[DilutionTracker] Cache HIT for ${ticker}`);
         setSecCacheData(cacheResult.data);
         setSecJobStatus('none');
       } else {
         // ❌ NO HAY CACHÉ - abrir terminal AI en ventana flotante
-        console.log(`[DilutionTracker] Cache MISS for ${ticker}, job_status: ${cacheResult.job_status}`);
         setSecCacheData(null);
         setSecJobStatus(cacheResult.job_status || 'none');
 
@@ -245,7 +232,6 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
         }
       }
     } catch (cacheErr) {
-      console.warn('[DilutionTracker] Cache check failed:', cacheErr);
       // Fallback: abrir terminal AI
       if (!options?.skipEnqueue) {
         openAITerminal(ticker);
@@ -273,7 +259,6 @@ export function DilutionTrackerContent({ initialTicker }: DilutionTrackerContent
         const sharesData = await getSharesHistory(ticker);
         if (sharesData && sharesData.history) {
           setSharesHistory(sharesData);
-          console.log(`[DilutionTracker] Got SEC EDGAR shares history for ${ticker}:`, sharesData.history?.length || 0, 'records');
         }
       } catch (sharesErr) {
         console.warn('Could not fetch SEC shares history:', sharesErr);

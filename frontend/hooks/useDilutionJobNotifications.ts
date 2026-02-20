@@ -137,7 +137,6 @@ export function useDilutionJobNotifications({
 
     // Evitar encolar múltiples veces el mismo ticker
     if (pendingEnqueuesRef.current.has(upperTicker)) {
-      console.log('[DilutionJob] Job already pending for:', upperTicker);
       return { status: 'already_pending', ticker: upperTicker };
     }
 
@@ -199,28 +198,23 @@ export function useDilutionJobNotifications({
   const connect = useCallback(() => {
     // Evitar múltiples conexiones simultáneas
     if (isConnectingRef.current) {
-      console.log('[DilutionJob] Already connecting, skipping...');
       return;
     }
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('[DilutionJob] Already connected, skipping...');
       return;
     }
 
     if (wsRef.current?.readyState === WebSocket.CONNECTING) {
-      console.log('[DilutionJob] Connection in progress, skipping...');
       return;
     }
 
     isConnectingRef.current = true;
-    console.log('[DilutionJob] Connecting to WebSocket...');
 
     try {
       const ws = new WebSocket(DILUTION_WS_URL);
 
       ws.onopen = () => {
-        console.log('[DilutionJob] WebSocket connected');
         isConnectingRef.current = false;
         setState(prev => ({ ...prev, isConnected: true }));
 
@@ -241,7 +235,6 @@ export function useDilutionJobNotifications({
             // Deduplicación: ignorar si ya procesamos este ticker recientemente
             const lastProcessed = processedJobsRef.current.get(ticker);
             if (lastProcessed && (now - lastProcessed) < DEDUP_WINDOW_MS) {
-              console.log('[DilutionJob] Ignoring duplicate job_complete for:', ticker);
               return;
             }
 
@@ -255,7 +248,6 @@ export function useDilutionJobNotifications({
               }
             });
 
-            console.log('[DilutionJob] Job completed:', ticker);
             setState(prev => ({ ...prev, lastNotification: data }));
 
             if (data.data.status === 'completed') {
@@ -270,7 +262,6 @@ export function useDilutionJobNotifications({
       };
 
       ws.onclose = (event) => {
-        console.log('[DilutionJob] WebSocket disconnected, code:', event.code);
         isConnectingRef.current = false;
         setState(prev => ({ ...prev, isConnected: false }));
         wsRef.current = null;
@@ -300,7 +291,6 @@ export function useDilutionJobNotifications({
     }
 
     return () => {
-      console.log('[DilutionJob] Cleanup: closing WebSocket');
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;

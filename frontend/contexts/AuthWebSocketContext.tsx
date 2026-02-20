@@ -78,7 +78,6 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
 
             if (!isSignedIn) {
                 // Usuario no autenticado - conectar sin token
-                console.log('🔐 [AuthWSProvider] No signed in, connecting without auth');
                 setWsUrl(WS_BASE_URL);
                 setIsAuthenticated(false);
                 setIsReady(true);
@@ -152,13 +151,11 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
 
         const subscription = ws.tokenRefreshRequest$.subscribe(async () => {
             try {
-                console.log('🔐 [AuthWSProvider] SharedWorker requested fresh token');
                 const newToken = await getToken({ skipCache: true });
                 if (newToken) {
                     tokenRef.current = newToken;
                     const newUrl = buildAuthUrl(WS_BASE_URL, newToken);
                     ws.updateToken(newUrl, newToken);
-                    console.log('🔐 [AuthWSProvider] Fresh token sent to SharedWorker');
                 }
             } catch (error) {
                 console.error('🔐 [AuthWSProvider] Failed to get fresh token:', error);

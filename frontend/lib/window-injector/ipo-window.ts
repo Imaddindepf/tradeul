@@ -282,7 +282,6 @@ function injectIPOContent(
 
     // Init
     fetchIPOs();
-    console.log('✅ IPO Window initialized');
   </script>
 </body>
 </html>
@@ -292,7 +291,6 @@ function injectIPOContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] IPO injected');
 }
 
 

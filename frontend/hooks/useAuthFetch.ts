@@ -61,7 +61,6 @@ export function useAuthFetch() {
         
         // If 401, retry ONCE with fresh token (skipCache: true)
         if (response.status === 401) {
-            console.warn('🔐 [authFetch] 401 received, retrying with fresh token...');
             return doFetch(true);
         }
         
@@ -126,7 +125,6 @@ export async function authFetchStandalone(
     
     // Retry once with fresh token on 401
     if (response.status === 401) {
-        console.warn('🔐 [authFetchStandalone] 401 received, retrying with fresh token...');
         return doFetch(true);
     }
     

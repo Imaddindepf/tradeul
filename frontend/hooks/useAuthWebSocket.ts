@@ -63,7 +63,6 @@ export function useAuthWebSocket(
 
             if (!isSignedIn) {
                 // No autenticado - conectar sin token (si auth no está habilitada en backend)
-                if (debug) console.log('🔐 [AuthWS] Not signed in, connecting without auth');
                 setWsUrl(baseUrl);
                 setIsAuthenticated(false);
                 return;
@@ -76,7 +75,6 @@ export function useAuthWebSocket(
                     tokenRef.current = token;
                     const urlWithToken = buildAuthUrl(baseUrl, token);
 
-                    if (debug) console.log('🔐 [AuthWS] Got fresh token, URL:', urlWithToken.substring(0, 80) + '...');
 
                     setWsUrl(urlWithToken);
                     setIsAuthenticated(true);
@@ -105,7 +103,6 @@ export function useAuthWebSocket(
     useEffect(() => {
         if (wsUrl && wsUrl !== previousUrlRef.current) {
             previousUrlRef.current = wsUrl;
-            if (debug) console.log('🔐 [AuthWS] URL with token ready, reconnecting...');
             // Forzar reconexión con la nueva URL (el singleton detectará el cambio)
             if (ws.reconnect) {
                 setTimeout(() => {
@@ -134,7 +131,6 @@ export function useAuthWebSocket(
                     // - Si esperando reconexión: reconecta con el token fresco
                     ws.updateToken(newUrl, newToken);
 
-                    if (debug) console.log('🔐 [AuthWS] Token refreshed');
                 }
             } catch (error) {
                 console.error('🔐 [AuthWS] Token refresh failed:', error);
@@ -157,13 +153,11 @@ export function useAuthWebSocket(
 
         const subscription = ws.tokenRefreshRequest$.subscribe(async () => {
             try {
-                if (debug) console.log('🔐 [AuthWS] SharedWorker requested fresh token for reconnection');
                 const newToken = await getToken({ skipCache: true });
                 if (newToken) {
                     tokenRef.current = newToken;
                     const newUrl = buildAuthUrl(baseUrl, newToken);
                     ws.updateToken(newUrl, newToken);
-                    if (debug) console.log('🔐 [AuthWS] Fresh token sent to SharedWorker');
                 }
             } catch (error) {
                 console.error('🔐 [AuthWS] Failed to get fresh token for reconnection:', error);

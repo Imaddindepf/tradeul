@@ -445,7 +445,6 @@ export default function ScannerPage() {
   useEffect(() => {
     const subscription = ws.messages$.subscribe((message: any) => {
       if (message.type === 'market_session_change' && message.data) {
-        console.log('📊 Market session changed:', message.data);
 
         // Actualizar el estado de sesión inmediatamente
         setSession((prev) => ({

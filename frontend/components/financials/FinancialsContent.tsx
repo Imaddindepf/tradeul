@@ -211,7 +211,6 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
         try {
             const effectivePeriod = period ?? periodFilter;
             const url = `${API_URL}/api/v1/financials/${ticker}?period=${effectivePeriod}&limit=12`;
-            console.log('[DEBUG] Fetching:', url);
             const response = await fetch(url);
 
             if (!response.ok) {
@@ -248,7 +247,6 @@ export function FinancialsContent({ initialTicker }: FinancialsContentProps) {
 
     // Handle period change
     const handlePeriodChange = useCallback((newPeriod: PeriodFilter) => {
-        console.log('[DEBUG] handlePeriodChange:', newPeriod);
         setPeriodFilter(newPeriod);
         if (selectedTicker) {
             fetchData(selectedTicker, newPeriod);

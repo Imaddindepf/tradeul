@@ -14,7 +14,6 @@ import { ArrowLeft } from 'lucide-react';
 export default function EventPage() {
   const handleSubmit = async (payload: EventSignupPayload) => {
     // Prototipo: solo log. En producción aquí iría tu API (ej. POST /api/event-signup)
-    console.log('Event signup payload:', payload);
     await new Promise((r) => setTimeout(r, 800));
   };
 

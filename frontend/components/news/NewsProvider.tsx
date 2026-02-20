@@ -98,7 +98,6 @@ export function NewsProvider({ children }: NewsProviderProps) {
             addNewsArticlesBatchToTickers(tickerArticles);
           }
 
-          console.log(`[NewsProvider] Initial load: ${addedCount} articles`);
           markInitialLoadComplete();
         }
       } catch (error) {
@@ -135,11 +134,9 @@ export function NewsProvider({ children }: NewsProviderProps) {
     }
 
     // Suscribir a noticias usando el método dedicado del SharedWorker
-    console.log('[NewsProvider] 📰 Subscribing to benzinga news...');
     ws.subscribeNews();
     isSubscribedRef.current = true;
     setSubscribed(true);
-    console.log('[NewsProvider] ✅ Subscribed to benzinga news');
 
     // NO retornamos cleanup aquí - la desuscripción solo ocurre cuando
     // isConnected cambia a false (manejado arriba)
@@ -151,7 +148,6 @@ export function NewsProvider({ children }: NewsProviderProps) {
       if (isSubscribedRef.current) {
         ws.unsubscribeNews();
         isSubscribedRef.current = false;
-        console.log('[NewsProvider] 🔌 Unsubscribed on unmount');
       }
     };
   }, [ws.unsubscribeNews]);

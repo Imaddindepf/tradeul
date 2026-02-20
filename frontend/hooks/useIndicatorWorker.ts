@@ -201,7 +201,6 @@ export function useIndicatorWorker() {
 
   useEffect(() => {
     if (typeof Worker === 'undefined') {
-      console.warn('[useIndicatorWorker] Web Workers not supported');
       setError('Web Workers not supported');
       return;
     }
@@ -212,17 +211,12 @@ export function useIndicatorWorker() {
       workerRef.current.onmessage = (event: MessageEvent<WorkerMessage>) => {
         const { type, requestId, data, error: workerError, duration } = event.data;
 
-        console.log('[useIndicatorWorker] Message received:', type, { hasData: !!data, duration });
 
         switch (type) {
           case 'result':
             setIsCalculating(false);
             setError(null);
             if (data) {
-              console.log('[useIndicatorWorker] Setting results:', {
-                overlays: Object.keys(data.overlays || {}),
-                panels: Object.keys(data.panels || {}),
-              });
               setResults(data);
             }
             if (duration) {
@@ -249,7 +243,6 @@ export function useIndicatorWorker() {
             break;
 
           case 'debug':
-            console.log('[Worker Debug]', event.data.message);
             break;
         }
       };
@@ -286,7 +279,6 @@ export function useIndicatorWorker() {
     onResult?: (results: IndicatorResults) => void
   ) => {
     if (!workerRef.current || !isReady) {
-      console.warn('[useIndicatorWorker] Worker not ready');
       return;
     }
 

@@ -49,18 +49,15 @@ export function MorningNewsProvider({ children }: MorningNewsProviderProps) {
 
                 // Evitar abrir multiples veces para el mismo dia
                 if (hasOpenedTodayRef.current === newsDate) {
-                    console.log('[MorningNews] Already opened for today, skipping');
                     return;
                 }
 
                 // Verificar si ya hay una ventana de Morning News abierta
                 const existingWindow = windows.find(w => w.title === 'Morning News Call');
                 if (existingWindow) {
-                    console.log('[MorningNews] Window already open, skipping');
                     return;
                 }
 
-                console.log('[MorningNews] Opening Morning News window for', newsDate);
                 hasOpenedTodayRef.current = newsDate;
 
                 // Calcular posicion centrada

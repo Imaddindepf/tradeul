@@ -211,7 +211,6 @@ export function useLiveChartData(
     if (!subscribedRef.current) {
       send({ action: 'subscribe_chart', symbol: tickerRef.current });
       subscribedRef.current = true;
-      console.log(`📈 [LiveChart] Subscribed to ${tickerRef.current}`);
     }
 
     // Suscribirse al observable de mensajes
@@ -317,7 +316,6 @@ export function useLiveChartData(
       if (subscribedRef.current) {
         send({ action: 'unsubscribe_chart', symbol: tickerRef.current });
         subscribedRef.current = false;
-        console.log(`📉 [LiveChart] Unsubscribed from ${tickerRef.current}`);
       }
       subscription.unsubscribe();
       setIsLive(false);

@@ -607,7 +607,6 @@ function injectMultipleSecurityContent(
         renderChart();
       }
       
-      console.log('✅ [MP] Multiple Security Window initialized');
     }
     
     init();
@@ -620,5 +619,4 @@ function injectMultipleSecurityContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] Multiple Security injected');
 }

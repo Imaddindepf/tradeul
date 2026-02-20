@@ -212,7 +212,6 @@ export function useCatalystDetector() {
     // Reproducir sonido
     playSound(alertType);
     
-    console.log(`[Catalyst] ALERT ${alertType.toUpperCase()}:`, ticker, reason);
   }, [enabled, checkCriteria, addAlert, playSound]);
   
   return {

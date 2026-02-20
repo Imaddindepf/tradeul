@@ -514,7 +514,6 @@ export function QuoteMonitor() {
 
   // Handle row click - open DES
   const handleRowClick = useCallback((symbol: string) => {
-    console.log('Open DES for', symbol);
   }, []);
 
   // Drag & Drop handlers

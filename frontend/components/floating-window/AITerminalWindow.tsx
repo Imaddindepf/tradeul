@@ -464,7 +464,6 @@ export function AITerminalWindow({
         startedRef.current = true;
 
         const url = `${DILUTION_API}/api/sec-dilution/${ticker}/preliminary/stream${companyName ? `?company_name=${encodeURIComponent(companyName)}` : ''}`;
-        console.log('[AITerminal] Starting stream:', url);
 
         const abortController = new AbortController();
         abortRef.current = abortController;
@@ -488,7 +487,6 @@ export function AITerminalWindow({
             credentials: 'omit',
         })
             .then(async response => {
-                console.log('[AITerminal] Response:', response.status);
 
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 

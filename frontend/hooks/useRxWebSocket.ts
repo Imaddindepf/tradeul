@@ -92,13 +92,11 @@ class WebSocketManager {
 
     // Si ya hay una conexión con la misma URL, no hacer nada
     if ((this.ws$ || this.sharedWorker) && this.url === url) {
-      if (effectiveDebug) console.log('🔄 [RxWS] Already connected, reusing connection');
       return;
     }
 
     // Si la URL cambió (ej: se añadió token de auth), reconectar
     if (this.url && this.url !== url) {
-      if (effectiveDebug) console.log('🔄 [RxWS] URL changed, reconnecting...');
       this.disconnect();
     }
 
@@ -107,7 +105,6 @@ class WebSocketManager {
 
     // Limpiar conexiones anteriores
     if (this.ws$) {
-      if (this.debug) console.log('🔌 [RxWS] Closing existing connection');
       this.ws$.complete();
       this.ws$ = null;
     }
@@ -124,13 +121,11 @@ class WebSocketManager {
     }
 
     // FALLBACK: WebSocket directo (código original)
-    if (this.debug) console.log('🚀 [RxWS] Creating direct WebSocket to:', url);
 
     const wsConfig: WebSocketSubjectConfig<any> = {
       url,
       openObserver: {
         next: () => {
-          if (this.debug) console.log('🟢 [RxWS-Singleton] Connection opened');
           this.isConnected.next(true);
           this.reconnectAttempt = 0;
           this.startHeartbeat();
@@ -138,7 +133,6 @@ class WebSocketManager {
       },
       closeObserver: {
         next: () => {
-          if (this.debug) console.log('🔴 [RxWS-Singleton] Connection closed');
           this.isConnected.next(false);
           this.connectionId.next(null);
           this.stopHeartbeat();
@@ -166,7 +160,6 @@ class WebSocketManager {
               break;
             case 'connected':
               this.connectionId.next(message.connection_id || null);
-              if (this.debug) console.log('✅ [RxWS-Singleton] Connection ID:', message.connection_id);
               break;
           }
         }),
@@ -176,8 +169,6 @@ class WebSocketManager {
               this.reconnectAttempt++;
               this.errorsSubject.next(error as Error);
               if (this.debug) {
-                console.error('❌ [RxWS-Singleton] Error:', error);
-                console.log(`🔄 [RxWS-Singleton] Reconnecting... (attempt ${this.reconnectAttempt})`);
               }
             }),
             switchMap((_, attempt) => {
@@ -187,7 +178,6 @@ class WebSocketManager {
           )
         ),
         catchError((error) => {
-          if (this.debug) console.error('❌ [RxWS-Singleton] Fatal error:', error);
           this.isConnected.next(false);
           return EMPTY;
         })
@@ -205,15 +195,12 @@ class WebSocketManager {
     } else if (this.ws$ && this.isConnected.value) {
       // Enviar directamente (fallback)
       this.ws$.next(message);
-      if (this.debug) console.log('📤 [RxWS] Message sent:', message);
     } else {
-      if (this.debug) console.warn('⚠️ [RxWS] Cannot send, not connected');
     }
   }
 
   subscribe(listName: string) {
     this.subscribers.add(listName);
-    if (this.debug) console.log(`📋 [RxWS] Subscribed to list: ${listName} (total: ${this.subscribers.size})`);
 
     if (this.workerPort) {
       // Suscribir a través del SharedWorker
@@ -229,7 +216,6 @@ class WebSocketManager {
 
   unsubscribe(listName: string) {
     this.subscribers.delete(listName);
-    if (this.debug) console.log(`📋 [RxWS] Unsubscribed from list: ${listName} (total: ${this.subscribers.size})`);
 
     if (this.workerPort) {
       // Desuscribir a través del SharedWorker
@@ -247,7 +233,6 @@ class WebSocketManager {
    * 📰 Suscribir a News
    */
   subscribeNews() {
-    if (this.debug) console.log('📰 [RxWS] Subscribing to news...');
 
     if (this.workerPort) {
       this.workerPort.postMessage({
@@ -262,7 +247,6 @@ class WebSocketManager {
    * 📰 Desuscribir de News
    */
   unsubscribeNews() {
-    if (this.debug) console.log('📰 [RxWS] Unsubscribing from news...');
 
     if (this.workerPort) {
       this.workerPort.postMessage({
@@ -286,11 +270,9 @@ class WebSocketManager {
         url: newUrl,
         token: token
       });
-      if (this.debug) console.log('🔐 [RxWS] Token updated in SharedWorker');
     } else {
       // Sin SharedWorker, enviar directamente
       this.send({ action: 'refresh_token', token });
-      if (this.debug) console.log('🔐 [RxWS] Token refreshed directly');
     }
   }
 
@@ -344,7 +326,6 @@ class WebSocketManager {
               break;
             case 'connected':
               this.connectionId.next(message.connection_id || null);
-              if (this.debug) console.log('✅ [RxWS-SharedWorker] Connection ID:', message.connection_id);
               break;
           }
           break;
@@ -353,7 +334,6 @@ class WebSocketManager {
           // Estado de conexión del worker
           this.isConnected.next(msg.isConnected);
           if (this.debug) {
-            console.log(`📊 [RxWS-SharedWorker] Status: ${msg.isConnected ? 'connected' : 'disconnected'} (${msg.activePorts} tabs)`);
           }
           break;
 
@@ -362,14 +342,12 @@ class WebSocketManager {
           if (this.debug) {
             const emojiMap: Record<string, string> = { info: 'ℹ️', warn: '⚠️', error: '❌' };
             const emoji = emojiMap[msg.level] || '📝';
-            console.log(`${emoji} [SharedWorker]`, msg.message, msg.data || '');
           }
           break;
 
         case 'request_fresh_token':
           // SharedWorker necesita un token nuevo para reconectar
           // Emitir evento para que useAuthWebSocket lo maneje
-          if (this.debug) console.log('🔐 [RxWS-SharedWorker] Token refresh requested for reconnection');
           this.tokenRefreshRequestSubject.next(true);
           break;
       }
@@ -388,11 +366,9 @@ class WebSocketManager {
       url: url
     });
 
-    if (this.debug) console.log('✅ [RxWS] SharedWorker initialized');
   }
 
   disconnect() {
-    if (this.debug) console.log('🔌 [RxWS] Disconnecting...');
     this.stopHeartbeat();
 
     if (this.workerPort) {
@@ -575,11 +551,9 @@ export function useListSubscription(listName: string, debug: boolean = false) {
   useEffect(() => {
     if (!isConnected) return;
 
-    if (effectiveDebug) console.log(`🔗 [useListSubscription] Subscribing to: ${listName}`);
     manager.subscribe(listName);
 
     return () => {
-      if (effectiveDebug) console.log(`🔗 [useListSubscription] Unsubscribing from: ${listName}`);
       manager.unsubscribe(listName);
     };
   }, [listName, isConnected, effectiveDebug]);
@@ -604,7 +578,6 @@ export function useMultiListSubscription(listNames: string[], debug: boolean = f
   useEffect(() => {
     if (!isConnected || listNames.length === 0) return;
 
-    if (effectiveDebug) console.log(`🔗 [useMultiListSubscription] Subscribing to ${listNames.length} lists:`, listNames);
 
     // Suscribirse a todas las listas
     listNames.forEach(listName => {
@@ -612,7 +585,6 @@ export function useMultiListSubscription(listNames: string[], debug: boolean = f
     });
 
     return () => {
-      if (effectiveDebug) console.log(`🔗 [useMultiListSubscription] Unsubscribing from ${listNames.length} lists`);
       listNames.forEach(listName => {
         manager.unsubscribe(listName);
       });

@@ -399,11 +399,9 @@ function injectFinancialChartContent(
       clearTimeout(resizeTimeout);
       resizeTimeout = setTimeout(function() {
         // Chart.js auto-resizes with responsive: true
-        console.log('📐 Window resized');
       }, 100);
     });
 
-    console.log('✅ Financial Chart initialized with full styling');
   </script>
 </body>
 </html>
@@ -413,6 +411,5 @@ function injectFinancialChartContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] Financial Chart injected');
 }
 

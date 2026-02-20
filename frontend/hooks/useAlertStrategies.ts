@@ -87,7 +87,6 @@ export function useAlertStrategies() {
 
     // If 401 (JWT expired), retry ONCE with fresh token
     if (response.status === 401) {
-      console.warn('🔐 [AlertStrategies] 401 received, retrying with fresh token...');
       response = await doFetch(true);
     }
 

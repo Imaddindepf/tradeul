@@ -145,7 +145,6 @@ export function useHeatmapWorker({
     }
 
     const duration = performance.now() - start;
-    console.log(`[Heatmap] Processed ${ids.length} items in ${duration.toFixed(1)}ms`);
 
     return { ids, labels, parents, values, colors, customdata };
   }, [data, colorMetric, sizeMetric, viewLevel, selectedSector]);

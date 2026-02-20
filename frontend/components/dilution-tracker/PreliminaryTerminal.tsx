@@ -46,7 +46,6 @@ export function PreliminaryTerminal({
     startedRef.current = true;
 
     const url = `${DILUTION_API}/api/sec-dilution/${ticker}/preliminary/stream${companyName ? `?company_name=${encodeURIComponent(companyName)}` : ''}`;
-    console.log('[Terminal] Starting stream:', url);
 
     const abortController = new AbortController();
     abortRef.current = abortController;
@@ -71,7 +70,6 @@ export function PreliminaryTerminal({
       credentials: 'omit', // No credentials for CORS
     })
       .then(async response => {
-        console.log('[Terminal] Response:', response.status);
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);

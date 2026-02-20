@@ -57,6 +57,7 @@ import {
 } from './constants';
 import { formatPrice, formatVolume, roundToInterval } from './formatters';
 import { calculateSMA, calculateEMA } from './indicators';
+import { IncrementalIndicatorEngine } from './IncrementalIndicatorEngine';
 import type { ChartContext, ChartSnapshot } from '@/components/ai-agent/types';
 import type { IndicatorResults } from '@/hooks/useIndicatorWorker';
 import type { Drawing } from '@/hooks/useChartDrawings';
@@ -415,6 +416,9 @@ function TradingChartComponent({
     // Panel indicator series refs (pane-based)
     const panelSeriesRef = useRef<Map<string, Map<string, ISeriesApi<any>>>>(new Map());
     const panelPaneIndexRef = useRef<Map<string, number>>(new Map());
+
+    // Incremental indicator engine for real-time updates
+    const engineRef = useRef<IncrementalIndicatorEngine | null>(null);
 
     // Watermark ref for updates
     const watermarkRef = useRef<any>(null);
@@ -1456,6 +1460,26 @@ function TradingChartComponent({
     handleNewsMarkerClickRef.current = handleNewsMarkerClick;
 
     // ============================================================================
+    // Initialize incremental indicator engine (for real-time updates)
+    // ============================================================================
+    useEffect(() => {
+        if (data.length === 0) return;
+        const engine = new IncrementalIndicatorEngine();
+        const active: string[] = [
+            ...(showMA ? ['sma20', 'sma50'] : []),
+            ...(showEMA ? ['ema12', 'ema26'] : []),
+            ...activeOverlays,
+            ...activePanels,
+        ];
+        if (active.length === 0) {
+            engineRef.current = null;
+            return;
+        }
+        engine.initialize(data, active);
+        engineRef.current = engine;
+    }, [data, showMA, showEMA, activeOverlays, activePanels]);
+
+    // ============================================================================
     // Register real-time update handler
     // ============================================================================
     useEffect(() => {
@@ -1492,6 +1516,79 @@ function TradingChartComponent({
                 const logicalRange = timeScale.getVisibleLogicalRange();
                 if (logicalRange && logicalRange.to >= data.length - 5) {
                     timeScale.scrollToRealTime();
+                }
+            }
+
+            // ── Real-time indicator updates ──────────────────────────────
+            if (engineRef.current) {
+                const vals = engineRef.current.update(
+                    { time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume },
+                    isNewBar,
+                );
+                const time = bar.time as UTCTimestamp;
+
+                // Legacy SMA overlays
+                if (vals.sma20 != null) maSeriesRef.current?.ma20?.update({ time, value: vals.sma20 });
+                if (vals.sma50 != null) maSeriesRef.current?.ma50?.update({ time, value: vals.sma50 });
+
+                // Legacy EMA overlays
+                if (vals.ema12 != null) emaSeriesRef.current?.ema12?.update({ time, value: vals.ema12 });
+                if (vals.ema26 != null) emaSeriesRef.current?.ema26?.update({ time, value: vals.ema26 });
+
+                // Worker overlays: SMA200
+                if (vals.sma200 != null) overlaySeriesRef.current.get('sma200')?.update({ time, value: vals.sma200 });
+
+                // Worker overlays: Bollinger Bands
+                if (vals.bb) {
+                    overlaySeriesRef.current.get('bb_upper')?.update({ time, value: vals.bb.upper });
+                    overlaySeriesRef.current.get('bb_middle')?.update({ time, value: vals.bb.middle });
+                    overlaySeriesRef.current.get('bb_lower')?.update({ time, value: vals.bb.lower });
+                }
+
+                // Worker overlays: Keltner Channels
+                if (vals.keltner) {
+                    overlaySeriesRef.current.get('keltner_upper')?.update({ time, value: vals.keltner.upper });
+                    overlaySeriesRef.current.get('keltner_middle')?.update({ time, value: vals.keltner.middle });
+                    overlaySeriesRef.current.get('keltner_lower')?.update({ time, value: vals.keltner.lower });
+                }
+
+                // Worker overlays: VWAP
+                if (vals.vwap != null) overlaySeriesRef.current.get('vwap')?.update({ time, value: vals.vwap });
+
+                // Panel: RSI
+                if (vals.rsi != null) panelSeriesRef.current.get('rsi')?.get('main')?.update({ time, value: vals.rsi });
+
+                // Panel: MACD
+                if (vals.macd) {
+                    panelSeriesRef.current.get('macd')?.get('macd')?.update({ time, value: vals.macd.macd });
+                    panelSeriesRef.current.get('macd')?.get('signal')?.update({ time, value: vals.macd.signal });
+                    const histColor = vals.macd.histogram >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)';
+                    panelSeriesRef.current.get('macd')?.get('histogram')?.update({ time, value: vals.macd.histogram, color: histColor });
+                }
+
+                // Panel: Stochastic
+                if (vals.stoch) {
+                    panelSeriesRef.current.get('stoch')?.get('k')?.update({ time, value: vals.stoch.k });
+                    panelSeriesRef.current.get('stoch')?.get('d')?.update({ time, value: vals.stoch.d });
+                }
+
+                // Panel: ADX
+                if (vals.adx) {
+                    panelSeriesRef.current.get('adx')?.get('adx')?.update({ time, value: vals.adx.adx });
+                    panelSeriesRef.current.get('adx')?.get('pdi')?.update({ time, value: vals.adx.pdi });
+                    panelSeriesRef.current.get('adx')?.get('mdi')?.update({ time, value: vals.adx.mdi });
+                }
+
+                // Panel: ATR
+                if (vals.atr != null) panelSeriesRef.current.get('atr')?.get('main')?.update({ time, value: vals.atr });
+
+                // Panel: OBV
+                if (vals.obv != null) panelSeriesRef.current.get('obv')?.get('main')?.update({ time, value: vals.obv });
+
+                // Panel: Squeeze
+                if (vals.squeeze) {
+                    const sqColor = vals.squeeze.isOn ? '#ef4444' : '#10b981';
+                    panelSeriesRef.current.get('squeeze')?.get('main')?.update({ time, value: vals.squeeze.value, color: sqColor });
                 }
             }
         };

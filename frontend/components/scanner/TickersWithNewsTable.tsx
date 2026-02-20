@@ -448,7 +448,6 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
               type="button"
               className="font-bold text-blue-600 cursor-pointer hover:underline text-left"
               onClick={() => {
-                console.log('Opening description for:', symbol, exchange);
                 executeTickerCommand(symbol, 'fan', exchange);
               }}
             >

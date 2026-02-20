@@ -46,9 +46,7 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
       // Intentar cargar desde backend con token
       loadFromBackend(getToken).then((loaded) => {
         if (loaded) {
-          console.log('[WorkspaceSync] Loaded preferences from backend');
         } else {
-          console.log('[WorkspaceSync] No backend preferences, using localStorage');
         }
       });
     }

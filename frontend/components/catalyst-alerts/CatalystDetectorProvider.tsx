@@ -261,7 +261,6 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
     const { passes, reason } = checkCriteria(ticker, metrics);
     
     if (!passes) {
-      console.log(`[CatalystProvider] Skipped:`, ticker, reason);
       return;
     }
     
@@ -292,7 +291,6 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       speakAlert(ticker, reason);
     }
     
-    console.log(`[CatalystProvider] ALERT:`, ticker, reason);
   }, [checkCriteria, addAlert, criteria.notifications.sound, criteria.notifications.squawk, speakAlert]);
   
   // Suscribirse a noticias cuando las alertas están habilitadas
@@ -301,13 +299,11 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
       return;
     }
     
-    console.log('[CatalystProvider] Subscribing to catalyst alerts (WebSocket realtime)...');
     
     // Suscribirse a noticias
     ws.send({ action: 'subscribe_benzinga_news' });
     
     return () => {
-      console.log('[CatalystProvider] Unsubscribing from news...');
       ws.send({ action: 'unsubscribe_benzinga_news' });
     };
   }, [enabled, ws.isConnected, ws]);

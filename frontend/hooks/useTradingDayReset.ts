@@ -41,21 +41,12 @@ export function useTradingDayReset() {
         }
         hasReset.current = true;
         
-        console.log('🔄 [TradingDayReset] Nuevo día de trading:', {
-          from: previousDate,
-          to: newDate,
-        });
-        
         // Reset de todos los stores
-        console.log('🧹 [TradingDayReset] Limpiando stores...');
-        
         try {
           resetTickers();
           resetNews();
           resetNewsTickers();
-          console.log('✅ [TradingDayReset] Stores limpiados');
         } catch (e) {
-          console.error('❌ [TradingDayReset] Error:', e);
         }
         
         // Permitir nuevos resets después de 10 segundos

@@ -316,7 +316,6 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
             throw new Error(`Failed to sync: ${response.status}`);
           }
           
-          console.log('[CatalystAlerts] Synced to server');
         } catch (error) {
           console.error('[CatalystAlerts] Sync error:', error);
           set({ _lastSyncError: String(error) });
@@ -347,7 +346,6 @@ export const useCatalystAlertsStore = create<CatalystAlertsState>()(
               enabled: newsAlerts.enabled ?? false,
               criteria: loadedCriteria,
             });
-            console.log('[CatalystAlerts] Loaded from server, enabled:', newsAlerts.enabled);
           }
         } catch (error) {
           console.error('[CatalystAlerts] Load error:', error);

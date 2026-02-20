@@ -433,13 +433,8 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           
           if (response.ok) {
             const data = await response.json();
-            console.log('[WorkspaceSync] Synced to backend:', {
-              workspaces: data.workspaceCount,
-              windows: data.totalWindows,
-            });
             set({ lastSyncedAt: Date.now() });
           } else {
-            console.warn('[WorkspaceSync] Failed to sync:', response.status, await response.text());
           }
         } catch (error) {
           console.error('[WorkspaceSync] Error syncing to backend:', error);
@@ -471,7 +466,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           });
           
           if (!response.ok) {
-            console.warn('[WorkspaceSync] Failed to load from backend:', response.status);
             return false;
           }
           
@@ -479,11 +473,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           
           // Solo cargar si hay workspaces del backend
           if (data.workspaces && data.workspaces.length > 0) {
-            console.log('[WorkspaceSync] Loaded from backend:', {
-              workspaces: data.workspaces.length,
-              activeId: data.activeWorkspaceId,
-            });
-            
             set({
               workspaces: data.workspaces,
               activeWorkspaceId: data.activeWorkspaceId || 'main',

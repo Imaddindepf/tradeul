@@ -1028,16 +1028,13 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
     useEffect(() => {
         const fetchData = async () => {
             try {
-                console.log('[PM] Fetching from:', API_BASE);
                 const [statsRes, datesRes] = await Promise.all([
                     fetch(`${API_BASE}/api/index/stats`),
                     fetch(`${API_BASE}/api/available-dates`),
                 ]);
-                console.log('[PM] Stats status:', statsRes.status, 'Dates status:', datesRes.status);
                 if (statsRes.ok) setIndexStats(await statsRes.json());
                 if (datesRes.ok) {
                     const dates = await datesRes.json();
-                    console.log('[PM] Dates loaded:', dates?.dates?.length, 'Last:', dates?.last);
                     setAvailableDates(dates);
                     if (dates.last) setHistoricalDate(dates.last);
                 } else {
@@ -1114,7 +1111,6 @@ export function PatternMatchingContent({ initialTicker }: { initialTicker?: stri
             }
 
             const data = await res.json();
-            console.log('Pattern search response:', data);
 
             if (!res.ok) {
                 const msg = data.detail || 'Search failed';

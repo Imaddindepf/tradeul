@@ -51,7 +51,6 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         wsRef.current = ws;
 
         ws.onopen = () => {
-          console.log('✅ WebSocket connected');
           setIsConnected(true);
         };
 
@@ -89,12 +88,10 @@ export function useWebSocket(url: string): UseWebSocketReturn {
         };
 
         ws.onclose = () => {
-          console.log('❌ WebSocket closed');
           setIsConnected(false);
           
           // Auto-reconnect después de 3 segundos
           reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('🔄 Reconnecting WebSocket...');
             connect();
           }, 3000);
         };

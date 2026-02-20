@@ -148,19 +148,16 @@ function injectChatContent(
     let heartbeatInterval = null;
     let typingTimeout = null;
     
-    console.log('🚀 [Chat Window] Init', CONFIG.userName);
     
     // ============================================================
     // WEBSOCKET
     // ============================================================
     function initWebSocket() {
       const url = CONFIG.wsUrl + '?token=' + encodeURIComponent(CONFIG.token);
-      console.log('🔌 [Chat] Connecting to:', CONFIG.wsUrl);
       
       ws = new WebSocket(url);
       
       ws.onopen = () => {
-        console.log('✅ [Chat] Connected');
         isConnected = true;
         
         // Start heartbeat
@@ -194,7 +191,6 @@ function injectChatContent(
       };
       
       ws.onclose = () => {
-        console.log('[Chat] Disconnected');
         isConnected = false;
         clearInterval(heartbeatInterval);
         render();
@@ -255,7 +251,6 @@ function injectChatContent(
           ? { channel_id: target.id }
           : { group_id: target.id }
       }));
-      console.log('[Chat] Subscribed to', target);
     }
     
     function unsubscribe(target) {
@@ -742,7 +737,6 @@ function injectChatContent(
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
       
-      console.log('[Chat] Rendering', messages.length, 'messages. First:', messages[0]?.created_at, 'After sort first:', sortedMessages[0]?.created_at);
       
       container.innerHTML = sortedMessages.map(msg => {
         const time = formatTime(msg.created_at);
@@ -833,7 +827,6 @@ function injectChatContent(
     }
     
     init();
-    console.log('✅ [Chat Window] Initialized');
   </script>
 </body>
 </html>
@@ -843,6 +836,5 @@ function injectChatContent(
   targetWindow.document.write(htmlContent);
   targetWindow.document.close();
 
-  console.log('✅ [WindowInjector] Chat injected');
 }
 
