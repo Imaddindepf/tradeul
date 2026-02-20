@@ -124,10 +124,43 @@ def _extract_days(q: str) -> int:
         return min(max(int(match.group(1)), 1), 30)
     return 7
 
-def _extract_date_reference(q: str) -> tuple[str | None, str | None]:
+_DATE_NUMERIC_RE = re.compile(
+    r'(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})'
+)
+_ISO_DATE_RE = re.compile(r'(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})')
+
+
+def _extract_date_reference(q: str, language: str = "en") -> tuple[str | None, str | None]:
     """Extract date_from and date_to from natural language references."""
     ql = q.lower()
     today = datetime.now()
+
+    iso_m = _ISO_DATE_RE.search(ql)
+    if iso_m:
+        y, m, d = int(iso_m.group(1)), int(iso_m.group(2)), int(iso_m.group(3))
+        try:
+            target = datetime(y, m, d)
+            return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    num_m = _DATE_NUMERIC_RE.search(ql)
+    if num_m:
+        a, b, y = int(num_m.group(1)), int(num_m.group(2)), int(num_m.group(3))
+        if language == "es":
+            d, m = a, b
+        else:
+            m, d = a, b
+        try:
+            target = datetime(y, m, d)
+            return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
+        except ValueError:
+            d, m = m, d
+            try:
+                target = datetime(y, m, d)
+                return target.strftime("%Y-%m-%d"), (target + timedelta(days=1)).strftime("%Y-%m-%d")
+            except ValueError:
+                pass
 
     day_map = {
         "monday": 0, "lunes": 0,
@@ -205,6 +238,55 @@ def _clean_earnings(raw: Any) -> Any:
     return raw
 
 
+_TODAY_KEEP = {
+    "ticker", "company_name", "time", "time_slot", "fiscal_year", "fiscal_period",
+    "estimated_eps", "actual_eps", "eps_surprise_percent",
+    "estimated_revenue", "actual_revenue", "revenue_surprise_percent",
+    "importance",
+}
+
+
+def _clean_today_earnings(raw: Any) -> dict:
+    """Structure today's earnings into reported vs. scheduled, top entries only."""
+    if not isinstance(raw, dict):
+        return raw
+
+    results = raw.get("results", [])
+    stats = raw.get("stats", {})
+
+    reported = []
+    scheduled_bmo = []
+    scheduled_amc = []
+
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        row = {k: v for k, v in item.items() if k in _TODAY_KEEP and v is not None}
+        if not row.get("ticker"):
+            continue
+        if item.get("actual_eps") is not None:
+            reported.append(row)
+        elif item.get("time_slot") == "AMC":
+            scheduled_amc.append(row)
+        else:
+            scheduled_bmo.append(row)
+
+    importance_key = lambda x: -(x.get("importance") or 0)
+    scheduled_bmo.sort(key=importance_key)
+    scheduled_amc.sort(key=importance_key)
+
+    return {
+        "date": raw.get("date"),
+        "total": stats.get("total", len(results)),
+        "bmo_count": stats.get("bmo", len(scheduled_bmo)),
+        "amc_count": stats.get("amc", len(scheduled_amc)),
+        "reported_count": stats.get("reported", len(reported)),
+        "reported": reported,
+        "top_scheduled_bmo": scheduled_bmo[:25],
+        "top_scheduled_amc": scheduled_amc[:25],
+    }
+
+
 _UPCOMING_KEEP = {
     "ticker", "company_name", "date", "time", "fiscal_year", "fiscal_period",
     "estimated_eps", "actual_eps", "eps_surprise_percent",
@@ -252,6 +334,7 @@ async def news_events_node(state: dict) -> dict:
 
     query = state.get("query", "")
     tickers = state.get("tickers", [])
+    language = state.get("language", "en")
     chart_context = state.get("chart_context")
     wants_earn = _wants_earnings(query)
     wants_nws = _wants_news(query)
@@ -270,6 +353,14 @@ async def news_events_node(state: dict) -> dict:
 
     results: dict[str, Any] = {}
     errors: list[str] = []
+
+    # Fetch market session when earnings are relevant (synthesizer needs it)
+    if wants_earn:
+        try:
+            session = await call_mcp_tool("scanner", "get_market_session", {})
+            results["market_session"] = session
+        except Exception as exc:
+            errors.append(f"market_session: {exc}")
 
     # -- Per-ticker data (parallelized) --
     if tickers:
@@ -330,7 +421,7 @@ async def news_events_node(state: dict) -> dict:
                 next_day = (datetime.strptime(target_candle_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
                 date_to = next_day
             else:
-                date_from, date_to = _extract_date_reference(query)
+                date_from, date_to = _extract_date_reference(query, language)
             event_type = _detect_event_type(query)
             for ticker in tickers[:3]:
                 tasks.append(_fetch_ticker_hist(ticker, date_from, date_to, event_type))
@@ -408,12 +499,12 @@ async def news_events_node(state: dict) -> dict:
             if timeframe == "today":
                 try:
                     raw = await call_mcp_tool("earnings", "get_today_earnings", {})
-                    results["today_earnings"] = raw
+                    results["today_earnings"] = _clean_today_earnings(raw)
                 except Exception as exc:
                     errors.append(f"today_earnings: {exc}")
 
         if wants_hist_events:
-            date_from, date_to = _extract_date_reference(query)
+            date_from, date_to = _extract_date_reference(query, language)
             event_type = _detect_event_type(query)
             try:
                 params = {

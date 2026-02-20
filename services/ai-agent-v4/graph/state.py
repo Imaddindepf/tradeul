@@ -60,6 +60,12 @@ class AgentState(TypedDict):
     # ── Thematic ──
     theme_tags: list[str]                # Canonical theme tags resolved by supervisor (e.g. ["robotics", "memory_chips"])
 
+    # ── Market Pulse (composable analytical queries) ──
+    pulse_queries: Optional[list[dict]]  # Structured queries for analyze_market tool
+    pulse_compare: bool                  # Compare mode for multi-segment analysis
+    pulse_metrics: Optional[list[str]]   # Limit returned metrics (reduces token count)
+    pulse_drilldown: Optional[dict]      # Drilldown spec into a specific result
+
     # ── Chart Analysis ──
     chart_context: Optional[dict]        # Chart snapshot from frontend (ticker, bars, indicators, drawings)
 

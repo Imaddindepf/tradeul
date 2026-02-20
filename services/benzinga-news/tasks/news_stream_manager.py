@@ -343,7 +343,7 @@ class BenzingaNewsStreamManager:
             import orjson
             # Use HMGET to read only the tickers we need (~1-3 KB instead of ~7MB)
             upper_tickers = [t.upper() for t in tickers]
-            results = await self.redis.client.hmget("snapshot:enriched:latest", *upper_tickers)
+            results = await self.redis.hmget("snapshot:enriched:latest", *upper_tickers)
             
             for ticker_sym, raw_json in zip(upper_tickers, results):
                 if raw_json:

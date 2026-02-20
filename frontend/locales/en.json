@@ -244,6 +244,10 @@
     "pulse": {
       "name": "Market Pulse",
       "description": "Real-time sector, industry & theme performance"
+    },
+    "rtn": {
+      "name": "Analyst Ratings",
+      "description": "Wall Street analyst consensus & price targets"
     }
   },
   "scanner": {
@@ -542,6 +546,9 @@
       },
       "HDS": {
         "description": "Institutional holders"
+      },
+      "RTN": {
+        "description": "Analyst ratings & targets"
       }
     },
     "globalCommands": {
@@ -637,6 +644,9 @@
       },
       "PULSE": {
         "description": "Sector, industry & theme performance"
+      },
+      "RTN": {
+        "description": "Analyst consensus & price targets"
       }
     }
   },

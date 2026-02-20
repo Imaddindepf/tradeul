@@ -259,6 +259,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   }, [columnVisibility, listName, saveColumnVisibilityToStore]);
 
   const [isReady, setIsReady] = useState(false);
+  const isReadyRef = useRef(false);
   const [noDataAvailable, setNoDataAvailable] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
@@ -307,6 +308,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       // Initialize list in Zustand store
       initializeList(listName, snapshot);
       setIsReady(true);
+      isReadyRef.current = true;
     },
     [listName, initializeList]
   );
@@ -393,8 +395,9 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     setConnectionError(null);
 
     // Timeout para mostrar "sin datos" si no llegan datos en 10 segundos
+    // Usa isReadyRef para evitar stale closure (isReady state no está en deps)
     const dataTimeout = setTimeout(() => {
-      if (!isReady) {
+      if (!isReadyRef.current) {
         setNoDataAvailable(true);
       }
     }, 10000);

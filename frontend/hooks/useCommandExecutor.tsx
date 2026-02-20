@@ -31,6 +31,7 @@ import { AIAgentContent } from '@/components/ai-agent';
 import { InsightsPanel } from '@/components/insights';
 import { HeatmapContent } from '@/components/heatmap';
 import { MarketPulseContent } from '@/components/market-pulse';
+import { AnalystRatingsContent } from '@/components/analyst-ratings';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
 import { EventTableContent } from '@/components/events/EventTableContent';
@@ -658,8 +659,8 @@ export function useCommandExecutor() {
                     height: 700,
                     x: Math.max(50, screenWidth / 2 - 550),
                     y: Math.max(70, screenHeight / 2 - 350),
-                    minWidth: 800,
-                    minHeight: 500,
+                    minWidth: 480,
+                    minHeight: 400,
                 });
                 return null;
 
@@ -681,14 +682,28 @@ export function useCommandExecutor() {
             case 'market-pulse':
                 openWindow({
                     title: 'Market Pulse',
-                    content: <MarketPulseContent />,
-                    width: 520,
-                    height: 580,
-                    x: Math.max(50, screenWidth - 570),
+                    content: <MarketPulseContent onOpenTicker={(sym) => executeTickerCommand(sym, 'chart')} />,
+                    width: 820,
+                    height: 620,
+                    x: Math.max(50, screenWidth - 870),
                     y: Math.max(70, 90),
-                    minWidth: 420,
+                    minWidth: 520,
                     minHeight: 400,
                     hideHeader: true,
+                });
+                return null;
+
+            case 'rtn':
+            case 'ratings':
+                openWindow({
+                    title: 'Analyst Ratings',
+                    content: <AnalystRatingsContent />,
+                    width: 680,
+                    height: 560,
+                    x: Math.max(50, screenWidth - 730),
+                    y: Math.max(70, 90),
+                    minWidth: 480,
+                    minHeight: 350,
                 });
                 return null;
 
@@ -879,6 +894,20 @@ export function useCommandExecutor() {
                     y: Math.max(70, screenHeight / 2 - 275),
                     minWidth: 650,
                     minHeight: 400,
+                });
+                break;
+
+            case 'rtn':
+            case 'ratings':
+                openWindow({
+                    title: 'Analyst Ratings',
+                    content: <AnalystRatingsContent initialTicker={normalizedTicker} />,
+                    width: 680,
+                    height: 560,
+                    x: Math.max(50, screenWidth - 730),
+                    y: Math.max(70, 90),
+                    minWidth: 480,
+                    minHeight: 350,
                 });
                 break;
 

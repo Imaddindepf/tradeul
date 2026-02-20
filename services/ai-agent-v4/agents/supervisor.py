@@ -16,6 +16,7 @@ Architecture:
 """
 import json
 import logging
+import re
 from typing import Any
 
 from agents._mcp_tools import call_mcp_tool
@@ -98,12 +99,20 @@ Market session: {market_context}
 Scanner categories: {scanner_cats}
 </context>
 
+<date_format_awareness>
+The user message starts with [Language: XX]. Use this to parse ambiguous dates:
+- Language: es (Spanish) → dates are DD/MM/YYYY. "07/01/2026" = January 7, 2026.
+- Language: en (English) → dates are MM/DD/YYYY. "07/01/2026" = July 1, 2026.
+When you output dates (in "plan" or elsewhere), ALWAYS use ISO format YYYY-MM-DD to avoid ambiguity.
+</date_format_awareness>
+
 <intent_types>
 Classify the query into one or more of these intent types, then route to the corresponding agents:
 
 GREETING — Non-financial message (hello, thanks, who are you, ok, ninguna) → no agents
 DATA_LOOKUP — Current price, volume, technicals for specific tickers → market_data
 RANKING — Top/bottom lists: gainers, losers, gappers, halts, volume leaders → market_data
+MARKET_PULSE — Broad market analysis: "what sectors are leading?", "que temas dominan en big caps?", "compare sectors", "market regime", "risk-on or risk-off?", "que industria tiene mejor breadth?", "temas oversold con momentum", "rotacion sectorial". Any question about SECTOR/INDUSTRY/THEME PERFORMANCE as aggregated groups (not individual stocks). → market_data. You MUST populate "pulse_queries" with a structured analytical spec (see pulse_query_format below).
 CAUSAL — WHY something is happening: "why is X up/down/moving?", "por qué sube/baja X?", "what's driving X?", "what caused X to spike?" → research + news_events + market_data
 NEWS — Recent news, headlines, "what happened with X" → news_events
 EVENTS — Market events by date: breakouts, halts, VWAP crosses on a given day → news_events
@@ -136,6 +145,8 @@ Example: "Why is TSLA up? Show me the financials too" = CAUSAL + FUNDAMENTALS �
 6. Write the plan field in the same language the user used in their query.
 
 7. CHART_ANALYSIS queries come with a chart_context containing the user's visible chart data (OHLCV bars, indicators, drawings). Always include market_data for enrichment. Add research if the user asks "why" something happened.
+
+8. MARKET_PULSE queries analyze aggregated sector/industry/theme performance. You MUST generate "pulse_queries" — an array of structured query objects. Each query: {{"group": "sectors"|"industries"|"themes", "sort_by": metric, "limit": int, "cap_size": "mega"|"large"|"mid"|"small"|null, "min_market_cap": int|null, "sector": str|null, "include_movers": bool, "metric_filters": [{{"metric":str,"op":"gt|gte|lt|lte","value":float}}], "label": str}}. Set "pulse_compare": true when comparing segments. Set "pulse_drilldown": {{"from_query":0,"rank":1,"sort_by":"change_percent","limit":10}} to drill into a result. Sortable metrics: weighted_change, avg_change, breadth, avg_rvol, avg_rsi, avg_daily_rsi, avg_atr_pct, avg_change_5d, avg_change_10d, avg_change_20d, avg_from_52w_high, avg_from_52w_low, avg_pos_in_range, avg_bb_position, avg_dist_vwap, avg_dist_sma20, avg_dist_sma50, total_dollar_volume, count. Cap sizes: mega(>200B), large(>10B), mid(>2B), small(>300M), micro(>50M).
 </routing_principles>
 
 <thematic_catalog>
@@ -186,6 +197,10 @@ Respond with ONLY a JSON object containing these exact fields:
   "tickers": ["TICKER1", "TICKER2"],
   "agents": ["agent1", "agent2"],
   "theme_tags": [],
+  "pulse_queries": null,
+  "pulse_compare": false,
+  "pulse_metrics": null,
+  "pulse_drilldown": null,
   "plan": "Brief execution plan in the user's language",
   "confidence": 0.95,
   "reasoning": "One sentence explaining why you chose these agents",
@@ -194,6 +209,8 @@ Respond with ONLY a JSON object containing these exact fields:
 
 IMPORTANT: "theme_tags" is an array of canonical theme tag strings from the thematic catalog. 
 It MUST be populated when intent is THEMATIC. Leave as empty array [] for all other intents.
+
+IMPORTANT: "pulse_queries" MUST be populated when intent is MARKET_PULSE. It is an array of query objects for the composable market analysis tool. Leave as null for all other intents.
 </output_format>
 
 <examples>
@@ -225,10 +242,19 @@ User: "acciones de energía nuclear y uranio"
 {{"intent": "THEMATIC", "tickers": [], "agents": ["market_data"], "theme_tags": ["nuclear_energy", "uranium"], "plan": "Buscar acciones de energía nuclear y mineras de uranio", "confidence": 1.0, "reasoning": "Thematic query for nuclear energy and uranium mining stocks", "clarification": null}}
 
 User: "que tema está moviendo el mercado hoy?"
-{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "plan": "Mostrar los principales ganadores del mercado hoy agrupados por sector", "confidence": 0.95, "reasoning": "Broad market question about current movers — this is a ranking, not a thematic search for a specific sector", "clarification": null}}
+{{"intent": "MARKET_PULSE", "tickers": [], "agents": ["market_data"], "theme_tags": [], "pulse_queries": [{{"group": "themes", "sort_by": "weighted_change", "limit": 10, "include_movers": true, "label": "top_themes"}}, {{"group": "sectors", "sort_by": "weighted_change", "limit": 11, "label": "sectors"}}], "pulse_compare": false, "pulse_metrics": ["weighted_change", "breadth", "avg_rvol", "count"], "pulse_drilldown": null, "plan": "Analizar qué temas y sectores lideran el mercado hoy", "confidence": 1.0, "reasoning": "Market pulse query — aggregated theme/sector performance analysis", "clarification": null}}
 
 User: "what sectors are hot right now?"
-{{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "plan": "Show top gainers grouped by sector to identify hot sectors", "confidence": 0.95, "reasoning": "Broad market question about sector performance — ranking of current movers, not thematic search", "clarification": null}}
+{{"intent": "MARKET_PULSE", "tickers": [], "agents": ["market_data"], "theme_tags": [], "pulse_queries": [{{"group": "sectors", "sort_by": "weighted_change", "limit": 11, "include_movers": true, "label": "sectors"}}], "pulse_compare": false, "pulse_metrics": ["weighted_change", "breadth", "avg_rvol", "avg_change_5d"], "pulse_drilldown": null, "plan": "Show sector performance ranked by weighted change", "confidence": 1.0, "reasoning": "Market pulse query — sector performance analysis", "clarification": null}}
+
+User: "que temas dominan en big caps vs small caps?"
+{{"intent": "MARKET_PULSE", "tickers": [], "agents": ["market_data"], "theme_tags": [], "pulse_queries": [{{"group": "themes", "cap_size": "large", "sort_by": "weighted_change", "limit": 10, "label": "big_caps"}}, {{"group": "themes", "cap_size": "small", "sort_by": "weighted_change", "limit": 10, "label": "small_caps"}}], "pulse_compare": true, "pulse_metrics": ["weighted_change", "breadth", "avg_rvol", "count"], "pulse_drilldown": null, "plan": "Comparar temas dominantes en big caps vs small caps", "confidence": 1.0, "reasoning": "Market pulse comparison — big cap vs small cap theme dominance", "clarification": null}}
+
+User: "temas con RSI oversold y momentum positivo en 5 dias"
+{{"intent": "MARKET_PULSE", "tickers": [], "agents": ["market_data"], "theme_tags": [], "pulse_queries": [{{"group": "themes", "sort_by": "avg_change_5d", "limit": 15, "metric_filters": [{{"metric": "avg_daily_rsi", "op": "lt", "value": 40}}, {{"metric": "avg_change_5d", "op": "gt", "value": 0}}], "label": "oversold_momentum"}}], "pulse_compare": false, "pulse_metrics": ["weighted_change", "avg_daily_rsi", "avg_change_5d", "breadth", "avg_rvol"], "pulse_drilldown": null, "plan": "Buscar temas oversold con momentum positivo semanal", "confidence": 1.0, "reasoning": "Market pulse with conditional screening on theme-level metrics", "clarification": null}}
+
+User: "top tema en large caps y dame los 5 mejores stocks de ese tema"
+{{"intent": "MARKET_PULSE", "tickers": [], "agents": ["market_data"], "theme_tags": [], "pulse_queries": [{{"group": "themes", "cap_size": "large", "sort_by": "weighted_change", "limit": 5, "label": "top_themes"}}], "pulse_compare": false, "pulse_metrics": null, "pulse_drilldown": {{"from_query": 0, "rank": 1, "sort_by": "change_percent", "limit": 5}}, "plan": "Tema más fuerte en large caps con drilldown a sus mejores stocks", "confidence": 1.0, "reasoning": "Market pulse with automatic drilldown into top result", "clarification": null}}
 
 User: "noticias de AAPL"
 {{"intent": "NEWS", "tickers": ["AAPL"], "agents": ["news_events", "market_data"], "theme_tags": [], "plan": "Obtener noticias recientes de AAPL con contexto de precio", "confidence": 1.0, "reasoning": "News query for specific ticker with price context", "clarification": null}}
@@ -292,6 +318,33 @@ async def _get_market_context_str(state: dict) -> str:
         logger.warning("Failed to get market session: %s", e)
 
     return "Session: UNKNOWN. Assume last-session data is available."
+
+
+_NUMERIC_DATE_RE = re.compile(r'\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})\b')
+
+
+def _normalize_dates_to_iso(text: str, language: str) -> str:
+    """Convert numeric dates in text to unambiguous ISO YYYY-MM-DD format.
+
+    Spanish (es): DD/MM/YYYY → YYYY-MM-DD
+    English (en): MM/DD/YYYY → YYYY-MM-DD
+    Already ISO (YYYY-MM-DD): left unchanged.
+    """
+    def _replace(m: re.Match) -> str:
+        a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            return m.group(0)
+        if language == "es":
+            d, mo = a, b
+        else:
+            mo, d = a, b
+        if not (1 <= mo <= 12 and 1 <= d <= 31):
+            d, mo = mo, d
+        if not (1 <= mo <= 12 and 1 <= d <= 31):
+            return m.group(0)
+        return f"{y:04d}-{mo:02d}-{d:02d}"
+
+    return _NUMERIC_DATE_RE.sub(_replace, text)
 
 
 # ── Main planner node ─────────────────────────────────────────────
@@ -442,13 +495,20 @@ async def query_planner_node(state: dict) -> dict:
     if theme_tags:
         theme_tags = [t.strip() for t in theme_tags if isinstance(t, str) and t.strip()]
 
+    # Market Pulse structured queries
+    pulse_queries = decision.get("pulse_queries")
+    pulse_compare = decision.get("pulse_compare", False)
+    pulse_metrics = decision.get("pulse_metrics")
+    pulse_drilldown = decision.get("pulse_drilldown")
+
     logger.info(
-        "Query planner: intent=%s confidence=%.2f tickers=%s agents=%s themes=%s plan=%s",
+        "Query planner: intent=%s confidence=%.2f tickers=%s agents=%s themes=%s pulse=%s plan=%s",
         decision.get("intent", "?"), confidence, llm_tickers,
-        requested_agents, theme_tags, decision.get("plan", "")[:120],
+        requested_agents, theme_tags,
+        bool(pulse_queries), decision.get("plan", "")[:120],
     )
 
-    return {
+    result_state = {
         **state,
         "tickers": llm_tickers,
         "ticker_info": ticker_info,
@@ -458,6 +518,16 @@ async def query_planner_node(state: dict) -> dict:
         "clarification": None,
         "market_context": state.get("market_context", {}),
     }
+
+    if pulse_queries and isinstance(pulse_queries, list):
+        result_state["pulse_queries"] = pulse_queries
+        result_state["pulse_compare"] = pulse_compare
+        if pulse_metrics:
+            result_state["pulse_metrics"] = pulse_metrics
+        if pulse_drilldown:
+            result_state["pulse_drilldown"] = pulse_drilldown
+
+    return result_state
 
 
 # ── Fan-out edge function ─────────────────────────────────────────
@@ -479,4 +549,5 @@ def fan_out_to_agents(state: dict):
     if not agents:
         return "synthesizer"
 
-    return [Send(agent, state) for agent in agents]
+    sends = [Send(agent, state) for agent in agents]
+    return sends

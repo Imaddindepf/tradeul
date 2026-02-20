@@ -440,7 +440,48 @@ async def market_data_node(state: dict) -> dict:
 
     # ── Standard flow (no chart context) ──
 
-    # 0. THEMATIC resolution — resolve theme_tags into tickers before anything else
+    # 0a. MARKET PULSE path — broad market queries (sectors, themes, industries)
+    pulse_queries = state.get("pulse_queries")
+    if pulse_queries:
+        try:
+            pulse_args = {"queries": pulse_queries}
+            pulse_compare = state.get("pulse_compare", False)
+            pulse_metrics = state.get("pulse_metrics")
+            pulse_drilldown = state.get("pulse_drilldown")
+            if pulse_compare:
+                pulse_args["compare"] = True
+            if pulse_metrics:
+                pulse_args["metrics"] = pulse_metrics
+            if pulse_drilldown:
+                pulse_args["drilldown"] = pulse_drilldown
+
+            pulse_data = await call_mcp_tool("market_pulse", "analyze_market", pulse_args)
+            if pulse_data and not pulse_data.get("error"):
+                results["market_pulse"] = pulse_data
+        except Exception as exc:
+            errors.append(f"market_pulse: {exc}")
+
+        # If this is a pure market pulse query (no tickers), return early
+        if not tickers and not _detect_categories(query):
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            if errors:
+                results["_errors"] = errors
+            return {
+                "agent_results": {
+                    "market_data": {
+                        "tickers_queried": [],
+                        "categories": [],
+                        "limit": limit,
+                        **results,
+                    },
+                },
+                "execution_metadata": {
+                    **(state.get("execution_metadata", {})),
+                    "market_data": {"elapsed_ms": elapsed_ms, "tickers": [], "mode": "market_pulse"},
+                },
+            }
+
+    # 0b. THEMATIC resolution — resolve theme_tags into tickers before anything else
     theme_tags = state.get("theme_tags", [])
     if theme_tags:
         try:

@@ -50,6 +50,7 @@ import { PatternRealtimeContent } from '@/components/pattern-realtime';
 import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insider-trading';
 import { AIAgentContent } from '@/components/ai-agent';
 import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
+import { AnalystRatingsContent } from '@/components/analyst-ratings';
 import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
@@ -139,6 +140,7 @@ export default function ScannerPage() {
     if (title === 'Insider Trading Guide') return <InsiderGlossaryContent />;
     if (title === 'AI Agent') return <AIAgentContent />;
     if (title === 'Institutional Holdings') return <InstitutionalHoldingsContent />;
+    if (title === 'Analyst Ratings') return <AnalystRatingsContent />;
     if (title === 'Chart') return <ChartContent />;
     // Strategy Builder - restore with full callbacks for creating event/scanner windows
     if (title === 'Strategy Builder') return (
@@ -306,7 +308,7 @@ export default function ScannerPage() {
         workspaceLayouts.forEach((layout) => {
           const content = getWindowContent(layout);
           if (content) {
-            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:');
+            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:') || layout.title === 'Market Pulse';
             openWindow({
               id: layout.id,
               title: layout.title,
@@ -334,7 +336,7 @@ export default function ScannerPage() {
         savedLayout.forEach((layout) => {
           const content = getWindowContent({ title: layout.title });
           if (content) {
-            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:');
+            const hideHeader = layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:') || layout.title === 'Market Pulse';
             openWindow({
               id: layout.id,
               title: layout.title,

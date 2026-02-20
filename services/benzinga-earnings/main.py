@@ -199,6 +199,23 @@ async def status():
 # EARNINGS API
 # =============================================================================
 
+def _classify_time_slot(entry: dict) -> str:
+    """Derive BMO/AMC/DURING from the 'time' field (HH:MM:SS)."""
+    t = entry.get("time", "")
+    if not t or not isinstance(t, str):
+        return "TBD"
+    try:
+        hhmm = t[:5]
+        if hhmm < "09:30":
+            return "BMO"
+        elif hhmm >= "16:00":
+            return "AMC"
+        else:
+            return "DURING"
+    except Exception:
+        return "TBD"
+
+
 @app.get("/api/v1/earnings/today")
 async def get_today_earnings():
     """
@@ -212,7 +229,11 @@ async def get_today_earnings():
         
         earnings = await stream_manager.get_today_earnings()
         
-        # Sort by importance (desc) then by time
+        for e in earnings:
+            if not e.get("time_slot") or e["time_slot"] == "TBD":
+                e["time_slot"] = _classify_time_slot(e)
+        
+        # Sort by importance (desc) then by time slot
         def sort_key(e):
             importance = e.get("importance") or 0
             time_order = {"BMO": 0, "DURING": 1, "AMC": 2, "TBD": 3}
@@ -221,10 +242,10 @@ async def get_today_earnings():
         
         earnings.sort(key=sort_key)
         
-        # Calculate stats
         total = len(earnings)
         bmo = sum(1 for e in earnings if e.get("time_slot") == "BMO")
         amc = sum(1 for e in earnings if e.get("time_slot") == "AMC")
+        during = sum(1 for e in earnings if e.get("time_slot") == "DURING")
         reported = sum(1 for e in earnings if e.get("actual_eps") is not None)
         
         return {
@@ -234,6 +255,7 @@ async def get_today_earnings():
             "stats": {
                 "total": total,
                 "bmo": bmo,
+                "during": during,
                 "amc": amc,
                 "reported": reported,
                 "scheduled": total - reported

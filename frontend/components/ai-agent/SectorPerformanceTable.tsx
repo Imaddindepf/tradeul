@@ -46,7 +46,7 @@ const TickerChip = memo(function TickerChip({
                 e.stopPropagation();
                 onOpenChart(ticker);
             }}
-            className="px-1 py-0.5 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 rounded text-[10px] font-[family-name:var(--font-mono-selected)] transition-colors cursor-pointer"
+            className="px-0.5 py-px bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 rounded text-[9px] font-[family-name:var(--font-mono-selected)] transition-colors cursor-pointer"
             title={`Abrir gráfico de ${ticker}`}
         >
             {ticker}
@@ -73,7 +73,7 @@ const SectorRowComponent = memo(function SectorRowComponent({
         <>
             <tr
                 onClick={onToggle}
-                className="hover:bg-slate-50 cursor-pointer border-b border-slate-100 text-[11px]"
+                className="hover:bg-slate-50 cursor-pointer border-b border-slate-100 text-[10px]"
             >
                 <td className="px-1.5 py-1 w-5">
                     {isExpanded ? <ChevronDown className="w-3 h-3 text-slate-400" /> : <ChevronRight className="w-3 h-3 text-slate-300" />}
@@ -82,8 +82,8 @@ const SectorRowComponent = memo(function SectorRowComponent({
                 <td className="px-1.5 py-1 text-slate-500 text-center font-[family-name:var(--font-mono-selected)]">{row.ticker_count}</td>
                 <td className={`px-1.5 py-1 font-[family-name:var(--font-mono-selected)] ${avgColor}`}>{formatPct(avg)}</td>
                 <td className="px-1.5 py-1 font-[family-name:var(--font-mono-selected)] text-slate-500">{formatPct(Number(row.median_change) || 0)}</td>
-                <td className="px-1.5 py-1 font-[family-name:var(--font-mono-selected)] text-slate-400 text-[10px]">{formatPct(Number(row.min_change) || 0)}</td>
-                <td className="px-1.5 py-1 font-[family-name:var(--font-mono-selected)] text-slate-400 text-[10px]">{formatPct(Number(row.max_change) || 0)}</td>
+                <td className="px-1.5 py-1 font-[family-name:var(--font-mono-selected)] text-slate-400 text-[9px]">{formatPct(Number(row.min_change) || 0)}</td>
+                <td className="px-1.5 py-1 font-[family-name:var(--font-mono-selected)] text-slate-400 text-[9px]">{formatPct(Number(row.max_change) || 0)}</td>
                 <td className="px-1.5 py-1 font-[family-name:var(--font-mono-selected)] text-slate-600">{formatVolume(Number(row.total_volume) || 0)}</td>
             </tr>
             {isExpanded && (
@@ -137,16 +137,16 @@ export const SectorPerformanceTable = memo(function SectorPerformanceTable({
     }, [openWindow]);
 
     return (
-        <div className="rounded border border-slate-200 bg-white overflow-hidden">
+        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
             {title && (
-                <div className="px-2 py-1 bg-slate-50 border-b border-slate-200 flex justify-between text-[11px]">
+                <div className="px-2 py-1 bg-slate-50 border-b border-slate-200 flex justify-between text-[10px]">
                     <span className="font-medium text-slate-700">{title}</span>
                     <span className="text-slate-400">{total ?? rows.length}</span>
                 </div>
             )}
-            <div className="overflow-x-auto max-h-[45vh] overflow-y-auto">
+            <div className="overflow-x-auto max-h-[35vh] overflow-y-auto">
                 <table className="w-full">
-                    <thead className="bg-slate-50 sticky top-0 text-[9px] text-slate-500 uppercase">
+                    <thead className="bg-slate-50 sticky top-0 text-[8px] text-slate-500 uppercase">
                         <tr>
                             <th className="px-1.5 py-1 w-5"></th>
                             <th className="px-1.5 py-1 text-left">Sector</th>

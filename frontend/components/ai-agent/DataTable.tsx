@@ -63,7 +63,7 @@ function formatValue(value: unknown, column: string, onOpenChart?: (t: string) =
   }
 
   if (column === 'synthetic_sector' || column === 'synthetic_secto') {
-    return <span className="text-slate-600 text-[10px]">{str}</span>;
+    return <span className="text-slate-600 text-[9px]">{str}</span>;
   }
 
   if (typeof value === 'number') {
@@ -81,8 +81,8 @@ const COL_LABELS: Record<string, string> = {
 
 const getLabel = (c: string) => COL_LABELS[c] || c.replace(/_/g, ' ').slice(0, 8);
 
-const PREVIEW = 20;  // Show first 20 rows by default
-const THRESHOLD = 20; // Show "Show All" button if more than 20 rows
+const PREVIEW = 10;
+const THRESHOLD = 10;
 
 export const DataTable = memo(function DataTable({ columns, rows, title, total }: DataTableProps) {
   const { openWindow } = useFloatingWindow();
@@ -135,25 +135,25 @@ export const DataTable = memo(function DataTable({ columns, rows, title, total }
   }, [openWindow, columns, rows, title, count]);
 
   return (
-    <div className="rounded border border-slate-200 bg-white overflow-hidden">
+    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
       {title && (
-        <div className="px-2 py-1.5 border-b border-slate-200 flex justify-between text-[11px]">
+        <div className="px-2 py-1 border-b border-slate-200 flex justify-between text-[10px]">
           <span className="font-medium text-slate-700">{title}</span>
           <span className="text-slate-400">{count} rows</span>
         </div>
       )}
-      <div className="overflow-x-auto max-h-[40vh] overflow-y-auto">
-        <table className="w-full text-[11px]">
-          <thead className="bg-slate-50 sticky top-0 text-[9px] text-slate-500 uppercase">
+      <div className="overflow-x-auto max-h-[35vh] overflow-y-auto">
+        <table className="w-full text-[10px]">
+          <thead className="bg-slate-50 sticky top-0 text-[8px] text-slate-500 uppercase">
             <tr>
-              {cols.map(c => <th key={c} className="px-1.5 py-1 text-left whitespace-nowrap">{getLabel(c)}</th>)}
+              {cols.map(c => <th key={c} className="px-1.5 py-0.5 text-left whitespace-nowrap">{getLabel(c)}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {preview.map((row, i) => (
               <tr key={i} className="hover:bg-slate-50/50">
                 {cols.map(c => (
-                  <td key={c} className="px-1.5 py-1 whitespace-nowrap">
+                  <td key={c} className="px-1.5 py-0.5 whitespace-nowrap">
                     {formatValue(row[c], c, c === 'symbol' ? handleOpenChart : undefined)}
                   </td>
                 ))}
@@ -162,14 +162,12 @@ export const DataTable = memo(function DataTable({ columns, rows, title, total }
           </tbody>
         </table>
       </div>
-      {rows.length === 0 && <div className="py-3 text-center text-[11px] text-slate-400">Sin resultados</div>}
-      
-      {/* Show All button when there are more rows */}
+      {rows.length === 0 && <div className="py-2 text-center text-[10px] text-slate-400">Sin resultados</div>}
       {hasMore && (
-        <div className="px-3 py-2 border-t border-slate-200 bg-slate-50">
+        <div className="px-2 py-1.5 border-t border-slate-200 bg-slate-50">
           <button 
             onClick={handleOpenFullTable}
-            className="w-full py-1.5 text-[11px] text-slate-600 hover:text-slate-800 border border-slate-300 rounded hover:bg-white transition-colors"
+            className="w-full py-1 text-[10px] text-slate-600 hover:text-slate-800 border border-slate-300 rounded hover:bg-white transition-colors"
           >
             Show All ({count} rows)
           </button>

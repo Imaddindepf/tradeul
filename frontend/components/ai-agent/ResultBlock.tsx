@@ -70,16 +70,16 @@ function MetricCard({ metric }: { metric: MetricData }) {
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className={'rounded-xl border border-slate-200/80 px-3.5 py-2.5 flex flex-col gap-0.5 min-w-0 ' + trendBg}
+      className={'rounded-lg border border-slate-200/80 px-2.5 py-1.5 flex flex-col gap-0 min-w-0 ' + trendBg}
     >
-      <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider truncate">
+      <span className="text-[9px] font-medium text-slate-500 uppercase tracking-wider truncate">
         {metric.label}
       </span>
-      <div className="flex items-center gap-1.5">
-        <span className="text-[15px] font-bold text-slate-800 tabular-nums truncate">
+      <div className="flex items-center gap-1">
+        <span className="text-[13px] font-bold text-slate-800 tabular-nums truncate">
           {metric.value}
         </span>
-        <TrendIcon className={'w-3.5 h-3.5 flex-shrink-0 ' + trendColor} />
+        <TrendIcon className={'w-3 h-3 flex-shrink-0 ' + trendColor} />
       </div>
     </motion.div>
   );
@@ -95,11 +95,13 @@ function stripBold(text: string): string {
 /* ================================================================
    Interactive Table: Sortable columns, numeric detection, hover
    ================================================================ */
+const INLINE_TABLE_PREVIEW = 10;
+
 function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
-  // Clean all cells of markdown bold markers
   const cleanHeaders = useMemo(() => headers.map(stripBold), [headers]);
   const cleanRows = useMemo(() => rows.map(r => r.map(stripBold)), [rows]);
 
@@ -139,20 +141,20 @@ function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[]
   };
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white shadow-sm">
-      <table className="w-full text-[12px]">
+    <div className="overflow-x-auto rounded-lg border border-slate-200/80 bg-white">
+      <table className="w-full text-[10px]">
         <thead>
           <tr className="bg-slate-50/80">
             {cleanHeaders.map((h, i) => (
               <th
                 key={i}
                 onClick={() => handleSort(i)}
-                className={'px-3 py-2.5 font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors select-none whitespace-nowrap ' + (isNumeric[i] ? 'text-right' : 'text-left')}
+                className={'px-2 py-1.5 font-semibold text-slate-600 cursor-pointer hover:bg-slate-100 transition-colors select-none whitespace-nowrap ' + (isNumeric[i] ? 'text-right' : 'text-left')}
               >
-                <span className="inline-flex items-center gap-1">
+                <span className="inline-flex items-center gap-0.5">
                   {h}
                   {sortCol === i && (
-                    <span className="text-[9px] text-indigo-500">
+                    <span className="text-[8px] text-indigo-500">
                       {sortAsc ? '\u25B2' : '\u25BC'}
                     </span>
                   )}
@@ -162,13 +164,13 @@ function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[]
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {sortedRows.map((row, rowIdx) => (
+          {(expanded ? sortedRows : sortedRows.slice(0, INLINE_TABLE_PREVIEW)).map((row, rowIdx) => (
             <tr key={rowIdx} className="hover:bg-indigo-50/30 transition-colors">
               {row.map((cell, cellIdx) => (
                 <td
                   key={cellIdx}
-                  className={'px-3 py-2 tabular-nums ' +
-                    (isNumeric[cellIdx] ? 'text-right font-mono text-[11px] ' : 'text-left ') +
+                  className={'px-2 py-1 tabular-nums ' +
+                    (isNumeric[cellIdx] ? 'text-right font-mono text-[10px] ' : 'text-left ') +
                     (cellIdx === 0 ? 'font-medium text-slate-800 ' : getCellColor(cell))}
                 >
                   {cell}
@@ -178,6 +180,14 @@ function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[]
           ))}
         </tbody>
       </table>
+      {sortedRows.length > INLINE_TABLE_PREVIEW && !expanded && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full py-1.5 text-[10px] text-slate-500 hover:text-slate-700 bg-slate-50 border-t border-slate-200/80 transition-colors"
+        >
+          Show more ({sortedRows.length - INLINE_TABLE_PREVIEW} more rows)
+        </button>
+      )}
     </div>
   );
 }
@@ -290,7 +300,7 @@ function fmtInline(text: string): string {
   return text
     .replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-slate-800">$1</strong>')
     .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em class="text-slate-700">$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 rounded bg-slate-100 text-indigo-600 text-[11px] font-mono">$1</code>')
+    .replace(/`([^`]+)`/g, '<code class="px-0.5 py-px rounded bg-slate-100 text-indigo-600 text-[10px] font-mono">$1</code>')
     .replace(/\$(\d[\d,.]*)/g, '<span class="font-semibold tabular-nums text-slate-800">$$$1</span>');
 }
 
@@ -314,43 +324,42 @@ const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { conte
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
-      className="space-y-4"
+      className="space-y-2"
     >
-      {/* Rendered markdown (metrics are now part of the synthesizer's formatted output) */}
       {elements.map((el, idx) => {
         switch (el.type) {
           case 'h1':
             return (
-              <h2 key={idx} className="text-[17px] font-bold text-slate-900 mt-5 first:mt-0 pb-2 border-b border-slate-200/60">
+              <h2 key={idx} className="text-[13px] font-bold text-slate-900 mt-3 first:mt-0 pb-1 border-b border-slate-200/60">
                 {el.content}
               </h2>
             );
           case 'h2':
             return (
-              <h3 key={idx} className="text-[14px] font-bold text-slate-800 mt-5 first:mt-0 flex items-center gap-2">
-                <span className="w-1 h-4 rounded-full bg-indigo-500 inline-block" />
+              <h3 key={idx} className="text-[12px] font-bold text-slate-800 mt-3 first:mt-0 flex items-center gap-1.5">
+                <span className="w-0.5 h-3 rounded-full bg-indigo-500 inline-block" />
                 {el.content}
               </h3>
             );
           case 'h3':
             return (
-              <h4 key={idx} className="text-[13px] font-semibold text-slate-700 mt-4 first:mt-0">
+              <h4 key={idx} className="text-[11px] font-semibold text-slate-700 mt-2 first:mt-0">
                 {el.content}
               </h4>
             );
           case 'divider':
-            return <hr key={idx} className="border-slate-200/60 my-4" />;
+            return <hr key={idx} className="border-slate-200/60 my-2" />;
           case 'bullet':
             return (
-              <div key={idx} className="flex gap-2.5 text-[12.5px] text-slate-600 leading-relaxed pl-1">
+              <div key={idx} className="flex gap-1.5 text-[11px] text-slate-600 leading-relaxed pl-0.5">
                 <span className="text-indigo-400 mt-0.5 select-none flex-shrink-0">&bull;</span>
                 <span dangerouslySetInnerHTML={{ __html: fmtInline(el.content) }} />
               </div>
             );
           case 'numbered':
             return (
-              <div key={idx} className="flex gap-2.5 text-[12.5px] text-slate-600 leading-relaxed pl-1">
-                <span className="text-indigo-500 font-semibold text-[11px] mt-0.5 select-none flex-shrink-0 min-w-[16px]">
+              <div key={idx} className="flex gap-1.5 text-[11px] text-slate-600 leading-relaxed pl-0.5">
+                <span className="text-indigo-500 font-semibold text-[10px] mt-0.5 select-none flex-shrink-0 min-w-[14px]">
                   {el.level}.
                 </span>
                 <span dangerouslySetInnerHTML={{ __html: fmtInline(el.content) }} />
@@ -358,13 +367,13 @@ const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { conte
             );
           case 'text':
             return (
-              <p key={idx} className="text-[12.5px] text-slate-600 leading-relaxed"
+              <p key={idx} className="text-[11px] text-slate-600 leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: fmtInline(el.content) }}
               />
             );
           case 'code':
             return (
-              <pre key={idx} className="rounded-lg bg-slate-900 text-slate-200 p-4 text-[11px] font-mono overflow-x-auto leading-relaxed">
+              <pre key={idx} className="rounded-lg bg-slate-900 text-slate-200 p-3 text-[10px] font-mono overflow-x-auto leading-relaxed">
                 {el.content}
               </pre>
             );
@@ -374,13 +383,13 @@ const V4ResponseRenderer = memo(function V4ResponseRenderer({ content }: { conte
             const tRows = el.rows.slice(1).map(r => r.map(stripBold));
             const tIdx = tableCounter++;
             return (
-              <div key={idx} className="space-y-2">
+              <div key={idx} className="space-y-1.5">
                 <InteractiveTable headers={tHeaders} rows={tRows} />
                 {tRows.length >= 2 && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setShowChart(showChart === tIdx ? null : tIdx)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                      className="inline-flex items-center gap-1 px-2 py-1 text-[9px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded transition-colors"
                     >
                       <BarChart3 className="w-3 h-3" />
                       {showChart === tIdx ? 'Hide Chart' : 'Visualize'}
@@ -440,8 +449,8 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
         if (output.plotly_config) return <Chart key={index} title={output.title} plotlyConfig={output.plotly_config} />;
         if ((output as any).image_base64) {
           return (
-            <div key={index} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-              {output.title && <div className="px-4 py-2 bg-slate-50 border-b text-[12px] font-medium text-slate-600">{output.title}</div>}
+            <div key={index} className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+              {output.title && <div className="px-3 py-1.5 bg-slate-50 border-b text-[10px] font-medium text-slate-600">{output.title}</div>}
               <img src={'data:image/png;base64,' + (output as any).image_base64} alt={output.title || 'Chart'} className="max-w-full h-auto" />
             </div>
           );
@@ -452,13 +461,13 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
         if ((output as any).content) return <V4ResponseRenderer key={index} content={(output as any).content} />;
         if (output.stats && Object.keys(output.stats).length > 0) {
           return (
-            <div key={index} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-[12px] font-semibold text-slate-700 mb-3">{output.title}</h3>
-              <div className="grid grid-cols-2 gap-3">
+            <div key={index} className="rounded-lg border border-slate-200 bg-white p-3">
+              <h3 className="text-[10px] font-semibold text-slate-700 mb-2">{output.title}</h3>
+              <div className="grid grid-cols-2 gap-2">
                 {Object.entries(output.stats).map(([col, stats]) => (
-                  <div key={col} className="bg-slate-50 rounded-lg p-3">
-                    <div className="text-[10px] text-slate-500 uppercase font-medium">{col}</div>
-                    <div className="grid grid-cols-2 gap-1 text-[11px] mt-1.5">
+                  <div key={col} className="bg-slate-50 rounded p-2">
+                    <div className="text-[9px] text-slate-500 uppercase font-medium">{col}</div>
+                    <div className="grid grid-cols-2 gap-0.5 text-[10px] mt-1">
                       <span className="text-slate-400">Min:</span>
                       <span className="font-mono tabular-nums">{stats.min}</span>
                       <span className="text-slate-400">Max:</span>
@@ -539,15 +548,15 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
         const sections = parseContent(rawContent);
 
         return (
-          <div key={index} className="space-y-5">
-            <div className="pb-3 border-b border-slate-200">
-              <h3 className="text-[16px] font-bold text-slate-900">{ticker ? ticker + ' Research' : 'Research'}</h3>
-              <p className="text-[11px] text-slate-500 mt-1">{citations.length} sources cited</p>
+          <div key={index} className="space-y-3">
+            <div className="pb-2 border-b border-slate-200">
+              <h3 className="text-[12px] font-bold text-slate-900">{ticker ? ticker + ' Research' : 'Research'}</h3>
+              <p className="text-[9px] text-slate-500 mt-0.5">{citations.length} sources cited</p>
             </div>
             {sections.map((section, sidx) => (
-              <div key={sidx} className="space-y-2">
-                <h4 className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{section.title}</h4>
-                <div className="text-[13px] text-slate-800 leading-[1.7] space-y-2">
+              <div key={sidx} className="space-y-1.5">
+                <h4 className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{section.title}</h4>
+                <div className="text-[11px] text-slate-800 leading-[1.6] space-y-1.5">
                   {section.content.split('\n').filter(l => l.trim()).map((line, li) => {
                     const t = line.trim();
                     if (t.startsWith('-') || t.startsWith('\u2022')) {
@@ -564,8 +573,8 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
               </div>
             ))}
             {ticker && (
-              <div className="border border-slate-200 rounded-xl overflow-hidden mt-4 shadow-sm">
-                <div className="h-[350px]"><TradingChart ticker={ticker} minimal /></div>
+              <div className="border border-slate-200 rounded-lg overflow-hidden mt-3">
+                <div className="h-[280px]"><TradingChart ticker={ticker} minimal /></div>
               </div>
             )}
           </div>
@@ -577,27 +586,27 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
         const newsItems = newsOutput.news || [];
         const symbol = newsOutput.symbol || '';
         return (
-          <div key={index} className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-            <div className="px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
+          <div key={index} className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+            <div className="px-3 py-1.5 border-b border-slate-200 flex items-center justify-between">
               <div>
-                <h3 className="text-[13px] font-semibold text-slate-800">{symbol ? 'News: ' + symbol : 'News'}</h3>
-                <p className="text-[10px] text-slate-500">{newsItems.length} articles</p>
+                <h3 className="text-[11px] font-semibold text-slate-800">{symbol ? 'News: ' + symbol : 'News'}</h3>
+                <p className="text-[9px] text-slate-500">{newsItems.length} articles</p>
               </div>
               {newsOutput.deep_research_available && (
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('agent:send', { detail: { message: 'deep research ' + symbol } }))}
-                  className="px-2.5 py-1.5 text-[10px] text-indigo-600 bg-indigo-50 border border-indigo-200/60 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1.5"
+                  className="px-2 py-1 text-[9px] text-indigo-600 bg-indigo-50 border border-indigo-200/60 rounded hover:bg-indigo-100 transition-colors flex items-center gap-1"
                 >
-                  <Search className="w-3 h-3" />Deep Research
+                  <Search className="w-2.5 h-2.5" />Deep Research
                 </button>
               )}
             </div>
             <div className="divide-y divide-slate-100">
               {newsItems.map((news: any, i: number) => (
-                <div key={i} className="px-4 py-2.5 hover:bg-indigo-50/30 transition-colors">
-                  <h4 className="text-[12px] font-medium text-slate-800 leading-snug">{news.title}</h4>
-                  {news.summary && <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">{news.summary}</p>}
-                  <div className="flex items-center gap-2 mt-1.5 text-[10px] text-slate-400">
+                <div key={i} className="px-3 py-1.5 hover:bg-indigo-50/30 transition-colors">
+                  <h4 className="text-[10px] font-medium text-slate-800 leading-snug">{news.title}</h4>
+                  {news.summary && <p className="text-[10px] text-slate-600 mt-0.5 leading-relaxed">{news.summary}</p>}
+                  <div className="flex items-center gap-1.5 mt-1 text-[9px] text-slate-400">
                     <span>{news.source}</span>
                     {news.published && (
                       <>
@@ -615,9 +624,9 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
 
       case 'error':
         return (
-          <div key={index} className="rounded-xl border border-red-200/60 bg-red-50/50 p-4">
-            <div className="text-[12px] font-semibold text-red-700">Error</div>
-            <p className="mt-1 text-[11px] text-red-600 font-mono">{output.title}</p>
+          <div key={index} className="rounded-lg border border-red-200/60 bg-red-50/50 p-3">
+            <div className="text-[10px] font-semibold text-red-700">Error</div>
+            <p className="mt-0.5 text-[10px] text-red-600 font-mono">{output.title}</p>
           </div>
         );
 
@@ -627,10 +636,9 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
   };
 
   return (
-    <div className="space-y-3">
-      {/* Copy button for text content */}
+    <div className="space-y-2">
       {result?.outputs?.[0] && (result.outputs[0] as any).content && (
-        <div className="flex justify-end -mt-1 -mb-1">
+        <div className="flex justify-end -mt-0.5 -mb-0.5">
           <CopyButton text={(result.outputs[0] as any).content} />
         </div>
       )}
@@ -640,15 +648,15 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
 
       {/* Outputs */}
       {result?.outputs && result.outputs.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-2">
           {result.outputs.map((output, index) => renderOutput(output, index))}
         </div>
       )}
 
       {/* Error */}
       {result?.error && status === 'error' && (
-        <div className="rounded-xl border border-red-200/60 bg-red-50/50 p-4">
-          <div className="text-[12px] font-semibold text-red-700 mb-2">Execution Error</div>
+        <div className="rounded-lg border border-red-200/60 bg-red-50/50 p-3">
+          <div className="text-[10px] font-semibold text-red-700 mb-1">Execution Error</div>
           <pre className="text-[11px] text-red-600 font-mono whitespace-pre-wrap">{result.error}</pre>
         </div>
       )}

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
 import {
     createChart,
+    TickMarkType,
     ColorType,
     CrosshairMode,
     CandlestickSeries,
@@ -20,9 +21,16 @@ import {
     type UTCTimestamp,
     type SeriesMarker,
 } from 'lightweight-charts';
-import { RefreshCw, Maximize2, Minimize2, BarChart3, ZoomIn, ZoomOut, Radio, Minus, Trash2, MousePointer, Newspaper, ExternalLink, ChevronDown, Activity, LineChart, TrendingUp, Waves, Target, X, Sparkles, Bot } from 'lucide-react';
+import { RefreshCw, Maximize2, Minimize2, BarChart3, ZoomIn, ZoomOut, Radio, Trash2, Newspaper, ExternalLink, ChevronDown, Activity, LineChart, Waves, X, Sparkles, Bot } from 'lucide-react';
 import { useLiveChartData, type ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
 import { useChartDrawings } from '@/hooks/useChartDrawings';
+import type { Drawing as DrawingType } from '@/hooks/useChartDrawings';
+import { TrendlinePrimitive } from './primitives/TrendlinePrimitive';
+import { HorizontalLinePrimitive } from './primitives/HorizontalLinePrimitive';
+import { FibonacciPrimitive } from './primitives/FibonacciPrimitive';
+import { RectanglePrimitive } from './primitives/RectanglePrimitive';
+import { TentativePrimitive } from './primitives/TentativePrimitive';
+import type { ISeriesPrimitive } from 'lightweight-charts';
 import { useIndicatorWorker, type IndicatorType, PANEL_INDICATORS } from '@/hooks/useIndicatorWorker';
 import type { IndicatorDataPoint, MACDData, StochData, ADXData, SqueezeData } from '@/hooks/useIndicatorWorker';
 import { ChartNewsPopup } from './ChartNewsPopup';
@@ -290,10 +298,14 @@ function ChartContextMenu({
         onClose();
     };
 
+    const candleDateISO = state.candle
+        ? new Date(state.candle.time * 1000).toISOString().slice(0, 10)
+        : '';
+
     const items = state.candle
         ? [
-            { label: 'Analyze this candle', prompt: `Analyze the candle at ${new Date(state.candle.time * 1000).toLocaleDateString()} for ${ticker}` },
-            { label: 'Why did this move?', prompt: `Why did ${ticker} move like this on ${new Date(state.candle.time * 1000).toLocaleDateString()}?` },
+            { label: 'Analyze this candle', prompt: `Analyze the candle at ${candleDateISO} for ${ticker}` },
+            { label: 'Why did this move?', prompt: `Why did ${ticker} move like this on ${candleDateISO}?` },
             { label: 'Full technical analysis', prompt: `Full technical analysis of ${ticker} chart` },
             { label: 'Support & resistance levels', prompt: `Identify support and resistance levels for ${ticker}` },
         ]
@@ -481,13 +493,17 @@ function TradingChartComponent({
         isDrawing,
         selectedDrawingId,
         hoveredDrawingId,
+        pendingDrawing,
+        tentativeEndpoint,
         setActiveTool,
         cancelDrawing,
         handleChartClick,
+        updateTentativeEndpoint,
         removeDrawing,
         clearAllDrawings,
         selectDrawing,
         updateHorizontalLinePrice,
+        updateDrawingPoints,
         updateDrawingLineWidth,
         updateDrawingColor,
         startDragging,
@@ -545,8 +561,31 @@ function TradingChartComponent({
         }
     }, [editPopup.drawingId, removeDrawing, closeEditPopup]);
 
-    // Refs para price lines (drawings)
-    const priceLinesRef = useRef<Map<string, any>>(new Map());
+    // Refs for drawing primitives
+    const drawingPrimitivesRef = useRef<Map<string, ISeriesPrimitive<Time>>>(new Map());
+    const tentativePrimitiveRef = useRef<TentativePrimitive | null>(null);
+    const [chartVersion, setChartVersion] = useState(0);
+
+    // Sorted timestamps for cross-timeframe coordinate interpolation
+    const dataTimes = useMemo(() => data.map(d => d.time), [data]);
+    const dataTimesRef = useRef(dataTimes);
+    dataTimesRef.current = dataTimes;
+
+    // Stable refs — prevents stale closures in LWC event handlers
+    const activeToolRef = useRef(activeTool);
+    activeToolRef.current = activeTool;
+    const handleChartClickRef = useRef(handleChartClick);
+    handleChartClickRef.current = handleChartClick;
+    const selectDrawingRef = useRef(selectDrawing);
+    selectDrawingRef.current = selectDrawing;
+    const pendingDrawingRef = useRef(pendingDrawing);
+    pendingDrawingRef.current = pendingDrawing;
+    const updateTentativeEndpointRef = useRef(updateTentativeEndpoint);
+    updateTentativeEndpointRef.current = updateTentativeEndpoint;
+    const openEditPopupRef = useRef(openEditPopup);
+    openEditPopupRef.current = openEditPopup;
+    const findDrawingNearPriceRef = useRef(findDrawingNearPrice);
+    findDrawingNearPriceRef.current = findDrawingNearPrice;
 
     // Update when external ticker changes
     useEffect(() => {
@@ -658,30 +697,44 @@ function TradingChartComponent({
                 minBarSpacing: 0.5,
                 fixLeftEdge: false,
                 fixRightEdge: false,
-                tickMarkFormatter: (time: number) => {
+                tickMarkFormatter: (time: number, tickMarkType: TickMarkType) => {
                     const tz = getUserTimezone();
-                    const date = new Date(time * 1000);
-                    return date.toLocaleTimeString('en-US', {
-                        timeZone: tz,
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false,
-                    });
+                    const d = new Date(time * 1000);
+                    const intraday = selectedInterval !== '1day';
+
+                    switch (tickMarkType) {
+                        case TickMarkType.Year:
+                            return d.toLocaleDateString('en-US', { timeZone: tz, year: 'numeric' });
+                        case TickMarkType.Month:
+                            return d.toLocaleDateString('en-US', { timeZone: tz, month: 'short', year: intraday ? undefined : '2-digit' });
+                        case TickMarkType.DayOfMonth:
+                            return intraday
+                                ? d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', day: 'numeric' })
+                                : d.toLocaleDateString('en-US', { timeZone: tz, day: 'numeric', month: 'short' });
+                        case TickMarkType.Time:
+                            return d.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+                        case TickMarkType.TimeWithSeconds:
+                            return d.toLocaleTimeString('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+                        default:
+                            return null;
+                    }
                 },
             },
             localization: {
                 timeFormatter: (time: number) => {
                     const tz = getUserTimezone();
                     const abbrev = getTimezoneAbbrev(tz);
-                    const date = new Date(time * 1000);
-                    return date.toLocaleString('en-US', {
-                        timeZone: tz,
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        hour12: false,
-                    }) + ` ${abbrev}`;
+                    const d = new Date(time * 1000);
+                    const intraday = selectedInterval !== '1day';
+                    if (intraday) {
+                        return d.toLocaleString('en-US', {
+                            timeZone: tz, month: 'short', day: 'numeric',
+                            hour: '2-digit', minute: '2-digit', hour12: false,
+                        }) + ` ${abbrev}`;
+                    }
+                    return d.toLocaleDateString('en-US', {
+                        timeZone: tz, weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+                    });
                 },
             },
             handleScale: {
@@ -699,6 +752,7 @@ function TradingChartComponent({
         });
 
         chartRef.current = chart;
+        setChartVersion(v => v + 1);
 
         // Watermark disabled for testing
         watermarkRef.current = null;
@@ -812,6 +866,8 @@ function TradingChartComponent({
             if (resizeTimeout) clearTimeout(resizeTimeout);
             resizeObserver.disconnect();
             // Clean up refs
+            drawingPrimitivesRef.current.clear();
+            tentativePrimitiveRef.current = null;
             overlaySeriesRef.current.clear();
             maSeriesRef.current = { ma20: null, ma50: null };
             emaSeriesRef.current = { ema12: null, ema26: null };
@@ -1387,6 +1443,12 @@ function TradingChartComponent({
         }
     }, [currentTicker, openWindow]);
 
+    // Stable refs for news/edit handlers (declared after their definitions)
+    const showNewsMarkersRef = useRef(showNewsMarkers);
+    showNewsMarkersRef.current = showNewsMarkers;
+    const handleNewsMarkerClickRef = useRef(handleNewsMarkerClick);
+    handleNewsMarkerClickRef.current = handleNewsMarkerClick;
+
     // ============================================================================
     // Register real-time update handler
     // ============================================================================
@@ -1433,108 +1495,165 @@ function TradingChartComponent({
     }, [registerUpdateHandler, data.length]);
 
     // ============================================================================
-    // Render drawings (horizontal lines) with hover and selection
+    // Sync drawings to primitives
     // ============================================================================
     useEffect(() => {
-        if (!candleSeriesRef.current) return;
+        if (!candleSeriesRef.current || dataTimes.length === 0) return;
+        const series = candleSeriesRef.current;
+        const currentPrimitives = drawingPrimitivesRef.current;
 
-        const candleSeries = candleSeriesRef.current;
-        const currentLines = priceLinesRef.current;
-
-        currentLines.forEach((priceLine, id) => {
+        // Remove deleted drawings
+        for (const [id, primitive] of currentPrimitives) {
             if (!drawings.find(d => d.id === id)) {
-                candleSeries.removePriceLine(priceLine);
-                currentLines.delete(id);
+                series.detachPrimitive(primitive);
+                currentPrimitives.delete(id);
             }
-        });
+        }
 
-        drawings.forEach(drawing => {
-            if (drawing.type === 'horizontal_line') {
-                const existingLine = currentLines.get(drawing.id);
-                const isSelected = selectedDrawingId === drawing.id;
-                const isHovered = hoveredDrawingId === drawing.id;
+        // Add/update drawings
+        for (const drawing of drawings) {
+            const isSelected = selectedDrawingId === drawing.id;
+            const isHovered = hoveredDrawingId === drawing.id;
+            const existing = currentPrimitives.get(drawing.id);
 
-                const visualWidth = isSelected ? Math.max(drawing.lineWidth + 1, 3)
-                    : isHovered ? Math.max(drawing.lineWidth, 2)
-                        : drawing.lineWidth;
-
-                if (existingLine) {
-                    existingLine.applyOptions({
-                        price: drawing.price,
-                        color: drawing.color,
-                        lineWidth: visualWidth as 1 | 2 | 3 | 4,
-                        lineStyle: isSelected || isHovered ? LineStyle.Solid :
-                            drawing.lineStyle === 'dashed' ? LineStyle.Dashed :
-                                drawing.lineStyle === 'dotted' ? LineStyle.Dotted : LineStyle.Solid,
-                    });
-                } else {
-                    const lineStyle = drawing.lineStyle === 'dashed'
-                        ? LineStyle.Dashed
-                        : drawing.lineStyle === 'dotted'
-                            ? LineStyle.Dotted
-                            : LineStyle.Solid;
-
-                    const priceLine = candleSeries.createPriceLine({
-                        price: drawing.price,
-                        color: drawing.color,
-                        lineWidth: drawing.lineWidth as 1 | 2 | 3 | 4,
-                        lineStyle,
-                        axisLabelVisible: true,
-                        title: drawing.label || '',
-                    });
-                    currentLines.set(drawing.id, priceLine);
+            if (existing) {
+                (existing as any).updateDrawing(drawing, isSelected, isHovered, dataTimes);
+            } else {
+                let primitive: ISeriesPrimitive<Time> | null = null;
+                switch (drawing.type) {
+                    case 'horizontal_line':
+                        primitive = new HorizontalLinePrimitive(drawing);
+                        break;
+                    case 'trendline':
+                        primitive = new TrendlinePrimitive(drawing);
+                        break;
+                    case 'fibonacci':
+                        primitive = new FibonacciPrimitive(drawing);
+                        break;
+                    case 'rectangle':
+                        primitive = new RectanglePrimitive(drawing);
+                        break;
+                }
+                if (primitive) {
+                    series.attachPrimitive(primitive);
+                    currentPrimitives.set(drawing.id, primitive);
+                    (primitive as any).updateDrawing(drawing, isSelected, isHovered, dataTimes);
                 }
             }
-        });
-    }, [drawings, selectedDrawingId, hoveredDrawingId]);
+        }
+    }, [drawings, selectedDrawingId, hoveredDrawingId, chartVersion, dataTimes]);
+
+    // Tentative drawing primitive (preview while placing)
+    useEffect(() => {
+        if (!candleSeriesRef.current || dataTimes.length === 0) return;
+        const series = candleSeriesRef.current;
+
+        if (!tentativePrimitiveRef.current) {
+            tentativePrimitiveRef.current = new TentativePrimitive();
+            series.attachPrimitive(tentativePrimitiveRef.current);
+        }
+
+        if (pendingDrawing) {
+            tentativePrimitiveRef.current.setDataTimes(dataTimes);
+            tentativePrimitiveRef.current.setState({
+                type: pendingDrawing.type,
+                point1: pendingDrawing.point1,
+                screenX: tentativeEndpoint?.x ?? -1,   // -1 = anchor-only (no point2 yet)
+                screenY: tentativeEndpoint?.y ?? -1,
+                mousePrice: tentativeEndpoint?.price ?? pendingDrawing.point1.price,
+                color: drawingColors[0],
+            });
+        } else {
+            tentativePrimitiveRef.current.setState(null);
+        }
+    }, [pendingDrawing, tentativeEndpoint, drawingColors, chartVersion, dataTimes]);
 
     // Drag state
     const [dragState, setDragState] = useState<{
         active: boolean;
         drawingId: string | null;
-        drawingType: 'horizontal_line' | null;
-        originalPrice: number;
-        startMouseY: number;
+        drawingType: string | null;
+        dragMode: 'translate' | 'anchor1' | 'anchor2';
+        startScreenX: number;
+        startScreenY: number;
+        p1ScreenX: number;
+        p1ScreenY: number;
+        p2ScreenX: number;
+        p2ScreenY: number;
     }>({
         active: false,
         drawingId: null,
         drawingType: null,
-        originalPrice: 0,
-        startMouseY: 0,
+        dragMode: 'translate',
+        startScreenX: 0,
+        startScreenY: 0,
+        p1ScreenX: 0,
+        p1ScreenY: 0,
+        p2ScreenX: 0,
+        p2ScreenY: 0,
     });
 
-    // Click handler for drawing/selection
+    // Time extrapolation for clicks/drags beyond data range.
+    // Uses dataTimesRef (not dataTimes) to avoid stale closure in event handlers.
+    const getTimeAtX = (x: number): { time: number; logical?: number } | null => {
+        if (!chartRef.current) return null;
+        const ts = chartRef.current.timeScale();
+        const time = ts.coordinateToTime(x);
+        if (time != null) return { time: time as number };
+        // Beyond data: extrapolate using bar gap (consistent with timeToPixelX)
+        const dt = dataTimesRef.current;
+        const logical = ts.coordinateToLogical(x);
+        if (logical == null || dt.length < 2) return null;
+        const n = dt.length;
+        const lastGap = dt[n - 1] - dt[n - 2];
+        if (lastGap <= 0) return null;
+        const offset = logical - (n - 1);
+        const extrapolatedTime = Math.round(dt[n - 1] + offset * lastGap);
+        if (!isFinite(extrapolatedTime)) return null;
+        return { time: extrapolatedTime, logical };
+    };
+
+    // Click handler for drawing/selection (reads from refs to avoid stale closures)
     useEffect(() => {
         if (!chartRef.current || !candleSeriesRef.current) return;
 
         const chart = chartRef.current;
-        const candleSeries = candleSeriesRef.current;
 
         const handleClick = (param: any) => {
-            if (!param.point) return;
-            const price = candleSeries.coordinateToPrice(param.point.y);
+            if (!param.point || !candleSeriesRef.current) return;
+            const price = candleSeriesRef.current.coordinateToPrice(param.point.y);
             if (price === null) return;
 
-            if (showNewsMarkers && param.time && newsTimeMapRef.current.has(param.time as number)) {
-                handleNewsMarkerClick(param.time as number);
+            if (showNewsMarkersRef.current && param.time && newsTimeMapRef.current.has(param.time as number)) {
+                handleNewsMarkerClickRef.current(param.time as number);
                 return;
             }
 
-            if (activeTool === 'horizontal_line') {
-                handleChartClick(price);
+            if (activeToolRef.current !== 'none') {
+                const resolved = param.time ? { time: param.time as number } : getTimeAtX(param.point.x);
+                if (!resolved) return;
+                handleChartClickRef.current(resolved.time, price, resolved.logical);
             } else {
-                const nearDrawing = findDrawingNearPrice(price, 0.5);
-                selectDrawing(nearDrawing ? nearDrawing.id : null);
+                let hitId: string | null = null;
+                for (const [id, primitive] of drawingPrimitivesRef.current) {
+                    const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
+                    if (hit) {
+                        const eid = (hit.externalId ?? '') as string;
+                        hitId = eid.endsWith(':p1') || eid.endsWith(':p2') ? eid.slice(0, -3) : eid;
+                        break;
+                    }
+                }
+                selectDrawingRef.current(hitId);
             }
         };
 
         const handleDoubleClick = (param: any) => {
-            if (!param.point || activeTool !== 'none') return;
-            const price = candleSeries.coordinateToPrice(param.point.y);
+            if (!param.point || !candleSeriesRef.current || activeToolRef.current !== 'none') return;
+            const price = candleSeriesRef.current.coordinateToPrice(param.point.y);
             if (price === null) return;
 
-            const nearDrawing = findDrawingNearPrice(price, 1.5);
-            if (nearDrawing) openEditPopup(nearDrawing.id, param.point.x + 20, param.point.y);
+            const nearDrawing = findDrawingNearPriceRef.current(price, 1.5);
+            if (nearDrawing) openEditPopupRef.current(nearDrawing.id, param.point.x + 20, param.point.y);
         };
 
         chart.subscribeClick(handleClick);
@@ -1544,59 +1663,152 @@ function TradingChartComponent({
             chart.unsubscribeClick(handleClick);
             chart.unsubscribeDblClick(handleDoubleClick);
         };
-    }, [activeTool, handleChartClick, findDrawingNearPrice, selectDrawing, openEditPopup, showNewsMarkers, handleNewsMarkerClick]);
+    }, [chartVersion]);
 
-    // Hover detection
+    // Hover detection (reads from refs)
     useEffect(() => {
-        if (!chartRef.current || !candleSeriesRef.current) return;
-        if (dragState.active || activeTool !== 'none') return;
-
+        if (!chartRef.current) return;
         const chart = chartRef.current;
-        const candleSeries = candleSeriesRef.current;
 
         const handleCrosshairMove = (param: any) => {
+            if (dragState.active || activeToolRef.current !== 'none') return;
             if (!param.point) { setHoveredDrawing(null); return; }
-            const price = candleSeries.coordinateToPrice(param.point.y);
-            if (price === null) { setHoveredDrawing(null); return; }
-            const nearDrawing = findDrawingNearPrice(price, 1.5);
-            setHoveredDrawing(nearDrawing?.id || null);
+            let hitId: string | null = null;
+            for (const [id, primitive] of drawingPrimitivesRef.current) {
+                const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
+                if (hit) {
+                    const eid = (hit.externalId ?? '') as string;
+                    hitId = eid.endsWith(':p1') || eid.endsWith(':p2') ? eid.slice(0, -3) : eid;
+                    break;
+                }
+            }
+            setHoveredDrawing(hitId);
         };
 
         chart.subscribeCrosshairMove(handleCrosshairMove);
         return () => { chart.unsubscribeCrosshairMove(handleCrosshairMove); };
-    }, [findDrawingNearPrice, setHoveredDrawing, dragState.active, activeTool]);
+    }, [dragState.active, setHoveredDrawing, chartVersion]);
+
+    // Track mouse for tentative drawing preview (reads from refs)
+    useEffect(() => {
+        if (!chartRef.current || !candleSeriesRef.current) return;
+        const chart = chartRef.current;
+
+        const handleMove = (param: any) => {
+            if (!param.point || !pendingDrawingRef.current || !candleSeriesRef.current) return;
+            const price = candleSeriesRef.current.coordinateToPrice(param.point.y);
+            if (price === null) return;
+            updateTentativeEndpointRef.current(param.point.x, param.point.y, price);
+        };
+
+        chart.subscribeCrosshairMove(handleMove);
+        return () => { chart.unsubscribeCrosshairMove(handleMove); };
+    }, [chartVersion]);
 
     // Drag handlers
     const handleDragStart = useCallback((e: React.MouseEvent) => {
-        if (activeTool !== 'none' || !candleSeriesRef.current || !containerRef.current) return;
+        if (activeTool !== 'none' || !candleSeriesRef.current || !containerRef.current || !chartRef.current) return;
         if (editPopup.visible) return;
 
         const rect = containerRef.current.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const price = candleSeriesRef.current.coordinateToPrice(mouseY);
-        if (price === null) return;
 
-        const nearDrawing = findDrawingNearPrice(price, 1.0);
-        if (!nearDrawing) return;
+        let hitId: string | null = null;
+        let dragMode: 'translate' | 'anchor1' | 'anchor2' = 'translate';
+        for (const [id, primitive] of drawingPrimitivesRef.current) {
+            const hit = (primitive as any).hitTest?.(mouseX, mouseY);
+            if (hit) {
+                const eid = (hit.externalId ?? '') as string;
+                if (eid.endsWith(':p1')) {
+                    hitId = eid.slice(0, -3);
+                    dragMode = 'anchor1';
+                } else if (eid.endsWith(':p2')) {
+                    hitId = eid.slice(0, -3);
+                    dragMode = 'anchor2';
+                } else {
+                    hitId = eid;
+                    dragMode = 'translate';
+                }
+                break;
+            }
+        }
+        if (!hitId) return;
+
+        const drawing = drawings.find(d => d.id === hitId);
+        if (!drawing) return;
 
         e.preventDefault();
         e.stopPropagation();
-        setDragState({ active: true, drawingId: nearDrawing.id, drawingType: 'horizontal_line', originalPrice: nearDrawing.price, startMouseY: mouseY });
-        selectDrawing(nearDrawing.id);
+
+        const series = candleSeriesRef.current;
+        const ts = chartRef.current.timeScale();
+        let p1ScreenX = 0, p1ScreenY = 0, p2ScreenX = 0, p2ScreenY = 0;
+        if (drawing.type === 'horizontal_line') {
+            p1ScreenY = (series.priceToCoordinate(drawing.price) as number) ?? 0;
+        } else if ('point1' in drawing && 'point2' in drawing) {
+            const d = drawing as any;
+            p1ScreenX = (ts.timeToCoordinate(d.point1.time) as number) ?? 0;
+            p1ScreenY = (series.priceToCoordinate(d.point1.price) as number) ?? 0;
+            p2ScreenX = (ts.timeToCoordinate(d.point2.time) as number) ?? 0;
+            p2ScreenY = (series.priceToCoordinate(d.point2.price) as number) ?? 0;
+        }
+
+        setDragState({
+            active: true, drawingId: hitId, drawingType: drawing.type, dragMode,
+            startScreenX: mouseX, startScreenY: mouseY,
+            p1ScreenX, p1ScreenY, p2ScreenX, p2ScreenY,
+        });
+        selectDrawing(hitId);
         startDragging();
-    }, [activeTool, findDrawingNearPrice, selectDrawing, startDragging, editPopup.visible]);
+    }, [activeTool, drawings, selectDrawing, startDragging, editPopup.visible]);
 
     const handleDragMove = useCallback((e: React.MouseEvent) => {
-        if (!dragState.active || !dragState.drawingId || !candleSeriesRef.current || !containerRef.current) return;
+        if (!dragState.active || !dragState.drawingId || !candleSeriesRef.current || !containerRef.current || !chartRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const newPrice = candleSeriesRef.current.coordinateToPrice(mouseY);
-        if (newPrice !== null && newPrice > 0) updateHorizontalLinePrice(dragState.drawingId, newPrice);
-    }, [dragState, updateHorizontalLinePrice]);
+        const dx = mouseX - dragState.startScreenX;
+        const dy = mouseY - dragState.startScreenY;
+        const series = candleSeriesRef.current;
+        const ts = chartRef.current.timeScale();
+
+        if (dragState.drawingType === 'horizontal_line') {
+            const newPrice = series.coordinateToPrice(dragState.p1ScreenY + dy);
+            if (newPrice !== null && newPrice > 0) updateHorizontalLinePrice(dragState.drawingId, newPrice);
+        } else if (dragState.dragMode === 'anchor1') {
+            const resolved = getTimeAtX(mouseX);
+            const newPrice = series.coordinateToPrice(mouseY);
+            if (resolved && newPrice != null) {
+                updateDrawingPoints(dragState.drawingId, {
+                    point1: { time: resolved.time, price: newPrice, logical: resolved.logical },
+                });
+            }
+        } else if (dragState.dragMode === 'anchor2') {
+            const resolved = getTimeAtX(mouseX);
+            const newPrice = series.coordinateToPrice(mouseY);
+            if (resolved && newPrice != null) {
+                updateDrawingPoints(dragState.drawingId, {
+                    point2: { time: resolved.time, price: newPrice, logical: resolved.logical },
+                });
+            }
+        } else {
+            const r1 = getTimeAtX(dragState.p1ScreenX + dx);
+            const r2 = getTimeAtX(dragState.p2ScreenX + dx);
+            const newP1Price = series.coordinateToPrice(dragState.p1ScreenY + dy);
+            const newP2Price = series.coordinateToPrice(dragState.p2ScreenY + dy);
+            if (r1 && r2 && newP1Price != null && newP2Price != null) {
+                updateDrawingPoints(dragState.drawingId, {
+                    point1: { time: r1.time, price: newP1Price, logical: r1.logical },
+                    point2: { time: r2.time, price: newP2Price, logical: r2.logical },
+                });
+            }
+        }
+    }, [dragState, updateHorizontalLinePrice, updateDrawingPoints]);
 
     const handleDragEnd = useCallback(() => {
         if (dragState.active) {
-            setDragState({ active: false, drawingId: null, drawingType: null, originalPrice: 0, startMouseY: 0 });
+            setDragState({ active: false, drawingId: null, drawingType: null, dragMode: 'translate', startScreenX: 0, startScreenY: 0, p1ScreenX: 0, p1ScreenY: 0, p2ScreenX: 0, p2ScreenY: 0 });
             stopDragging();
             setTimeout(() => selectDrawing(null), 50);
         }
@@ -1627,6 +1839,18 @@ function TradingChartComponent({
                 case 'h':
                 case 'H':
                     setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line');
+                    break;
+                case 't':
+                case 'T':
+                    setActiveTool(activeTool === 'trendline' ? 'none' : 'trendline');
+                    break;
+                case 'f':
+                case 'F':
+                    setActiveTool(activeTool === 'fibonacci' ? 'none' : 'fibonacci');
+                    break;
+                case 'r':
+                case 'R':
+                    setActiveTool(activeTool === 'rectangle' ? 'none' : 'rectangle');
                     break;
                 case 'Delete':
                 case 'Backspace':
@@ -2155,7 +2379,7 @@ function TradingChartComponent({
                             className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'none' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
                             title="Select (Esc)"
                         >
-                            <MousePointer className="w-3.5 h-3.5" />
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
                         </button>
 
                         {/* Horizontal Line */}
@@ -2164,7 +2388,34 @@ function TradingChartComponent({
                             className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'horizontal_line' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
                             title="Horizontal Line (H)"
                         >
-                            <Minus className="w-3.5 h-3.5" />
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="12" x2="22" y2="12" strokeWidth="2"/><circle cx="6" cy="12" r="2" fill="currentColor" stroke="none"/></svg>
+                        </button>
+
+                        {/* Trendline */}
+                        <button
+                            onClick={() => setActiveTool(activeTool === 'trendline' ? 'none' : 'trendline')}
+                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'trendline' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                            title="Trend Line (T)"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="20" x2="20" y2="4"/><circle cx="4" cy="20" r="2" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="2" fill="currentColor" stroke="none"/></svg>
+                        </button>
+
+                        {/* Fibonacci */}
+                        <button
+                            onClick={() => setActiveTool(activeTool === 'fibonacci' ? 'none' : 'fibonacci')}
+                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'fibonacci' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                            title="Fibonacci Retracement (F)"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="3" y1="3" x2="21" y2="3"/><line x1="3" y1="8.5" x2="21" y2="8.5" strokeDasharray="3 2"/><line x1="3" y1="12" x2="21" y2="12" strokeDasharray="3 2"/><line x1="3" y1="15.5" x2="21" y2="15.5" strokeDasharray="3 2"/><line x1="3" y1="21" x2="21" y2="21"/></svg>
+                        </button>
+
+                        {/* Rectangle */}
+                        <button
+                            onClick={() => setActiveTool(activeTool === 'rectangle' ? 'none' : 'rectangle')}
+                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'rectangle' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                            title="Rectangle (R)"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
                         </button>
 
                         {/* Clear drawings */}
@@ -2227,13 +2478,13 @@ function TradingChartComponent({
 
                     {/* Drag overlay */}
                     {dragState.active && (
-                        <div className="absolute inset-0 z-50" style={{ cursor: 'ns-resize' }} onMouseMove={handleDragMove} onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd} />
+                        <div className="absolute inset-0 z-50" style={{ cursor: dragState.dragMode !== 'translate' ? 'crosshair' : dragState.drawingType === 'horizontal_line' ? 'ns-resize' : 'grabbing' }} onMouseMove={handleDragMove} onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd} />
                     )}
 
                     {/* Drawing mode indicator */}
                     {isDrawing && (
                         <div className="absolute top-1 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-2 py-1 bg-blue-500 text-white text-[10px] font-medium rounded shadow-lg">
-                            <span>Click to place line</span>
+                            <span>{pendingDrawing ? 'Click second point' : activeTool === 'horizontal_line' ? 'Click to place line' : 'Click first point'}</span>
                             <button onClick={cancelDrawing} className="hover:bg-blue-600 rounded px-1">✕</button>
                         </div>
                     )}
@@ -2304,7 +2555,7 @@ function TradingChartComponent({
                         onMouseDown={activeTool === 'none' && !minimal ? handleDragStart : undefined}
                         onContextMenu={!minimal ? handleChartContextMenu : undefined}
                         style={{
-                            cursor: hoveredDrawingId && activeTool === 'none' ? 'ns-resize' : isDrawing ? 'crosshair' : 'default'
+                            cursor: hoveredDrawingId && activeTool === 'none' ? 'grab' : isDrawing ? 'crosshair' : 'default'
                         }}
                     />
                     {ctxMenu.visible && (

@@ -189,7 +189,7 @@ export function CommandPalette({ open, onOpenChange, onSelectCategory, activeCat
         }
 
         // Comandos que abren ventanas flotantes (principales)
-        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider', 'earnings', 'heatmap', 'predict', 'ai', 'ins', 'fan', 'hds', 'pulse'].includes(value)) {
+        if (['dt', 'settings', 'sec', 'news', 'alerts', 'fa', 'ipo', 'profile', 'watchlist', 'chat', 'notes', 'patterns', 'ratio', 'screener', 'mp', 'insider', 'earnings', 'heatmap', 'predict', 'ai', 'ins', 'fan', 'hds', 'pulse', 'rtn'].includes(value)) {
             executeCommand(value);
             setSearch('');
             onOpenChange(false);

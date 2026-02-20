@@ -330,7 +330,7 @@ class CatalystAlertEngine:
         try:
             # 1. Intentar desde snapshot enriched hash (HGET = ~500 bytes vs 7MB)
             import orjson
-            ticker_json = await self.redis.client.hget("snapshot:enriched:latest", ticker.upper())
+            ticker_json = await self.redis.hget("snapshot:enriched:latest", ticker.upper())
             if ticker_json:
                 try:
                     item = orjson.loads(ticker_json)

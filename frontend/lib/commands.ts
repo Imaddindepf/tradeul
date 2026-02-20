@@ -73,6 +73,7 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'evn', label: 'EVN', description: 'commands.evn.description', icon: Activity, isNew: true },
   { id: 'build', label: 'BUILD', description: 'commands.build.description', icon: Zap },
   { id: 'pulse', label: 'PULSE', description: 'commands.pulse.description', icon: Gauge, isNew: true },
+  { id: 'rtn', label: 'RTN', description: 'commands.rtn.description', icon: TrendingUp, isNew: true },
 ];
 
 /**

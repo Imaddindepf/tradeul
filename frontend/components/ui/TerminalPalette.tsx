@@ -101,7 +101,7 @@ export function TerminalPalette({
     const looksLikeTicker = /^[A-Z]{1,5}$/.test(searchUpper)
         && !hasScPrefix
         && !hasEvnPrefix
-        && !['SC', 'EVN', 'IPO', 'SET', 'HELP', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT', 'HM', 'HDS', 'SB', 'AI', 'INS', 'FAN', 'WL', 'DT', 'FA', 'SEC', 'PULSE'].includes(searchUpper)
+        && !['SC', 'EVN', 'IPO', 'SET', 'HELP', 'ALERTS', 'NOTE', 'CHAT', 'NEWS', 'PM', 'PRT', 'GR', 'SCREEN', 'MP', 'INSIDER', 'ERN', 'PREDICT', 'HM', 'HDS', 'SB', 'AI', 'INS', 'FAN', 'WL', 'DT', 'FA', 'SEC', 'PULSE', 'RTN'].includes(searchUpper)
         && !isExactCommand;
 
     // Buscar tickers cuando parece un ticker

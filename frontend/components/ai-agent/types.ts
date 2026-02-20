@@ -35,6 +35,7 @@ export interface Message {
   steps?: AgentStep[];
   thinkingStartTime?: number;
   clarification?: ClarificationData;
+  suggestedQuestions?: string[];
 }
 
 export interface TableData {

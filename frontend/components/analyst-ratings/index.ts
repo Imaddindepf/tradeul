@@ -1,0 +1,1 @@
+export { AnalystRatingsContent } from './AnalystRatings';

@@ -49,6 +49,7 @@ from routes.halts import router as halts_router
 from routes.alerts import router as alerts_router
 from routes.alert_strategies import router as alert_strategies_router, set_timescale_client as set_alert_strategies_timescale_client
 from routes.performance import router as performance_router, set_redis_client as set_performance_redis, set_timescale_client as set_performance_timescale
+from routes.analyst_ratings import router as analyst_ratings_router
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
@@ -243,6 +244,7 @@ app.include_router(halts_router)  # Trading halts from LULD stream
 app.include_router(alerts_router)  # Alert catalog and categories
 app.include_router(alert_strategies_router)  # User alert strategies (CRUD)
 app.include_router(performance_router)  # Market performance aggregation (sectors, industries, themes)
+app.include_router(analyst_ratings_router)  # Analyst ratings & price targets (Perplexity proxy)
 
 
 # ============================================================================

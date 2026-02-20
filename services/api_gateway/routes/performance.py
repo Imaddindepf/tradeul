@@ -30,8 +30,12 @@ _themes_cache_ts: float = 0
 THEMES_CACHE_TTL = 300
 
 _result_cache: Dict[str, Any] = {}
-_result_cache_ts: float = 0
-RESULT_CACHE_TTL = 5
+_result_cache_ts: Dict[str, float] = {}
+RESULT_CACHE_TTL = 2
+
+_snapshot_cache: List[Dict] = []
+_snapshot_cache_ts: float = 0
+SNAPSHOT_CACHE_TTL = 2
 
 
 def set_redis_client(client):
@@ -109,6 +113,19 @@ async def _load_themes() -> Dict[str, List[Dict]]:
     return _themes_cache
 
 
+def _safe_avg(values: List[float]) -> float:
+    return sum(values) / len(values) if values else 0
+
+def _safe_median(values: List[float]) -> float:
+    if not values:
+        return 0
+    s = sorted(values)
+    return s[len(s) // 2]
+
+def _collect(tickers: List[Dict], key: str) -> List[float]:
+    return [v for t in tickers if (v := t.get(key)) is not None]
+
+
 def _aggregate_group(tickers: List[Dict]) -> Dict:
     if not tickers:
         return {}
@@ -136,16 +153,16 @@ def _aggregate_group(tickers: List[Dict]) -> Dict:
         rvol = t.get("rvol")
 
         total_volume += vol
-        total_dollar_volume += vol * price
+        total_dollar_volume += t.get("dollar_volume") or (vol * price)
         total_market_cap += mcap
         if rvol is not None and rvol > 0:
             rvols.append(rvol)
 
     n = len(tickers)
-    avg_change = sum(changes) / len(changes) if changes else 0
-    median_change = sorted(changes)[len(changes) // 2] if changes else 0
+    avg_change = _safe_avg(changes)
+    median_change = _safe_median(changes)
     breadth = advancing / n if n > 0 else 0
-    avg_rvol = sum(rvols) / len(rvols) if rvols else 0
+    avg_rvol = _safe_avg(rvols)
 
     mcap_weighted_change = 0.0
     if total_market_cap > 0:
@@ -154,19 +171,43 @@ def _aggregate_group(tickers: List[Dict]) -> Dict:
             mcap = t.get("market_cap", 0) or 0
             mcap_weighted_change += chg * (mcap / total_market_cap)
 
+    r = lambda v, d=4: round(v, d)
+
     return {
         "count": n,
         "advancing": advancing,
         "declining": declining,
         "unchanged": n - advancing - declining,
-        "breadth": round(breadth, 4),
-        "avg_change": round(avg_change, 2),
-        "median_change": round(median_change, 2),
-        "weighted_change": round(mcap_weighted_change, 2),
-        "avg_rvol": round(avg_rvol, 2),
+        "breadth": r(breadth),
+        "avg_change": r(avg_change),
+        "median_change": r(median_change),
+        "weighted_change": r(mcap_weighted_change),
+        "avg_rvol": r(avg_rvol, 2),
         "total_volume": total_volume,
-        "total_dollar_volume": round(total_dollar_volume, 0),
-        "total_market_cap": round(total_market_cap, 0),
+        "total_dollar_volume": r(total_dollar_volume, 0),
+        "total_market_cap": r(total_market_cap, 0),
+        "avg_rsi": r(_safe_avg(_collect(tickers, "rsi_14")), 2),
+        "avg_daily_rsi": r(_safe_avg(_collect(tickers, "daily_rsi")), 2),
+        "avg_atr_pct": r(_safe_avg(_collect(tickers, "atr_percent")), 2),
+        "avg_daily_atr_pct": r(_safe_avg(_collect(tickers, "daily_atr_percent")), 2),
+        "avg_gap_pct": r(_safe_avg(_collect(tickers, "gap_percent")), 2),
+        "avg_adx": r(_safe_avg(_collect(tickers, "adx_14")), 2),
+        "avg_daily_adx": r(_safe_avg(_collect(tickers, "daily_adx_14")), 2),
+        "avg_dist_vwap": r(_safe_avg(_collect(tickers, "dist_from_vwap")), 2),
+        "avg_change_5d": r(_safe_avg(_collect(tickers, "change_5d")), 2),
+        "avg_change_10d": r(_safe_avg(_collect(tickers, "change_10d")), 2),
+        "avg_change_20d": r(_safe_avg(_collect(tickers, "change_20d")), 2),
+        "avg_from_52w_high": r(_safe_avg(_collect(tickers, "from_52w_high")), 2),
+        "avg_from_52w_low": r(_safe_avg(_collect(tickers, "from_52w_low")), 2),
+        "avg_float_turnover": r(_safe_avg(_collect(tickers, "float_turnover")), 4),
+        "avg_bid_ask_ratio": r(_safe_avg(_collect(tickers, "bid_ask_ratio")), 2),
+        "avg_pos_in_range": r(_safe_avg(_collect(tickers, "pos_in_range")), 2),
+        "avg_bb_position": r(_safe_avg(_collect(tickers, "daily_bb_position")), 2),
+        "avg_trades_z": r(_safe_avg(_collect(tickers, "trades_z_score")), 2),
+        "avg_range_pct": r(_safe_avg(_collect(tickers, "todays_range_pct")), 2),
+        "avg_dist_sma20": r(_safe_avg(_collect(tickers, "dist_daily_sma_20")), 2),
+        "avg_dist_sma50": r(_safe_avg(_collect(tickers, "dist_daily_sma_50")), 2),
+        "avg_vol_today_pct": r(_safe_avg(_collect(tickers, "volume_today_pct")), 2),
     }
 
 
@@ -179,7 +220,7 @@ def _top_movers(tickers: List[Dict], n: int = 5) -> Dict:
     fmt = lambda t: {
         "symbol": t["symbol"],
         "price": t.get("price"),
-        "change_percent": round(t.get("change_percent", 0), 2),
+        "change_percent": round(t.get("change_percent", 0), 4),
         "volume": t.get("volume"),
         "market_cap": t.get("market_cap"),
     }
@@ -227,6 +268,12 @@ async def get_drilldown(
 
 
 async def _load_snapshot() -> List[Dict]:
+    global _snapshot_cache, _snapshot_cache_ts
+
+    now = time.time()
+    if _snapshot_cache and (now - _snapshot_cache_ts) < SNAPSHOT_CACHE_TTL:
+        return _snapshot_cache
+
     if not _redis_client:
         raise HTTPException(status_code=503, detail="Redis not available")
 
@@ -247,18 +294,47 @@ async def _load_snapshot() -> List[Dict]:
             symbol = t.get("ticker") or t.get("symbol")
             if not symbol:
                 continue
+            price = t.get("price") or t.get("current_price") or (t.get("lastTrade") or {}).get("p")
+            vol = t.get("volume") or t.get("current_volume") or (t.get("day") or {}).get("v", 0)
             tickers.append({
                 "symbol": symbol,
-                "price": t.get("price") or t.get("current_price") or (t.get("lastTrade") or {}).get("p"),
+                "price": price,
                 "change_percent": t.get("change_percent") or t.get("todaysChangePerc"),
-                "volume": t.get("volume") or t.get("current_volume") or (t.get("day") or {}).get("v", 0),
+                "volume": vol,
                 "market_cap": t.get("market_cap", 0),
                 "rvol": t.get("rvol"),
                 "security_type": t.get("security_type"),
+                "dollar_volume": t.get("dollar_volume") or ((vol or 0) * (price or 0)),
+                "gap_percent": t.get("gap_percent"),
+                "atr_percent": t.get("atr_percent"),
+                "rsi_14": t.get("rsi_14"),
+                "daily_rsi": t.get("daily_rsi"),
+                "daily_atr_percent": t.get("daily_atr_percent"),
+                "adx_14": t.get("adx_14"),
+                "daily_adx_14": t.get("daily_adx_14"),
+                "vwap": t.get("vwap"),
+                "dist_from_vwap": t.get("dist_from_vwap"),
+                "change_5d": t.get("change_5d"),
+                "change_10d": t.get("change_10d"),
+                "change_20d": t.get("change_20d"),
+                "from_52w_high": t.get("from_52w_high"),
+                "from_52w_low": t.get("from_52w_low"),
+                "float_turnover": t.get("float_turnover"),
+                "bid_ask_ratio": t.get("bid_ask_ratio"),
+                "pos_in_range": t.get("pos_in_range"),
+                "daily_bb_position": t.get("daily_bb_position"),
+                "trades_z_score": t.get("trades_z_score"),
+                "avg_volume_20d": t.get("avg_volume_20d"),
+                "todays_range_pct": t.get("todays_range_pct"),
+                "dist_daily_sma_20": t.get("dist_daily_sma_20"),
+                "dist_daily_sma_50": t.get("dist_daily_sma_50"),
+                "volume_today_pct": t.get("volume_today_pct"),
             })
         except Exception:
             continue
 
+    _snapshot_cache = tickers
+    _snapshot_cache_ts = now
     return tickers
 
 
@@ -268,11 +344,10 @@ async def _get_performance(
     include_movers: bool,
     sector_filter: Optional[str] = None,
 ):
-    global _result_cache, _result_cache_ts
-
     cache_key = f"{group_by}:{min_market_cap}:{include_movers}:{sector_filter}"
     now = time.time()
-    if cache_key in _result_cache and (now - _result_cache_ts) < RESULT_CACHE_TTL:
+    cached_ts = _result_cache_ts.get(cache_key, 0)
+    if cache_key in _result_cache and (now - cached_ts) < RESULT_CACHE_TTL:
         return _result_cache[cache_key]
 
     snapshot, classifications = await asyncio.gather(
@@ -320,7 +395,7 @@ async def _get_performance(
     }
 
     _result_cache[cache_key] = response
-    _result_cache_ts = now
+    _result_cache_ts[cache_key] = now
     return response
 
 
@@ -329,11 +404,10 @@ async def _get_theme_performance(
     min_tickers: int,
     include_movers: bool,
 ):
-    global _result_cache, _result_cache_ts
-
     cache_key = f"themes:{min_market_cap}:{min_tickers}:{include_movers}"
     now = time.time()
-    if cache_key in _result_cache and (now - _result_cache_ts) < RESULT_CACHE_TTL:
+    cached_ts = _result_cache_ts.get(cache_key, 0)
+    if cache_key in _result_cache and (now - cached_ts) < RESULT_CACHE_TTL:
         return _result_cache[cache_key]
 
     snapshot, themes_map = await asyncio.gather(
@@ -378,7 +452,7 @@ async def _get_theme_performance(
     }
 
     _result_cache[cache_key] = response
-    _result_cache_ts = now
+    _result_cache_ts[cache_key] = now
     return response
 
 

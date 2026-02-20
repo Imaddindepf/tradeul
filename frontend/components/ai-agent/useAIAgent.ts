@@ -292,13 +292,15 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
           const response = data.response as string || '';
           const totalMs = data.metadata?.total_elapsed_ms;
 
-          // Update message status
+          const suggestedQuestions = (data.suggested_questions as string[]) || [];
+
           setMessages(prev => prev.map(m =>
             m.id === msgId
               ? {
                 ...m,
                 content: response,
                 status: 'complete',
+                suggestedQuestions: suggestedQuestions.length > 0 ? suggestedQuestions : undefined,
               }
               : m
           ));

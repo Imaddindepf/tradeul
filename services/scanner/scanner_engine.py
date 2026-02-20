@@ -55,7 +55,7 @@ from subscriptions import SubscriptionManager
 from ranking import calculate_ranking_deltas, ticker_data_changed
 
 # Motor RETE para reglas de usuario
-from rete import ReteManager, get_system_rules, compile_network, CATEGORY_TO_CHANNEL
+from rete import ReteManager, RuleOwnerType, get_system_rules, compile_network, CATEGORY_TO_CHANNEL
 
 logger = get_logger(__name__)
 
@@ -1675,6 +1675,19 @@ class ScannerEngine:
         
         return categories
     
+    def _get_all_user_rule_ids(self) -> Set[str]:
+        """
+        Obtiene todos los rule_ids de usuario registrados en el network RETE.
+        Necesario para detectar reglas con 0 matches y refrescar su TTL en Redis.
+        """
+        user_rule_ids: Set[str] = set()
+        if not self._rete_manager.network:
+            return user_rule_ids
+        for terminal in self._rete_manager.network.terminal_nodes.values():
+            if terminal.rule.owner_type == RuleOwnerType.USER:
+                user_rule_ids.add(terminal.rule.id)
+        return user_rule_ids
+    
     async def _process_user_scans(self, tickers: List[ScannerTicker]) -> None:
         """
         Procesa y publica resultados de TODOS los user scans habilitados.
@@ -1685,6 +1698,7 @@ class ScannerEngine:
         3. Publica snapshot a scanner:category:uscan_{id}
         4. Publica deltas a stream:ranking:deltas (mismo que categorías sistema)
         5. Actualiza índice de símbolos por user scan
+        6. Refresca TTL de reglas con 0 matches para evitar expiración en Redis
         """
         if not self._rete_enabled or not self._rete_manager.network:
             return
@@ -1693,12 +1707,18 @@ class ScannerEngine:
             # Evaluar todos los tickers contra todas las reglas
             batch_results = self._rete_manager.evaluate_batch(tickers)
             
+            # Obtener TODAS las reglas de usuario registradas
+            all_user_rule_ids = self._get_all_user_rule_ids()
+            processed_rule_ids: Set[str] = set()
+            
             # Publicar resultados de reglas de usuario
             user_rules_processed = 0
             total_deltas_emitted = 0
             
             for rule_id, matched in batch_results.items():
                 if rule_id.startswith("user:"):
+                    processed_rule_ids.add(rule_id)
+                    
                     # Extraer filter_id del formato "user:xxx:scan:17"
                     parts = rule_id.split(":")
                     filter_id = parts[-1] if len(parts) >= 4 else rule_id
@@ -1726,11 +1746,35 @@ class ScannerEngine:
                     self.last_user_scan_rankings[category_name] = new_ranking
                     
                     user_rules_processed += 1
+            
+            # Procesar reglas con 0 matches: refrescar TTL y emitir deltas de remoción
+            unmatched_rules = all_user_rule_ids - processed_rule_ids
+            for rule_id in unmatched_rules:
+                parts = rule_id.split(":")
+                filter_id = parts[-1] if len(parts) >= 4 else rule_id
+                category_name = f"uscan_{filter_id}"
+                
+                new_ranking: List[ScannerTicker] = []
+                old_ranking = self.last_user_scan_rankings.get(category_name, [])
+                
+                # Calcular deltas (remover todos los tickers anteriores)
+                if old_ranking:
+                    deltas = self.calculate_ranking_deltas(old_ranking, new_ranking, category_name)
+                    if deltas:
+                        await self._emit_user_scan_deltas(category_name, deltas)
+                        total_deltas_emitted += len(deltas)
+                
+                # Guardar snapshot vacío en Redis (refresca el TTL)
+                await self._save_user_scan_to_redis("all", filter_id, new_ranking)
+                self.last_user_scan_rankings[category_name] = new_ranking
+                user_rules_processed += 1
                     
             if user_rules_processed > 0:
                 logger.info(
                     "user_scans_processed",
                     rules_count=user_rules_processed,
+                    rules_with_matches=len(processed_rule_ids),
+                    rules_empty=len(unmatched_rules),
                     deltas_emitted=total_deltas_emitted
                 )
         except Exception as e:

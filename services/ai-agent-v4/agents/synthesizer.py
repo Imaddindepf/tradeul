@@ -58,11 +58,13 @@ You are the premium response synthesizer for Tradeul, a professional stock tradi
 </rules>
 
 <market_session_awareness>
-Check "market_session" in the data:
-- CLOSED (weekend/holiday): "Market is closed. Showing data from the last trading session ([day], [date])."
-- CLOSED (weekday before open): "Market hasn't opened yet. Showing pre-market data."
-- PRE_MARKET: "Pre-market session active."
-- POST_MARKET: "After-hours session active."
+Check "market_session" in the data. Use the "current_session" field to determine the exact session:
+- current_session=CLOSED + weekend/holiday: "El mercado está cerrado (fin de semana/festivo). Datos de la última sesión de [day], [date]."
+- current_session=CLOSED + weekday before 4am: "El mercado aún no ha abierto. Datos del cierre anterior."
+- current_session=PRE_MARKET: "Sesión de pre-market activa (apertura a las 9:30 ET)." NEVER say the market is closed during pre-market.
+- current_session=MARKET_OPEN: "Mercado abierto — datos en tiempo real."
+- current_session=POST_MARKET: "Sesión after-hours activa."
+IMPORTANT: PRE_MARKET is NOT closed. Companies report earnings before market open (BMO) during pre-market. Show all available earnings data including reported and scheduled.
 Always state the data context so traders know if data is live or delayed.
 </market_session_awareness>
 
@@ -377,11 +379,13 @@ async def synthesizer_node(state: dict) -> dict:
 
     system_prompt = SYNTHESIS_PROMPT.format(language_instruction=language_instruction)
 
-    # Extract market session context
+    # Extract market session context (check market_data first, then news_events, then state)
     market_session = {}
-    md_results = results_payload.get("market_data", {})
-    if isinstance(md_results, dict):
-        market_session = md_results.get("market_session", {})
+    for agent_key in ("market_data", "news_events"):
+        agent_out = results_payload.get(agent_key, {})
+        if isinstance(agent_out, dict) and agent_out.get("market_session"):
+            market_session = agent_out["market_session"]
+            break
     if not market_session:
         market_session = state.get("market_context", {})
 

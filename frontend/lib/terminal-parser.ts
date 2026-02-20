@@ -80,6 +80,13 @@ export const TICKER_COMMANDS = {
         descriptionKey: 'terminalCommands.tickerCommands.HDS.description',
         shortcut: null
     },
+    RTN: {
+        id: 'rtn',
+        label: 'RTN',
+        name: 'Analyst Ratings',
+        descriptionKey: 'terminalCommands.tickerCommands.RTN.description',
+        shortcut: null
+    },
 } as const;
 
 export type TickerCommandKey = keyof typeof TICKER_COMMANDS;
@@ -288,6 +295,13 @@ export const GLOBAL_COMMANDS = {
         label: 'PULSE',
         name: 'Market Pulse',
         descriptionKey: 'terminalCommands.globalCommands.PULSE.description',
+        shortcut: null
+    },
+    RTN: {
+        id: 'rtn',
+        label: 'RTN',
+        name: 'Analyst Ratings',
+        descriptionKey: 'terminalCommands.globalCommands.RTN.description',
         shortcut: null
     },
 } as const;
