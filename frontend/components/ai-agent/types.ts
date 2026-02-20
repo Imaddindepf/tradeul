@@ -78,7 +78,7 @@ export interface StatsData {
 }
 
 export interface OutputBlock {
-  type: 'table' | 'chart' | 'plotly_chart' | 'stats' | 'error' | 'research' | 'news';
+  type: 'table' | 'chart' | 'plotly_chart' | 'stats' | 'error' | 'research' | 'news' | 'backtest';
   title: string;
   columns?: string[];
   rows?: Record<string, unknown>[];
@@ -86,10 +86,10 @@ export interface OutputBlock {
   chart_type?: string;
   plotly_config?: PlotlyConfig;
   stats?: StatsData['stats'];
-  // Research output fields
   content?: string;
   citations?: string[];
   sources_count?: number;
+  backtest_result?: import('./backtest/BacktestTypes').BacktestResult;
 }
 
 export interface ExecutionResult {

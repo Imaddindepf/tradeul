@@ -4,6 +4,8 @@ import { memo, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAIAgent } from './useAIAgent';
 import { ResultBlock } from './ResultBlock';
+import { SlashCommandMenu, useSlashCommands } from './SlashCommandMenu';
+import type { SlashCommand } from './SlashCommandMenu';
 import type { AgentStep, ChartContext, Message, ResultBlockData, ClarificationData } from './types';
 
 const QUICK_ACTIONS = [
@@ -125,12 +127,26 @@ export const AIAgentContent = memo(function AIAgentContent({
     if (inputRef.current) inputRef.current.style.height = 'auto';
   }, [input, isLoading, isConnected, sendMessage]);
 
+  const { slashActive, filtered: slashFiltered } = useSlashCommands(input);
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setSlashMenuOpen(slashActive && slashFiltered.length > 0);
+  }, [slashActive, slashFiltered.length]);
+
+  const handleSlashSelect = useCallback((cmd: SlashCommand) => {
+    setInput(cmd.template);
+    setSlashMenuOpen(false);
+    inputRef.current?.focus();
+  }, []);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (slashMenuOpen) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
-  }, [handleSubmit]);
+  }, [handleSubmit, slashMenuOpen]);
 
   const handleQuickAction = useCallback((query: string) => {
     if (isLoading || !isConnected) return;
@@ -225,18 +241,32 @@ export const AIAgentContent = memo(function AIAgentContent({
                 <ChartContextChip chartContext={chartContext} onClear={() => setChartContext(null)} />
               )}
 
-              <form onSubmit={handleSubmit} className="flex items-end gap-2">
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={isConnected ? 'Escribe tu consulta...' : 'Conectando...'}
-                  disabled={!isConnected || isLoading}
-                  rows={1}
-                  className="flex-1 px-3.5 py-2.5 text-[13px] bg-slate-50 border border-slate-200 rounded-2xl text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 disabled:opacity-50 transition-all"
-                  style={{ maxHeight: '120px' }}
+              <form onSubmit={handleSubmit} className="relative flex items-end gap-2">
+                <SlashCommandMenu
+                  input={input}
+                  visible={slashMenuOpen}
+                  onSelect={handleSlashSelect}
+                  onClose={() => setSlashMenuOpen(false)}
+                  anchorRef={inputRef}
                 />
+                <div className="relative flex-1">
+                  <textarea
+                    ref={inputRef}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={isConnected ? 'Escribe tu consulta o / para comandos...' : 'Conectando...'}
+                    disabled={!isConnected || isLoading}
+                    rows={1}
+                    className="w-full px-3.5 py-2.5 text-[13px] bg-slate-50 border border-slate-200 rounded-2xl text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-300 disabled:opacity-50 transition-all"
+                    style={{ maxHeight: '120px' }}
+                  />
+                  {input.startsWith('/backtest ') && (
+                    <span className="absolute top-1 right-2 text-[8px] text-indigo-400 bg-indigo-50 px-1.5 py-0.5 rounded">
+                      BACKTEST
+                    </span>
+                  )}
+                </div>
                 <button
                   type="submit"
                   disabled={!input.trim() || isLoading || !isConnected}

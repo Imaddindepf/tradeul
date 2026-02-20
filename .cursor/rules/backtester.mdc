@@ -1,0 +1,34 @@
+---
+description: Backtester frontend patterns - slash commands, results panel, API integration
+globs: frontend/components/ai-agent/backtest/**,frontend/components/ai-agent/SlashCommandMenu.tsx,frontend/hooks/useBacktester.ts
+alwaysApply: false
+---
+
+# Backtester Frontend Patterns
+
+## Color Palette (match app exactly)
+- Background: `bg-[#f7f8fb]` (main), `bg-white` (cards), `bg-slate-50` (headers)
+- Borders: `border-slate-200/80`
+- Text: `text-slate-800` (primary), `text-slate-600` (secondary), `text-slate-400` (tertiary)
+- Accents: `text-indigo-600`, `bg-indigo-500`, `bg-indigo-50`
+- Positive: `text-emerald-600`, `bg-emerald-50`
+- Negative: `text-red-500`, `bg-red-50`
+- Font sizes: `text-[10px]` to `text-[13px]`
+- No emojis in UI
+
+## Performance Rules
+- Virtualize trade logs with `react-virtuoso` (unlimited trades)
+- Lazy load Plotly charts with `next/dynamic` + `ssr: false`
+- Memoize all sub-components with `React.memo`
+- Use `useMemo` for derived computations (metrics formatting, color coding)
+- Tab panels should only render their active content
+
+## Backtest Result Types
+- Mirror Python Pydantic models in `BacktestTypes.ts`
+- BacktestResult contains: strategy, core_metrics, advanced_metrics, walk_forward, monte_carlo, trades, equity_curve, drawdown_curve, monthly_returns
+
+## Slash Command System
+- Triggered by `/` in chat input
+- Keyboard navigable (arrows + enter)
+- Extensible command registry (add new commands without modifying menu)
+- Commands define: id, label, description, category, template

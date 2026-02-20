@@ -15,11 +15,18 @@ import { Chart } from './Chart';
 import { TradingChart } from '@/components/chart/TradingChart';
 import type { ResultBlockData, OutputBlock } from './types';
 
-// Dynamic import: single wrapper component (not individual sub-components)
 const LazyAutoChart = dynamic(() => import('./AutoChart').then(m => m.AutoBarChart), {
   ssr: false,
   loading: () => <div className="h-[240px] bg-slate-50 rounded-xl animate-pulse" />,
 });
+
+const LazyBacktestPanel = dynamic(
+  () => import('./backtest/BacktestResultsPanel').then(m => ({ default: m.BacktestResultsPanel })),
+  {
+    ssr: false,
+    loading: () => <div className="h-[400px] bg-slate-50 rounded-lg animate-pulse" />,
+  },
+);
 
 interface ResultBlockProps {
   block: ResultBlockData;
@@ -624,6 +631,12 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
             </div>
           </div>
         );
+      }
+
+      case 'backtest': {
+        const btResult = (output as any).backtest_result;
+        if (!btResult) return null;
+        return <LazyBacktestPanel key={index} result={btResult} />;
       }
 
       case 'error':
