@@ -2047,6 +2047,22 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     manualPagination: true,
   });
 
+  const getRowClassName = useCallback((row: Row<Ticker>) => {
+    const ticker = row.original;
+    const classes: string[] = [];
+    if (newTickers.has(ticker.symbol)) {
+      classes.push('new-ticker-flash');
+    } else {
+      const rowChange = rowChanges.get(ticker.symbol);
+      if (rowChange === 'up') {
+        classes.push('row-flash-up');
+      } else if (rowChange === 'down') {
+        classes.push('row-flash-down');
+      }
+    }
+    return classes.join(' ');
+  }, [newTickers, rowChanges]);
+
   // ======================================================================
   // RENDER
   // ======================================================================
@@ -2086,26 +2102,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         estimateSize={18}
         overscan={10}
         enableVirtualization={true}
-        getRowClassName={(row: Row<Ticker>) => {
-          const ticker = row.original;
-          const classes: string[] = [];
-
-          // Animación para nuevos tickers (azul)
-          if (newTickers.has(ticker.symbol)) {
-            classes.push('new-ticker-flash');
-          }
-          // Animaciones de subida/bajada (verde/rojo)
-          else {
-            const rowChange = rowChanges.get(ticker.symbol);
-            if (rowChange === 'up') {
-              classes.push('row-flash-up');
-            } else if (rowChange === 'down') {
-              classes.push('row-flash-down');
-            }
-          }
-
-          return classes.join(' ');
-        }}
+        getRowClassName={getRowClassName}
       >
         <MarketTableLayout
           title={title}

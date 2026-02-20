@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useMemo, useState, useCallback } from 'react';
+import React, { memo, useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, Copy, Check,
@@ -31,10 +31,13 @@ interface ResultBlockProps {
    ================================================================ */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => { clearTimeout(timerRef.current); }, []);
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(text);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 2000);
   }, [text]);
 
   return (
@@ -96,6 +99,7 @@ function stripBold(text: string): string {
    Interactive Table: Sortable columns, numeric detection, hover
    ================================================================ */
 const INLINE_TABLE_PREVIEW = 10;
+const INLINE_TABLE_MAX = 500;
 
 function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   const [sortCol, setSortCol] = useState<number | null>(null);
@@ -164,7 +168,7 @@ function InteractiveTable({ headers, rows }: { headers: string[]; rows: string[]
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {(expanded ? sortedRows : sortedRows.slice(0, INLINE_TABLE_PREVIEW)).map((row, rowIdx) => (
+          {(expanded ? sortedRows.slice(0, INLINE_TABLE_MAX) : sortedRows.slice(0, INLINE_TABLE_PREVIEW)).map((row, rowIdx) => (
             <tr key={rowIdx} className="hover:bg-indigo-50/30 transition-colors">
               {row.map((cell, cellIdx) => (
                 <td

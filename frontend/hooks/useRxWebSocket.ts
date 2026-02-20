@@ -67,6 +67,7 @@ class WebSocketManager {
 
   // Heartbeat timer
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  private directWsSub: { unsubscribe: () => void } | null = null;
 
   private constructor() {
     // Detectar si SharedWorker está disponible
@@ -147,11 +148,9 @@ class WebSocketManager {
 
     this.ws$ = webSocket(wsConfig);
 
-    // Subscribe to incoming messages
-    this.ws$
+    this.directWsSub = this.ws$
       .pipe(
         tap((message: any) => {
-
           this.allMessagesSubject.next(message);
         }),
         tap((message: WebSocketMessage) => {
@@ -401,6 +400,11 @@ class WebSocketManager {
       this.workerPort.postMessage({ action: 'disconnect' });
       this.workerPort = null;
       this.sharedWorker = null;
+    }
+
+    if (this.directWsSub) {
+      this.directWsSub.unsubscribe();
+      this.directWsSub = null;
     }
 
     if (this.ws$) {

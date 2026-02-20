@@ -60,6 +60,9 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   const [chartContext, setChartContext] = useState<ChartContext | null>(null);
 
+  const MAX_MESSAGES = 200;
+  const MAX_RESULT_BLOCKS = 100;
+
   const wsRef = useRef<WebSocket | null>(null);
   const clientIdRef = useRef<string>(`agent-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const currentMessageIdRef = useRef<string | null>(null);
@@ -67,6 +70,7 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
   const reconnectAttemptsRef = useRef(0);
   const optionsRef = useRef(options);
   const isConnectingRef = useRef(false);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Request lifecycle tracking
   const pendingRequestRef = useRef<PendingRequest | null>(null);
@@ -305,11 +309,12 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
               : m
           ));
 
-          // Create a resultBlock so the response shows in the Results panel
+          setMessages(prev => prev.length > MAX_MESSAGES ? prev.slice(-MAX_MESSAGES) : prev);
+
           if (response) {
             const blockId = `${msgId}-response`;
             const userQuery = pendingRequestRef.current?.content || '';
-            setResultBlocks(prev => [...prev, {
+            setResultBlocks(prev => [...prev.slice(-(MAX_RESULT_BLOCKS - 1)), {
               id: blockId,
               messageId: msgId,
               query: userQuery,
@@ -361,7 +366,8 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
                 ));
               }
 
-              setTimeout(() => {
+              retryTimeoutRef.current = setTimeout(() => {
+                retryTimeoutRef.current = null;
                 if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
                 const payload: Record<string, unknown> = {
                   query: pending.content,
@@ -471,6 +477,10 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
     if (activityTimeoutRef.current) {
       clearTimeout(activityTimeoutRef.current);
       activityTimeoutRef.current = null;
+    }
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
     }
 
     pendingRequestRef.current = null;

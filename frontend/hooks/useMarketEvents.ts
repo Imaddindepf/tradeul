@@ -128,6 +128,7 @@ class MarketEventsStore {
   private newEvent = new Subject<MarketEvent>();
   private isSubscribed = false;
   private maxEvents = 200;
+  private destroy$ = new Subject<void>();
 
   private constructor() { }
 
@@ -152,14 +153,15 @@ class MarketEventsStore {
 
     manager.messages$.pipe(
       filter((msg: any) => msg?.type === 'market_event'),
-      map((msg: any) => msg.data as MarketEvent)
+      map((msg: any) => msg.data as MarketEvent),
+      takeUntil(this.destroy$)
     ).subscribe((event: MarketEvent) => {
       this.addEvent(event);
     });
 
-    // Handle snapshot on subscribe
     manager.messages$.pipe(
       filter((msg: any) => msg?.type === 'events_snapshot'),
+      takeUntil(this.destroy$)
     ).subscribe((msg: any) => {
       const snapshot = (msg.events || []) as MarketEvent[];
       this.events.next(snapshot.slice(0, this.maxEvents));
@@ -168,6 +170,7 @@ class MarketEventsStore {
 
   unsubscribe(): void {
     if (!this.isSubscribed) return;
+    this.destroy$.next();
     const manager = getWSManager();
     if (manager) {
       manager.send({ action: 'unsubscribe_events' });

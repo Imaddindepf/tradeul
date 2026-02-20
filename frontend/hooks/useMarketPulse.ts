@@ -129,14 +129,18 @@ export function useMarketPulse({
   const [tickCount, setTickCount] = useState(0);
   const prevMapRef = useRef<Map<string, Record<string, number>>>(new Map());
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async () => {
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
       const params = new URLSearchParams();
       if (minMarketCap) params.set('min_market_cap', String(minMarketCap));
       if (sectorFilter) params.set('sector', sectorFilter);
       const url = `${API_BASE}/api/v1/performance/${tab}?${params}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: ac.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: PerformanceResponse = await res.json();
 
@@ -173,6 +177,7 @@ export function useMarketPulse({
       setTickCount(c => c + 1);
       setError(null);
     } catch (e: any) {
+      if (e.name === 'AbortError') return;
       setError(e.message || 'Failed to fetch');
     } finally {
       setLoading(false);
@@ -186,6 +191,7 @@ export function useMarketPulse({
     intervalRef.current = setInterval(fetchData, refreshInterval);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      abortRef.current?.abort();
     };
   }, [fetchData, refreshInterval]);
 
@@ -198,6 +204,7 @@ export function useDrilldown() {
   const [total, setTotal] = useState(0);
   const [ddTickCount, setDdTickCount] = useState(0);
   const prevMapRef = useRef<Map<string, Record<string, number>>>(new Map());
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchDrilldown = useCallback(async (
     groupType: string,
@@ -206,13 +213,16 @@ export function useDrilldown() {
     minMarketCap?: number,
     sortBy: string = 'change_percent',
   ) => {
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     setLoading(true);
     try {
       const params = new URLSearchParams({ sort_by: sortBy, limit: '100' });
       if (minMarketCap) params.set('min_market_cap', String(minMarketCap));
       const encoded = encodeURIComponent(groupName);
       const url = `${API_BASE}/api/v1/performance/drilldown/${groupType}/${encoded}?${params}`;
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: ac.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: DrilldownResponse = await res.json();
 
@@ -247,7 +257,8 @@ export function useDrilldown() {
       setData(enriched);
       setTotal(json.total);
       setDdTickCount(c => c + 1);
-    } catch {
+    } catch (e: any) {
+      if (e.name === 'AbortError') return;
       setData([]);
       setTotal(0);
     } finally {
@@ -256,6 +267,10 @@ export function useDrilldown() {
   }, []);
 
   const resetPrevMap = useCallback(() => { prevMapRef.current = new Map(); }, []);
+
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   return { data, loading, total, ddTickCount, fetchDrilldown, resetPrevMap };
 }

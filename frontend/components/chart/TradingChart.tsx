@@ -878,6 +878,10 @@ function TradingChartComponent({
             sessionBgSeriesRef.current = null;
             chart.remove();
             chartRef.current = null;
+            candleSeriesRef.current = null;
+            volumeSeriesRef.current = null;
+            newsPriceLinesRef.current = [];
+            newsTimeMapRef.current.clear();
         };
     }, [currentTicker, fontFamily, selectedInterval]);
 
@@ -1325,15 +1329,17 @@ function TradingChartComponent({
         sessionBgSeriesRef.current.setData(sessionData);
     }, [data, selectedInterval]);
 
-    // Apply time range when data loads (ticker change or interval change)
     const lastAppliedKeyRef = useRef<string>('');
+    const applyRangeTimerRef = useRef<ReturnType<typeof setTimeout>>();
     useEffect(() => {
         if (!data || data.length === 0 || !candleSeriesRef.current) return;
         const key = `${currentTicker}-${selectedInterval}-${data.length}`;
         if (lastAppliedKeyRef.current !== key) {
             lastAppliedKeyRef.current = key;
-            setTimeout(() => applyTimeRange(selectedRange), 50);
+            clearTimeout(applyRangeTimerRef.current);
+            applyRangeTimerRef.current = setTimeout(() => applyTimeRange(selectedRange), 50);
         }
+        return () => { clearTimeout(applyRangeTimerRef.current); };
     }, [data, currentTicker, selectedInterval, selectedRange, applyTimeRange]);
 
     // ============================================================================
@@ -2118,16 +2124,22 @@ function TradingChartComponent({
             }
         };
 
+        const fsTimers: ReturnType<typeof setTimeout>[] = [];
         const handleFullscreenChange = () => {
             const isNowFullscreen = !!document.fullscreenElement;
             setIsFullscreen(isNowFullscreen);
-            setTimeout(forceChartResize, 50);
-            setTimeout(forceChartResize, 200);
-            setTimeout(forceChartResize, 500);
+            fsTimers.push(
+                setTimeout(forceChartResize, 50),
+                setTimeout(forceChartResize, 200),
+                setTimeout(forceChartResize, 500),
+            );
         };
 
         document.addEventListener('fullscreenchange', handleFullscreenChange);
-        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        return () => {
+            document.removeEventListener('fullscreenchange', handleFullscreenChange);
+            fsTimers.forEach(clearTimeout);
+        };
     }, []);
 
     // Display data

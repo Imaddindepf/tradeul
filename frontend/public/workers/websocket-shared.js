@@ -548,6 +548,19 @@ function handlePortMessage(port, data) {
 // SHARED WORKER ENTRY
 // ============================================================================
 
+// Periodic dead-port cleanup: probe each port with a no-op message.
+// If postMessage throws, the tab crashed/closed without sending disconnect.
+setInterval(function pruneDeadPorts() {
+  ports.forEach(function(port) {
+    try {
+      port.postMessage({ type: 'ping' });
+    } catch (e) {
+      ports.delete(port);
+      subscriptions.delete(port);
+    }
+  });
+}, 30000);
+
 self.onconnect = function(e) {
   const port = e.ports[0];
 
@@ -556,14 +569,10 @@ self.onconnect = function(e) {
     lists: new Set(),
     subscribedNews: false,
     subscribedSEC: false,
-    eventSubIds: new Set(),  // Set of active event subscription IDs for this port
+    eventSubIds: new Set(),
     connectionId: null,
   });
 
-  // Log silenciado para reducir ruido en consola
-  // log('info', '📱 Tab connected (total: ' + ports.size + ')');
-
-  // Enviar estado actual
   port.postMessage({
     type: 'status',
     isConnected: connectionInfo.isConnected,
