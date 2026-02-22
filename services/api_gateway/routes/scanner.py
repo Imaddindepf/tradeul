@@ -72,12 +72,17 @@ async def get_filtered_tickers(
         import orjson as _orjson
         
         all_hash_data = await redis_client.client.hgetall("snapshot:enriched:latest")
-        if not all_hash_data:
-            logger.warning("No snapshot hash data found in Redis")
-            return FilteredResponse(tickers=[], total=0, filtered=0)
-        
-        # Remove metadata
+        all_hash_data.pop(b"__meta__", None)
         all_hash_data.pop("__meta__", None)
+        
+        if not all_hash_data:
+            all_hash_data = await redis_client.client.hgetall("snapshot:enriched:last_close")
+            all_hash_data.pop(b"__meta__", None)
+            all_hash_data.pop("__meta__", None)
+        
+        if not all_hash_data:
+            logger.warning("No snapshot hash data found in Redis (latest or last_close)")
+            return FilteredResponse(tickers=[], total=0, filtered=0)
         
         # Parse each ticker from hash fields
         all_tickers = []

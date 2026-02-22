@@ -18,7 +18,9 @@ from models.processed import (
     CategoryGroup,
     PredictionMarketsResponse,
     MarketSource,
+    TagInfo,
 )
+from config_categories import INCLUDE_CATEGORIES
 from clients.polymarket import PolymarketClient
 
 
@@ -40,12 +42,30 @@ class EventProcessor:
     
     # Polymarket's main categories (from their navigation bar)
     # These are stable - Polymarket rarely adds new main categories
-    MAIN_CATEGORIES = {
-        "politics", "crypto", "finance", "geopolitics", "tech", 
-        "sports", "culture", "world", "economy", "earnings",
-        "business", "elections", "science",
-    }
-    
+    # Tags to exclude from category display (internal/ticker-specific)
+    EXCLUDE_TAG_SLUGS = {"hide-from-new", "equities"}
+
+    # Set of configured category slugs for filtering
+    CONFIGURED_SLUGS = set(INCLUDE_CATEGORIES)
+
+    def _get_tag_info(self, event: PolymarketEvent) -> tuple:
+        """
+        Extract meaningful tag slugs and labels from an event.
+        Returns (slugs: List[str], labels: List[str])
+        Only includes tags that are in our configured categories.
+        """
+        tags = event.tags or []
+        slugs = []
+        labels = []
+        for tag in tags:
+            slug = (tag.slug or "").lower()
+            if slug in self.EXCLUDE_TAG_SLUGS:
+                continue
+            if slug in self.CONFIGURED_SLUGS:
+                slugs.append(slug)
+                labels.append(tag.label or slug.replace("-", " ").title())
+        return slugs, labels
+
     def _get_category_from_tags(self, event: PolymarketEvent) -> str:
         """
         Get category from Polymarket tags - scalable approach.
@@ -299,24 +319,17 @@ class EventProcessor:
         max_history_markets: int = 100,
     ) -> PredictionMarketsResponse:
         """
-        Process and categorize events using Polymarket's native tags.
-        
-        V3: 100% dynamic - categories come directly from Polymarket tags.
-        
-        Args:
-            events: Raw events from Polymarket (already filtered by LLM tags)
-            fetch_price_history: Whether to fetch price histories
-            max_history_markets: Max markets to fetch history for
-        
-        Returns:
-            PredictionMarketsResponse with categorized events
+        Process events into flat list with multi-tag classification.
+
+        V4: Tag-based — each event keeps ALL its tag slugs.
+        Frontend filters client-side by tag. No single-category assignment.
         """
         if not events:
             return PredictionMarketsResponse()
-        
+
         # Collect token IDs for price history
         price_histories: Dict[str, PriceHistory] = {}
-        
+
         if fetch_price_history:
             token_ids: List[str] = []
             for event in events[:max_history_markets]:
@@ -325,66 +338,65 @@ class EventProcessor:
                         token_id = market.get_yes_token_id()
                         if token_id:
                             token_ids.append(token_id)
-            
+
             if token_ids:
                 price_histories = await self.client.get_price_histories_batch(
                     token_ids[:max_history_markets],
                     interval="max",
                     max_concurrent=20
                 )
-        
-        # Group events by category (from Polymarket tags - no hardcoding!)
-        category_events: Dict[str, List[ProcessedEvent]] = defaultdict(list)
+
+        # Process events flat — no single-category assignment
+        all_processed: List[ProcessedEvent] = []
         total_markets = 0
-        
+        tag_counts: Dict[str, Dict] = {}  # slug -> {label, count, volume}
+
         for event in events:
-            # Category comes directly from Polymarket's tags
-            category = self._get_category_from_tags(event)
             score = (event.volume or 0) / 1_000_000
-            
+            tag_slugs, tag_labels = self._get_tag_info(event)
+
             processed = self._process_event(
-                event, category, None, score, price_histories
+                event, None, None, score, price_histories
             )
             if processed:
-                category_events[category].append(processed)
+                processed.tags = tag_slugs
+                processed.tag_labels = tag_labels
+                all_processed.append(processed)
                 total_markets += len(processed.markets)
-        
-        # Build category groups, sorted by total volume
-        category_groups: List[CategoryGroup] = []
-        
-        sorted_categories = sorted(
-            category_events.items(),
-            key=lambda x: sum(e.total_volume or 0 for e in x[1]),
-            reverse=True
-        )
-        
-        for category_name, events_list in sorted_categories:
-            if not events_list:
-                continue
-            
-            # Sort events by volume
-            events_list.sort(key=lambda e: e.total_volume or 0, reverse=True)
-            total_volume = sum(e.total_volume or 0 for e in events_list)
-            
-            category_groups.append(CategoryGroup(
-                category=category_name,
-                subcategory=None,
-                display_name=category_name,
-                events=events_list,
-                total_events=len(events_list),
-                total_volume=total_volume,
+
+                # Accumulate tag counts
+                ev_vol = event.volume or 0
+                for slug, label in zip(tag_slugs, tag_labels):
+                    if slug not in tag_counts:
+                        tag_counts[slug] = {"label": label, "count": 0, "volume": 0.0}
+                    tag_counts[slug]["count"] += 1
+                    tag_counts[slug]["volume"] += ev_vol
+
+        # Sort events by volume desc
+        all_processed.sort(key=lambda e: e.total_volume or 0, reverse=True)
+
+        # Build TagInfo list sorted by count desc
+        tag_list: List[TagInfo] = []
+        for slug, info in sorted(tag_counts.items(), key=lambda x: x[1]["count"], reverse=True):
+            tag_list.append(TagInfo(
+                slug=slug,
+                label=info["label"],
+                count=info["count"],
+                total_volume=info["volume"],
             ))
-        
+
         logger.info(
-            "events_processed_v3",
-            total_events=len(events),
+            "events_processed_v4",
+            total_events=len(all_processed),
             total_markets=total_markets,
-            categories=len(category_groups),
-            top_categories=[c.category for c in category_groups[:5]]
+            tags=len(tag_list),
+            top_tags=[t.slug for t in tag_list[:5]]
         )
-        
+
         return PredictionMarketsResponse(
-            categories=category_groups,
-            total_events=len(events),
+            events=all_processed,
+            tags=tag_list,
+            total_events=len(all_processed),
             total_markets=total_markets,
         )
+

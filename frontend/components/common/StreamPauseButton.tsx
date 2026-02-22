@@ -25,7 +25,7 @@ export function StreamPauseButton({
     }, [isPaused, onToggle]);
 
     const sizeClasses = size === 'sm'
-        ? 'px-2 py-0.5 text-xs gap-1'
+        ? 'p-1'
         : 'px-3 py-1 text-sm gap-1.5';
 
     const iconSize = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4';
@@ -44,17 +44,7 @@ export function StreamPauseButton({
             `}
             title={isPaused ? 'Resume stream' : 'Pause stream'}
         >
-            {isPaused ? (
-                <>
-                    <Play className={iconSize} />
-                    <span>Play</span>
-                </>
-            ) : (
-                <>
-                    <Pause className={iconSize} />
-                    <span>Pause</span>
-                </>
-            )}
+            {isPaused ? <Play className={iconSize} /> : <Pause className={iconSize} />}
         </button>
     );
 }

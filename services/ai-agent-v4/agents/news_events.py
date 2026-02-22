@@ -333,12 +333,24 @@ async def news_events_node(state: dict) -> dict:
     start_time = time.time()
 
     query = state.get("query", "")
-    tickers = state.get("tickers", [])
+    tickers = list(state.get("tickers", []))
     language = state.get("language", "en")
+    intent = state.get("intent", "")
     chart_context = state.get("chart_context")
+
+    # Ensure chart ticker is in the tickers list even if scanner rejected it
+    if chart_context and chart_context.get("ticker"):
+        chart_ticker = chart_context["ticker"].upper()
+        if chart_ticker and chart_ticker not in tickers:
+            tickers.append(chart_ticker)
+
     wants_earn = _wants_earnings(query)
     wants_nws = _wants_news(query)
     wants_hist_events = _wants_historical_events(query)
+
+    # CAUSAL/CHART_ANALYSIS queries: always check earnings as most common catalyst
+    if intent in ("CAUSAL", "CHART_ANALYSIS", "COMPLETE_ANALYSIS") and tickers:
+        wants_earn = True
 
     # When a specific candle is targeted, force searches around that date
     target_candle_date: str | None = None

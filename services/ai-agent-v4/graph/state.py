@@ -36,6 +36,7 @@ class AgentState(TypedDict):
     ticker_info: dict[str, dict]         # Company metadata per ticker {TICKER: {company_name, sector, ...}}
 
     # ── Planning ──
+    intent: str                          # Classified intent from query planner (CAUSAL, NEWS, CHART_ANALYSIS, etc.)
     plan: str                            # Query planner's execution plan
     active_agents: list[str]             # Which specialist agents to activate (for Send fan-out)
 
@@ -73,4 +74,6 @@ class AgentState(TypedDict):
     mode: str                            # Execution mode: "auto" | "quick" | "deep"
     clarification: Optional[dict]        # Clarification options when confidence is low
     clarification_hint: str              # Rewritten query from user's clarification choice
+    agent_task: str                      # Per-agent sub-question injected by fan_out (from planner's agent_tasks)
+    agent_tasks: Optional[dict[str, str]]  # Planner-generated per-agent task decomposition
     error: Optional[str]                 # Last error message

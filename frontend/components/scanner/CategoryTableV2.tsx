@@ -34,6 +34,7 @@ import { useCommandExecutor } from '@/hooks/useCommandExecutor';
 
 // Zustand store
 import { useTickersStore, selectOrderedTickers } from '@/stores/useTickersStore';
+import { useMarketSessionStore, selectIsTrading } from '@/stores/useMarketSessionStore';
 
 // RxJS WebSocket (ya autenticado desde AuthWebSocketProvider)
 import { useListSubscription } from '@/hooks/useRxWebSocket';
@@ -149,12 +150,12 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   // Zustand store selectors
   const initializeList = useTickersStore((state) => state.initializeList);
   const applyDeltas = useTickersStore((state) => state.applyDeltas);
-  const updateAggregates = useTickersStore((state) => state.updateAggregates);
   const updateSequence = useTickersStore((state) => state.updateSequence);
   const getList = useTickersStore((state) => state.getList);
 
   // Get tickers for this list (memoized selector)
   const tickers = useTickersStore(selectOrderedTickers(listName));
+  const isTrading = useMarketSessionStore(selectIsTrading);
 
   // Local UI state (no afecta datos)
   // Ordenamiento inicial según la categoría
@@ -417,20 +418,20 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       }
     });
 
-    // Subscribe to batched aggregates
-    // Nota: El tick indicator se maneja en PriceCell de forma aislada
-    const aggregateSub = ws.aggregates$.subscribe((batch: any) => {
-      if (batch.type === 'aggregates_batch' && batch.data instanceof Map) {
-        updateAggregates(batch.data);
-      }
-    });
+    // Aggregates subscription removed — handled by DataBridge (single global subscriber)
 
     // Subscribe to error messages (for "no data available" errors)
     const errorMsgSub = ws.messages$.subscribe((msg: any) => {
       if (msg.type === 'error' && msg.list === listName) {
         if (msg.message?.includes('No snapshot available')) {
-          setNoDataAvailable(true);
-          setIsReady(true); // Stop loading state
+          if (isTrading) {
+            // Market is open but Redis is cold after refresh - retry
+            ws.send({ action: 'resync', list: listName });
+          } else {
+            // Market genuinely closed - show the message
+            setNoDataAvailable(true);
+            setIsReady(true);
+          }
         }
       }
     });
@@ -439,12 +440,11 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       clearTimeout(dataTimeout);
       snapshotSub.unsubscribe();
       deltaSub.unsubscribe();
-      aggregateSub.unsubscribe();
       errorMsgSub.unsubscribe();
     };
     // NOTA: isReady removido de dependencias para evitar bucle infinito
     // El timeout usa isReady solo para lectura, no necesita re-suscribirse cuando cambia
-  }, [ws.isConnected, ws.snapshots$, ws.deltas$, ws.aggregates$, ws.messages$, listName, handleSnapshot, handleDelta, updateAggregates]);
+  }, [ws.isConnected, ws.snapshots$, ws.deltas$, ws.messages$, listName, handleSnapshot, handleDelta]);
 
   // ======================================================================
   // TABLE CONFIGURATION
@@ -455,8 +455,6 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
 
   // Get list info from store
   const list = getList(listName);
-  const sequence = list?.sequence || 0;
-  const lastUpdateTime = list?.lastUpdate || null;
 
   // Columns definition (same as before)
   const columns = useMemo(
@@ -2074,7 +2072,6 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         <MarketTableLayout
           title={title}
           isLive={ws.isConnected}
-          count={0}
           listName={listName}
           onClose={onClose}
         />
@@ -2107,9 +2104,6 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         <MarketTableLayout
           title={title}
           isLive={ws.isConnected}
-          count={isReady ? data.length : undefined}
-          sequence={isReady ? sequence : undefined}
-          lastUpdateTime={lastUpdateTime}
           listName={listName}
           onClose={onClose}
           rightActions={

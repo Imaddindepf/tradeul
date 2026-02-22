@@ -130,14 +130,14 @@ async def handle_day_changed(event: Event) -> None:
     
     # Solo limpiar cachés si NO es festivo
     if not is_holiday_mode:
-        logger.info("🔄 clearing_scanner_caches", reason="new_trading_day")
+        logger.info("clearing_scanner_caches", reason="new_trading_day")
         
         if scanner_engine and scanner_engine.gap_tracker:
             scanner_engine.gap_tracker.clear_for_new_day()
         
-        # 🌙 Limpiar cache de post-market volume para nuevo día
         if scanner_engine:
             scanner_engine.clear_postmarket_cache()
+            scanner_engine._user_scans_frozen = False
     else:
         logger.info(
             "⏭️ skipping_cache_clear",
@@ -148,15 +148,19 @@ async def handle_day_changed(event: Event) -> None:
 
 async def handle_session_changed(event: Event) -> None:
     """
-    🌙 Handler para el evento SESSION_CHANGED.
+    Handler para el evento SESSION_CHANGED.
     
     Detecta transiciones de sesión y ejecuta acciones específicas:
     - PRE_MARKET → MARKET_OPEN: Captura gaps de premarket (congelar change_percent a las 09:30)
     - MARKET_OPEN → POST_MARKET: Inicia captura de volumen regular
+    - POST_MARKET → CLOSED: Freeze user scans con TTL dinámico
     
     El volumen regular se obtiene sumando velas de minuto de la API de Polygon
     para el período 09:30-16:00 ET. Esto permite calcular el postmarket_volume
     de manera precisa.
+    
+    El freeze de user scans extiende el TTL para que los datos persistan hasta
+    que el maintenance service los limpie en el próximo trading day (3:45 AM ET).
     """
     global current_session
     
@@ -165,16 +169,16 @@ async def handle_session_changed(event: Event) -> None:
     trading_date = event.data.get('trading_date')
     
     logger.info(
-        "🔔 session_changed_event_received",
+        "session_changed_event_received",
         previous_session=previous_session,
         new_session=new_session,
         trading_date=trading_date
     )
     
-    # 🌙 Detectar transición MARKET_OPEN → POST_MARKET
+    # Detectar transición MARKET_OPEN → POST_MARKET
     if previous_session == "MARKET_OPEN" and new_session == "POST_MARKET":
         logger.info(
-            "🌙 detected_transition_to_postmarket",
+            "detected_transition_to_postmarket",
             trading_date=trading_date
         )
         
@@ -182,6 +186,20 @@ async def handle_session_changed(event: Event) -> None:
         if scanner_engine and trading_date:
             asyncio.create_task(
                 scanner_engine.trigger_postmarket_capture(trading_date)
+            )
+    
+    # Freeze user scans only after POST_MARKET ends (transition to CLOSED).
+    # During POST_MARKET the scanner still produces fresh data with normal TTL.
+    # Once CLOSED, the enriched snapshot expires and no new results are produced.
+    # Extend TTL so data persists until maintenance clears scanner:category:*
+    # on the next trading day (3:45 AM ET).
+    if new_session == "CLOSED" and scanner_engine:
+        frozen = await scanner_engine.freeze_user_scans_for_close()
+        if frozen > 0:
+            logger.info(
+                "user_scans_frozen_on_session_change",
+                frozen=frozen,
+                transition=f"{previous_session} -> {new_session}"
             )
     
     # Actualizar estado global de sesión
@@ -451,6 +469,17 @@ async def scan_once():
     
     except Exception as e:
         logger.error("Error running scan", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scanner/freeze-user-scans")
+async def freeze_user_scans():
+    """Force freeze user scans with extended TTL (for manual use when market is already closed)"""
+    try:
+        frozen = await scanner_engine.freeze_user_scans_for_close()
+        return {"status": "frozen", "count": frozen}
+    except Exception as e:
+        logger.error("Error freezing user scans", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

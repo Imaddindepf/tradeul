@@ -6,25 +6,18 @@ import { ExternalLink, X } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { openScannerWindow } from '@/lib/window-injector';
 import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
-import { getUserTimezone } from '@/lib/date-utils';
 
 interface MarketTableLayoutProps {
   title: string;
   isLive: boolean;
-  count?: number;
-  sequence?: number;
-  lastUpdateTime?: Date | null;
   rightActions?: ReactNode;
-  listName?: string; // Para generar URL standalone
+  listName?: string;
   onClose?: () => void;
 }
 
 export function MarketTableLayout({
   title,
   isLive,
-  count,
-  sequence,
-  lastUpdateTime,
   rightActions,
   listName,
   onClose,
@@ -80,7 +73,7 @@ export function MarketTableLayout({
   return (
     <div className="table-drag-handle flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200 cursor-move">
       <div className="flex items-center gap-2">
-        <h2 className="text-xs font-semibold text-slate-700">{title}</h2>
+        <h2 className="text-[11px] font-semibold text-slate-700">{title}</h2>
 
         <div className="flex items-center gap-1">
           <div className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
@@ -89,16 +82,6 @@ export function MarketTableLayout({
           </span>
         </div>
 
-        {typeof count === 'number' && (
-          <div className="flex items-center gap-1.5">
-            <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-50 rounded border border-blue-200">
-              <span className="text-[10px] font-semibold text-blue-600">{count}</span>
-            </div>
-            {typeof sequence === 'number' && (
-              <span className="text-[10px] font-mono text-slate-400">#{sequence}</span>
-            )}
-          </div>
-        )}
       </div>
 
       <div
@@ -106,12 +89,6 @@ export function MarketTableLayout({
         onMouseDown={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        {lastUpdateTime && (
-          <span className="text-[10px] font-mono text-slate-400">
-            {lastUpdateTime.toLocaleTimeString('en-US', { timeZone: getUserTimezone(), hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
-          </span>
-        )}
-
         {/* Botón de abrir en nueva ventana */}
         {listName && (
           <button

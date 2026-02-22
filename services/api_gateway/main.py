@@ -1934,6 +1934,29 @@ async def proxy_predictions_volume(event_id: str):
         raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
 
 
+@app.get("/api/v1/predictions/ticker/{ticker}")
+async def proxy_predictions_ticker_search(
+    ticker: str,
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Proxy para buscar predicciones relacionadas a un ticker especifico"""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(
+                f"{PREDICTION_MARKETS_URL}/api/v1/predictions/ticker/{ticker}",
+                params={"limit": limit}
+            )
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return {"ticker": ticker.upper(), "events": [], "total": 0}
+        raise HTTPException(status_code=502, detail="Prediction Markets service error")
+    except Exception as e:
+        logger.error("predictions_ticker_search_proxy_error", ticker=ticker, error=str(e))
+        raise HTTPException(status_code=502, detail="Prediction Markets service unavailable")
+
+
 @app.get("/api/v1/predictions/event/{event_id}/detail")
 async def proxy_predictions_event_detail(event_id: str):
     """Proxy para obtener detalle completo de un evento con comentarios y sparklines"""

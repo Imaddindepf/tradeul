@@ -170,7 +170,12 @@ class BacktestEngine:
                     strategy.start_date, strategy.end_date, tickers)
 
         if bars_df.empty:
-            raise ValueError("No data for the specified range/tickers")
+            tickers_str = ", ".join(strategy.universe.tickers or ["(all)"])
+            raise ValueError(
+                f"No data available for {tickers_str} between "
+                f"{strategy.start_date} and {strategy.end_date}. "
+                f"Verify the tickers exist and the date range is valid."
+            )
 
         _p("Filtrando universo...", 0.10)
         if strategy.universe.sql_where:
@@ -204,7 +209,18 @@ class BacktestEngine:
             eq_arr = np.array([strategy.initial_capital, strategy.initial_capital])
 
         if not trades:
-            raise ValueError("Backtest produced zero trades")
+            date_col = "date" if "date" in bars_df.columns else "timestamp"
+            actual_start = bars_df[date_col].min()
+            actual_end = bars_df[date_col].max()
+            entry_desc = ", ".join(
+                f"{s.indicator} {s.operator.value} {s.value}" for s in strategy.entry_signals
+            )
+            raise ValueError(
+                f"Zero trades generated. Data loaded: {bars_processed} bars from "
+                f"{actual_start} to {actual_end} for {symbols_tested} symbols. "
+                f"Entry conditions ({entry_desc}) were never triggered. "
+                f"Consider relaxing signal thresholds or expanding the date range."
+            )
 
         core = compute_core_metrics(
             trades, eq_arr, strategy.initial_capital, strategy.risk_free_rate)

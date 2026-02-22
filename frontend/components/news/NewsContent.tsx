@@ -90,6 +90,16 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const [tickerInputValue, setTickerInputValue] = useState<string>(savedTicker);
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightArticleId || null);
 
+  // Column visibility & context menu
+  const NEWS_COLS = ['ticker', 'headline', 'date', 'time', 'source'] as const;
+  const COL_LABELS: Record<string, string> = { ticker: t('news.ticker'), headline: t('news.headline'), date: t('news.date'), time: t('news.time'), source: t('news.source') };
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set());
+  const [newsMenu, setNewsMenu] = useState<{ x: number; y: number } | null>(null);
+  const [colPanel, setColPanel] = useState<{ x: number; y: number } | null>(null);
+  const newsMenuRef = useRef<HTMLDivElement>(null);
+  const colPanelRef = useRef<HTMLDivElement>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+
   // Ref para virtuoso (para scroll programático)
   const virtuosoRef = useRef<any>(null);
 
@@ -156,6 +166,26 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     }
   }, [highlightedId, filteredNews]);
 
+  // Close news menu on outside click
+  useEffect(() => {
+    if (!newsMenu) return;
+    const handle = (e: MouseEvent) => {
+      if (newsMenuRef.current && !newsMenuRef.current.contains(e.target as Node)) setNewsMenu(null);
+    };
+    const tid = setTimeout(() => document.addEventListener('mousedown', handle), 0);
+    return () => { clearTimeout(tid); document.removeEventListener('mousedown', handle); };
+  }, [newsMenu]);
+
+  // Close column panel on outside click
+  useEffect(() => {
+    if (!colPanel) return;
+    const handle = (e: MouseEvent) => {
+      if (colPanelRef.current && !colPanelRef.current.contains(e.target as Node)) setColPanel(null);
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [colPanel]);
+
   // ================================================================
   // HANDLERS
   // ================================================================
@@ -167,6 +197,36 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
       setPaused(true);
     }
   }, [isPaused, setPaused, resumeWithBuffer]);
+
+  const handleNewsMenuBtn = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setNewsMenu(prev => prev ? null : { x: rect.left, y: rect.bottom + 2 });
+    setColPanel(null);
+  }, []);
+
+  const openColPanel = useCallback(() => {
+    if (menuBtnRef.current) {
+      const rect = menuBtnRef.current.getBoundingClientRect();
+      setColPanel({ x: rect.right - 170, y: rect.bottom + 2 });
+    }
+    setNewsMenu(null);
+  }, []);
+
+  const toggleCol = useCallback((col: string) => {
+    if (col === 'headline') return;
+    setHiddenCols(prev => {
+      const next = new Set(prev);
+      if (next.has(col)) next.delete(col); else next.add(col);
+      return next;
+    });
+  }, []);
+
+  const resetCols = useCallback(() => {
+    setHiddenCols(new Set());
+    setNewsMenu(null);
+    setColPanel(null);
+  }, []);
 
   const handleApplyFilter = useCallback(() => {
     const newFilter = tickerInputValue.toUpperCase().trim();
@@ -358,7 +418,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           </form>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {/* Stats */}
           <div className="flex items-center gap-1.5 text-[10px]" style={{ fontFamily }}>
             {tickerFilter && (
@@ -371,8 +431,65 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             </span>
             {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
           </div>
+
+          {/* 3-dot menu */}
+          <button ref={menuBtnRef} onClick={handleNewsMenuBtn}
+            className="p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            title="Menu">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
+            </svg>
+          </button>
         </div>
       </div>
+
+      {/* Context menu */}
+      {newsMenu && (
+        <div ref={newsMenuRef}
+          className="fixed z-[9999] bg-white border border-slate-200 rounded shadow-lg py-1 min-w-[160px]"
+          style={{ left: newsMenu.x, top: newsMenu.y }}>
+          <button onClick={openColPanel}
+            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+            Configure...
+          </button>
+          <div className="border-t border-slate-100 my-0.5" />
+          <button onClick={resetCols}
+            className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700">
+            Reset columns
+          </button>
+        </div>
+      )}
+
+      {/* Column config panel */}
+      {colPanel && (
+        <div ref={colPanelRef}
+          className="fixed z-[9999] bg-white border border-slate-200 rounded-lg shadow-xl w-[170px]"
+          style={{ left: colPanel.x, top: colPanel.y }}>
+          <div className="px-3 py-1.5 border-b border-slate-100 flex items-center justify-between">
+            <span className="text-[11px] font-medium text-slate-700">Columns</span>
+            <span className="text-[10px] text-slate-400">{5 - hiddenCols.size}/5</span>
+          </div>
+          <div className="py-1">
+            {NEWS_COLS.map(col => (
+              <label key={col} className="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-slate-50">
+                <input type="checkbox" checked={!hiddenCols.has(col)}
+                  onChange={() => toggleCol(col)}
+                  disabled={col === 'headline'}
+                  className="w-3 h-3 rounded border-slate-300 text-blue-600 focus:ring-0 focus:ring-offset-0" />
+                <span className={`text-[11px] ${hiddenCols.has(col) ? 'text-slate-400' : 'text-slate-700'}`}>
+                  {COL_LABELS[col]}
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="px-3 py-1.5 border-t border-slate-100">
+            <button onClick={resetCols}
+              className="w-full py-0.5 rounded border border-slate-200 text-[10px] text-slate-600 hover:bg-slate-50 transition-colors">
+              Reset defaults
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Virtualized Table */}
       <div className="flex-1">
@@ -384,11 +501,11 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
           endReached={handleEndReached}
           fixedHeaderContent={() => (
             <tr className="text-left text-slate-600 uppercase tracking-wide bg-slate-100">
-              <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>
+              {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
               <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
-              <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>
-              <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>
-              <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>
+              {!hiddenCols.has('date') && <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>}
+              {!hiddenCols.has('time') && <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>}
+              {!hiddenCols.has('source') && <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>}
             </tr>
           )}
           itemContent={(index, article) => {
@@ -402,24 +519,26 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
 
             return (
               <>
-                {/* Ticker - Primera columna */}
-                <td
-                  className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted
-                    ? 'bg-rose-100'
-                    : article.isLive ? 'bg-emerald-50/50' : ''
-                    }`}
-                  style={{ fontFamily, height: ROW_HEIGHT }}
-                  onClick={() => setSelectedArticle(article)}
-                >
-                  <span className="text-blue-600 font-semibold">
-                    {displayTicker}
-                    {hasMultipleTickers && (
-                      <span className="text-slate-400 text-[9px] ml-0.5">
-                        +{(article.tickers?.length || 1) - 1}
-                      </span>
-                    )}
-                  </span>
-                </td>
+                {/* Ticker */}
+                {!hiddenCols.has('ticker') && (
+                  <td
+                    className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                      }`}
+                    style={{ fontFamily, height: ROW_HEIGHT }}
+                    onClick={() => setSelectedArticle(article)}
+                  >
+                    <span className="text-blue-600 font-semibold">
+                      {displayTicker}
+                      {hasMultipleTickers && (
+                        <span className="text-slate-400 text-[9px] ml-0.5">
+                          +{(article.tickers?.length || 1) - 1}
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                )}
                 {/* Headline */}
                 <td
                   className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted
@@ -439,38 +558,44 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
                   </div>
                 </td>
                 {/* Date */}
-                <td
-                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
-                    ? 'bg-rose-100'
-                    : article.isLive ? 'bg-emerald-50/50' : ''
-                    }`}
-                  style={{ fontFamily, height: ROW_HEIGHT }}
-                  onClick={() => setSelectedArticle(article)}
-                >
-                  {dt.date}
-                </td>
+                {!hiddenCols.has('date') && (
+                  <td
+                    className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                      }`}
+                    style={{ fontFamily, height: ROW_HEIGHT }}
+                    onClick={() => setSelectedArticle(article)}
+                  >
+                    {dt.date}
+                  </td>
+                )}
                 {/* Time */}
-                <td
-                  className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
-                    ? 'bg-rose-100'
-                    : article.isLive ? 'bg-emerald-50/50' : ''
-                    }`}
-                  style={{ fontFamily, height: ROW_HEIGHT }}
-                  onClick={() => setSelectedArticle(article)}
-                >
-                  {dt.time}
-                </td>
+                {!hiddenCols.has('time') && (
+                  <td
+                    className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                      }`}
+                    style={{ fontFamily, height: ROW_HEIGHT }}
+                    onClick={() => setSelectedArticle(article)}
+                  >
+                    {dt.time}
+                  </td>
+                )}
                 {/* Source */}
-                <td
-                  className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${isHighlighted
-                    ? 'bg-rose-100'
-                    : article.isLive ? 'bg-emerald-50/50' : ''
-                    }`}
-                  style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }}
-                  onClick={() => setSelectedArticle(article)}
-                >
-                  {article.author}
-                </td>
+                {!hiddenCols.has('source') && (
+                  <td
+                    className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${isHighlighted
+                      ? 'bg-rose-100'
+                      : article.isLive ? 'bg-emerald-50/50' : ''
+                      }`}
+                    style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }}
+                    onClick={() => setSelectedArticle(article)}
+                  >
+                    {article.author}
+                  </td>
+                )}
               </>
             );
           }}
@@ -500,7 +625,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
               <tfoot {...props} ref={ref} style={style}>
                 {isLoadingMore && (
                   <tr>
-                    <td colSpan={5} className="text-center py-2 text-xs text-slate-400" style={{ fontFamily }}>
+                    <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-slate-400" style={{ fontFamily }}>
                       Loading more...
                     </td>
                   </tr>

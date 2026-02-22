@@ -65,6 +65,7 @@ const INDICATOR_CONFIGS = {
 
 // Cache de resultados por ticker para evitar recálculos
 const cache = new Map();
+const MAX_WORKER_CACHE = 100; // Max tickers cached
 
 // ============================================================================
 // MESSAGE HANDLER
@@ -161,6 +162,11 @@ function handleCalculate(requestId, ticker, bars, requestedIndicators, interval,
       results,
       timestamp: Date.now(),
     });
+    // FIFO eviction when cache exceeds limit
+    if (cache.size > MAX_WORKER_CACHE) {
+      const keys = [...cache.keys()];
+      for (let i = 0; i < 20; i++) cache.delete(keys[i]);
+    }
     
     const duration = performance.now() - startTime;
     

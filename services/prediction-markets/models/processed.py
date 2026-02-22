@@ -15,6 +15,14 @@ class MarketSource(str, Enum):
     KALSHI = "Kalshi"
 
 
+class TagInfo(BaseModel):
+    """Tag/category info for filtering"""
+    slug: str
+    label: str
+    count: int = 0
+    total_volume: float = 0.0
+
+
 class ProcessedMarket(BaseModel):
     """
     Processed market with calculated price changes
@@ -63,10 +71,9 @@ class ProcessedEvent(BaseModel):
     title: str
     slug: Optional[str] = None
     
-    # Categorization
-    category: Optional[str] = None
-    subcategory: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
+    # Tags (multi-tag: event belongs to multiple categories)
+    tags: List[str] = Field(default_factory=list, description="Tag slugs for filtering")
+    tag_labels: List[str] = Field(default_factory=list, description="Tag display labels")
     
     # Aggregated metrics
     total_volume: Optional[float] = Field(default=None, description="Total volume across all markets")
@@ -102,18 +109,20 @@ class CategoryGroup(BaseModel):
 
 class PredictionMarketsResponse(BaseModel):
     """
-    Full API response with categorized events
+    Full API response with flat events and tag-based filtering.
+    Events have multiple tags — filtering is done client-side by tag slug.
     """
-    categories: List[CategoryGroup] = Field(default_factory=list)
-    
+    events: List[ProcessedEvent] = Field(default_factory=list)
+    tags: List[TagInfo] = Field(default_factory=list, description="Available tags with counts")
+
     # Metadata
     total_events: int = 0
     total_markets: int = 0
-    
+
     # Cache info
     cached_at: datetime = Field(default_factory=datetime.utcnow)
     cache_ttl_seconds: int = 300
-    
+
     # Filters applied
     filters: Dict[str, str] = Field(default_factory=dict)
 

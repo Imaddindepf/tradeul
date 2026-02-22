@@ -175,3 +175,17 @@ export interface WSMessage {
   [key: string]: unknown;
 }
 
+// ── Session History Types ──
+
+export interface SessionSummary {
+  thread_id: string;
+  last_query: string;
+  updated_at: number;
+}
+
+export interface SessionMessage {
+  query: string;
+  response: string;
+  timestamp: number;
+  agent_results_summary?: Record<string, unknown>;
+}

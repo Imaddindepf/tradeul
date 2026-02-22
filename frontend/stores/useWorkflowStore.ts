@@ -394,6 +394,6 @@ export const useWorkflowStore = create<WorkflowState>()(
         }),
       }
     ),
-    { name: 'WorkflowStore' }
+    { name: 'WorkflowStore', enabled: process.env.NODE_ENV === 'development' }
   )
 )

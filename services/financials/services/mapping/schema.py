@@ -379,6 +379,22 @@ def get_all_canonical_fields() -> Dict[str, CanonicalField]:
     return all_fields
 
 
+
+# =============================================================================
+# STATEMENT-TYPE OVERRIDES
+# =============================================================================
+# Some XBRL concepts map to different canonical fields depending on the
+# financial statement context. The default mapping in XBRL_TO_CANONICAL is
+# for balance sheet. These overrides apply when processing other statements.
+
+STATEMENT_OVERRIDES: Dict[str, Dict[str, str]] = {
+    "cashflow": {
+        # On the cash flow statement, this concept represents the ending cash balance
+        "CashAndCashEquivalentsAtCarryingValue": "cash_ending",
+    },
+}
+
+
 def get_canonical_keys() -> List[str]:
     """Obtener lista de todas las keys canónicas."""
     return list(get_all_canonical_fields().keys())
@@ -721,7 +737,6 @@ XBRL_TO_CANONICAL: Dict[str, str] = {
     "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect": "net_change_cash",
     "CashAndCashEquivalentsPeriodIncreaseDecrease": "net_change_cash",
     "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents": "cash_ending",
-    "CashAndCashEquivalentsAtCarryingValue": "cash_ending",
     "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations": "cash_ending",
     # Cash Beginning - note: often calculated, not reported directly
     

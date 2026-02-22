@@ -822,27 +822,45 @@ class EnrichmentPipeline:
         Called ONLY on SESSION_CHANGED event (market close),
         NOT every enrichment cycle. This eliminates ~14 MB/s
         of redundant writes.
+        
+        Guards against overwriting valid last_close data with
+        a nearly-empty snapshot (e.g. after a late restart).
         """
+        MIN_TICKERS_FOR_VALID_SNAPSHOT = 500
+        
         try:
-            # Read all current enriched data
             all_data = await self.redis.client.hgetall(SNAPSHOT_ENRICHED_HASH)
             
             if not all_data:
                 logger.warning("no_enriched_data_for_last_close")
                 return
             
-            # Write to last_close hash
+            ticker_count = sum(
+                1 for k in all_data
+                if (k if isinstance(k, str) else k.decode("utf-8", errors="ignore")) != "__meta__"
+            )
+            
+            if ticker_count < MIN_TICKERS_FOR_VALID_SNAPSHOT:
+                existing_count = await self.redis.client.hlen(SNAPSHOT_LAST_CLOSE_HASH)
+                if existing_count > ticker_count:
+                    logger.warning(
+                        "skipping_last_close_write_insufficient_data",
+                        current_tickers=ticker_count,
+                        existing_last_close_fields=existing_count,
+                        min_required=MIN_TICKERS_FOR_VALID_SNAPSHOT,
+                    )
+                    return
+            
             pipe = self.redis.client.pipeline()
             pipe.delete(SNAPSHOT_LAST_CLOSE_HASH)
-            if all_data:
-                pipe.hset(SNAPSHOT_LAST_CLOSE_HASH, mapping=all_data)
+            pipe.hset(SNAPSHOT_LAST_CLOSE_HASH, mapping=all_data)
             pipe.expire(SNAPSHOT_LAST_CLOSE_HASH, SNAPSHOT_LAST_CLOSE_TTL)
             await pipe.execute()
             
             logger.info(
                 "last_close_snapshot_saved",
-                fields_count=len(all_data),
-                ttl_days=SNAPSHOT_LAST_CLOSE_TTL // 86400
+                ticker_count=ticker_count,
+                ttl_days=SNAPSHOT_LAST_CLOSE_TTL // 86400,
             )
         except Exception as e:
             logger.error("error_writing_last_close", error=str(e))

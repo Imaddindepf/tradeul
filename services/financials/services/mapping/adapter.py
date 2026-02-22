@@ -97,6 +97,7 @@ class XBRLMapper:
         self._regex_patterns: List = []
         self._fasb_index: Dict[str, str] = {}
         
+        self._statement_overrides: Dict[str, Dict[str, str]] = {}
         self._load_schemas()
         logger.info("XBRLMapper: Initialized with sync-first approach")
     
@@ -104,10 +105,10 @@ class XBRLMapper:
         """Load all schemas and patterns (sync operation)."""
         try:
             try:
-                from .schema import XBRL_TO_CANONICAL, CANONICAL_FIELDS, get_all_xbrl_concepts
+                from .schema import XBRL_TO_CANONICAL, CANONICAL_FIELDS, get_all_xbrl_concepts, STATEMENT_OVERRIDES
                 from .engine import REGEX_PATTERNS, get_fasb_index
             except ImportError:
-                from schema import XBRL_TO_CANONICAL, CANONICAL_FIELDS, get_all_xbrl_concepts
+                from schema import XBRL_TO_CANONICAL, CANONICAL_FIELDS, get_all_xbrl_concepts, STATEMENT_OVERRIDES
                 from engine import REGEX_PATTERNS, get_fasb_index
             
             # Usar get_all_xbrl_concepts() que incluye XBRL_TO_CANONICAL + CONCEPT_GROUPS
@@ -134,9 +135,16 @@ class XBRLMapper:
             except Exception as e:
                 logger.warning(f"Failed to load SEC Tier 2 mappings: {e}")
             
+            # Load statement-type overrides
+            try:
+                self._statement_overrides = STATEMENT_OVERRIDES
+            except Exception:
+                self._statement_overrides = {}
+
             logger.info(f"XBRLMapper: Loaded {len(self._direct_mappings)} XBRL mappings "
                         f"(+{tier2_count} Tier 2), {len(self._regex_patterns)} regex, "
-                        f"{len(self._fasb_index)} FASB")
+                        f"{len(self._fasb_index)} FASB, "
+                        f"{sum(len(v) for v in self._statement_overrides.values())} overrides")
         except Exception as e:
             logger.error(f"Failed to load schemas: {e}")
     
@@ -185,6 +193,11 @@ class XBRLMapper:
         # Stage 2: Direct XBRL_TO_CANONICAL lookup (instant, confidence=1.0)
         if field_name in self._direct_mappings:
             canonical_key = self._direct_mappings[field_name]
+            # Apply statement-type overrides (e.g. CashAndCashEquivalentsAtCarryingValue
+            # → "cash" on balance sheet but "cash_ending" on cash flow)
+            overrides = self._statement_overrides.get(statement_type, {})
+            if field_name in overrides:
+                canonical_key = overrides[field_name]
             result = self._build_result(canonical_key, confidence=1.0, source="direct")
             if result:
                 self._cache[cache_key] = result

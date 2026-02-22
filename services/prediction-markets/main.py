@@ -111,8 +111,8 @@ async def refresh_data() -> Optional[PredictionMarketsResponse]:
             "refresh_completed_v4",
             events=response.total_events,
             markets=response.total_markets,
-            categories=len(response.categories),
-            top_categories=[c.category for c in response.categories[:5]]
+            tags=len(response.tags),
+            top_tags=[t.slug for t in response.tags[:5]]
         )
         
         return response
@@ -289,117 +289,98 @@ async def check_polymarket_categories():
 
 @app.get("/api/v1/predictions", response_model=PredictionMarketsResponse)
 async def get_predictions(
-    category: Optional[str] = QueryParam(None, description="Filter by category"),
+    tag: Optional[str] = QueryParam(None, description="Filter by tag slug (e.g. earnings, crypto)"),
     refresh: bool = QueryParam(False, description="Force refresh from source"),
 ):
     """
-    Get all prediction markets data, categorized and processed
-    
-    Returns events organized by category with:
-    - Current probabilities
-    - Price changes (1D, 5D, 1M)
-    - 30-day high/low
-    - Volume metrics
-    
+    Get all prediction markets data with tag-based filtering.
+
+    Events have multiple tags — use ?tag= to filter.
+
     Examples:
     - `/api/v1/predictions` - All predictions
-    - `/api/v1/predictions?category=Geopolitics` - Filter by category
+    - `/api/v1/predictions?tag=earnings` - Only earnings events
+    - `/api/v1/predictions?tag=crypto` - Only crypto events
     - `/api/v1/predictions?refresh=true` - Force refresh
     """
     # Force refresh if requested
     if refresh:
         response = await refresh_data()
+        if response and tag:
+            tag_lower = tag.lower()
+            response.events = [e for e in response.events if tag_lower in e.tags]
         if response:
-            if category:
-                response.categories = [
-                    c for c in response.categories
-                    if c.category.lower() == category.lower()
-                ]
             return response
-    
+
     # Try cache first
     cached = await cache_manager.get_full_response()
-    
+
     if cached:
-        if category:
-            category_lower = category.lower()
-            cached.categories = [
-                c for c in cached.categories
-                if category_lower in c.category.lower()
-            ]
+        if tag:
+            tag_lower = tag.lower()
+            cached.events = [e for e in cached.events if tag_lower in e.tags]
         return cached
-    
+
     # No cache, fetch fresh
     response = await refresh_data()
-    
+
     if not response:
         raise HTTPException(
             status_code=503,
             detail="Unable to fetch prediction markets data"
         )
-    
-    if category:
-        response.categories = [
-            c for c in response.categories
-            if c.category.lower() == category.lower()
-        ]
-    
+
+    if tag:
+        tag_lower = tag.lower()
+        response.events = [e for e in response.events if tag_lower in e.tags]
+
     return response
 
 
 @app.get("/api/v1/predictions/events", response_model=EventsListResponse)
 async def get_events_list(
-    category: Optional[str] = QueryParam(None, description="Filter by category"),
-    subcategory: Optional[str] = QueryParam(None, description="Filter by subcategory"),
+    tag: Optional[str] = QueryParam(None, description="Filter by tag slug"),
     min_volume: Optional[float] = QueryParam(None, description="Minimum total volume"),
     page: int = QueryParam(1, ge=1, description="Page number"),
     page_size: int = QueryParam(50, ge=1, le=200, description="Page size"),
 ):
     """
     Get flat list of prediction events with filtering
-    
+
     Examples:
-    - `/api/v1/predictions/events?category=Macro` 
+    - `/api/v1/predictions/events?tag=earnings`
     - `/api/v1/predictions/events?min_volume=100000`
     """
     cached = await cache_manager.get_full_response()
-    
+
     if not cached:
         cached = await refresh_data()
-    
+
     if not cached:
         raise HTTPException(status_code=503, detail="Data unavailable")
-    
-    # Flatten events from all categories
-    all_events: List[ProcessedEvent] = []
-    
-    for cat_group in cached.categories:
-        # Apply category filter (partial match)
-        if category and category.lower() not in cat_group.category.lower():
-            continue
-        
-        # Apply subcategory filter
-        if subcategory and cat_group.subcategory:
-            if cat_group.subcategory.lower() != subcategory.lower():
-                continue
-        
-        all_events.extend(cat_group.events)
-    
+
+    all_events = list(cached.events)
+
+    # Apply tag filter
+    if tag:
+        tag_lower = tag.lower()
+        all_events = [e for e in all_events if tag_lower in e.tags]
+
     # Apply volume filter
     if min_volume:
         all_events = [
             e for e in all_events
             if e.total_volume and e.total_volume >= min_volume
         ]
-    
-    # Sort by relevance score
-    all_events.sort(key=lambda e: e.relevance_score, reverse=True)
-    
+
+    # Sort by volume
+    all_events.sort(key=lambda e: e.total_volume or 0, reverse=True)
+
     # Paginate
     total = len(all_events)
     start = (page - 1) * page_size
     end = start + page_size
-    
+
     return EventsListResponse(
         events=all_events[start:end],
         total=total,
@@ -408,29 +389,19 @@ async def get_events_list(
     )
 
 
-@app.get("/api/v1/predictions/categories")
-async def get_categories():
-    """Get list of available categories with event counts"""
+@app.get("/api/v1/predictions/tags")
+@app.get("/api/v1/predictions/categories")  # backwards compat alias
+async def get_tags():
+    """Get list of available tags with event counts"""
     cached = await cache_manager.get_full_response()
-    
+
     if not cached:
         cached = await refresh_data()
-    
+
     if not cached:
         raise HTTPException(status_code=503, detail="Data unavailable")
-    
-    categories = []
-    
-    for cat_group in cached.categories:
-        categories.append({
-            "category": cat_group.category,
-            "subcategory": cat_group.subcategory,
-            "display_name": cat_group.display_name,
-            "event_count": cat_group.total_events,
-            "total_volume": cat_group.total_volume,
-        })
-    
-    return {"categories": categories}
+
+    return {"tags": [t.model_dump() for t in cached.tags]}
 
 
 @app.get("/api/v1/predictions/event/{event_id}")
@@ -444,13 +415,129 @@ async def get_event_by_id(event_id: str):
     if not cached:
         raise HTTPException(status_code=503, detail="Data unavailable")
     
-    # Search for event
-    for cat_group in cached.categories:
-        for event in cat_group.events:
-            if event.id == event_id:
-                return {"event": event}
+    # Search for event in flat list
+    for event in cached.events:
+        if event.id == event_id:
+            return {"event": event}
     
     raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
+
+
+# =============================================================================
+# Ticker Search Endpoint
+# =============================================================================
+
+@app.get("/api/v1/predictions/ticker/{ticker}")
+async def search_by_ticker(
+    ticker: str,
+    limit: int = QueryParam(20, ge=1, le=50),
+):
+    """
+    Search prediction markets related to a specific stock ticker.
+    
+    Queries Polymarket by tag_slug using both the ticker (e.g. 'aapl')
+    and the company name (e.g. 'apple'), then deduplicates and processes.
+    
+    Examples:
+    - `/api/v1/predictions/ticker/AAPL`
+    - `/api/v1/predictions/ticker/META`
+    - `/api/v1/predictions/ticker/NVDA?limit=10`
+    """
+    ticker_upper = ticker.upper().strip()
+    ticker_lower = ticker.lower().strip()
+    
+    TICKER_TO_NAMES: dict[str, list[str]] = {
+        "AAPL": ["apple"],
+        "META": ["meta"],
+        "GOOGL": ["google", "alphabet"],
+        "GOOG": ["google", "alphabet"],
+        "MSFT": ["microsoft"],
+        "AMZN": ["amazon"],
+        "NVDA": ["nvidia"],
+        "TSLA": ["tesla"],
+        "AMD": ["amd"],
+        "NFLX": ["netflix"],
+        "INTC": ["intel"],
+        "CRM": ["salesforce"],
+        "COIN": ["coinbase"],
+        "PLTR": ["palantir"],
+        "SNAP": ["snapchat", "snap"],
+        "UBER": ["uber"],
+        "LYFT": ["lyft"],
+        "SQ": ["block", "square"],
+        "SHOP": ["shopify"],
+        "ROKU": ["roku"],
+        "PYPL": ["paypal"],
+        "DIS": ["disney"],
+        "BA": ["boeing"],
+        "JPM": ["jpmorgan"],
+        "GS": ["goldman-sachs", "goldman"],
+        "WMT": ["walmart"],
+        "TGT": ["target"],
+        "KO": ["coca-cola"],
+        "PEP": ["pepsi", "pepsico"],
+        "MCD": ["mcdonalds"],
+        "SBUX": ["starbucks"],
+        "NKE": ["nike"],
+    }
+    
+    tags_to_search = [ticker_lower]
+    if ticker_upper in TICKER_TO_NAMES:
+        tags_to_search.extend(TICKER_TO_NAMES[ticker_upper])
+    
+    try:
+        import asyncio
+        
+        tasks = [
+            polymarket_client.get_events_by_tag(tag_slug=tag, active=True, closed=False, limit=limit)
+            for tag in tags_to_search
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        seen_ids: set[str] = set()
+        all_events = []
+        
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            for event in result:
+                if event.id not in seen_ids:
+                    seen_ids.add(event.id)
+                    all_events.append(event)
+        
+        if not all_events:
+            return {
+                "ticker": ticker_upper,
+                "events": [],
+                "total": 0,
+            }
+        
+        processed_events = []
+        for event in all_events:
+            score = (event.volume or 0) / 1_000_000
+            tag_slugs, tag_labels = processor._get_tag_info(event)
+            processed = processor._process_event(
+                event,
+                category=None,
+                subcategory=None,
+                relevance_score=score,
+            )
+            if processed:
+                processed.tags = tag_slugs
+                processed.tag_labels = tag_labels
+                processed_events.append(processed)
+        
+        processed_events.sort(key=lambda e: e.total_volume or 0, reverse=True)
+        
+        return {
+            "ticker": ticker_upper,
+            "events": [e.model_dump() for e in processed_events[:limit]],
+            "total": len(processed_events),
+        }
+        
+    except Exception as e:
+        logger.error("ticker_search_error", ticker=ticker_upper, error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error searching predictions for {ticker_upper}")
 
 
 # =============================================================================
@@ -582,14 +669,11 @@ async def get_event_detail(event_id: str):
     if not cached:
         raise HTTPException(status_code=503, detail="Data unavailable")
     
-    # Find event
+    # Find event in flat list
     event = None
-    for cat_group in cached.categories:
-        for e in cat_group.events:
-            if e.id == event_id:
-                event = e
-                break
-        if event:
+    for e in cached.events:
+        if e.id == event_id:
+            event = e
             break
     
     if not event:

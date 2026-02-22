@@ -32,11 +32,11 @@ def _fig_to_dict(fig: go.Figure, label: str) -> dict:
 
 def generate_equity_chart(result: BacktestResult) -> dict:
     """Equity curve + drawdown dual-panel chart."""
-    equity = np.array(result.equity_curve)
-    dates = list(range(len(equity)))
+    dates = [pt[0] for pt in result.equity_curve]
+    equity = np.array([pt[1] for pt in result.equity_curve], dtype=float)
 
     running_max = np.maximum.accumulate(equity)
-    drawdown = (equity - running_max) / running_max * 100  # percent
+    drawdown = np.where(running_max > 0, (equity - running_max) / running_max * 100, 0.0)
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -70,10 +70,9 @@ def generate_equity_chart(result: BacktestResult) -> dict:
 
 def generate_monthly_heatmap(result: BacktestResult) -> dict:
     """Monthly returns calendar heatmap."""
-    equity = np.array(result.equity_curve)
-    # Build a simple date-indexed series assuming daily bars
-    idx = pd.date_range(end=pd.Timestamp.today(), periods=len(equity), freq="B")
-    eq_series = pd.Series(equity, index=idx)
+    dates = pd.to_datetime([pt[0] for pt in result.equity_curve])
+    equity = np.array([pt[1] for pt in result.equity_curve], dtype=float)
+    eq_series = pd.Series(equity, index=dates)
 
     monthly = eq_series.resample("ME").last().pct_change().dropna() * 100
     pivot = pd.DataFrame({
@@ -104,7 +103,7 @@ def generate_monthly_heatmap(result: BacktestResult) -> dict:
 
 def generate_trade_distribution(result: BacktestResult) -> dict:
     """Histogram of trade returns with mean and zero lines."""
-    pnl_pcts = [t.pnl_pct for t in result.trades]
+    pnl_pcts = [t.return_pct * 100 for t in result.trades]
     avg_pnl = float(np.mean(pnl_pcts)) if pnl_pcts else 0.0
 
     fig = go.Figure()

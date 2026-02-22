@@ -814,6 +814,7 @@ services:
       - GOOGLE_API_KEY=${GEMINI_TRADEUL_AGENT}
       - XAI_API_KEY=${XAI_API_KEY:-}
       - MCP_GATEWAY_URL=http://mcp_gateway:8050
+      - BACKTESTER_URL=http://backtester:8060
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/5
       - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:
@@ -830,6 +831,8 @@ services:
         condition: service_healthy
       mcp_gateway:
         condition: service_started
+      backtester:
+        condition: service_started
     restart: unless-stopped
     networks:
       - tradeul_network
@@ -840,6 +843,42 @@ services:
         limits:
           cpus: "1"
           memory: 1G
+        reservations:
+          memory: 512M
+
+  # =============================================
+  # BACKTESTER - Professional NL Backtesting Engine
+  # =============================================
+
+  backtester:
+    build:
+      context: ./services/backtester
+      dockerfile: Dockerfile
+    container_name: tradeul_backtester
+    env_file:
+      - .env
+    environment:
+      - BACKTESTER_POLYGON_API_KEY=${POLYGON_API_KEY}
+      - BACKTESTER_POLYGON_DATA_DIR=/data/polygon
+      - BACKTESTER_SPLITS_CACHE_DIR=/data/backtester/splits
+    volumes:
+      - polygon_data:/data/polygon:ro
+      - backtester_data:/data/backtester
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8060:8060"
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
         reservations:
           memory: 512M
 
@@ -1109,6 +1148,8 @@ volumes:
   polygon_data:
     driver: local
   pattern_indexes:
+    driver: local
+  backtester_data:
     driver: local
 
 

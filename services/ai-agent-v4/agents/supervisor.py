@@ -55,7 +55,14 @@ AVAILABLE_AGENTS = {
     ),
     "code_exec": (
         "Python/DuckDB code generation for custom analysis. "
-        "Capabilities: backtesting, custom calculations, data transformations, comparisons."
+        "Capabilities: custom calculations, data transformations, comparisons."
+    ),
+    "backtest": (
+        "Professional backtesting engine for trading strategies described in natural language. "
+        "Parses strategy description → executes backtest with split-adjusted data → returns "
+        "metrics (Sharpe, Sortino, Max DD, Win Rate), equity curves, trade log, "
+        "walk-forward analysis, and Monte Carlo simulation. "
+        "Capabilities: strategy backtesting from natural language descriptions."
     ),
     "screener": (
         "DuckDB-powered stock screener on daily data with 60+ indicators. "
@@ -122,9 +129,10 @@ FUNDAMENTALS — Financial statements, balance sheets, ratios → financial
 SEC_FILINGS — SEC documents: 10-K, 10-Q, 8-K, S-1 → financial
 SCREENING — Filter stocks by specific numeric criteria (without ranking) → screener
 THEMATIC — Find stocks by investment theme, sector vertical, or industry category. The user is explicitly looking for a LIST of companies in a specific theme. Examples: "robotics stocks", "empresas de memoria", "quantum computing companies", "acciones de energía nuclear", "cybersecurity zero trust", "EV charging", "GLP-1 weight loss drugs", "chip foundry stocks", "defense tech", "lithium miners" → market_data. IMPORTANT: Broad market questions like "what theme is driving the market today?", "que tema mueve el mercado?", "what sectors are hot?" are NOT THEMATIC — they are RANKING queries because the user wants to see current market movers, not a static list of themed companies.
-DEEP_RESEARCH — Comprehensive analysis, sentiment, analyst opinions → research
+DEEP_RESEARCH — Comprehensive analysis, business model, competitive positioning, sentiment, analyst opinions → research + financial (when tickers are present). Use for: "how does X make money?", "compare X vs Y", "what's X's competitive moat?", "diferencias entre X e Y", "modelo de negocio de X"
 COMPLETE_ANALYSIS — Full picture: "análisis completo", "deep dive", "full breakdown" → market_data + news_events + financial (add research if sentiment/opinions requested)
-CODE — Custom calculations, backtesting → code_exec
+CODE — Custom calculations, data transformations → code_exec
+BACKTEST — Strategy backtesting from natural language: "backtest buying when RSI < 30", "/backtest gap strategy" → backtest
 CHART_ANALYSIS — User is asking about a specific chart they are viewing (technical analysis, patterns, support/resistance, trend) → market_data (add research if "why" is asked, add news_events for context)
 
 A single query can combine MULTIPLE intents — select agents for ALL detected intents.
@@ -146,7 +154,9 @@ Example: "Why is TSLA up? Show me the financials too" = CAUSAL + FUNDAMENTALS �
 
 7. CHART_ANALYSIS queries come with a chart_context containing the user's visible chart data (OHLCV bars, indicators, drawings). Always include market_data for enrichment. Add research if the user asks "why" something happened.
 
-8. MARKET_PULSE queries analyze aggregated sector/industry/theme performance. You MUST generate "pulse_queries" — an array of structured query objects. Each query: {{"group": "sectors"|"industries"|"themes", "sort_by": metric, "limit": int, "cap_size": "mega"|"large"|"mid"|"small"|null, "min_market_cap": int|null, "sector": str|null, "include_movers": bool, "metric_filters": [{{"metric":str,"op":"gt|gte|lt|lte","value":float}}], "label": str}}. Set "pulse_compare": true when comparing segments. Set "pulse_drilldown": {{"from_query":0,"rank":1,"sort_by":"change_percent","limit":10}} to drill into a result. Sortable metrics: weighted_change, avg_change, breadth, avg_rvol, avg_rsi, avg_daily_rsi, avg_atr_pct, avg_change_5d, avg_change_10d, avg_change_20d, avg_from_52w_high, avg_from_52w_low, avg_pos_in_range, avg_bb_position, avg_dist_vwap, avg_dist_sma20, avg_dist_sma50, total_dollar_volume, count. Cap sizes: mega(>200B), large(>10B), mid(>2B), small(>300M), micro(>50M).
+8. AGENT TASK DECOMPOSITION: When selecting 2+ agents, you MUST generate "agent_tasks" — a dict mapping each agent name to a specific sub-question or instruction tailored to that agent's data sources. Each task must be a clear, self-contained sentence that tells the agent EXACTLY what to search for. Use the verified company names from ticker extraction. For single-agent queries, set agent_tasks to null. This is critical — without tailored tasks, agents fall back to generic behavior and may miss the user's actual question.
+
+9. MARKET_PULSE queries analyze aggregated sector/industry/theme performance. You MUST generate "pulse_queries" — an array of structured query objects. Each query: {{"group": "sectors"|"industries"|"themes", "sort_by": metric, "limit": int, "cap_size": "mega"|"large"|"mid"|"small"|null, "min_market_cap": int|null, "sector": str|null, "include_movers": bool, "metric_filters": [{{"metric":str,"op":"gt|gte|lt|lte","value":float}}], "label": str}}. Set "pulse_compare": true when comparing segments. Set "pulse_drilldown": {{"from_query":0,"rank":1,"sort_by":"change_percent","limit":10}} to drill into a result. Sortable metrics: weighted_change, avg_change, breadth, avg_rvol, avg_rsi, avg_daily_rsi, avg_atr_pct, avg_change_5d, avg_change_10d, avg_change_20d, avg_from_52w_high, avg_from_52w_low, avg_pos_in_range, avg_bb_position, avg_dist_vwap, avg_dist_sma20, avg_dist_sma50, total_dollar_volume, count. Cap sizes: mega(>200B), large(>10B), mid(>2B), small(>300M), micro(>50M).
 </routing_principles>
 
 <thematic_catalog>
@@ -201,11 +211,16 @@ Respond with ONLY a JSON object containing these exact fields:
   "pulse_compare": false,
   "pulse_metrics": null,
   "pulse_drilldown": null,
+  "agent_tasks": null,
   "plan": "Brief execution plan in the user's language",
   "confidence": 0.95,
   "reasoning": "One sentence explaining why you chose these agents",
   "clarification": null
 }}
+
+IMPORTANT: "agent_tasks" maps each selected agent to a tailored sub-question. Generate it when 2+ agents are selected. Example:
+"agent_tasks": {{"research": "Why is TSLA moving? Find the specific catalyst.", "market_data": "Current price and technicals for TSLA"}}
+For single-agent queries, set to null.
 
 IMPORTANT: "theme_tags" is an array of canonical theme tag strings from the thematic catalog. 
 It MUST be populated when intent is THEMATIC. Leave as empty array [] for all other intents.
@@ -221,7 +236,7 @@ User: "NVDA price"
 {{"intent": "DATA_LOOKUP", "tickers": ["NVDA"], "agents": ["market_data"], "theme_tags": [], "plan": "Fetch current NVDA price and technicals", "confidence": 1.0, "reasoning": "Simple price lookup for a specific ticker", "clarification": null}}
 
 User: "why is LFS moving?"
-{{"intent": "CAUSAL", "tickers": ["LFS"], "agents": ["research", "news_events", "market_data"], "theme_tags": [], "plan": "Investigate why LFS is moving: search X.com/web for catalysts, check news, get price data", "confidence": 0.95, "reasoning": "Causal query — research agent searches real-time sources for the reason behind the move", "clarification": null}}
+{{"intent": "CAUSAL", "tickers": ["LFS"], "agents": ["research", "news_events", "market_data"], "theme_tags": [], "agent_tasks": {{"research": "Why is LFS stock moving right now? Find the specific catalyst: earnings, analyst action, news, partnership, or breaking event.", "news_events": "Latest Benzinga news and real-time market events for LFS", "market_data": "Current price, volume, RVOL, and technicals for LFS"}}, "plan": "Investigar por qué se mueve LFS: buscar catalizador en web/X.com, noticias, datos de precio", "confidence": 0.95, "reasoning": "Causal query — research searches real-time sources for catalysts", "clarification": null}}
 
 User: "top 20 gappers"
 {{"intent": "RANKING", "tickers": [], "agents": ["market_data"], "theme_tags": [], "plan": "Fetch top 20 gappers from scanner", "confidence": 1.0, "reasoning": "Ranking query for gappers_up scanner category", "clarification": null}}
@@ -256,11 +271,23 @@ User: "temas con RSI oversold y momentum positivo en 5 dias"
 User: "top tema en large caps y dame los 5 mejores stocks de ese tema"
 {{"intent": "MARKET_PULSE", "tickers": [], "agents": ["market_data"], "theme_tags": [], "pulse_queries": [{{"group": "themes", "cap_size": "large", "sort_by": "weighted_change", "limit": 5, "label": "top_themes"}}], "pulse_compare": false, "pulse_metrics": null, "pulse_drilldown": {{"from_query": 0, "rank": 1, "sort_by": "change_percent", "limit": 5}}, "plan": "Tema más fuerte en large caps con drilldown a sus mejores stocks", "confidence": 1.0, "reasoning": "Market pulse with automatic drilldown into top result", "clarification": null}}
 
+User: "/backtest Buy stocks gapping up 5% with volume > 1M, sell at 10% profit or 5% stop, 2024-2025"
+{{"intent": "BACKTEST", "tickers": [], "agents": ["backtest"], "theme_tags": [], "plan": "Backtest gap-up momentum strategy with volume filter, profit target and stop loss", "confidence": 1.0, "reasoning": "Explicit backtest command with strategy description", "clarification": null}}
+
+User: "backtest RSI mean reversion on SPY from 2020 to 2024"
+{{"intent": "BACKTEST", "tickers": ["SPY"], "agents": ["backtest"], "theme_tags": [], "plan": "Backtest RSI mean reversion strategy on SPY", "confidence": 1.0, "reasoning": "Backtest request with specific ticker and strategy", "clarification": null}}
+
 User: "noticias de AAPL"
 {{"intent": "NEWS", "tickers": ["AAPL"], "agents": ["news_events", "market_data"], "theme_tags": [], "plan": "Obtener noticias recientes de AAPL con contexto de precio", "confidence": 1.0, "reasoning": "News query for specific ticker with price context", "clarification": null}}
 
 User: "análisis completo de PLTR con sentimiento"
-{{"intent": "COMPLETE_ANALYSIS", "tickers": ["PLTR"], "agents": ["market_data", "news_events", "financial", "research"], "theme_tags": [], "plan": "Análisis completo de PLTR: precio, noticias, fundamentales y sentimiento via X.com", "confidence": 0.95, "reasoning": "Complete analysis with sentiment requested — needs all four agents", "clarification": null}}
+{{"intent": "COMPLETE_ANALYSIS", "tickers": ["PLTR"], "agents": ["market_data", "news_events", "financial", "research"], "theme_tags": [], "agent_tasks": {{"market_data": "Price, volume, technicals, and enriched snapshot for PLTR", "news_events": "Latest news and real-time events for Palantir (PLTR)", "financial": "Recent financial statements for Palantir — income, balance sheet, cash flow", "research": "Analyst sentiment, opinions, price targets, and social media buzz for Palantir (PLTR)"}}, "plan": "Análisis completo de PLTR: precio, noticias, fundamentales y sentimiento", "confidence": 0.95, "reasoning": "Complete analysis with sentiment — all four agents with tailored tasks", "clarification": null}}
+
+User: "que diferencia hay entre el modelo de negocio de UPST y FOUR?"
+{{"intent": "DEEP_RESEARCH", "tickers": ["UPST", "FOUR"], "agents": ["research", "financial"], "theme_tags": [], "agent_tasks": {{"research": "Compare the business models of Upstart Holdings (UPST) and Shift4 Payments (FOUR). How does each generate revenue? Key differences in strategy, technology, target market, and competitive moat.", "financial": "Financial statements for UPST and FOUR to compare revenue composition, margins, growth rates, and unit economics."}}, "plan": "Comparar modelos de negocio: research para análisis conceptual, financial para datos cuantitativos", "confidence": 0.95, "reasoning": "Deep research comparing two companies — needs web research + financial data", "clarification": null}}
+
+User: "how does Palantir make money?"
+{{"intent": "DEEP_RESEARCH", "tickers": ["PLTR"], "agents": ["research", "financial"], "theme_tags": [], "agent_tasks": {{"research": "How does Palantir Technologies (PLTR) make money? Describe its business model, revenue streams (Gotham vs Foundry vs AIP), customer segments (government vs commercial), and go-to-market strategy.", "financial": "Financial statements for PLTR to show revenue breakdown, margins, growth trajectory, and profitability trends."}}, "plan": "Explicar modelo de negocio de PLTR: research para análisis cualitativo, financial para datos", "confidence": 0.95, "reasoning": "Business model deep dive — research for qualitative analysis, financial for quantitative", "clarification": null}}
 
 User: "ninguna"
 {{"intent": "GREETING", "tickers": [], "agents": [], "theme_tags": [], "plan": "Dismissal — responder brevemente", "confidence": 1.0, "reasoning": "User dismissal, not a financial query", "clarification": null}}
@@ -369,7 +396,8 @@ async def query_planner_node(state: dict) -> dict:
 
     # ── CHART_ANALYSIS fast-path: deterministic routing when chart_context is present ──
     chart_context = state.get("chart_context")
-    if chart_context:
+    has_full_chart = chart_context and len(chart_context.get("snapshot", {}).get("recentBars", [])) > 0
+    if has_full_chart:
         cc = chart_context
         snap = cc.get("snapshot", {})
         ticker = cc.get("ticker", "")
@@ -400,20 +428,41 @@ async def query_planner_node(state: dict) -> dict:
             ticker, cc.get("interval"), is_hist, from_str, to_str, agents,
         )
 
+        # Chart ticker is user-verified (from their own chart) — keep it even if
+        # not in the real-time scanner universe (e.g. low-float or recently delisted)
         llm_tickers = [ticker] if ticker else []
         ticker_info: dict = {}
         if llm_tickers:
             validated = await validate_tickers(llm_tickers)
-            llm_tickers = validated
-            if llm_tickers:
-                ticker_info = await get_ticker_info(llm_tickers)
+            if not validated:
+                logger.info("Query planner: chart ticker %s not in scanner universe, keeping anyway", ticker)
+            ticker_info = await get_ticker_info(validated or llm_tickers)
 
         return {
             **state,
+            "intent": "CHART_ANALYSIS",
             "tickers": llm_tickers,
             "ticker_info": ticker_info,
             "active_agents": agents,
             "plan": plan,
+            "clarification": None,
+            "market_context": state.get("market_context", {}),
+        }
+
+    # ── BACKTEST fast-path: deterministic routing when /backtest prefix is present ──
+    if query.strip().lower().startswith("/backtest") or query.strip().lower().startswith("backtest "):
+        logger.info("Query planner: BACKTEST (fast-path) — routing directly to backtest agent")
+
+        llm_tickers = []
+        ticker_info: dict = {}
+
+        return {
+            **state,
+            "intent": "BACKTEST",
+            "tickers": llm_tickers,
+            "ticker_info": ticker_info,
+            "active_agents": ["backtest"],
+            "plan": "Execute professional backtest from natural language strategy",
             "clarification": None,
             "market_context": state.get("market_context", {}),
         }
@@ -466,6 +515,7 @@ async def query_planner_node(state: dict) -> dict:
         )
         return {
             **state,
+            "intent": decision.get("intent", "UNKNOWN"),
             "tickers": [],
             "active_agents": [],
             "plan": "clarification_needed",
@@ -501,19 +551,26 @@ async def query_planner_node(state: dict) -> dict:
     pulse_metrics = decision.get("pulse_metrics")
     pulse_drilldown = decision.get("pulse_drilldown")
 
+    # Agent task decomposition
+    agent_tasks = decision.get("agent_tasks")
+    if agent_tasks and not isinstance(agent_tasks, dict):
+        agent_tasks = None
+
     logger.info(
-        "Query planner: intent=%s confidence=%.2f tickers=%s agents=%s themes=%s pulse=%s plan=%s",
+        "Query planner: intent=%s confidence=%.2f tickers=%s agents=%s themes=%s pulse=%s tasks=%s plan=%s",
         decision.get("intent", "?"), confidence, llm_tickers,
         requested_agents, theme_tags,
-        bool(pulse_queries), decision.get("plan", "")[:120],
+        bool(pulse_queries), bool(agent_tasks), decision.get("plan", "")[:120],
     )
 
     result_state = {
         **state,
+        "intent": decision.get("intent", "UNKNOWN"),
         "tickers": llm_tickers,
         "ticker_info": ticker_info,
         "active_agents": requested_agents,
         "theme_tags": theme_tags,
+        "agent_tasks": agent_tasks,
         "plan": decision.get("plan", ""),
         "clarification": None,
         "market_context": state.get("market_context", {}),
@@ -549,5 +606,11 @@ def fan_out_to_agents(state: dict):
     if not agents:
         return "synthesizer"
 
-    sends = [Send(agent, state) for agent in agents]
+    agent_tasks = state.get("agent_tasks") or {}
+    sends = []
+    for agent in agents:
+        if agent in agent_tasks:
+            sends.append(Send(agent, {**state, "agent_task": agent_tasks[agent]}))
+        else:
+            sends.append(Send(agent, state))
     return sends

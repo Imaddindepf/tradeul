@@ -2,11 +2,15 @@
 
 import { memo, useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { History } from 'lucide-react';
 import { useAIAgent } from './useAIAgent';
 import { ResultBlock } from './ResultBlock';
 import { SlashCommandMenu, useSlashCommands } from './SlashCommandMenu';
+import { ConversationHistory } from './ConversationHistory';
+import { useConversationHistory } from './useConversationHistory';
 import type { SlashCommand } from './SlashCommandMenu';
-import type { AgentStep, ChartContext, Message, ResultBlockData, ClarificationData } from './types';
+import type { AgentStep, ChartContext, Message, ResultBlockData, ClarificationData, SessionMessage } from './types';
+import { StepCard } from './StepCard';
 
 const QUICK_ACTIONS = [
   { label: 'Top Gainers', query: 'top 50 gainers today' },
@@ -40,20 +44,27 @@ export const AIAgentContent = memo(function AIAgentContent({
     isLoading,
     error,
     chartContext,
+    sessionId,
     sendMessage,
     setChartContext,
     sendClarificationChoice,
     clearHistory,
+    loadSession,
     toggleCodeVisibility,
   } = useAIAgent({ onMarketUpdate });
+
+  const history = useConversationHistory();
 
   const [showPipeline, setShowPipeline] = useState(false);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const [isNarrow, setIsNarrow] = useState(false);
 
+  // ── Container width detection ──
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -68,6 +79,7 @@ export const AIAgentContent = memo(function AIAgentContent({
     if (isNarrow && showPipeline) setShowPipeline(false);
   }, [isNarrow, showPipeline]);
 
+  // ── External event listeners ──
   useEffect(() => {
     const handler = (e: CustomEvent<{ message: string }>) => {
       if (e.detail?.message) sendMessage(e.detail.message);
@@ -87,10 +99,20 @@ export const AIAgentContent = memo(function AIAgentContent({
     return () => window.removeEventListener('agent:chart-ask', handler as EventListener);
   }, [sendMessage, setChartContext]);
 
+  // ── Smart scroll — only auto-scroll if user is near bottom ──
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  }, []);
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, resultBlocks]);
 
+  // ── Textarea auto-resize ──
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
@@ -98,6 +120,7 @@ export const AIAgentContent = memo(function AIAgentContent({
     }
   }, [input]);
 
+  // ── Timeline construction ──
   const timeline = useMemo<TimelineEntry[]>(() => {
     const entries: TimelineEntry[] = [];
     let current: TimelineEntry | null = null;
@@ -119,6 +142,7 @@ export const AIAgentContent = memo(function AIAgentContent({
     return last?.steps || [];
   }, [messages]);
 
+  // ── Submit handler ──
   const handleSubmit = useCallback((e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim() || isLoading || !isConnected) return;
@@ -127,6 +151,7 @@ export const AIAgentContent = memo(function AIAgentContent({
     if (inputRef.current) inputRef.current.style.height = 'auto';
   }, [input, isLoading, isConnected, sendMessage]);
 
+  // ── Slash commands ──
   const { slashActive, filtered: slashFiltered } = useSlashCommands(input);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
 
@@ -153,42 +178,147 @@ export const AIAgentContent = memo(function AIAgentContent({
     sendMessage(query);
   }, [isLoading, isConnected, sendMessage]);
 
+  // ── Load session from history ──
+  const handleSelectSession = useCallback(async (sid: string) => {
+    if (sid === sessionId) {
+      history.close();
+      return;
+    }
+
+    const rawMessages = await history.loadSessionMessages(sid);
+    if (!rawMessages.length) return;
+
+    // Transform backend messages into Message[] + ResultBlockData[]
+    const msgs: Message[] = [];
+    const blocks: ResultBlockData[] = [];
+
+    rawMessages.forEach((entry: SessionMessage, i: number) => {
+      const ts = new Date(entry.timestamp * 1000);
+      const userMsgId = `hist-user-${i}`;
+      const assistantMsgId = `hist-assistant-${i}`;
+
+      msgs.push({
+        id: userMsgId,
+        role: 'user',
+        content: entry.query,
+        timestamp: ts,
+      });
+
+      if (entry.response) {
+        msgs.push({
+          id: assistantMsgId,
+          role: 'assistant',
+          content: entry.response,
+          timestamp: ts,
+          status: 'complete',
+        });
+
+        blocks.push({
+          id: `${assistantMsgId}-response`,
+          messageId: assistantMsgId,
+          query: entry.query,
+          title: 'Analysis',
+          status: 'success',
+          code: '',
+          codeVisible: false,
+          result: {
+            success: true,
+            code: '',
+            outputs: [{ type: 'research', title: 'AI Analysis', content: entry.response }],
+            execution_time_ms: 0,
+            timestamp: ts.toISOString(),
+          },
+          timestamp: ts,
+        });
+      }
+    });
+
+    loadSession(sid, msgs, blocks);
+    history.close();
+
+    // Scroll to bottom after loading
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    }, 100);
+  }, [sessionId, history, loadSession]);
+
+  const handleDeleteSession = useCallback(async (sid: string) => {
+    await history.deleteSession(sid);
+    // If we deleted the active session, start fresh
+    if (sid === sessionId) {
+      clearHistory();
+    }
+  }, [history, sessionId, clearHistory]);
+
+  const handleNewSession = useCallback(() => {
+    clearHistory();
+    if (history.isOpen) history.fetchSessions();
+  }, [clearHistory, history]);
+
   return (
     <div ref={containerRef} className="flex flex-col h-full w-full min-h-0 bg-[#f7f8fb] overflow-hidden">
-      <div className="flex-1 min-h-0 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden relative">
+
+        {/* CONVERSATION HISTORY SIDEBAR */}
+        <AnimatePresence>
+          {history.isOpen && (
+            <ConversationHistory
+              sessions={history.sessions}
+              isLoading={history.isLoading}
+              activeSessionId={sessionId}
+              onSelectSession={handleSelectSession}
+              onDeleteSession={handleDeleteSession}
+              onClose={history.close}
+            />
+          )}
+        </AnimatePresence>
 
         {/* CONVERSATION CANVAS */}
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
 
+          {/* HEADER — always visible */}
+          <div className="flex-shrink-0 px-4 py-2 border-b border-slate-200/60 bg-white/60 backdrop-blur-sm flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={history.toggle}
+                className={`p-1.5 rounded-lg transition-all ${history.isOpen ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+                title="Historial de conversaciones"
+              >
+                <History className="w-4 h-4" />
+              </button>
+              <span className="text-[12px] font-medium text-slate-700">Chat</span>
+            </div>
+            <div className="flex items-center gap-3 text-[10px]">
+              {messages.length > 0 && (
+                <button onClick={handleNewSession} className="text-slate-400 hover:text-slate-600 transition-colors">
+                  Nueva sesión
+                </button>
+              )}
+              {!isNarrow && (
+                <button
+                  onClick={() => setShowPipeline(p => !p)}
+                  className={`transition-colors ${showPipeline ? 'text-slate-600 font-medium' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Pipeline
+                </button>
+              )}
+              <div className="flex items-center gap-1.5">
+                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300 animate-pulse'}`} />
+                <span className="text-slate-400">{isConnected ? 'Live' : 'Connecting...'}</span>
+              </div>
+            </div>
+          </div>
+
           {/* Scrollable conversation */}
-          <div className="flex-1 overflow-y-auto">
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto"
+          >
             <div className="max-w-[780px] mx-auto px-4 py-3">
 
-              {/* Inline controls */}
-              {(messages.length > 0 || showPipeline) && (
-                <div className="flex items-center justify-end gap-3 mb-2 text-[10px]">
-                  {messages.length > 0 && (
-                    <button onClick={clearHistory} className="text-slate-400 hover:text-slate-600 transition-colors">
-                      Nueva sesión
-                    </button>
-                  )}
-                  {!isNarrow && (
-                    <button
-                      onClick={() => setShowPipeline(p => !p)}
-                      className={`transition-colors ${showPipeline ? 'text-slate-600 font-medium' : 'text-slate-400 hover:text-slate-600'}`}
-                    >
-                      Pipeline
-                    </button>
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300 animate-pulse'}`} />
-                    <span className="text-slate-400">{isConnected ? 'Live' : 'Connecting...'}</span>
-                  </div>
-                </div>
-              )}
-
               {timeline.length === 0 && !isLoading ? (
-                <EmptyState isConnected={isConnected} onQuickAction={handleQuickAction} isNarrow={isNarrow} />
+                <EmptyState isConnected={isConnected} onQuickAction={handleQuickAction} isNarrow={isNarrow} onOpenHistory={history.toggle} />
               ) : (
                 <div className="space-y-3">
                   {timeline.map((entry) => (
@@ -224,7 +354,7 @@ export const AIAgentContent = memo(function AIAgentContent({
                 <div className="flex items-center gap-1 mb-2 text-[11px] flex-wrap">
                   {QUICK_ACTIONS.slice(0, isNarrow ? 2 : 4).map((a, i) => (
                     <span key={a.query} className="flex items-center gap-1">
-                      {i > 0 && <span className="text-slate-200">·</span>}
+                      {i > 0 && <span className="text-slate-200">&middot;</span>}
                       <button
                         onClick={() => handleQuickAction(a.query)}
                         disabled={!isConnected}
@@ -296,10 +426,12 @@ const EmptyState = memo(function EmptyState({
   isConnected,
   onQuickAction,
   isNarrow,
+  onOpenHistory,
 }: {
   isConnected: boolean;
   onQuickAction: (q: string) => void;
   isNarrow: boolean;
+  onOpenHistory: () => void;
 }) {
   return (
     <motion.div
@@ -327,6 +459,13 @@ const EmptyState = memo(function EmptyState({
           </motion.button>
         ))}
       </div>
+      <button
+        onClick={onOpenHistory}
+        className="mt-4 flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-indigo-500 transition-colors"
+      >
+        <History className="w-3 h-3" />
+        <span>Ver conversaciones anteriores</span>
+      </button>
     </motion.div>
   );
 });
@@ -434,30 +573,13 @@ const AgentResponse = memo(function AgentResponse({
 
   if (!isComplete && !isError && !isClarification && hasSteps) {
     const steps = message.steps!;
-    const completed = steps.filter(s => s.status === 'complete').length;
-    const running = steps.find(s => s.status === 'running');
 
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="px-3 py-2 bg-white border border-indigo-100 rounded-lg"
-      >
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[11px] font-medium text-slate-600">
-            {running ? running.title : 'Procesando...'}
-          </span>
-          <span className="text-[9px] text-slate-400 tabular-nums">{completed}/{steps.length}</span>
-        </div>
-        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-          <motion.div
-            className="h-full bg-indigo-500 rounded-full"
-            initial={{ width: 0 }}
-            animate={{ width: `${(completed / steps.length) * 100}%` }}
-            transition={{ duration: 0.5 }}
-          />
-        </div>
-      </motion.div>
+      <div className="space-y-1.5">
+        {steps.map((step, i) => (
+          <StepCard key={step.id} step={step} isLatest={i === steps.length - 1} />
+        ))}
+      </div>
     );
   }
 
@@ -486,6 +608,14 @@ const AgentResponse = memo(function AgentResponse({
 
     return (
       <div className="space-y-2">
+        {/* Completed step cards */}
+        {hasSteps && (
+          <div className="space-y-1">
+            {message.steps!.map((step, i) => (
+              <StepCard key={step.id} step={step} isLatest={false} />
+            ))}
+          </div>
+        )}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -710,7 +840,7 @@ const ChartContextChip = memo(function ChartContextChip({
     <div className="flex items-center gap-1.5 mb-1.5 px-2.5 py-1 bg-blue-50 border border-blue-200/60 rounded-lg text-[10px] flex-wrap">
       <span className="font-semibold text-blue-700">{chartContext.ticker}</span>
       <span className="text-blue-500 font-medium">{chartContext.interval}</span>
-      {from && to && <span className="text-blue-600">{from} → {to}</span>}
+      {from && to && <span className="text-blue-600">{from} &rarr; {to}</span>}
       <span className="text-slate-400">({snap.recentBars?.length || 0} bars)</span>
       {chartContext.targetCandle && (
         <span className="text-blue-400 font-medium">candle: {fmt(chartContext.targetCandle.date)}</span>
@@ -719,7 +849,7 @@ const ChartContextChip = memo(function ChartContextChip({
         <span className="text-amber-600 font-semibold bg-amber-50 px-1.5 py-0.5 rounded">Historical</span>
       )}
       <button onClick={onClear} className="ml-auto text-blue-400 hover:text-blue-600 text-[14px] leading-none font-light">
-        ×
+        &times;
       </button>
     </div>
   );
@@ -787,7 +917,7 @@ const PipelineSidebar = memo(function PipelineSidebar({ steps }: { steps: AgentS
                     <span className={`text-[9px] leading-none font-medium ${
                       running ? 'text-indigo-500' : done ? 'text-emerald-500' : err ? 'text-red-400' : 'text-slate-300'
                     }`}>
-                      {running ? '●' : done ? '✓' : err ? '×' : '○'}
+                      {running ? '\u25CF' : done ? '\u2713' : err ? '\u00D7' : '\u25CB'}
                     </span>
                     <span className={`text-[10px] flex-1 truncate ${
                       running ? 'text-indigo-700 font-medium' : done ? 'text-slate-600' : err ? 'text-red-600' : 'text-slate-400'

@@ -73,8 +73,11 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
   const criteria = useCatalystAlertsStore((state) => state.criteria);
   const addAlert = useCatalystAlertsStore((state) => state.addAlert);
   
-  // Tickers en scanner (para filtro)
-  const tickerLists = useTickersStore((state) => state.lists);
+  // Tickers en scanner (ref-based: avoids re-render on every price update)
+  const tickerListsRef = useRef(useTickersStore.getState().lists);
+  useEffect(() => useTickersStore.subscribe((state) => {
+    tickerListsRef.current = state.lists;
+  }), []);
   
   // WebSocket (ya autenticado desde AuthWebSocketProvider)
   const ws = useWebSocket();
@@ -155,13 +158,13 @@ export function CatalystDetectorProvider({ children }: { children: React.ReactNo
   const isInScanner = useCallback((ticker: string): boolean => {
     const upperTicker = ticker.toUpperCase();
     let found = false;
-    tickerLists.forEach((list) => {
+    tickerListsRef.current.forEach((list) => {
       if (list.tickers.has(upperTicker)) {
         found = true;
       }
     });
     return found;
-  }, [tickerLists]);
+  }, []);
   
   // Verificar si cumple criterios del usuario
   // LÓGICA AND: cuando hay múltiples criterios habilitados, TODOS deben cumplirse

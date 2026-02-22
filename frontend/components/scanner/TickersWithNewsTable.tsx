@@ -195,7 +195,30 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   const [loading, setLoading] = useState(true);
 
   // Tickers del scanner
-  const tickerLists = useTickersStore((state) => state.lists);
+  // Granular selector: only re-render when tickers are added/removed,
+  // not on every price update (which happens 40x/sec).
+  const tickerLists = useTickersStore(
+    (state) => state.lists,
+    (a, b) => {
+      if (a === b) return true;
+      if (a.size !== b.size) return false;
+      let equal = true;
+      a.forEach((listA, key) => {
+        if (!equal) return;
+        const listB = b.get(key);
+        if (!listB || listA.tickers.size !== listB.tickers.size) {
+          equal = false;
+          return;
+        }
+        // Only check key membership, not values (prices change every tick)
+        listA.tickers.forEach((_, symbol) => {
+          if (!equal) return;
+          if (!listB.tickers.has(symbol)) equal = false;
+        });
+      });
+      return equal;
+    }
+  );
   const initializeList = useTickersStore((state) => state.initializeList);
   const applyDeltas = useTickersStore((state) => state.applyDeltas);
 
@@ -609,7 +632,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   if (loading) {
     return (
       <div className="h-full flex flex-col">
-        <MarketTableLayout title={title} isLive={ws.isConnected} count={0} listName="with_news" onClose={onClose} />
+        <MarketTableLayout title={title} isLive={ws.isConnected} listName="with_news" onClose={onClose} />
         <div className="flex-1 flex items-center justify-center bg-slate-50">
           <div className="text-center">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
@@ -624,7 +647,7 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   if (tickersWithNews.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        <MarketTableLayout title={title} isLive={ws.isConnected} count={0} listName="with_news" onClose={onClose} />
+        <MarketTableLayout title={title} isLive={ws.isConnected} listName="with_news" onClose={onClose} />
         <div className="flex-1 flex items-center justify-center bg-slate-50">
           <div className="text-center p-6">
             <Newspaper className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -657,7 +680,6 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
       <MarketTableLayout
         title={title}
         isLive={ws.isConnected}
-        count={tickersWithNews.length}
         listName="with_news"
         onClose={onClose}
         rightActions={<TableSettings table={table} />}

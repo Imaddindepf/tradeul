@@ -8,6 +8,7 @@ import { AuthWebSocketProvider } from '@/contexts/AuthWebSocketContext';
 import { SquawkProvider } from '@/contexts/SquawkContext';
 import { FloatingWindowManager } from '@/components/floating-window/FloatingWindowManager';
 import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/catalyst-alerts';
+import { DataBridge } from '@/components/scanner/DataBridge';
 import { NewsProvider } from '@/components/news/NewsProvider';
 import { InsightsProvider } from '@/components/insights';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
@@ -41,6 +42,8 @@ export function AppShell({ children }: AppShellProps) {
         <FloatingWindowProvider>
           {/* GlobalHooksHandler: hooks globales (reset dia, sync filtros) */}
           <GlobalHooksHandler />
+          {/* DataBridge: single aggregates$ subscriber (eliminates N duplicate subscriptions) */}
+          <DataBridge />
           {/* NewsProvider: ingesta global de noticias (siempre activo, no se desmonta) */}
           <NewsProvider>
             {/* InsightsProvider: escucha notificaciones de Insights (Morning News, etc.) */}

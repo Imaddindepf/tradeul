@@ -4,11 +4,35 @@ import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useMarketPulse, useDrilldown, type PulseTab, type PerformanceEntry, type DrilldownTicker } from '@/hooks/useMarketPulse';
 import { useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
-import { ArrowLeft, RefreshCw, ChevronRight, ArrowDown, ArrowUp, Plus, X, GripHorizontal, ExternalLink } from 'lucide-react';
+import { ArrowLeft, RefreshCw, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Plus, X, GripHorizontal, ExternalLink } from 'lucide-react';
 import { ALL_COLUMNS, DEFAULT_COLUMNS, DD_COLUMNS, DEFAULT_DD_COLUMNS, type ColumnDef, type RenderMode } from './columns';
+import type { PulseViewType } from './types';
+import { VIEW_DEFINITIONS } from './viewRegistry';
+import RotationBarsView from './views/RotationBarsView';
+import BreadthMonitorView from './views/BreadthMonitorView';
+import BubbleScatterView from './views/BubbleScatterView';
+import OverviewView from './views/OverviewView';
+import TreemapView from './views/TreemapView';
 
 function clamp(v: number, min: number, max: number) { return Math.max(min, Math.min(max, v)); }
 function fmtTheme(n: string) { return n.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); }
+
+// ── LocalStorage persistence for user preferences ──
+const LS_KEY = 'market-pulse-prefs';
+interface PulsePrefs {
+  visCols?: string[];
+  ddVisCols?: string[];
+  modes?: Record<string, string>;
+  ddModes?: Record<string, string>;
+  minCap?: number;
+  view?: PulseViewType;
+}
+function loadPrefs(): PulsePrefs {
+  try { const s = localStorage.getItem(LS_KEY); return s ? JSON.parse(s) : {}; } catch { return {}; }
+}
+function savePrefs(p: PulsePrefs) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(p)); } catch {}
+}
 
 const BAR_BLUE = '#2563eb';
 const BAR_PINK = '#ec4899';
@@ -42,9 +66,8 @@ function DivBar({ value, domain, label, changed }: { value: number; domain: [num
         <div className={`absolute top-0 bottom-0 rounded-[3px] transition-all duration-500 ease-out ${pos ? 'left-1/2' : 'right-1/2'}`}
           style={{ width: `${pct}%`, backgroundColor: pos ? BAR_BLUE : BAR_PINK }} />
       </div>
-      <span className={`text-[11px] font-semibold font-mono tabular-nums w-[50px] text-right shrink-0 transition-colors duration-400 ${
-        flash ? (pos ? 'text-blue-800' : 'text-pink-800') : (pos ? 'text-blue-600' : 'text-pink-600')
-      }`}>{label}</span>
+      <span className={`text-[11px] font-semibold font-mono tabular-nums w-[50px] text-right shrink-0 transition-colors duration-400 ${flash ? (pos ? 'text-blue-800' : 'text-pink-800') : (pos ? 'text-blue-600' : 'text-pink-600')
+        }`}>{label}</span>
     </div>
   );
 }
@@ -67,9 +90,8 @@ function NumCell({ value, col, changed }: { value: number; col: ColumnDef; chang
   const pos = value >= 0;
   const div = col.colorScale === 'diverging';
   return (
-    <span className={`text-[12px] font-semibold font-mono tabular-nums text-right block px-1 transition-colors duration-400 ${
-      flash ? (pos ? 'text-blue-800' : 'text-pink-800') : (div ? (pos ? 'text-blue-600' : 'text-red-500') : 'text-slate-700')
-    }`}>{col.format(value)}</span>
+    <span className={`text-[12px] font-semibold font-mono tabular-nums text-right block px-1 transition-colors duration-400 ${flash ? (pos ? 'text-blue-800' : 'text-pink-800') : (div ? (pos ? 'text-blue-600' : 'text-red-500') : 'text-slate-700')
+      }`}>{col.format(value)}</span>
   );
 }
 
@@ -165,8 +187,16 @@ function GroupRow({ entry, columns, modes, onClick, isTheme }: {
   const name = isTheme ? fmtTheme(entry.name) : entry.name;
   return (
     <button onClick={onClick} className="w-full flex items-center gap-2.5 pl-4 pr-2 h-full hover:bg-blue-50/40 transition-colors text-left group/row border-b border-slate-100">
-      <div className="w-[150px] min-w-[150px] shrink-0 flex items-center gap-1.5">
-        <span className="text-[11px] font-semibold text-slate-900 whitespace-nowrap">{name}</span>
+      <div className="w-[150px] min-w-[150px] shrink-0 flex items-center gap-1">
+        <span className="text-[11px] font-semibold text-slate-900 whitespace-nowrap truncate">{name}</span>
+        {entry._rankShift !== undefined && entry._rankShift !== 0 && (
+          <span className={`text-[8px] font-mono font-bold shrink-0 ${entry._rankShift > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+            {entry._rankShift > 0 ? `\u25B2${entry._rankShift}` : `\u25BC${Math.abs(entry._rankShift)}`}
+          </span>
+        )}
+        {entry._divergence && (
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" title="Breadth divergence" />
+        )}
         <span className="text-[9px] text-slate-400 font-mono tabular-nums shrink-0">{entry.count}</span>
       </div>
       {columns.map(col => (
@@ -207,24 +237,50 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
   const [tab, setTab] = useState<PulseTab>('sectors');
   const [dd, setDd] = useState<{ type: string; name: string; label: string; avgChange: number } | null>(null);
   const [sectorFilter, setSF] = useState<string>();
+  const [minCap, setMinCap] = useState(() => loadPrefs().minCap || 0);
+
+  // ── View switching ──
+  const [activeView, setActiveView] = useState<PulseViewType>(() => loadPrefs().view || 'table');
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const viewMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleViewChange = useCallback((v: PulseViewType) => {
+    setActiveView(v);
+    setViewMenuOpen(false);
+    setDd(null); // exit drilldown on view switch
+  }, []);
+
+  // Close view menu on outside click
+  useEffect(() => {
+    if (!viewMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (viewMenuRef.current && !viewMenuRef.current.contains(e.target as Node)) {
+        setViewMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [viewMenuOpen]);
+
+  const activeViewDef = VIEW_DEFINITIONS.find(v => v.key === activeView) || VIEW_DEFINITIONS[0];
 
   // Main view state
   const [sortKey, setSortKey] = useState('weighted_change');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [visCols, setVisCols] = useState<string[]>(DEFAULT_COLUMNS);
-  const [modes, setModes] = useState<Record<string, RenderMode>>({});
+  const [visCols, setVisCols] = useState<string[]>(() => loadPrefs().visCols || DEFAULT_COLUMNS);
+  const [modes, setModes] = useState<Record<string, RenderMode>>(() => (loadPrefs().modes || {}) as Record<string, RenderMode>);
   const [picker, setPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   // Drilldown state
   const [ddSortKey, setDdSortKey] = useState('change_percent');
   const [ddSortDir, setDdSortDir] = useState<'asc' | 'desc'>('desc');
-  const [ddVisCols, setDdVisCols] = useState<string[]>(DEFAULT_DD_COLUMNS);
-  const [ddModes, setDdModes] = useState<Record<string, RenderMode>>({});
+  const [ddVisCols, setDdVisCols] = useState<string[]>(() => loadPrefs().ddVisCols || DEFAULT_DD_COLUMNS);
+  const [ddModes, setDdModes] = useState<Record<string, RenderMode>>(() => (loadPrefs().ddModes || {}) as Record<string, RenderMode>);
   const [ddPicker, setDdPicker] = useState(false);
   const ddPickerRef = useRef<HTMLDivElement>(null);
 
-  const { data, loading, error, lastUpdate, totalTickers, tickCount, refetch } = useMarketPulse({ tab, refreshInterval: 3000, sectorFilter });
+  const { data, loading, error, lastUpdate, totalTickers, tickCount, refetch } = useMarketPulse({ tab, refreshInterval: 3000, sectorFilter, minMarketCap: minCap || undefined });
   const { data: ddData, loading: ddLoad, total: ddTotal, ddTickCount, fetchDrilldown, resetPrevMap } = useDrilldown();
 
   // Drilldown polling
@@ -235,11 +291,16 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
     if (dd) {
       ddIntRef.current = setInterval(() => {
         const d = ddRef.current;
-        if (d) fetchDrilldown(d.type, d.name, d.avgChange);
+        if (d) fetchDrilldown(d.type, d.name, d.avgChange, minCap || undefined);
       }, 3000);
     }
     return () => { if (ddIntRef.current) clearInterval(ddIntRef.current); };
-  }, [dd, fetchDrilldown]);
+  }, [dd, fetchDrilldown, minCap]);
+
+  // Persist user preferences (including active view)
+  useEffect(() => {
+    savePrefs({ visCols, ddVisCols, modes: modes as Record<string, string>, ddModes: ddModes as Record<string, string>, minCap, view: activeView });
+  }, [visCols, ddVisCols, modes, ddModes, minCap, activeView]);
 
   // Resolved columns
   const cols = useMemo(() => visCols.map(k => ALL_COLUMNS.find(c => c.key === k)!).filter(Boolean), [visCols]);
@@ -266,13 +327,13 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
 
   // Main view handlers
   const doSort = useCallback((k: string) => { setSortKey(p => { if (p === k) { setSortDir(d => d === 'desc' ? 'asc' : 'desc'); return p; } setSortDir('desc'); return k; }); }, []);
-  const cycleMode = useCallback((k: string) => { setModes(p => { const c = ALL_COLUMNS.find(x => x.key === k); const cur = p[k] || c?.defaultMode || 'numeric'; const o: RenderMode[] = ['bar','numeric','heatmap']; return { ...p, [k]: o[(o.indexOf(cur)+1)%o.length] }; }); }, []);
+  const cycleMode = useCallback((k: string) => { setModes(p => { const c = ALL_COLUMNS.find(x => x.key === k); const cur = p[k] || c?.defaultMode || 'numeric'; const o: RenderMode[] = ['bar', 'numeric', 'heatmap']; return { ...p, [k]: o[(o.indexOf(cur) + 1) % o.length] }; }); }, []);
   const addCol = useCallback((k: string) => { setVisCols(p => [...p, k]); setPicker(false); }, []);
   const rmCol = useCallback((k: string) => { setVisCols(p => p.filter(x => x !== k)); }, []);
 
   // Drilldown handlers
   const doDdSort = useCallback((k: string) => { setDdSortKey(p => { if (p === k) { setDdSortDir(d => d === 'desc' ? 'asc' : 'desc'); return p; } setDdSortDir('desc'); return k; }); }, []);
-  const ddCycleMode = useCallback((k: string) => { setDdModes(p => { const c = DD_COLUMNS.find(x => x.key === k); const cur = p[k] || c?.defaultMode || 'numeric'; const o: RenderMode[] = ['bar','numeric','heatmap']; return { ...p, [k]: o[(o.indexOf(cur)+1)%o.length] }; }); }, []);
+  const ddCycleMode = useCallback((k: string) => { setDdModes(p => { const c = DD_COLUMNS.find(x => x.key === k); const cur = p[k] || c?.defaultMode || 'numeric'; const o: RenderMode[] = ['bar', 'numeric', 'heatmap']; return { ...p, [k]: o[(o.indexOf(cur) + 1) % o.length] }; }); }, []);
   const ddAddCol = useCallback((k: string) => { setDdVisCols(p => [...p, k]); setDdPicker(false); }, []);
   const ddRmCol = useCallback((k: string) => { setDdVisCols(p => p.filter(x => x !== k)); }, []);
 
@@ -281,8 +342,8 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
     const avgChg = e.weighted_change || e.avg_change || 0;
     setDd({ type: gt, name: e.name, label: tab === 'themes' ? fmtTheme(e.name) : e.name, avgChange: avgChg });
     resetPrevMap();
-    fetchDrilldown(gt, e.name, avgChg);
-  }, [tab, fetchDrilldown, resetPrevMap]);
+    fetchDrilldown(gt, e.name, avgChg, minCap || undefined);
+  }, [tab, fetchDrilldown, resetPrevMap, minCap]);
 
   const doBack = useCallback(() => { setDd(null); setDdSortKey('change_percent'); setDdSortDir('desc'); }, []);
   const doTab = useCallback((t: PulseTab) => { setTab(t); setDd(null); setSF(undefined); }, []);
@@ -323,31 +384,73 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
               <span className={`text-[10px] font-mono font-semibold ml-1 ${dd.avgChange >= 0 ? 'text-blue-600' : 'text-pink-600'}`}>{avgChgLabel}</span>
             </>
           ) : (
-            <span className="text-[11px] font-bold text-slate-900 tracking-widest">MARKET PULSE</span>
+            <>
+              <span className="text-[11px] font-semibold text-slate-700">Market Pulse</span>
+              {/* View switcher dropdown */}
+              <div ref={viewMenuRef} className="relative" onMouseDown={e => e.stopPropagation()}>
+                <button
+                  onClick={() => setViewMenuOpen(v => !v)}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${
+                    viewMenuOpen
+                      ? 'bg-blue-50 text-blue-600 border border-blue-300'
+                      : 'bg-slate-100 text-slate-500 border border-transparent hover:border-slate-300 hover:text-slate-700'
+                  }`}
+                >
+                  {activeViewDef.shortLabel}
+                  <ChevronDown className="w-2.5 h-2.5" />
+                </button>
+                {viewMenuOpen && (
+                  <div className="absolute top-full left-0 mt-1 w-36 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-0.5">
+                    {VIEW_DEFINITIONS.map(v => (
+                      <button
+                        key={v.key}
+                        onClick={() => handleViewChange(v.key)}
+                        className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
+                          activeView === v.key
+                            ? 'text-blue-600 bg-blue-50 font-semibold'
+                            : 'text-slate-700 hover:bg-slate-50 font-medium'
+                        }`}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
         <div className="flex items-center gap-2.5" onMouseDown={e => e.stopPropagation()}>
+          {!dd && (
+            <div className="flex bg-slate-100 rounded p-px gap-px">
+              {[{ l: 'All', v: 0 }, { l: '>300M', v: 3e8 }, { l: '>2B', v: 2e9 }, { l: '>10B', v: 1e10 }].map(p => (
+                <button key={p.v} onClick={() => setMinCap(p.v)}
+                  className={`px-1.5 py-0.5 text-[9px] font-medium rounded transition-colors ${
+                    minCap === p.v ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                  }`}>{p.l}</button>
+              ))}
+            </div>
+          )}
           {!dd && totalTickers > 0 && <span className="text-[10px] text-slate-500 font-medium tabular-nums">{totalTickers.toLocaleString()}</span>}
           <LiveDot tick={dd ? ddTickCount : tickCount} />
           <span className="text-[10px] text-slate-500 font-mono tabular-nums">{ts}</span>
-          <button onClick={refetch} className="p-0.5 hover:bg-slate-200 rounded transition-colors"><RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} /></button>
+          <button className="p-0.5 hover:bg-blue-100 rounded transition-colors group" title="Pop out"><ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-blue-600" /></button>
           <button onClick={closeWindow} className="p-0.5 hover:bg-red-100 rounded transition-colors" title="Close"><X className="w-3.5 h-3.5 text-slate-500 hover:text-red-600" /></button>
         </div>
       </div>
 
-      {/* Tabs (main view only) */}
+      {/* Tabs (main view only — visible for all view types) */}
       {!dd && (
         <div className="flex shrink-0 border-b border-slate-200">
           {TABS.map(t => (
-            <button key={t.key} onClick={() => doTab(t.key)} className={`flex-1 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-colors ${
-              tab === t.key ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'
-            }`}>{t.label}</button>
+            <button key={t.key} onClick={() => doTab(t.key)} className={`flex-1 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-colors ${tab === t.key ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'
+              }`}>{t.label}</button>
           ))}
         </div>
       )}
 
-      {/* Column headers — MAIN */}
-      {!dd && !error && (
+      {/* Column headers — MAIN (table view only) */}
+      {!dd && !error && activeView === 'table' && (
         <ColumnHeaders
           columns={cols} sortKey={sortKey} sortDir={sortDir} modes={modes}
           onSort={doSort} onCycleMode={cycleMode} onRemove={rmCol}
@@ -368,12 +471,31 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
         />
       )}
 
-      {error && <div className="px-4 py-8 text-center text-[13px] text-slate-500">{error}</div>}
+      {error && (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
+          <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center mb-3">
+            <RefreshCw className="w-5 h-5 text-amber-500" />
+          </div>
+          <p className="text-[13px] font-medium text-slate-700 mb-1">Market data unavailable</p>
+          <p className="text-[11px] text-slate-500 mb-4">{error}</p>
+          <button onClick={refetch} className="px-3 py-1.5 text-[11px] font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors">
+            Retry
+          </button>
+        </div>
+      )}
 
-      {/* Main list */}
-      {!error && !dd && (
+      {/* ── TABLE VIEW ── */}
+      {!error && !dd && activeView === 'table' && (
         loading && !sorted.length ? (
           <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
+        ) : !sorted.length ? (
+          <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
+            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+              <span className="text-lg">📊</span>
+            </div>
+            <p className="text-[13px] font-medium text-slate-700 mb-1">Market closed</p>
+            <p className="text-[11px] text-slate-500">Data will refresh when the market opens</p>
+          </div>
         ) : (
           <div ref={pRef} className="flex-1 overflow-auto">
             <div style={{ height: virt.getTotalSize(), position: 'relative' }}>
@@ -384,6 +506,36 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
               ))}
             </div>
           </div>
+        )
+      )}
+
+      {/* ── CHART VIEWS (only when no drilldown, no error, data loaded) ── */}
+      {!error && !dd && activeView !== 'table' && (
+        loading && !data.length ? (
+          <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
+        ) : !data.length ? (
+          <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
+            <p className="text-[13px] font-medium text-slate-700 mb-1">Market closed</p>
+            <p className="text-[11px] text-slate-500">Data will refresh when the market opens</p>
+          </div>
+        ) : (
+          <>
+            {activeView === 'overview' && (
+              <OverviewView data={data} activeTab={tab} onSelect={doSelect} />
+            )}
+            {activeView === 'treemap' && (
+              <TreemapView data={data} activeTab={tab} onSelect={doSelect} />
+            )}
+            {activeView === 'bubble' && (
+              <BubbleScatterView data={data} activeTab={tab} onSelect={doSelect} />
+            )}
+            {activeView === 'rotation' && (
+              <RotationBarsView data={data} activeTab={tab} onSelect={doSelect} />
+            )}
+            {activeView === 'breadth' && (
+              <BreadthMonitorView data={data} activeTab={tab} onSelect={doSelect} />
+            )}
+          </>
         )
       )}
 

@@ -371,6 +371,60 @@ async def synthesizer_node(state: dict) -> dict:
     language = state.get("language", "en")
     ticker_info = state.get("ticker_info", {})
 
+    # Fast-path for backtest results — generate brief summary, data is sent structured
+    bt_result = agent_results.get("backtest", {})
+    if isinstance(bt_result, dict) and bt_result.get("status") == "success":
+        bt_data = bt_result.get("backtest_result", {})
+        cm = bt_data.get("core_metrics", {})
+        strategy = bt_data.get("strategy_config") or bt_result.get("strategy_config", {})
+        name = strategy.get("name", "Strategy")
+        trades = cm.get("total_trades", 0)
+        ret = cm.get("total_return_pct", 0)
+        sharpe = cm.get("sharpe_ratio", 0)
+        dd = cm.get("max_drawdown_pct", 0)
+        wr = cm.get("win_rate", 0)
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        if language == "es":
+            summary = (
+                f"Backtest completado: **{name}** - "
+                f"{trades} operaciones, retorno {ret:+.1f}%, "
+                f"Sharpe {sharpe:.2f}, Max DD {dd:.1f}%, Win Rate {wr*100:.0f}%. "
+                f"Los resultados detallados se muestran en el panel interactivo."
+            )
+        else:
+            summary = (
+                f"Backtest complete: **{name}** - "
+                f"{trades} trades, return {ret:+.1f}%, "
+                f"Sharpe {sharpe:.2f}, Max DD {dd:.1f}%, Win Rate {wr*100:.0f}%. "
+                f"Detailed results are shown in the interactive panel."
+            )
+
+        return {
+            "final_response": summary,
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "synthesizer": {
+                    "elapsed_ms": elapsed_ms,
+                    "result_agents": list(agent_results.keys()),
+                    "response_length": len(summary),
+                    "language": language,
+                    "backtest_fast_path": True,
+                },
+            },
+        }
+
+    if isinstance(bt_result, dict) and bt_result.get("status") == "error":
+        error_msg = bt_result.get("error", "Error desconocido")
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        return {
+            "final_response": f"Error en backtest: {error_msg}",
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "synthesizer": {"elapsed_ms": elapsed_ms, "language": language},
+            },
+        }
+
     language_instruction = _build_language_instruction(language)
     results_payload = _prepare_results_payload(agent_results)
 

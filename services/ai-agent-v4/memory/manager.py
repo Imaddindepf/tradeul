@@ -91,11 +91,13 @@ class MemoryManager:
             "updated_at": now,
         })
 
-        # Use thread_id as the member so upserts work naturally
-        await r.zrem(thread_key, *[
+        # Remove old entry for this thread_id (if any) before re-adding
+        old_entries = [
             m for m in await r.zrange(thread_key, 0, -1)
             if _extract_thread_id(m) == thread_id
-        ])
+        ]
+        if old_entries:
+            await r.zrem(thread_key, *old_entries)
         await r.zadd(thread_key, {thread_meta: now})
 
         logger.debug(

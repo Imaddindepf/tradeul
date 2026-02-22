@@ -28,7 +28,7 @@ class CacheManager:
     - prediction_markets:last_update - Last successful update timestamp
     """
     
-    KEY_PREFIX = "prediction_markets"
+    KEY_PREFIX = "prediction_markets_v2"
     
     def __init__(self):
         self._client: Optional[Redis] = None

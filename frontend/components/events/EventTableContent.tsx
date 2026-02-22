@@ -2577,7 +2577,6 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           <MarketTableLayout
             title={displayTitle}
             isLive={ws.isConnected}
-            count={0}
             listName={categoryId}
             onClose={closeCurrentWindow}
             rightActions={rightActions}
@@ -2621,7 +2620,6 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           <MarketTableLayout
             title={displayTitle}
             isLive={ws.isConnected}
-            count={filteredEvents.length}
             listName={categoryId}
             onClose={closeCurrentWindow}
             rightActions={rightActions}

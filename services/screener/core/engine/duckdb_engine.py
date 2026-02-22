@@ -6,6 +6,8 @@ Calculates all technical indicators using SQL window functions.
 """
 
 import duckdb
+import pandas as pd
+import numpy as np
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import time
@@ -428,23 +430,6 @@ class ScreenerEngine:
                 FROM {source_table}
                 WINDOW w AS (PARTITION BY symbol ORDER BY date)
             ),
-            rsi_base AS (
-                SELECT 
-                    symbol, date, close, prev_close,
-                    CASE WHEN close > prev_close THEN close - prev_close ELSE 0 END as gain,
-                    CASE WHEN close < prev_close THEN prev_close - close ELSE 0 END as loss
-                FROM price_base
-                WHERE prev_close IS NOT NULL
-            ),
-            rsi_calc AS (
-                SELECT 
-                    symbol,
-                    date,
-                    100 - (100 / (1 + NULLIF(
-                        AVG(gain) OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING),
-                    0) / NULLIF(AVG(loss) OVER (PARTITION BY symbol ORDER BY date ROWS 13 PRECEDING), 0.0001))) as rsi_14
-                FROM rsi_base
-            ),
             atr_calc AS (
                 SELECT 
                     symbol,
@@ -508,14 +493,12 @@ class ScreenerEngine:
                     p.sma_200,
                     p.std_20,
                     p.ema_20,
-                    r.rsi_14,
                     a.atr_14,
                     a.atr_10,
                     x.plus_di_14,
                     x.minus_di_14,
                     x.adx_14
                 FROM price_base p
-                LEFT JOIN rsi_calc r ON p.symbol = r.symbol AND p.date = r.date
                 LEFT JOIN atr_calc a ON p.symbol = a.symbol AND p.date = a.date
                 LEFT JOIN adx_calc x ON p.symbol = x.symbol AND p.date = x.date
                 WHERE p.date >= CURRENT_DATE - INTERVAL '7 days'
@@ -545,7 +528,7 @@ class ScreenerEngine:
                 d.sma_200,
                 ((d.close - d.sma_20) / NULLIF(d.sma_20, 0)) * 100 as dist_sma_20,
                 ((d.close - d.sma_50) / NULLIF(d.sma_50, 0)) * 100 as dist_sma_50,
-                d.rsi_14,
+                NULL as rsi_14,
                 d.atr_14,
                 (d.atr_14 / NULLIF(d.close, 0)) * 100 as atr_percent,
                 -- Bollinger Bands
@@ -579,7 +562,52 @@ class ScreenerEngine:
             LEFT JOIN metadata m ON d.symbol = m.symbol
             WHERE d.close IS NOT NULL AND d.volume > 0
         """)
+
+        self._compute_rsi_wilder(source_table, target_table)
     
+    def _compute_rsi_wilder(self, source_table: str, target_table: str, period: int = 14):
+        """Compute RSI using Wilder's smoothing (identical to TradingView ta.rma)."""
+        df = self.conn.execute(f"""
+            SELECT symbol, date, close
+            FROM {source_table}
+            WHERE close IS NOT NULL
+            ORDER BY symbol, date
+        """).fetchdf()
+
+        if df.empty:
+            return
+
+        df['delta'] = df.groupby('symbol')['close'].diff()
+        df['gain'] = df['delta'].clip(lower=0)
+        df['loss'] = (-df['delta']).clip(lower=0)
+
+        alpha = 1.0 / period
+        df['avg_gain'] = df.groupby('symbol')['gain'].transform(
+            lambda x: x.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+        )
+        df['avg_loss'] = df.groupby('symbol')['loss'].transform(
+            lambda x: x.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+        )
+
+        rs = df['avg_gain'] / df['avg_loss'].replace(0, np.nan)
+        df['rsi_14'] = 100 - (100 / (1 + rs))
+
+        latest = df.sort_values('date').groupby('symbol').tail(1)[['symbol', 'rsi_14']].dropna()
+
+        if latest.empty:
+            return
+
+        self.conn.register('_rsi_update', latest)
+        self.conn.execute(f"""
+            UPDATE {target_table} t
+            SET rsi_14 = r.rsi_14
+            FROM _rsi_update r
+            WHERE t.symbol = r.symbol
+        """)
+        self.conn.unregister('_rsi_update')
+
+        logger.info("rsi_wilder_computed", symbols=len(latest))
+
     def get_indicators(self) -> Dict:
         """Get all available indicators"""
         return self.registry.to_dict()

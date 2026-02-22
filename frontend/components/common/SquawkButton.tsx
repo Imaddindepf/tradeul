@@ -21,7 +21,7 @@ export function SquawkButton({
   className = '',
 }: SquawkButtonProps) {
   const iconSize = size === 'sm' ? 'w-3 h-3' : size === 'lg' ? 'w-5 h-5' : 'w-4 h-4';
-  const padding = size === 'sm' ? 'px-1.5 py-0.5' : size === 'lg' ? 'px-4 py-2' : 'px-2.5 py-1.5';
+  const padding = size === 'sm' ? 'p-1' : size === 'lg' ? 'px-4 py-2' : 'px-2.5 py-1.5';
   const textSize = size === 'sm' ? 'text-xs' : size === 'lg' ? 'text-base' : 'text-sm';
 
   const baseClasses = `flex items-center justify-center gap-1 rounded-md font-medium transition-colors relative ${padding} ${textSize}`;
@@ -42,7 +42,6 @@ export function SquawkButton({
       ) : (
         <VolumeX className={iconSize} />
       )}
-      <span className="hidden sm:inline">Squawk</span>
       
       {/* Badge de cola */}
       {queueSize > 0 && (

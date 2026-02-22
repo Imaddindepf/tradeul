@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback, memo, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
     createChart,
     TickMarkType,
@@ -35,7 +36,7 @@ import { useIndicatorWorker, type IndicatorType, PANEL_INDICATORS } from '@/hook
 import type { IndicatorDataPoint, MACDData, StochData, ADXData, SqueezeData } from '@/hooks/useIndicatorWorker';
 import { ChartNewsPopup } from './ChartNewsPopup';
 import { useArticlesByTicker } from '@/stores/useNewsStore';
-import { useFloatingWindow, useWindowState } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { getUserTimezone, getTimezoneAbbrev } from '@/lib/date-utils';
 import { TickerSearch, TickerSearchRef } from '@/components/common/TickerSearch';
 import { useUserPreferencesStore, selectFont } from '@/stores/useUserPreferencesStore';
@@ -374,6 +375,19 @@ function TradingChartComponent({
     const sessionBgSeriesRef = useRef<ISeriesApi<any> | null>(null);
     const tickerSearchRef = useRef<TickerSearchRef>(null);
 
+    // Portal: render TickerSearch in the floating window header instead of chart header
+    const windowId = useCurrentWindowId?.();
+    const [headerPortalTarget, setHeaderPortalTarget] = useState<HTMLElement | null>(null);
+
+    useEffect(() => {
+        if (windowId && !minimal) {
+            const el = document.getElementById(`window-header-extra-${windowId}`);
+            if (el) {
+                setHeaderPortalTarget(el);
+            }
+        }
+    }, [windowId, minimal]);
+
     // User preferences
     const font = useUserPreferencesStore(selectFont);
     const fontFamily = `var(--font-${font})`;
@@ -529,6 +543,21 @@ function TradingChartComponent({
         ? drawings.find(d => d.id === editPopup.drawingId)
         : null;
 
+    // Broadcast active chart state so AI agent can auto-include context
+    useEffect(() => {
+        if (!data || data.length === 0 || !currentTicker) return;
+        const detail = {
+            ticker: currentTicker,
+            interval: selectedInterval,
+            range: selectedRange,
+            barCount: data.length,
+        };
+        window.dispatchEvent(new CustomEvent('agent:chart-active', { detail }));
+        return () => {
+            window.dispatchEvent(new CustomEvent('agent:chart-active', { detail: null }));
+        };
+    }, [currentTicker, selectedInterval, selectedRange, data?.length]);
+
     // AI chart context menu
     const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0, candle: null });
 
@@ -591,8 +620,13 @@ function TradingChartComponent({
     const findDrawingNearPriceRef = useRef(findDrawingNearPrice);
     findDrawingNearPriceRef.current = findDrawingNearPrice;
 
-    // Update when external ticker changes
+    // Update when external ticker changes (skip if windowState already restored a ticker)
+    const hasRestoredTicker = useRef(!!windowState.ticker);
     useEffect(() => {
+        if (hasRestoredTicker.current) {
+            hasRestoredTicker.current = false;
+            return;
+        }
         setCurrentTicker(initialTicker);
         setInputValue(initialTicker);
     }, [initialTicker]);
@@ -1477,6 +1511,7 @@ function TradingChartComponent({
         }
         engine.initialize(data, active);
         engineRef.current = engine;
+        return () => { engineRef.current = null; };
     }, [data, showMA, showEMA, activeOverlays, activePanels]);
 
     // ============================================================================
@@ -2280,20 +2315,23 @@ function TradingChartComponent({
             ) : (
                 /* ===== TradingView-style Header ===== */
                 <div className="flex items-center gap-1 px-1.5 py-[3px] border-b border-slate-200 bg-slate-50/80 text-[11px]" style={{ fontFamily }}>
-                    {/* Ticker */}
-                    <form onSubmit={handleTickerChange} className="flex items-center">
-                        <TickerSearch
-                            ref={tickerSearchRef}
-                            value={inputValue}
-                            onChange={setInputValue}
-                            onSelect={handleTickerSelect}
-                            placeholder="Ticker"
-                            className="w-16"
-                            autoFocus={false}
-                        />
-                    </form>
-
-                    <div className="w-px h-4 bg-slate-200" />
+                    {/* Ticker — only inline if not portaled to window header */}
+                    {!headerPortalTarget && (
+                        <>
+                            <form onSubmit={handleTickerChange} className="flex items-center">
+                                <TickerSearch
+                                    ref={tickerSearchRef}
+                                    value={inputValue}
+                                    onChange={setInputValue}
+                                    onSelect={handleTickerSelect}
+                                    placeholder="Ticker"
+                                    className="w-16"
+                                    autoFocus={false}
+                                />
+                            </form>
+                            <div className="w-px h-4 bg-slate-200" />
+                        </>
+                    )}
 
                     {/* Intervals */}
                     {['1m', '5m', '15m', '1H', '1D'].map((label) => {
@@ -2656,6 +2694,23 @@ function TradingChartComponent({
                                 <button onClick={refetch} className="px-4 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 transition-colors">Retry</button>
                             </div>
                         </div>
+                    )}
+
+                    {/* Portal: TickerSearch rendered into floating window header */}
+                    {headerPortalTarget && createPortal(
+                        <form onSubmit={handleTickerChange} className="flex items-center text-[11px]"
+                              onMouseDown={(e) => e.stopPropagation()}>
+                            <TickerSearch
+                                ref={tickerSearchRef}
+                                value={inputValue}
+                                onChange={setInputValue}
+                                onSelect={handleTickerSelect}
+                                placeholder="Ticker"
+                                className="w-16"
+                                autoFocus={false}
+                            />
+                        </form>,
+                        headerPortalTarget
                     )}
 
                     <div

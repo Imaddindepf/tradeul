@@ -373,7 +373,7 @@ export const useChatStore = create<ChatState>()(
         }),
       }
     ),
-    { name: 'ChatStore' }
+    { name: 'ChatStore', enabled: process.env.NODE_ENV === 'development' }
   )
 );
 

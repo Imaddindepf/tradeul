@@ -171,10 +171,13 @@ def _aggregate_group(tickers: List[Dict]) -> Dict:
             mcap = t.get("market_cap", 0) or 0
             mcap_weighted_change += chg * (mcap / total_market_cap)
 
+    high_rvol_count = sum(1 for rv in rvols if rv > 2.0)
+
     r = lambda v, d=4: round(v, d)
 
     return {
         "count": n,
+        "high_rvol_count": high_rvol_count,
         "advancing": advancing,
         "declining": declining,
         "unchanged": n - advancing - declining,
@@ -280,12 +283,15 @@ async def _load_snapshot() -> List[Dict]:
     import orjson
 
     all_data = await _redis_client.client.hgetall("snapshot:enriched:latest")
+    all_data.pop(b"__meta__", None)
+    all_data.pop("__meta__", None)
+
     if not all_data:
         all_data = await _redis_client.client.hgetall("snapshot:enriched:last_close")
+        all_data.pop(b"__meta__", None)
+        all_data.pop("__meta__", None)
         if not all_data:
             raise HTTPException(status_code=404, detail="No market data available")
-
-    all_data.pop("__meta__", None)
 
     tickers = []
     for sym, raw in all_data.items():

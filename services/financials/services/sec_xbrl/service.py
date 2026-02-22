@@ -135,9 +135,9 @@ class SECXBRLService:
         logger.info(f"[{ticker}] Extracted {num_periods} periods")
         
         # 4. Consolidar semánticamente
-        income_consolidated = self.extractor.consolidate_fields(income_data, fiscal_years)
-        balance_consolidated = self.extractor.consolidate_fields(balance_data, fiscal_years)
-        cashflow_consolidated = self.extractor.consolidate_fields(cashflow_data, fiscal_years)
+        income_consolidated = self.extractor.consolidate_fields(income_data, fiscal_years, statement_type="income")
+        balance_consolidated = self.extractor.consolidate_fields(balance_data, fiscal_years, statement_type="balance")
+        cashflow_consolidated = self.extractor.consolidate_fields(cashflow_data, fiscal_years, statement_type="cashflow")
         
         # 4.0.0 Aplicar agregaciones de campos por sector/industria
         # Esto suma campos relacionados (e.g., OtherGeneralExpense → R&D para tech)

@@ -114,7 +114,7 @@ const StepItem = memo(function StepItem({ step, index, total }: { step: AgentSte
           }>
             {step.title}
           </span>
-          {isRunning && (
+          {isRunning && !step.description && (
             <motion.span
               animate={{ opacity: [0.4, 1, 0.4] }}
               transition={{ duration: 1.5, repeat: Infinity }}
@@ -124,6 +124,22 @@ const StepItem = memo(function StepItem({ step, index, total }: { step: AgentSte
             </motion.span>
           )}
         </div>
+        {isRunning && step.description && (
+          <motion.p
+            key={step.description}
+            initial={{ opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="text-[10px] text-indigo-400/80 font-mono mt-0.5 truncate"
+          >
+            {step.description}
+          </motion.p>
+        )}
+        {isComplete && step.description && (
+          <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+            {step.description}
+          </p>
+        )}
       </div>
     </motion.div>
   );
@@ -176,7 +192,7 @@ export const AgentSteps = memo(function AgentSteps({ steps, thinkingTime }: Agen
         <div className="flex-1 min-w-0">
           <span className="text-[11px] font-medium text-slate-700 truncate block">
             {isProcessing && runningStep
-              ? runningStep.title
+              ? (runningStep.description || runningStep.title)
               : hasErrors ? 'Error in pipeline' : 'Analysis complete'}
           </span>
           {/* Progress bar */}

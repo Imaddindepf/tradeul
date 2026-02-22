@@ -23,9 +23,10 @@ from agents.financial import financial_node
 from agents.research import research_node
 from agents.code_exec import code_exec_node
 from agents.screener import screener_node
+from agents.backtest import backtest_node
 from agents.context_enricher import context_enricher_node
 
-ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener"]
+ALL_AGENTS = ["market_data", "news_events", "financial", "research", "code_exec", "screener", "backtest"]
 
 
 def build_graph() -> StateGraph:
@@ -39,6 +40,7 @@ def build_graph() -> StateGraph:
     graph.add_node("research", research_node)
     graph.add_node("code_exec", code_exec_node)
     graph.add_node("screener", screener_node)
+    graph.add_node("backtest", backtest_node)
     graph.add_node("context_enricher", context_enricher_node)
     graph.add_node("synthesizer", synthesizer_node)
 

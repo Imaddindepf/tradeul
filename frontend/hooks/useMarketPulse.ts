@@ -40,6 +40,11 @@ export interface PerformanceEntry {
   avg_dist_sma20: number;
   avg_dist_sma50: number;
   avg_vol_today_pct: number;
+  high_rvol_count?: number;
+  _spread?: number;
+  _accel?: number;
+  _rankShift?: number;
+  _divergence?: boolean;
   movers?: {
     gainers: DrilldownTicker[];
     losers: DrilldownTicker[];
@@ -102,6 +107,7 @@ const TRACKED_KEYS = [
   'avg_change_5d', 'avg_change_10d', 'avg_change_20d', 'avg_from_52w_high',
   'avg_pos_in_range', 'avg_bb_position', 'avg_dist_vwap', 'avg_vol_today_pct',
   'avg_dist_sma20', 'avg_dist_sma50', 'avg_range_pct',
+  '_spread', 'high_rvol_count',
 ];
 
 const DD_TRACKED_KEYS = [
@@ -128,6 +134,7 @@ export function useMarketPulse({
   const [totalTickers, setTotalTickers] = useState(0);
   const [tickCount, setTickCount] = useState(0);
   const prevMapRef = useRef<Map<string, Record<string, number>>>(new Map());
+  const prevRankRef = useRef<Map<string, number>>(new Map());
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const abortRef = useRef<AbortController | null>(null);
 
@@ -160,6 +167,27 @@ export function useMarketPulse({
         return { ...entry, _prev: prev || undefined, _changedKeys: changedKeys };
       });
 
+      // Compute derived fields
+      enriched.forEach(entry => {
+        const wc = entry.weighted_change || 0;
+        const ac = entry.avg_change || 0;
+        entry._spread = Math.round((wc - ac) * 10000) / 10000;
+        const prevWc = entry._prev?.weighted_change;
+        entry._accel = prevWc !== undefined ? Math.round((wc - prevWc) * 10000) / 10000 : 0;
+        const br = entry.breadth ?? 0.5;
+        entry._divergence = (wc > 0.3 && br < 0.4) || (wc < -0.3 && br > 0.6);
+      });
+
+      // Compute rank shift (compare current position to previous)
+      const prevRank = prevRankRef.current;
+      enriched.forEach((entry, i) => {
+        const old = prevRank.get(entry.name);
+        entry._rankShift = old !== undefined ? old - i : 0;
+      });
+      const newRankMap = new Map<string, number>();
+      enriched.forEach((e, i) => newRankMap.set(e.name, i));
+      prevRankRef.current = newRankMap;
+
       const newMap = new Map<string, Record<string, number>>();
       json.data.forEach(e => {
         const snap: Record<string, number> = {};
@@ -186,6 +214,8 @@ export function useMarketPulse({
 
   useEffect(() => {
     prevMapRef.current = new Map();
+    prevRankRef.current = new Map();
+    setData([]);
     setLoading(true);
     fetchData();
     intervalRef.current = setInterval(fetchData, refreshInterval);

@@ -57,6 +57,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 class QuoteManager {
   private static instance: QuoteManager | null = null;
+  private static readonly MAX_CACHE_SIZE = 500;
   private ws: WebSocket | null = null;
   private url: string = '';
   private _isConnected = false;
@@ -119,6 +120,11 @@ class QuoteManager {
         const prevClose = data.close || data.c;
         if (prevClose) {
           this.prevCloseCache.set(symbol, prevClose);
+    // FIFO eviction when cache exceeds limit
+    if (this.prevCloseCache.size > QuoteManager.MAX_CACHE_SIZE) {
+      const it = this.prevCloseCache.keys();
+      for (let i = 0; i < 50; i++) this.prevCloseCache.delete(it.next().value!);
+    }
           return prevClose;
         }
       }
@@ -201,6 +207,11 @@ class QuoteManager {
 
       // Cache snapshot
       this.snapshotCache.set(symbol, quote);
+      // FIFO eviction when cache exceeds limit
+      if (this.snapshotCache.size > QuoteManager.MAX_CACHE_SIZE) {
+        const it = this.snapshotCache.keys();
+        for (let i = 0; i < 50; i++) this.snapshotCache.delete(it.next().value!);
+      }
 
       if (this.debug) {
       }

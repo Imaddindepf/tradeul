@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useCatalystAlertsStore, CatalystMetrics, CatalystAlert, AlertType } from '@/stores/useCatalystAlertsStore';
 import { useTickersStore } from '@/stores/useTickersStore';
 
@@ -73,20 +73,23 @@ export function useCatalystDetector() {
   // Referencia para evitar alertas duplicadas
   const processedRef = useRef<Set<string>>(new Set());
   
-  // Tickers en scanner (para filtro)
-  const tickerLists = useTickersStore((state) => state.lists);
+  // Tickers en scanner (ref-based: avoids re-render on every price update)
+  const tickerListsRef = useRef(useTickersStore.getState().lists);
+  useEffect(() => useTickersStore.subscribe((state) => {
+    tickerListsRef.current = state.lists;
+  }), []);
   
   // Verificar si un ticker está en el scanner
   const isInScanner = useCallback((ticker: string): boolean => {
     const upperTicker = ticker.toUpperCase();
     let found = false;
-    tickerLists.forEach((list) => {
+    tickerListsRef.current.forEach((list) => {
       if (list.tickers.has(upperTicker)) {
         found = true;
       }
     });
     return found;
-  }, [tickerLists]);
+  }, []);
   
   // Verificar si cumple criterios
   // LÓGICA AND: cuando hay múltiples criterios habilitados, TODOS deben cumplirse

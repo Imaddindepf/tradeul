@@ -237,7 +237,8 @@ class PolymarketClient:
             total=len(all_events)
         )
         
-        return all_events[:max_events]
+        # V4: No truncation — keep all fetched events, let API/frontend paginate
+        return all_events
     
     async def fetch_events_by_categories(
         self,
@@ -318,7 +319,7 @@ class PolymarketClient:
             by_category=category_counts
         )
         
-        return all_events[:max_events]
+        return all_events
     
     async def get_event_by_slug(self, slug: str) -> Optional[PolymarketEvent]:
         """Fetch single event by slug"""

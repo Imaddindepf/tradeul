@@ -106,6 +106,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "query": effective_query,
                 "language": language,
                 "mode": mode if mode in ("auto", "quick", "deep") else "auto",
+                "intent": "",
                 "tickers": [],
                 "ticker_info": {},
                 "plan": "",
@@ -137,13 +138,25 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
             _GRAPH_NODES = {
                 "query_planner", "market_data",
                 "news_events", "financial", "research", "code_exec",
-                "screener", "synthesizer",
+                "screener", "backtest", "synthesizer",
             }
 
             try:
                 async for event in graph.astream_events(initial_state, config=config, version="v2"):
                     kind = event.get("event", "")
                     node_name = event.get("name", "")
+
+                    # Forward custom progress events (from adispatch_custom_event)
+                    if kind == "on_custom_event":
+                        evt_data = event.get("data", {})
+                        if isinstance(evt_data, dict) and "message" in evt_data:
+                            await websocket.send_json({
+                                "type": "agent_progress",
+                                "node": event.get("name", ""),
+                                "message": evt_data["message"],
+                                "timestamp": time.time(),
+                            })
+                        continue
 
                     # Only process events for our actual graph nodes
                     if node_name not in _GRAPH_NODES:
@@ -207,7 +220,21 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                     })
                     continue
 
-                await websocket.send_json({
+                # Check for structured outputs (backtest results, etc.)
+                structured_outputs = []
+                agent_results = {}
+                if hasattr(final_state, "values"):
+                    agent_results = final_state.values.get("agent_results", {})
+
+                bt_result = agent_results.get("backtest", {})
+                if isinstance(bt_result, dict) and bt_result.get("status") == "success":
+                    structured_outputs.append({
+                        "type": "backtest",
+                        "title": "Backtest Results",
+                        "backtest_result": bt_result.get("backtest_result", {}),
+                    })
+
+                response_payload: dict[str, Any] = {
                     "type": "final_response",
                     "response": final_response,
                     "thread_id": thread_id,
@@ -216,7 +243,37 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         "client_id": client_id,
                         "language": language,
                     },
-                })
+                }
+
+                if structured_outputs:
+                    response_payload["outputs"] = structured_outputs
+
+                await websocket.send_json(response_payload)
+
+                # ── Persist conversation to memory ──
+                try:
+                    memory = websocket.app.state.memory
+                    # Build a brief summary of agent results for context
+                    results_summary = {}
+                    for agent_name, result in agent_results.items():
+                        if isinstance(result, dict):
+                            results_summary[agent_name] = {
+                                k: v for k, v in result.items()
+                                if k in ("status", "error", "tickers_found", "total_results")
+                            }
+
+                    await memory.store_conversation(
+                        user_id="default",
+                        thread_id=thread_id,
+                        query=query,
+                        response=final_response[:2000],
+                        agent_results_summary=results_summary or None,
+                    )
+                except Exception as mem_exc:
+                    logger.warning(
+                        "Failed to persist conversation for client %s: %s",
+                        client_id, mem_exc,
+                    )
 
             except Exception as exc:
                 logger.error(

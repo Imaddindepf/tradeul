@@ -52,9 +52,12 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { key: 'avg_vol_today_pct', label: 'Vol Done', shortLabel: 'Vol%', defaultMode: 'heatmap', format: num0, colorScale: 'positive', domain: [0, 100], description: 'Avg % of daily avg volume done' },
   { key: 'total_dollar_volume', label: '$ Volume', shortLabel: '$Vol', defaultMode: 'numeric', format: vol, colorScale: 'neutral', description: 'Total dollar volume' },
   { key: 'total_market_cap', label: 'Market Cap', shortLabel: 'MCap', defaultMode: 'numeric', format: vol, colorScale: 'neutral', description: 'Total market cap' },
+  { key: '_spread', label: 'Cap/EW Spread', shortLabel: 'Sprd', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-2, 2], description: 'Cap-weighted minus equal-weight change. Positive = mega caps leading.' },
+  { key: '_accel', label: 'Acceleration', shortLabel: 'Accel', defaultMode: 'numeric', format: pct, colorScale: 'diverging', domain: [-0.5, 0.5], description: 'Rate of momentum change — building or fading.' },
+  { key: 'high_rvol_count', label: 'Hi-Vol Count', shortLabel: 'HiVol', defaultMode: 'numeric', format: num0, colorScale: 'positive', domain: [0, 30], description: 'Tickers in group with RVOL > 2x. High = group-wide volume event.' },
 ];
 
-export const DEFAULT_COLUMNS = ['weighted_change', 'avg_change_5d'];
+export const DEFAULT_COLUMNS = ['weighted_change', '_spread', 'breadth', 'avg_change_5d', 'high_rvol_count'];
 
 // ── Ticker-level columns (drilldown) ──
 

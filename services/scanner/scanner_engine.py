@@ -10,8 +10,9 @@ import asyncio
 import time
 import json
 import traceback
-from datetime import datetime, time as time_type
+from datetime import datetime, date, time as time_type, timedelta
 from typing import Optional, List, Dict, Any, Tuple, Set
+from zoneinfo import ZoneInfo
 
 import sys
 sys.path.append('/app')
@@ -114,6 +115,7 @@ class ScannerEngine:
         
         # User scans: Rankings anteriores para calcular deltas
         self.last_user_scan_rankings: Dict[str, List[ScannerTicker]] = {}  # uscan_X → tickers
+        self._user_scans_frozen = False  # Set True when freeze_user_scans_for_close() runs
         
         # Auto-subscription manager (para Polygon WS)
         self._subscription_manager = SubscriptionManager(redis_client)
@@ -245,20 +247,25 @@ class ScannerEngine:
     
     async def _read_snapshots(self):
         """
-        Lee snapshot enriquecido desde Redis Hash (snapshot:enriched:latest).
+        Lee snapshot enriquecido desde Redis Hash.
         
-        Cada ticker es un field del hash, serializado como JSON individual.
-        El scanner lee todo con HGETALL y parsea cada ticker.
+        Tries snapshot:enriched:latest first, falls back to
+        snapshot:enriched:last_close for weekends/holidays when latest expires.
         
         Returns:
             Lista de tuplas (snapshot, rvol, atr_data) del snapshot completo
         """
         try:
-            # Leer metadata para verificar si hay nuevo snapshot
-            meta_raw = await self.redis.client.hget("snapshot:enriched:latest", "__meta__")
+            # Try latest first, fall back to last_close (weekends/holidays)
+            snapshot_key = "snapshot:enriched:latest"
+            meta_raw = await self.redis.client.hget(snapshot_key, "__meta__")
             if not meta_raw:
-                logger.debug("No enriched snapshot hash available yet")
-                return []
+                snapshot_key = "snapshot:enriched:last_close"
+                meta_raw = await self.redis.client.hget(snapshot_key, "__meta__")
+                if not meta_raw:
+                    logger.debug("No enriched snapshot available (latest or last_close)")
+                    return []
+                logger.info("using_last_close_snapshot_fallback")
             
             try:
                 import orjson
@@ -274,17 +281,16 @@ class ScannerEngine:
             if snapshot_timestamp == self.last_snapshot_timestamp:
                 return []
             
-            # Nuevo snapshot - leer todos los tickers del hash
-            all_data = await self.redis.client.hgetall("snapshot:enriched:latest")
+            all_data = await self.redis.client.hgetall(snapshot_key)
             
             if not all_data:
                 return []
             
-            # Remove metadata field
             all_data.pop("__meta__", None)
             
             logger.info(
                 "reading_enriched_hash",
+                source=snapshot_key,
                 tickers=len(all_data),
                 timestamp=snapshot_timestamp
             )
@@ -1786,20 +1792,22 @@ class ScannerEngine:
         Usa el mismo formato que las categorías del sistema para compatibilidad con WebSocket.
         
         Key format: scanner:category:uscan_{rule_id}
+        
+        TTL is dynamic: 5min during active market (refreshed every ~10s),
+        extended until next cache cleanup when market is closed (set by freeze).
         """
         try:
-            # Usar mismo formato que categorías del sistema
             category_name = f"uscan_{rule_id}"
             ranking_data = [t.model_dump(mode='json') for t in tickers]
             
-            # Guardar en key (snapshot) - mismo formato que _save_ranking_to_redis
+            ttl = self._ttl_until_next_cache_cleanup() if self._user_scans_frozen else 300
+            
             await self.redis.set(
                 f"scanner:category:{category_name}",
                 json.dumps(ranking_data),
-                ttl=300  # 5 minutos (user scans se actualizan frecuentemente)
+                ttl=ttl
             )
             
-            # Guardar sequence number para sincronización
             sequence_key = f"uscan_seq_{rule_id}"
             current_sequence = self.sequence_numbers.get(sequence_key, 0) + 1
             self.sequence_numbers[sequence_key] = current_sequence
@@ -1807,7 +1815,7 @@ class ScannerEngine:
             await self.redis.set(
                 f"scanner:sequence:{category_name}",
                 current_sequence,
-                ttl=300
+                ttl=ttl
             )
             
             logger.debug(
@@ -1858,11 +1866,11 @@ class ScannerEngine:
                 message
             )
             
-            # Actualizar sequence en Redis
+            seq_ttl = self._ttl_until_next_cache_cleanup() if self._user_scans_frozen else 300
             await self.redis.set(
                 f"scanner:sequence:{category_name}",
                 sequence,
-                ttl=300  # 5 min para user scans
+                ttl=seq_ttl
             )
             
             logger.debug(
@@ -1876,6 +1884,83 @@ class ScannerEngine:
             
         except Exception as e:
             logger.error("error_emitting_user_scan_deltas", category=category_name, error=str(e))
+    
+    def _ttl_until_next_cache_cleanup(self) -> int:
+        """
+        Calculate seconds until the maintenance service clears scanner caches.
+        
+        Maintenance runs at 3:45 AM ET on trading days (weekdays, excluding holidays).
+        We target the next weekday + 1 day buffer for potential single-day holidays.
+        The maintenance DELETE of scanner:category:* is the real cleanup mechanism;
+        this TTL is a safety net.
+        """
+        try:
+            NY = ZoneInfo("America/New_York")
+            now = datetime.now(NY)
+            
+            next_weekday = now.date() + timedelta(days=1)
+            while next_weekday.weekday() >= 5:
+                next_weekday += timedelta(days=1)
+            
+            # +1 day buffer: if next weekday is a holiday, maintenance runs the day after
+            buffered = next_weekday + timedelta(days=1)
+            while buffered.weekday() >= 5:
+                buffered += timedelta(days=1)
+            
+            target = datetime.combine(buffered, time_type(3, 45), tzinfo=NY)
+            ttl = int((target - now).total_seconds())
+            
+            return max(600, min(ttl, 604800))
+        except Exception:
+            return 604800
+    
+    async def freeze_user_scans_for_close(self) -> int:
+        """
+        Re-save all user scan snapshots with an extended TTL for market close.
+        
+        Called via EVENT BUS when session transitions to POST_MARKET or CLOSED.
+        The maintenance service clears scanner:category:* at 3:45 AM ET on the
+        next trading day, so data persists through weekends and holidays naturally.
+        
+        Returns:
+            Number of user scans frozen
+        """
+        self._user_scans_frozen = True
+        frozen = 0
+        ttl = self._ttl_until_next_cache_cleanup()
+        
+        for category_name, tickers in self.last_user_scan_rankings.items():
+            try:
+                ranking_data = [t.model_dump(mode='json') for t in tickers]
+                
+                await self.redis.set(
+                    f"scanner:category:{category_name}",
+                    json.dumps(ranking_data),
+                    ttl=ttl
+                )
+                
+                filter_id = category_name.replace("uscan_", "")
+                seq_key = f"uscan_seq_{filter_id}"
+                current_seq = self.sequence_numbers.get(seq_key, 0)
+                await self.redis.set(
+                    f"scanner:sequence:{category_name}",
+                    current_seq,
+                    ttl=ttl
+                )
+                
+                frozen += 1
+            except Exception as e:
+                logger.error("error_freezing_user_scan", category=category_name, error=str(e))
+        
+        if frozen > 0:
+            logger.info(
+                "user_scans_frozen_for_close",
+                count=frozen,
+                ttl_seconds=ttl,
+                ttl_hours=round(ttl / 3600, 1)
+            )
+        
+        return frozen
     
     def register_active_user(self, user_id: str) -> None:
         """Registra usuario activo."""

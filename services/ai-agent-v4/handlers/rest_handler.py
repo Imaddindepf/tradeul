@@ -6,6 +6,9 @@ Endpoints:
   GET  /api/health             -> Service health check
   GET  /api/tools              -> List available MCP tools
   GET  /api/graph/state/{tid}  -> Inspect graph state for a thread (debugging)
+  GET  /api/sessions           -> List recent conversation sessions
+  GET  /api/sessions/{id}/messages -> Load messages for a session
+  DELETE /api/sessions/{id}    -> Delete a session
 """
 from __future__ import annotations
 
@@ -13,7 +16,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -178,3 +181,60 @@ async def get_graph_state(thread_id: str) -> dict[str, Any]:
             status_code=500,
             detail=f"Failed to retrieve state: {exc}",
         )
+
+
+# ── Session History Endpoints ────────────────────────────────────
+
+@router.get("/sessions")
+async def list_sessions(
+    request: Request,
+    user_id: str = "default",
+    limit: int = 30,
+) -> dict[str, Any]:
+    """List recent conversation sessions."""
+    memory = request.app.state.memory
+    threads = await memory.get_recent_threads(user_id, limit)
+    return {"sessions": threads}
+
+
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(
+    session_id: str,
+    request: Request,
+    user_id: str = "default",
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Load messages for a specific session."""
+    memory = request.app.state.memory
+    history = await memory.get_conversation_history(user_id, session_id, limit)
+    return {"messages": history, "session_id": session_id}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    request: Request,
+    user_id: str = "default",
+) -> dict[str, Any]:
+    """Delete a session and its messages from Redis."""
+    memory = request.app.state.memory
+    r = await memory._get_redis()
+    conv_key = f"memory:conversations:{user_id}:{session_id}"
+    thread_key = f"memory:threads:{user_id}"
+
+    # Remove the conversation list
+    await r.delete(conv_key)
+
+    # Remove from the sorted set index (need to find the matching entry)
+    raw_entries = await r.zrange(thread_key, 0, -1)
+    import orjson
+    for raw in raw_entries:
+        try:
+            data = orjson.loads(raw)
+            if data.get("thread_id") == session_id:
+                await r.zrem(thread_key, raw)
+                break
+        except Exception:
+            pass
+
+    return {"deleted": True}

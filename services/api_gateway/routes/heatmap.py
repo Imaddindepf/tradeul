@@ -361,16 +361,16 @@ async def get_heatmap_data(
         all_hash_data = await redis_client.client.hgetall("snapshot:enriched:latest")
         is_realtime = True
         
+        # Pop meta before checking emptiness (hash may only contain __meta__)
+        meta_raw = all_hash_data.pop(b"__meta__", None) or all_hash_data.pop("__meta__", None)
+        
         if not all_hash_data:
-            # Fallback: usar último cierre hash
             all_hash_data = await redis_client.client.hgetall("snapshot:enriched:last_close")
             is_realtime = False
+            meta_raw = all_hash_data.pop(b"__meta__", None) or all_hash_data.pop("__meta__", None)
             
             if not all_hash_data:
                 raise HTTPException(status_code=404, detail="No market data available")
-        
-        # Extract metadata
-        meta_raw = all_hash_data.pop("__meta__", None)
         snapshot_timestamp = None
         if meta_raw:
             try:

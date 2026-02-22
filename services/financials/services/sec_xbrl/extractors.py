@@ -870,7 +870,8 @@ class XBRLExtractor:
     def consolidate_fields(
         self,
         all_periods_data: List[Dict[str, Tuple[float, str]]],
-        fiscal_years: List[str]
+        fiscal_years: List[str],
+        statement_type: str = "income"
     ) -> List[Dict[str, Any]]:
         """
         Consolidar campos semánticamente relacionados.
@@ -905,14 +906,14 @@ class XBRLExtractor:
                 # Pasar el nombre original (CamelCase) para mapeo directo XBRL
                 # Usar modo extendido para obtener confidence y source
                 if MAPPING_ENGINE_AVAILABLE and hasattr(self, '_mapper') and self._mapper:
-                    mapping_result = self._mapper.detect_concept(original, extended=True)
+                    mapping_result = self._mapper.detect_concept(original, statement_type=statement_type, extended=True)
                     if len(mapping_result) == 6:
                         canonical_key, label, importance, data_type, confidence, mapping_source = mapping_result
                     else:
                         canonical_key, label, importance, data_type = mapping_result
                         confidence, mapping_source = 0.8, "legacy"
                 else:
-                    canonical_key, label, importance, data_type = self.detect_concept(original)
+                    canonical_key, label, importance, data_type = self.detect_concept(original, statement_type)
                     confidence, mapping_source = 0.8, "legacy"
                 
                 if canonical_key is None:

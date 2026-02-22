@@ -160,7 +160,7 @@ def adjust_bars_with_factors(
         date_col:   Name of the date column in bars_df
 
     Returns:
-        Copy of bars_df with adjusted OHLCV + vwap columns.
+        Copy of bars_df with adjusted OHLCV columns.
     """
     if factors_df.empty or bars_df.empty:
         return bars_df.copy()
@@ -171,14 +171,21 @@ def adjust_bars_with_factors(
     factors = factors_df.copy()
     factors["effective_before_date"] = pd.to_datetime(factors["effective_before_date"]).dt.date
 
-    # For each bar, find the factor for the LATEST split date that is
-    # STILL AFTER the bar date.  We do this with a sorted merge.
-    # DuckDB ASOF JOIN approach: register both as tables and run SQL.
+    has_vwap = "vwap" in bars.columns
+
     con = duckdb.connect(":memory:")
     con.register("bars_raw", bars)
     con.register("adj_factors", factors)
 
-    adjusted = con.execute("""
+    vwap_expr = ""
+    if has_vwap:
+        vwap_expr = """,
+            CASE WHEN vwap IS NOT NULL
+                 THEN vwap * COALESCE(price_factor, 1.0)
+                 ELSE NULL
+            END AS vwap"""
+
+    adjusted = con.execute(f"""
         WITH bar_factors AS (
             SELECT
                 b.*,
@@ -196,15 +203,11 @@ def adjust_bars_with_factors(
             high  * COALESCE(price_factor, 1.0)  AS high,
             low   * COALESCE(price_factor, 1.0)  AS low,
             close * COALESCE(price_factor, 1.0)  AS close,
-            CAST(volume * COALESCE(volume_factor, 1.0) AS BIGINT) AS volume,
-            CASE WHEN vwap IS NOT NULL
-                 THEN vwap * COALESCE(price_factor, 1.0)
-                 ELSE NULL
-            END AS vwap,
+            CAST(volume * COALESCE(volume_factor, 1.0) AS BIGINT) AS volume{vwap_expr},
             transactions
         FROM bar_factors
         ORDER BY ticker, {date_col}
-    """.format(date_col=date_col)).fetchdf()
+    """).fetchdf()
 
     con.close()
     return adjusted
@@ -240,33 +243,56 @@ class SplitAdjuster:
         return (datetime.now() - mtime) < self._cache_ttl
 
     async def load_factors(self, tickers: list[str] | None = None) -> pd.DataFrame:
-        """Load or fetch adjustment factors. Caches as parquet."""
-        if self._factors_df is not None:
-            if tickers:
-                return self._factors_df[self._factors_df["ticker"].isin(tickers)]
-            return self._factors_df
+        """Load or fetch adjustment factors for specific tickers."""
+        empty = pd.DataFrame(
+            columns=["ticker", "effective_before_date", "price_factor", "volume_factor"]
+        )
+        if not tickers:
+            return empty
 
-        # Try cache
+        # Try in-memory cache first
+        if self._factors_df is not None:
+            return self._factors_df[self._factors_df["ticker"].isin(tickers)]
+
+        # Try disk cache
         if self._cache_is_fresh():
             logger.info("splits_cache_hit", path=str(self._cache_path()))
             self._factors_df = pd.read_parquet(self._cache_path())
-            if tickers:
-                return self._factors_df[self._factors_df["ticker"].isin(tickers)]
-            return self._factors_df
+            return self._factors_df[self._factors_df["ticker"].isin(tickers)]
 
-        # Fetch from Polygon
-        raw = await fetch_splits_from_polygon(self._api_key)
-        splits_df = parse_splits(raw)
-        self._factors_df = compute_adjustment_factors(splits_df)
+        # Fetch splits per-ticker in parallel (fast: ~0.3s per ticker)
+        import asyncio
+        tasks = [
+            fetch_splits_from_polygon(self._api_key, ticker=t)
+            for t in tickers
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Save cache
+        all_raw: list[dict] = []
+        for t, res in zip(tickers, results):
+            if isinstance(res, Exception):
+                logger.warning("split_fetch_failed", ticker=t, error=str(res))
+                continue
+            all_raw.extend(res)
+
+        splits_df = parse_splits(all_raw)
+        factors = compute_adjustment_factors(splits_df)
+
+        # Merge into existing cache if present
+        if self._factors_df is not None and not self._factors_df.empty:
+            combined = pd.concat([
+                self._factors_df[~self._factors_df["ticker"].isin(tickers)],
+                factors,
+            ], ignore_index=True)
+            self._factors_df = combined
+        else:
+            self._factors_df = factors
+
         if self._cache_path():
             self._factors_df.to_parquet(self._cache_path(), index=False)
             logger.info("splits_cache_saved", records=len(self._factors_df))
 
-        if tickers:
-            return self._factors_df[self._factors_df["ticker"].isin(tickers)]
-        return self._factors_df
+        return factors
 
     async def adjust(
         self,

@@ -375,48 +375,48 @@ export const useTickersStore = create<TickersState & TickersActions>()(
       // ============================================================
       updateAggregates: (updates) => {
         set((state) => {
-          const newLists = new Map(state.lists);
-          let updated = false;
+          // Structural sharing: only clone Maps for lists with actual changes.
+          // Before: new Map() for ALL lists on every call (600 copies/sec).
+          // After: only clone lists that contain matching tickers.
+          let newLists: Map<string, any> | null = null;
+          const now = new Date();
 
-          // Iterar todas las listas y actualizar tickers que coincidan
-          newLists.forEach((list, listName) => {
-            const newTickers = new Map(list.tickers);
+          state.lists.forEach((list, listName) => {
+            let newTickers: Map<string, any> | null = null;
 
             updates.forEach((aggregateData, symbol) => {
-              const ticker = newTickers.get(symbol);
-              if (!ticker) return; // Ticker no está en esta lista
+              const ticker = list.tickers.get(symbol);
+              if (!ticker) return;
 
               const newPrice = parseFloat(aggregateData.c);
               const newVolume = parseInt(aggregateData.av, 10);
               const oldPrice = ticker.price || 0;
 
-              // Determinar dirección del precio para animación flash
-              // Solo flash si hay cambio significativo (> 0.001% para evitar ruido)
+              // Price flash direction (skip noise < 0.001%)
               let priceFlash: 'up' | 'down' | null = null;
               const priceDiff = Math.abs(newPrice - oldPrice);
-              const threshold = oldPrice * 0.00001; // 0.001%
+              const threshold = oldPrice * 0.00001;
 
               if (oldPrice > 0 && priceDiff > threshold) {
-                if (newPrice > oldPrice) {
-                  priceFlash = 'up';
-                } else if (newPrice < oldPrice) {
-                  priceFlash = 'down';
-                }
+                priceFlash = newPrice > oldPrice ? 'up' : 'down';
               }
 
-              // Recalcular change_percent si tenemos prev_close
+              // Recalculate change_percent from prev_close
               let newChangePercent = ticker.change_percent;
               if (ticker.prev_close && !isNaN(newPrice)) {
                 newChangePercent =
                   ((newPrice - ticker.prev_close) / ticker.prev_close) * 100;
               }
 
-              // Actualizar VWAP y price_vs_vwap en tiempo real
+              // Real-time VWAP
               const newVwap = parseFloat(aggregateData.vw) || ticker.vwap;
               let newPriceVsVwap = ticker.price_vs_vwap;
               if (newVwap && newVwap > 0 && !isNaN(newPrice)) {
                 newPriceVsVwap = ((newPrice - newVwap) / newVwap) * 100;
               }
+
+              // Lazy-clone tickers Map only on first actual change
+              if (!newTickers) newTickers = new Map(list.tickers);
 
               newTickers.set(symbol, {
                 ...ticker,
@@ -429,22 +429,22 @@ export const useTickersStore = create<TickersState & TickersActions>()(
                   : parseFloat(aggregateData.l),
                 vwap: newVwap,
                 price_vs_vwap: newPriceVsVwap,
-                priceFlash, // 'up' | 'down' | null para animación
+                priceFlash,
               });
-
-              updated = true;
             });
 
-            if (updated) {
+            // Only clone the list entry if tickers actually changed
+            if (newTickers) {
+              if (!newLists) newLists = new Map(state.lists);
               newLists.set(listName, {
                 ...list,
                 tickers: newTickers,
-                lastUpdate: new Date(),
+                lastUpdate: now,
               });
             }
           });
 
-          return updated ? { lists: newLists } : state;
+          return newLists ? { lists: newLists } : state;
         }, false, 'updateAggregates');
       },
 

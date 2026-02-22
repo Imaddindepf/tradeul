@@ -87,10 +87,10 @@ class StrategyConfig(BaseModel):
     description: str = ""
 
     universe: UniverseFilter = Field(default_factory=UniverseFilter)
-    entry_signals: list[Signal] = Field(..., min_length=1)
+    entry_signals: list[Signal] = Field(default_factory=list)
     entry_timing: Literal["open", "close", "next_open"] = "next_open"
 
-    exit_rules: list[ExitRule] = Field(..., min_length=1)
+    exit_rules: list[ExitRule] = Field(default_factory=list)
 
     timeframe: Timeframe = Timeframe.DAY_1
     start_date: date
@@ -111,8 +111,17 @@ class StrategyConfig(BaseModel):
     def validate_dates(self) -> "StrategyConfig":
         if self.end_date <= self.start_date:
             raise ValueError("end_date must be after start_date")
-        if (self.end_date - self.start_date).days < 30:
-            raise ValueError("Backtest period must be at least 30 days")
+        delta_days = (self.end_date - self.start_date).days
+        is_intraday = self.timeframe in (
+            Timeframe.MIN_1, Timeframe.MIN_5, Timeframe.MIN_15,
+            Timeframe.MIN_30, Timeframe.HOUR_1,
+        )
+        min_days = 5 if is_intraday else 30
+        if delta_days < min_days:
+            raise ValueError(
+                f"Backtest period must be at least {min_days} days "
+                f"(got {delta_days} days)"
+            )
         return self
 
 
@@ -142,11 +151,11 @@ class TradeRecord(BaseModel):
     ticker: str
     direction: Literal["long", "short"]
 
-    entry_date: date
+    entry_date: date | datetime
     entry_price: float
     entry_fill_price: float
 
-    exit_date: date
+    exit_date: date | datetime
     exit_price: float
     exit_fill_price: float
 
@@ -284,3 +293,21 @@ class BacktestResponse(BaseModel):
     status: Literal["success", "error"]
     result: BacktestResult | None = None
     error: str | None = None
+
+
+class CodeBacktestRequest(BaseModel):
+    """Request for code-based backtesting (LLM-generated strategies)."""
+    code: str = Field(..., description="Python code defining a strategy(bars) function")
+    tickers: list[str] = Field(..., min_length=1)
+    timeframe: Timeframe = Timeframe.MIN_5
+    start_date: date
+    end_date: date
+    initial_capital: float = 100_000.0
+    slippage_bps: float = 10.0
+    commission_per_trade: float = 0.0
+    risk_free_rate: float = 0.05
+    strategy_name: str = "LLM Strategy"
+    strategy_description: str = ""
+    include_advanced_metrics: bool = True
+    include_monte_carlo: bool = False
+    monte_carlo_simulations: int = 500
