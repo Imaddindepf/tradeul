@@ -315,7 +315,22 @@
     "ticker": "Ticker",
     "source": "Source",
     "articles": "article",
-    "articles_plural": "articles"
+    "articles_plural": "articles",
+    "search": "Search",
+    "searchNews": "Search News",
+    "backToLive": "Back to Live",
+    "searchResults": "Search Results",
+    "searching": "Searching...",
+    "noSearchResults": "No results found. Try different filters.",
+    "loadMore": "Load More",
+    "tags": "Tags",
+    "channels": "Channels",
+    "author": "Author",
+    "dateFrom": "From",
+    "dateTo": "To",
+    "today": "Today",
+    "searchMode": "Search Mode",
+    "liveMode": "Live Mode"
   },
   "secFilings": {
     "title": "SEC Filings",

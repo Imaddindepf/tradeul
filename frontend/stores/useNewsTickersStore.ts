@@ -39,13 +39,13 @@ interface NewsTickerEntry {
 interface NewsTickersState {
   // Map de tickers con sus noticias
   tickers: Map<string, NewsTickerEntry>;
-  
+
   // Set global de IDs de noticias vistas (para evitar duplicados)
   seenNewsIds: Set<string>;
-  
+
   // Día de trading actual
   currentTradingDay: string;
-  
+
   // Stats
   stats: {
     totalNews: number;
@@ -57,34 +57,34 @@ interface NewsTickersState {
 interface NewsTickersActions {
   // Agregar una noticia completa
   addNewsArticle: (article: StoredNewsArticle) => void;
-  
+
   // Agregar batch de noticias (para carga inicial)
   addNewsArticlesBatch: (articles: StoredNewsArticle[]) => void;
-  
+
   // Verificar si un ticker tiene noticias del día
   hasRecentNews: (symbol: string) => boolean;
-  
+
   // Obtener info de un ticker
   getTickerInfo: (symbol: string) => NewsTickerEntry | undefined;
-  
+
   // Obtener noticias de un ticker específico
   getTickerNews: (symbol: string) => StoredNewsArticle[];
-  
+
   // Obtener número de noticias de un ticker
   getNewsCount: (symbol: string) => number;
-  
+
   // Limpiar tickers de días anteriores
   cleanupExpired: () => void;
-  
+
   // Reset completo
   resetForNewSession: () => void;
-  
+
   // Obtener todos los símbolos con noticias del día
   getActiveSymbols: () => string[];
-  
+
   // Obtener Set para búsquedas O(1)
   getActiveSymbolsSet: () => Set<string>;
-  
+
   // Obtener día de trading actual
   getCurrentTradingDay: () => string;
 }
@@ -99,8 +99,8 @@ function getTradingDay(date: Date = new Date()): string {
     if (typeof window === 'undefined') {
       return date.toISOString().split('T')[0];
     }
-    
-    const etString = date.toLocaleString('en-US', { 
+
+    const etString = date.toLocaleString('en-US', {
       timeZone: 'America/New_York',
       year: 'numeric',
       month: '2-digit',
@@ -108,15 +108,15 @@ function getTradingDay(date: Date = new Date()): string {
       hour: '2-digit',
       hour12: false
     });
-    
+
     const match = etString.match(/(\d{2})\/(\d{2})\/(\d{4}), (\d{2})/);
     if (!match) {
       return date.toISOString().split('T')[0];
     }
-    
+
     const [, month, day, year, hour] = match;
     const hourNum = parseInt(hour, 10);
-    
+
     if (hourNum < 4) {
       const prevDay = new Date(date);
       prevDay.setDate(prevDay.getDate() - 1);
@@ -131,7 +131,7 @@ function getTradingDay(date: Date = new Date()): string {
         return `${prevMatch[3]}-${prevMatch[1]}-${prevMatch[2]}`;
       }
     }
-    
+
     return `${year}-${month}-${day}`;
   } catch {
     // Fallback seguro
@@ -178,46 +178,46 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
       // ============================================================
       addNewsArticle: (article) => {
         if (!article || !article.tickers || article.tickers.length === 0) return;
-        
+
         const newsId = String(article.id);
         const now = Date.now();
         const tradingDay = getTradingDay();
-        
+
         set((state) => {
           // Verificar si ya procesamos esta noticia
           if (state.seenNewsIds.has(newsId)) {
             return state; // Ya la vimos, no hacer nada
           }
-          
+
           // Verificar si cambió el día de trading
           let newTickers = new Map(state.tickers);
           let newSeenIds = new Set(state.seenNewsIds);
           let newTradingDay = state.currentTradingDay;
-          
+
           if (tradingDay !== state.currentTradingDay) {
             newTickers = new Map();
             newSeenIds = new Set();
             newTradingDay = tradingDay;
           }
-          
+
           // Marcar noticia como vista
           newSeenIds.add(newsId);
-          
+
           // Agregar a cada ticker mencionado
           article.tickers.forEach((symbol) => {
             if (!symbol || typeof symbol !== 'string') return;
-            
+
             const upperSymbol = symbol.toUpperCase().trim();
             if (!upperSymbol) return;
-            
+
             const existing = newTickers.get(upperSymbol);
-            
+
             if (existing) {
               // Verificar que no tengamos ya esta noticia para este ticker
               if (!existing.newsIds.has(newsId)) {
                 const newNewsIds = new Set(existing.newsIds);
                 newNewsIds.add(newsId);
-                
+
                 newTickers.set(upperSymbol, {
                   ...existing,
                   newsIds: newNewsIds,
@@ -257,56 +257,56 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
 
         const now = Date.now();
         const currentTradingDay = getTradingDay();
-        
+
         set((state) => {
           let newTickers = new Map(state.tickers);
           let newSeenIds = new Set(state.seenNewsIds);
           let newTradingDay = state.currentTradingDay;
           let addedCount = 0;
-          
+
           if (currentTradingDay !== state.currentTradingDay) {
             newTickers = new Map();
             newSeenIds = new Set();
             newTradingDay = currentTradingDay;
           }
-          
+
           articles.forEach((article) => {
             if (!article || !article.tickers || article.tickers.length === 0) return;
-            
+
             const newsId = String(article.id);
-            
+
             // Verificar si ya procesamos esta noticia
             if (newSeenIds.has(newsId)) return;
-            
+
             // Verificar que sea del día de trading actual
             if (article.published) {
               const articleTradingDay = getTradingDay(new Date(article.published));
               if (articleTradingDay !== currentTradingDay) return;
             }
-            
+
             // Marcar como vista
             newSeenIds.add(newsId);
             addedCount++;
-            
+
             // Agregar a cada ticker
             article.tickers.forEach((symbol) => {
               if (!symbol || typeof symbol !== 'string') return;
-              
+
               const upperSymbol = symbol.toUpperCase().trim();
               if (!upperSymbol) return;
-              
+
               const existing = newTickers.get(upperSymbol);
-              
+
               if (existing) {
                 if (!existing.newsIds.has(newsId)) {
                   const newNewsIds = new Set(existing.newsIds);
                   newNewsIds.add(newsId);
-                  
+
                   // Insertar ordenado por fecha
                   const updatedArticles = [...existing.articles, article]
                     .sort((a, b) => new Date(b.published).getTime() - new Date(a.published).getTime())
                     .slice(0, 50);
-                  
+
                   newTickers.set(upperSymbol, {
                     ...existing,
                     newsIds: newNewsIds,
@@ -345,9 +345,9 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
       hasRecentNews: (symbol) => {
         const state = get();
         const entry = state.tickers.get(symbol.toUpperCase());
-        
+
         if (!entry) return false;
-        
+
         const currentTradingDay = getTradingDay();
         return entry.tradingDay === currentTradingDay && entry.newsIds.size > 0;
       },
@@ -365,10 +365,10 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
       getTickerNews: (symbol) => {
         const entry = get().tickers.get(symbol.toUpperCase());
         if (!entry) return [];
-        
+
         const currentTradingDay = getTradingDay();
         if (entry.tradingDay !== currentTradingDay) return [];
-        
+
         return entry.articles;
       },
 
@@ -378,10 +378,10 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
       getNewsCount: (symbol) => {
         const entry = get().tickers.get(symbol.toUpperCase());
         if (!entry) return 0;
-        
+
         const currentTradingDay = getTradingDay();
         if (entry.tradingDay !== currentTradingDay) return 0;
-        
+
         return entry.newsIds.size;
       },
 
@@ -390,7 +390,7 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
       // ============================================================
       cleanupExpired: () => {
         const currentTradingDay = getTradingDay();
-        
+
         set((state) => {
           if (currentTradingDay !== state.currentTradingDay) {
             return {
@@ -404,7 +404,7 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
               },
             };
           }
-          
+
           return {
             stats: {
               ...state.stats,
@@ -437,13 +437,13 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
         const state = get();
         const currentTradingDay = getTradingDay();
         const active: string[] = [];
-        
+
         state.tickers.forEach((entry, symbol) => {
           if (entry.tradingDay === currentTradingDay && entry.newsIds.size > 0) {
             active.push(symbol);
           }
         });
-        
+
         return active;
       },
 
@@ -454,16 +454,16 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
         const state = get();
         const currentTradingDay = getTradingDay();
         const activeSet = new Set<string>();
-        
+
         state.tickers.forEach((entry, symbol) => {
           if (entry.tradingDay === currentTradingDay && entry.newsIds.size > 0) {
             activeSet.add(symbol);
           }
         });
-        
+
         return activeSet;
       },
-      
+
       // ============================================================
       // GET CURRENT TRADING DAY
       // ============================================================
@@ -473,7 +473,7 @@ export const useNewsTickersStore = create<NewsTickersState & NewsTickersActions>
     }),
     {
       name: 'news-tickers-store',
-      enabled: process.env.NODE_ENV === 'development',
+      enabled: false,
     }
   )
 );
@@ -495,7 +495,7 @@ export const selectActiveCount = (state: NewsTickersState & NewsTickersActions) 
 
 export const selectStats = (state: NewsTickersState & NewsTickersActions) => state.stats;
 
-export const selectCurrentTradingDay = (state: NewsTickersState & NewsTickersActions) => 
+export const selectCurrentTradingDay = (state: NewsTickersState & NewsTickersActions) =>
   state.currentTradingDay;
 
 // ============================================================================

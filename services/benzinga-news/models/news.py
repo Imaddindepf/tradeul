@@ -74,6 +74,6 @@ class NewsFilterParams(BaseModel):
     author: Optional[str] = Field(default=None, description="Nombre del autor")
     published_after: Optional[str] = Field(default=None, description="Publicado después de (ISO 8601)")
     published_before: Optional[str] = Field(default=None, description="Publicado antes de (ISO 8601)")
-    limit: int = Field(default=50, ge=1, le=200, description="Límite de resultados")
+    limit: int = Field(default=50, ge=1, le=1000, description="Límite de resultados")
     sort: str = Field(default="published.desc", description="Ordenamiento")
 

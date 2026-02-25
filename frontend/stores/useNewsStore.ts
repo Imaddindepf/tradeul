@@ -368,7 +368,7 @@ export const useNewsStore = create<NewsState & NewsActions>()(
     })),
     {
       name: 'news-store',
-      enabled: process.env.NODE_ENV === 'development',
+      enabled: false,
     }
   )
 );

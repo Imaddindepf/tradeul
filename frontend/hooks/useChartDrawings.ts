@@ -1,11 +1,10 @@
 /**
  * useChartDrawings - Hook para gestionar dibujos persistentes en charts
- * 
+ *
  * Soporta:
- * - Líneas horizontales (1 click)
- * - Trendlines (2 clicks)
- * - Fibonacci retracement (2 clicks)
- * - Rectángulos (2 clicks)
+ * - 1-click: Horizontal line, Vertical line
+ * - 2-click: Trendline, Ray, Extended line, Fibonacci, Rectangle, Circle, Measure
+ * - 3-click: Parallel channel, Triangle
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -15,20 +14,34 @@ import type {
   DrawingTool,
   DrawingPoint,
   HorizontalLineDrawing,
+  VerticalLineDrawing,
   TrendlineDrawing,
+  RayDrawing,
+  ExtendedLineDrawing,
+  ParallelChannelDrawing,
   FibonacciDrawing,
   RectangleDrawing,
+  CircleDrawing,
+  TriangleDrawing,
+  MeasureDrawing,
   PendingDrawing,
 } from '@/components/chart/primitives/types';
-import { FIB_LEVELS, DRAWING_COLORS } from '@/components/chart/primitives/types';
+import { FIB_LEVELS, DRAWING_COLORS, TOOL_CLICKS } from '@/components/chart/primitives/types';
 
 // Re-export types for consumers
 export type { Drawing, DrawingType, DrawingTool, DrawingPoint, PendingDrawing };
 export type {
   HorizontalLineDrawing,
+  VerticalLineDrawing,
   TrendlineDrawing,
+  RayDrawing,
+  ExtendedLineDrawing,
+  ParallelChannelDrawing,
   FibonacciDrawing,
   RectangleDrawing,
+  CircleDrawing,
+  TriangleDrawing,
+  MeasureDrawing,
 };
 
 // ============================================================================
@@ -90,10 +103,10 @@ export function useChartDrawings(ticker: string) {
   const [hoveredDrawingId, setHoveredDrawingId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Pending drawing state (for 2-click tools: first point placed, waiting for second)
+  // Pending drawing state (for multi-click tools)
   const [pendingDrawing, setPendingDrawing] = useState<PendingDrawing | null>(null);
 
-  // Tentative endpoint (mouse position while placing second point)
+  // Tentative endpoint (mouse position while placing)
   const [tentativeEndpoint, setTentativeEndpoint] = useState<{ x: number; y: number; price: number } | null>(null);
 
   const tickerRef = useRef(ticker);
@@ -118,7 +131,7 @@ export function useChartDrawings(ticker: string) {
   }, [drawings]);
 
   // ============================================================================
-  // Create drawings
+  // Create drawings — 1-click
   // ============================================================================
 
   const addHorizontalLine = useCallback((price: number): HorizontalLineDrawing => {
@@ -135,6 +148,24 @@ export function useChartDrawings(ticker: string) {
     return drawing;
   }, [selectedColor, lineWidth]);
 
+  const addVerticalLine = useCallback((time: number): VerticalLineDrawing => {
+    const drawing: VerticalLineDrawing = {
+      id: generateId(),
+      type: 'vertical_line',
+      time,
+      color: selectedColor,
+      lineWidth,
+      lineStyle: 'solid',
+    };
+    setDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor, lineWidth]);
+
+  // ============================================================================
+  // Create drawings — 2-click
+  // ============================================================================
+
   const addTrendline = useCallback((p1: DrawingPoint, p2: DrawingPoint): TrendlineDrawing => {
     const drawing: TrendlineDrawing = {
       id: generateId(),
@@ -144,6 +175,36 @@ export function useChartDrawings(ticker: string) {
       color: selectedColor,
       lineWidth,
       lineStyle: 'solid',
+    };
+    setDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor, lineWidth]);
+
+  const addRay = useCallback((p1: DrawingPoint, p2: DrawingPoint): RayDrawing => {
+    const drawing: RayDrawing = {
+      id: generateId(),
+      type: 'ray',
+      point1: p1,
+      point2: p2,
+      color: selectedColor,
+      lineWidth,
+      lineStyle: 'solid',
+    };
+    setDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor, lineWidth]);
+
+  const addExtendedLine = useCallback((p1: DrawingPoint, p2: DrawingPoint): ExtendedLineDrawing => {
+    const drawing: ExtendedLineDrawing = {
+      id: generateId(),
+      type: 'extended_line',
+      point1: p1,
+      point2: p2,
+      color: selectedColor,
+      lineWidth,
+      lineStyle: 'dashed',
     };
     setDrawings(prev => [...prev, drawing]);
     setSelectedDrawingId(drawing.id);
@@ -182,6 +243,75 @@ export function useChartDrawings(ticker: string) {
     return drawing;
   }, [selectedColor]);
 
+  const addCircle = useCallback((p1: DrawingPoint, p2: DrawingPoint): CircleDrawing => {
+    const drawing: CircleDrawing = {
+      id: generateId(),
+      type: 'circle',
+      point1: p1,
+      point2: p2,
+      color: selectedColor,
+      fillColor: hexToRgba(selectedColor, 0.08),
+      lineWidth: 1,
+      lineStyle: 'solid',
+    };
+    setDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor]);
+
+  const addMeasure = useCallback((p1: DrawingPoint, p2: DrawingPoint): MeasureDrawing => {
+    const drawing: MeasureDrawing = {
+      id: generateId(),
+      type: 'measure',
+      point1: p1,
+      point2: p2,
+      color: '#64748b',
+      lineWidth: 1,
+      lineStyle: 'dashed',
+    };
+    setDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, []);
+
+  // ============================================================================
+  // Create drawings — 3-click
+  // ============================================================================
+
+  const addParallelChannel = useCallback((p1: DrawingPoint, p2: DrawingPoint, p3: DrawingPoint): ParallelChannelDrawing => {
+    const drawing: ParallelChannelDrawing = {
+      id: generateId(),
+      type: 'parallel_channel',
+      point1: p1,
+      point2: p2,
+      point3: p3,
+      color: selectedColor,
+      fillColor: hexToRgba(selectedColor, 0.08),
+      lineWidth,
+      lineStyle: 'solid',
+    };
+    setDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor, lineWidth]);
+
+  const addTriangle = useCallback((p1: DrawingPoint, p2: DrawingPoint, p3: DrawingPoint): TriangleDrawing => {
+    const drawing: TriangleDrawing = {
+      id: generateId(),
+      type: 'triangle',
+      point1: p1,
+      point2: p2,
+      point3: p3,
+      color: selectedColor,
+      fillColor: hexToRgba(selectedColor, 0.08),
+      lineWidth: 1,
+      lineStyle: 'solid',
+    };
+    setDrawings(prev => [...prev, drawing]);
+    setSelectedDrawingId(drawing.id);
+    return drawing;
+  }, [selectedColor]);
+
   // ============================================================================
   // Delete
   // ============================================================================
@@ -203,7 +333,7 @@ export function useChartDrawings(ticker: string) {
   const updateDrawingColor = useCallback((id: string, newColor: string) => {
     setDrawings(prev => prev.map(d => {
       if (d.id !== id) return d;
-      if (d.type === 'rectangle') {
+      if ('fillColor' in d) {
         return { ...d, color: newColor, fillColor: hexToRgba(newColor, 0.1) };
       }
       return { ...d, color: newColor };
@@ -221,13 +351,22 @@ export function useChartDrawings(ticker: string) {
     }));
   }, []);
 
-  const updateDrawingPoints = useCallback((id: string, points: { point1?: DrawingPoint; point2?: DrawingPoint }) => {
+  const updateVerticalLineTime = useCallback((id: string, newTime: number) => {
+    setDrawings(prev => prev.map(d => {
+      if (d.id === id && d.type === 'vertical_line') return { ...d, time: newTime };
+      return d;
+    }));
+  }, []);
+
+  const updateDrawingPoints = useCallback((id: string, points: { point1?: DrawingPoint; point2?: DrawingPoint; point3?: DrawingPoint }) => {
     setDrawings(prev => prev.map(d => {
       if (d.id !== id) return d;
       if (d.type === 'horizontal_line') return d;
+      if (d.type === 'vertical_line') return d;
       const updated = { ...d } as any;
       if (points.point1) updated.point1 = points.point1;
       if (points.point2) updated.point2 = points.point2;
+      if (points.point3 && 'point3' in updated) updated.point3 = points.point3;
       return updated;
     }));
   }, []);
@@ -247,7 +386,6 @@ export function useChartDrawings(ticker: string) {
   const startDragging = useCallback(() => setIsDragging(true), []);
   const stopDragging = useCallback(() => setIsDragging(false), []);
 
-  // Find drawing near a price (for horizontal lines only - legacy compat)
   const findDrawingNearPrice = useCallback((price: number, tolerance: number = 1.5): Drawing | null => {
     let closest: Drawing | null = null;
     let closestDiff = Infinity;
@@ -271,51 +409,92 @@ export function useChartDrawings(ticker: string) {
     const tool = activeToolRef.current;
     if (tool === 'none') return null;
 
-    // Horizontal line: single click
-    if (tool === 'horizontal_line') {
-      const drawing = addHorizontalLine(price);
+    const clicksNeeded = TOOL_CLICKS[tool as DrawingType] ?? 2;
+    const point: DrawingPoint = { time, price, logical };
+
+    // ── 1-click tools ────────────────────────────────────────────────
+    if (clicksNeeded === 1) {
+      let drawing: Drawing | null = null;
+      switch (tool) {
+        case 'horizontal_line':
+          drawing = addHorizontalLine(price);
+          break;
+        case 'vertical_line':
+          drawing = addVerticalLine(time);
+          break;
+      }
       setActiveTool('none');
       return drawing;
     }
 
-    // 2-click tools: trendline, fibonacci, rectangle
-    if (!pendingDrawing) {
-      // First click → store point1
-      setPendingDrawing({ type: tool, point1: { time, price, logical } });
-      return null;
+    // ── 2-click tools ────────────────────────────────────────────────
+    if (clicksNeeded === 2) {
+      if (!pendingDrawing) {
+        setPendingDrawing({ type: tool as DrawingType, point1: point });
+        return null;
+      }
+      const p1 = pendingDrawing.point1;
+      let drawing: Drawing | null = null;
+      switch (pendingDrawing.type) {
+        case 'trendline': drawing = addTrendline(p1, point); break;
+        case 'ray': drawing = addRay(p1, point); break;
+        case 'extended_line': drawing = addExtendedLine(p1, point); break;
+        case 'fibonacci': drawing = addFibonacci(p1, point); break;
+        case 'rectangle': drawing = addRectangle(p1, point); break;
+        case 'circle': drawing = addCircle(p1, point); break;
+        case 'measure': drawing = addMeasure(p1, point); break;
+      }
+      setPendingDrawing(null);
+      setTentativeEndpoint(null);
+      setActiveTool('none');
+      return drawing;
     }
 
-    // Second click → create the drawing
-    const p1 = pendingDrawing.point1;
-    const p2: DrawingPoint = { time, price, logical };
-    let drawing: Drawing | null = null;
-
-    switch (pendingDrawing.type) {
-      case 'trendline':
-        drawing = addTrendline(p1, p2);
-        break;
-      case 'fibonacci':
-        drawing = addFibonacci(p1, p2);
-        break;
-      case 'rectangle':
-        drawing = addRectangle(p1, p2);
-        break;
+    // ── 3-click tools ────────────────────────────────────────────────
+    if (clicksNeeded === 3) {
+      if (!pendingDrawing) {
+        // Click 1: set point1
+        setPendingDrawing({ type: tool as DrawingType, point1: point });
+        return null;
+      }
+      if (!pendingDrawing.point2) {
+        // Click 2: set point2
+        setPendingDrawing({ ...pendingDrawing, point2: point });
+        return null;
+      }
+      // Click 3: finalize
+      const p1 = pendingDrawing.point1;
+      const p2 = pendingDrawing.point2;
+      let drawing: Drawing | null = null;
+      switch (pendingDrawing.type) {
+        case 'parallel_channel': {
+                    // Calculate offset so second line passes through click position
+                    const dt = p2.time - p1.time;
+                    const tRatio = dt !== 0 ? (point.time - p1.time) / dt : 0;
+                    const priceOnLine = p1.price + (p2.price - p1.price) * tRatio;
+                    const offset = point.price - priceOnLine;
+                    drawing = addParallelChannel(p1, p2, { time: p1.time, price: p1.price + offset });
+                    break;
+                }
+        case 'triangle': drawing = addTriangle(p1, p2, point); break;
+      }
+      setPendingDrawing(null);
+      setTentativeEndpoint(null);
+      setActiveTool('none');
+      return drawing;
     }
 
-    setPendingDrawing(null);
-    setTentativeEndpoint(null);
-    setActiveTool('none');
-    return drawing;
-  }, [activeTool, pendingDrawing, addHorizontalLine, addTrendline, addFibonacci, addRectangle]);
+    return null;
+  }, [activeTool, pendingDrawing, addHorizontalLine, addVerticalLine, addTrendline,
+    addRay, addExtendedLine, addFibonacci, addRectangle, addCircle, addMeasure,
+    addParallelChannel, addTriangle]);
 
-  // Update tentative endpoint (called on crosshair move while pending)
   const updateTentativeEndpoint = useCallback((x: number, y: number, price: number) => {
     if (pendingDrawing) {
       setTentativeEndpoint({ x, y, price });
     }
   }, [pendingDrawing]);
 
-  // Cancel current drawing
   const cancelDrawing = useCallback(() => {
     setActiveTool('none');
     setPendingDrawing(null);
@@ -347,9 +526,16 @@ export function useChartDrawings(ticker: string) {
 
     // CRUD
     addHorizontalLine,
+    addVerticalLine,
     addTrendline,
+    addRay,
+    addExtendedLine,
+    addParallelChannel,
     addFibonacci,
     addRectangle,
+    addCircle,
+    addTriangle,
+    addMeasure,
     removeDrawing,
     clearAllDrawings,
 
@@ -357,6 +543,7 @@ export function useChartDrawings(ticker: string) {
     updateDrawingColor,
     updateDrawingLineWidth,
     updateHorizontalLinePrice,
+    updateVerticalLineTime,
     updateDrawingPoints,
 
     // Selection & drag

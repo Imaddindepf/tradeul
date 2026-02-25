@@ -231,3 +231,128 @@ class BenzingaNewsClient:
         """Retorna estadísticas del cliente"""
         return self.stats.copy()
 
+
+    async def search_news(
+        self,
+        params: Optional[NewsFilterParams] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Búsqueda de noticias con retorno de next_url para paginación cursor.
+        Similar a fetch_news() pero devuelve {articles, next_url} en vez de solo articles.
+        """
+        await self._rate_limit()
+        
+        try:
+            client = await self._get_client()
+            
+            # Construir query params
+            query_params = {
+                "apiKey": self.api_key,
+                "limit": kwargs.get("limit", 100),
+                "sort": kwargs.get("sort", "published.desc")
+            }
+            
+            if params:
+                if params.tickers:
+                    query_params["tickers"] = params.tickers
+                if params.channels:
+                    query_params["channels"] = params.channels
+                if params.tags:
+                    query_params["tags"] = params.tags
+                if params.author:
+                    query_params["author"] = params.author
+                if params.published_after:
+                    date_str = params.published_after[:10] if len(params.published_after) >= 10 else params.published_after
+                    query_params["published.gte"] = date_str
+                if params.published_before:
+                    date_str = params.published_before[:10] if len(params.published_before) >= 10 else params.published_before
+                    query_params["published.lte"] = date_str
+                if params.limit:
+                    query_params["limit"] = params.limit
+                if params.sort:
+                    query_params["sort"] = params.sort
+            
+            response = await client.get(self.ENDPOINT, params=query_params)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            self.stats["requests_made"] += 1
+            self.stats["last_fetch"] = datetime.now().isoformat()
+            
+            # Parsear resultados
+            articles = []
+            for article_data in data.get("results", []):
+                try:
+                    article = BenzingaArticle.from_polygon_response(article_data)
+                    articles.append(article)
+                except Exception as e:
+                    logger.warning("search_article_parse_error", error=str(e))
+            
+            self.stats["articles_fetched"] += len(articles)
+            
+            # Extraer next_url (sin apiKey para no exponer al frontend)
+            next_url = data.get("next_url")
+            
+            logger.info("search_news_completed", count=len(articles), has_next=bool(next_url))
+            
+            return {
+                "articles": articles,
+                "next_url": next_url
+            }
+            
+        except httpx.HTTPStatusError as e:
+            logger.error("search_http_error", status=e.response.status_code, detail=str(e))
+            self.stats["errors"] += 1
+            return {"articles": [], "next_url": None}
+        except Exception as e:
+            logger.error("search_error", error=str(e))
+            self.stats["errors"] += 1
+            return {"articles": [], "next_url": None}
+
+    async def fetch_cursor_url(self, cursor_url: str) -> Dict[str, Any]:
+        """
+        Sigue un cursor next_url de Polygon para paginación.
+        Añade el apiKey al URL y hace el fetch.
+        """
+        await self._rate_limit()
+        
+        try:
+            client = await self._get_client()
+            
+            # Añadir apiKey al cursor URL
+            separator = "&" if "?" in cursor_url else "?"
+            full_url = f"{cursor_url}{separator}apiKey={self.api_key}"
+            
+            response = await client.get(full_url)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            self.stats["requests_made"] += 1
+            self.stats["last_fetch"] = datetime.now().isoformat()
+            
+            articles = []
+            for article_data in data.get("results", []):
+                try:
+                    article = BenzingaArticle.from_polygon_response(article_data)
+                    articles.append(article)
+                except Exception as e:
+                    logger.warning("cursor_article_parse_error", error=str(e))
+            
+            self.stats["articles_fetched"] += len(articles)
+            
+            next_url = data.get("next_url")
+            
+            logger.info("cursor_fetch_completed", count=len(articles), has_next=bool(next_url))
+            
+            return {
+                "articles": articles,
+                "next_url": next_url
+            }
+            
+        except Exception as e:
+            logger.error("cursor_fetch_error", error=str(e))
+            self.stats["errors"] += 1
+            return {"articles": [], "next_url": None}

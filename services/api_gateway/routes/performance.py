@@ -259,13 +259,18 @@ async def get_theme_performance(
     return await _get_theme_performance(min_market_cap, min_tickers, include_movers)
 
 
+@router.get("/ticker-context/{symbol}")
+async def get_ticker_context(symbol: str):
+    return await _get_ticker_context(symbol.upper().strip())
+
+
 @router.get("/drilldown/{group_type}/{group_name}")
 async def get_drilldown(
     group_type: str,
     group_name: str,
     min_market_cap: Optional[int] = Query(None),
     sort_by: str = Query("change_percent"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=2000),
 ):
     return await _get_drilldown(group_type, group_name, min_market_cap, sort_by, limit)
 
@@ -506,4 +511,119 @@ async def _get_drilldown(
         "group_name": group_name,
         "data": matched[:limit],
         "total": len(matched),
+    }
+
+
+async def _get_ticker_context(symbol: str):
+    snapshot, classifications, themes_map = await asyncio.gather(
+        _load_snapshot(),
+        _load_classifications(),
+        _load_themes(),
+    )
+
+    ticker_lookup = {t["symbol"]: t for t in snapshot}
+    ticker = ticker_lookup.get(symbol)
+    if not ticker:
+        raise HTTPException(status_code=404, detail=f"Ticker {symbol} not found")
+
+    cls = classifications.get(symbol, {})
+    sector = cls.get("sector", "")
+    industry = cls.get("industry", "")
+
+    # --- Sector ranking (all sectors aggregated, highlight this one) ---
+    sector_groups: Dict[str, List[Dict]] = defaultdict(list)
+    for t in snapshot:
+        s = t["symbol"]
+        c = classifications.get(s)
+        if not c or t.get("security_type") in ("ETF", "ETN"):
+            continue
+        sector_groups[c.get("sector", "Other")].append(t)
+
+    sectors_ranked = []
+    for name, tickers in sector_groups.items():
+        agg = _aggregate_group(tickers)
+        sectors_ranked.append({"name": name, **agg})
+    sectors_ranked.sort(key=lambda x: x.get("weighted_change", 0), reverse=True)
+
+    # --- Industry peers (same industry, top 15 by market_cap) ---
+    industry_peers = []
+    for t in snapshot:
+        s = t["symbol"]
+        c = classifications.get(s)
+        if not c or t.get("security_type") in ("ETF", "ETN"):
+            continue
+        if c.get("industry") == industry and s != symbol:
+            industry_peers.append(t)
+    industry_peers.sort(key=lambda x: x.get("market_cap", 0) or 0, reverse=True)
+    industry_peers = industry_peers[:15]
+
+    # Ticker rank within industry
+    all_in_industry = [t for t in snapshot
+                       if classifications.get(t["symbol"], {}).get("industry") == industry
+                       and t.get("security_type") not in ("ETF", "ETN")]
+    all_in_industry.sort(key=lambda x: x.get("change_percent", 0) or 0, reverse=True)
+    rank_in_industry = next((i + 1 for i, t in enumerate(all_in_industry) if t["symbol"] == symbol), None)
+
+    # --- Themes for this ticker ---
+    ticker_themes = themes_map.get(symbol, [])
+    theme_context = []
+    for th in ticker_themes:
+        theme_name = th["theme"]
+        theme_tickers = []
+        for sym, sym_themes in themes_map.items():
+            if any(st["theme"] == theme_name for st in sym_themes):
+                t = ticker_lookup.get(sym)
+                if t and t.get("security_type") not in ("ETF", "ETN"):
+                    theme_tickers.append(t)
+        if theme_tickers:
+            agg = _aggregate_group(theme_tickers)
+            theme_context.append({
+                "name": theme_name,
+                "relevance": th["relevance"],
+                **agg,
+            })
+    theme_context.sort(key=lambda x: x.get("weighted_change", 0), reverse=True)
+
+    r = lambda v, d=4: round(v, d) if v is not None else None
+
+    return {
+        "symbol": symbol,
+        "ticker": {
+            "price": ticker.get("price"),
+            "change_percent": ticker.get("change_percent"),
+            "volume": ticker.get("volume"),
+            "market_cap": ticker.get("market_cap"),
+            "rvol": ticker.get("rvol"),
+            "gap_percent": ticker.get("gap_percent"),
+            "rsi_14": ticker.get("rsi_14"),
+            "daily_rsi": ticker.get("daily_rsi"),
+            "atr_percent": ticker.get("atr_percent"),
+            "daily_atr_percent": ticker.get("daily_atr_percent"),
+            "adx_14": ticker.get("adx_14"),
+            "daily_adx_14": ticker.get("daily_adx_14"),
+            "dist_from_vwap": ticker.get("dist_from_vwap"),
+            "change_5d": ticker.get("change_5d"),
+            "change_10d": ticker.get("change_10d"),
+            "change_20d": ticker.get("change_20d"),
+            "from_52w_high": ticker.get("from_52w_high"),
+            "from_52w_low": ticker.get("from_52w_low"),
+            "pos_in_range": ticker.get("pos_in_range"),
+            "daily_bb_position": ticker.get("daily_bb_position"),
+            "dollar_volume": ticker.get("dollar_volume"),
+            "float_turnover": ticker.get("float_turnover"),
+        },
+        "sector": sector,
+        "industry": industry,
+        "sectors_ranked": sectors_ranked,
+        "industry_peers": [{
+            "symbol": t["symbol"],
+            "price": t.get("price"),
+            "change_percent": t.get("change_percent"),
+            "volume": t.get("volume"),
+            "market_cap": t.get("market_cap"),
+            "rvol": t.get("rvol"),
+        } for t in industry_peers],
+        "rank_in_industry": rank_in_industry,
+        "industry_total": len(all_in_industry),
+        "themes": theme_context,
     }

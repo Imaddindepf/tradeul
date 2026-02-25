@@ -252,8 +252,7 @@ async def list_indicators():
             {"name": "prev_close", "description": "Previous bar close"},
             {"name": "ema_9", "description": "Exponential Moving Average 9"},
             {"name": "ema_21", "description": "Exponential Moving Average 21"},
-            {"name": "vwap", "description": "Volume-Weighted Average Price"},
-        ]
+            {"name": "vwap", "description": "Volume-Weighted Average Price"},        ]
     }
 
 

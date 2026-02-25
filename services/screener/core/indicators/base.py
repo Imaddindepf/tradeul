@@ -18,6 +18,7 @@ class OperatorType(str, Enum):
     LT = "lt"           # Less than
     LTE = "lte"         # Less than or equal
     EQ = "eq"           # Equal
+    NEQ = "neq"         # Not equal
     BETWEEN = "between" # Between two values
     CROSS_ABOVE = "cross_above"  # Crossed above (for MAs)
     CROSS_BELOW = "cross_below"  # Crossed below
@@ -29,6 +30,7 @@ class DataType(str, Enum):
     INTEGER = "integer"
     BOOLEAN = "boolean"
     PERCENT = "percent"
+    STRING = "string"
 
 
 @dataclass

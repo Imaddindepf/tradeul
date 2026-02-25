@@ -26,13 +26,18 @@ _FILTER_FIELD_TO_RESULT = {
     "rsi_14": "rsi_14", "adx_14": "adx_14",
     "atr_14": "atr_14", "atr_percent": "atr_percent",
     "sma_20": "sma_20", "sma_50": "sma_50", "sma_200": "sma_200",
+    "dist_sma_20": "dist_sma_20", "dist_sma_50": "dist_sma_50",
     "bb_upper": "bb_upper", "bb_lower": "bb_lower", "bb_width": "bb_width",
     "bb_position": "bb_position", "squeeze_on": "squeeze_on",
+    "squeeze_momentum": "squeeze_momentum",
+    "plus_di_14": "plus_di_14", "minus_di_14": "minus_di_14",
     "change_1d": "change_1d", "change_3d": "change_3d",
     "change_5d": "change_5d", "change_10d": "change_10d", "change_20d": "change_20d",
     "high_52w": "high_52w", "low_52w": "low_52w",
     "from_52w_high": "from_52w_high", "from_52w_low": "from_52w_low",
     "free_float": "free_float", "gap_percent": "gap_percent",
+    "avg_volume_5": "avg_volume_5", "avg_volume_10": "avg_volume_10",
+    "avg_volume_20": "avg_volume_20",
 }
 
 

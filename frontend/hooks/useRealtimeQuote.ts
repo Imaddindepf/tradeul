@@ -120,11 +120,11 @@ class QuoteManager {
         const prevClose = data.close || data.c;
         if (prevClose) {
           this.prevCloseCache.set(symbol, prevClose);
-    // FIFO eviction when cache exceeds limit
-    if (this.prevCloseCache.size > QuoteManager.MAX_CACHE_SIZE) {
-      const it = this.prevCloseCache.keys();
-      for (let i = 0; i < 50; i++) this.prevCloseCache.delete(it.next().value!);
-    }
+          // FIFO eviction when cache exceeds limit
+          if (this.prevCloseCache.size > QuoteManager.MAX_CACHE_SIZE) {
+            const it = this.prevCloseCache.keys();
+            for (let i = 0; i < 50; i++) this.prevCloseCache.delete(it.next().value!);
+          }
           return prevClose;
         }
       }
@@ -327,8 +327,12 @@ class QuoteManager {
       _latency: (data as any)._latency,
     };
 
-    // Guardar en cache
+    // Guardar en cache with FIFO eviction
     this.lastQuotes.set(symbol, quote);
+    if (this.lastQuotes.size > QuoteManager.MAX_CACHE_SIZE) {
+      const it = this.lastQuotes.keys();
+      for (let i = 0; i < 50; i++) this.lastQuotes.delete(it.next().value!);
+    }
 
     // Notificar a suscriptores
     const callbacks = this.subscriptions.get(symbol);
@@ -558,32 +562,8 @@ export function useRealtimeQuote(
     }
   }, [debug, getToken]);
 
-  // Refresh token periódicamente (Clerk tokens expiran en 60s)
-  useEffect(() => {
-    if (!initializedRef.current) return;
-
-    async function refreshToken() {
-      try {
-        const newToken = await getToken();
-        if (newToken && managerRef.current.isConnected) {
-          // Enviar refresh_token al servidor
-          const ws = (managerRef.current as any).ws;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-              action: 'refresh_token',
-              token: newToken,
-            }));
-          }
-        }
-      } catch (error) {
-        console.error('📊 [QuoteManager] Token refresh failed:', error);
-      }
-    }
-
-    // Refresh cada 50 segundos
-    const interval = setInterval(refreshToken, 50000);
-    return () => clearInterval(interval);
-  }, [getToken, debug]);
+  // Token refresh is handled centrally by AuthWebSocketContext (every 50s).
+  // No duplicate interval here to avoid doubling Clerk's internal state growth.
 
   // Suscribirse al símbolo
   useEffect(() => {
@@ -661,14 +641,9 @@ export function useRealtimeQuotes(
   const managerRef = useRef<QuoteManager>(QuoteManager.getInstance());
   const initializedRef = useRef(false);
 
-  // Inicializar manager
-  useEffect(() => {
-    if (!initializedRef.current) {
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:9000/ws/scanner';
-      managerRef.current.connect(wsUrl, debug);
-      initializedRef.current = true;
-    }
-  }, [debug]);
+  // Skip explicit connect — the singleton is initialized by useRealtimeQuote
+  // (which includes auth token). Calling connect() here without a token could
+  // replace an authenticated connection with an unauthenticated one.
 
   // Suscribirse a todos los símbolos
   useEffect(() => {

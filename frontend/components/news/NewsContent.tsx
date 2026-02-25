@@ -4,19 +4,13 @@
  * NewsContent - Componente de PRESENTACIÓN de noticias
  * 
  * Arquitectura Enterprise:
- * - SOLO consume del NewsStore global
- * - NO tiene lógica de ingesta (WebSocket, fetch, etc.)
- * - La ingesta se hace en NewsProvider (montado globalmente)
+ * - SOLO consume del NewsStore global (modo Live)
+ * - Modo Search: query directa a Polygon API con filtros completos
  * - VIRTUALIZADO con react-virtuoso para rendimiento óptimo
- * 
- * Beneficios:
- * - Puede montarse/desmontarse sin perder noticias
- * - Filtros son solo vistas sobre los datos del store
- * - Mejor separación de responsabilidades
- * - Escala a miles de noticias sin memory leaks
  */
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { TableVirtuoso } from 'react-virtuoso';
 import { useNewsStore, NewsArticle, selectArticles, selectIsPaused, selectIsConnected, selectHasMore, selectIsLoadingMore, PAGE_SIZE } from '@/stores/useNewsStore';
@@ -25,9 +19,9 @@ import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { StreamPauseButton } from '@/components/common/StreamPauseButton';
 import { SquawkButton } from '@/components/common/SquawkButton';
 import { TickerSearch } from '@/components/common/TickerSearch';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Search, ArrowLeft, X, Loader2 } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
-import { useWindowState } from '@/contexts/FloatingWindowContext';
+import { useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
 import { decodeHtmlEntities } from '@/lib/html-utils';
 
 // Mapeo de fuentes a font-family CSS
@@ -48,12 +42,44 @@ interface NewsContentProps {
   highlightArticleId?: string;
 }
 
+interface SearchFilters {
+  tickers: string;
+  channels: string;
+  tags: string;
+  author: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
+const EMPTY_FILTERS: SearchFilters = { tickers: '', channels: '', tags: '', author: '', dateFrom: '', dateTo: '' };
+
+// Quick date range helpers
+function getQuickDateRange(days: number): { from: string; to: string } {
+  const today = new Date();
+  const to = today.toISOString().split('T')[0];
+  if (days === 0) return { from: to, to };
+  if (days === -1) return { from: `${today.getFullYear()}-01-01`, to }; // YTD
+  const from = new Date();
+  from.setDate(from.getDate() - days);
+  return { from: from.toISOString().split('T')[0], to };
+}
+
 // Row height for virtualization
 const ROW_HEIGHT = 24;
 
 export function NewsContent({ initialTicker, highlightArticleId }: NewsContentProps = {}) {
   const { t } = useTranslation();
   const { state: windowState, updateState: updateWindowState } = useWindowState<NewsWindowState>();
+  const windowId = useCurrentWindowId();
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+
+  // Find the portal target in the window title bar
+  useEffect(() => {
+    if (windowId) {
+      const el = document.getElementById(`window-header-extra-${windowId}`);
+      setPortalTarget(el);
+    }
+  }, [windowId]);
 
   // Fuente del usuario
   const userFont = useUserPreferencesStore((s) => s.theme.font);
@@ -63,7 +89,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const savedTicker = windowState.ticker || initialTicker || '';
 
   // ================================================================
-  // CONSUMIR DEL STORE GLOBAL
+  // CONSUMIR DEL STORE GLOBAL (Live mode)
   // ================================================================
   const articles = useNewsStore(selectArticles);
   const isPaused = useNewsStore(selectIsPaused);
@@ -73,17 +99,15 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const hasMore = useNewsStore(selectHasMore);
   const isLoadingMore = useNewsStore(selectIsLoadingMore);
 
-  // Acciones del store
   const setPaused = useNewsStore((state) => state.setPaused);
   const resumeWithBuffer = useNewsStore((state) => state.resumeWithBuffer);
   const loadOlderArticles = useNewsStore((state) => state.loadOlderArticles);
   const setLoadingMore = useNewsStore((state) => state.setLoadingMore);
 
-  // Squawk Service (para UI de botón, la lógica de speak está en NewsProvider)
   const squawk = useSquawk();
 
   // ================================================================
-  // ESTADO LOCAL (solo UI)
+  // ESTADO LOCAL (UI)
   // ================================================================
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
   const [tickerFilter, setTickerFilter] = useState<string>(savedTicker);
@@ -99,17 +123,27 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   const newsMenuRef = useRef<HTMLDivElement>(null);
   const colPanelRef = useRef<HTMLDivElement>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
-
-  // Ref para virtuoso (para scroll programático)
   const virtuosoRef = useRef<any>(null);
 
-  // Persist ticker changes (including when cleared)
+  // ================================================================
+  // SEARCH MODE STATE
+  // ================================================================
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>(EMPTY_FILTERS);
+  const [searchResults, setSearchResults] = useState<NewsArticle[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchNextUrl, setSearchNextUrl] = useState<string | null>(null);
+  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchExecuted, setSearchExecuted] = useState(false);
+
+  // Persist ticker changes
   useEffect(() => {
     updateWindowState({ ticker: tickerFilter });
   }, [tickerFilter, updateWindowState]);
 
   // ================================================================
-  // FILTRADO (memoizado) - Sin paginación, virtualización maneja todo
+  // LIVE MODE: filtrado memoizado
   // ================================================================
   const filteredNews = useMemo(() => {
     if (!tickerFilter) return articles;
@@ -123,9 +157,90 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     articles.filter(a => a.isLive).length
     , [articles]);
 
-  // Infinite scroll — load older articles from API when user reaches the bottom
+  // Data source: search mode vs live mode
+  const displayedArticles = isSearchMode ? searchResults : filteredNews;
+
+  // ================================================================
+  // SEARCH HANDLERS
+  // ================================================================
+  const handleSearch = useCallback(async () => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    setSearchLoading(true);
+    setSearchError(null);
+    setSearchExecuted(true);
+
+    try {
+      const params = new URLSearchParams();
+      if (searchFilters.tickers) params.set('tickers', searchFilters.tickers.toUpperCase());
+      if (searchFilters.channels) params.set('channels', searchFilters.channels);
+      if (searchFilters.tags) params.set('tags', searchFilters.tags);
+      if (searchFilters.author) params.set('author', searchFilters.author);
+      if (searchFilters.dateFrom) params.set('published_after', searchFilters.dateFrom);
+      if (searchFilters.dateTo) params.set('published_before', searchFilters.dateTo);
+      params.set('limit', '200');
+
+      const response = await fetch(`${apiUrl}/news/api/v1/news/search?${params}`);
+      if (!response.ok) throw new Error(`Search failed: ${response.status}`);
+
+      const data = await response.json();
+      setSearchResults(data.results || []);
+      setSearchNextUrl(data.next_url || null);
+    } catch (e: any) {
+      console.error('[NewsContent] Search error:', e);
+      setSearchError(e.message || 'Search failed');
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [searchFilters]);
+
+  const handleLoadMoreSearch = useCallback(async () => {
+    if (!searchNextUrl || searchLoadingMore) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    setSearchLoadingMore(true);
+
+    try {
+      const response = await fetch(`${apiUrl}/news/api/v1/news/search/cursor?cursor_url=${encodeURIComponent(searchNextUrl)}`);
+      if (!response.ok) throw new Error('Cursor fetch failed');
+
+      const data = await response.json();
+      setSearchResults(prev => [...prev, ...(data.results || [])]);
+      setSearchNextUrl(data.next_url || null);
+    } catch (e) {
+      console.error('[NewsContent] Load more error:', e);
+    } finally {
+      setSearchLoadingMore(false);
+    }
+  }, [searchNextUrl, searchLoadingMore]);
+
+  const handleExitSearch = useCallback(() => {
+    setIsSearchMode(false);
+    setSearchResults([]);
+    setSearchNextUrl(null);
+    setSearchError(null);
+    setSearchExecuted(false);
+    setSearchFilters(EMPTY_FILTERS);
+  }, []);
+
+  const handleEnterSearch = useCallback(() => {
+    setIsSearchMode(true);
+  }, []);
+
+  const updateSearchFilter = useCallback((key: keyof SearchFilters, value: string) => {
+    setSearchFilters(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const handleQuickDate = useCallback((days: number) => {
+    const { from, to } = getQuickDateRange(days);
+    setSearchFilters(prev => ({ ...prev, dateFrom: from, dateTo: to }));
+  }, []);
+
+  // ================================================================
+  // LIVE MODE: Infinite scroll
+  // ================================================================
   const loadMoreRef = useRef(false);
   const handleEndReached = useCallback(async () => {
+    if (isSearchMode) return; // Don't load live articles in search mode
     if (loadMoreRef.current || !hasMore || isLoadingMore || tickerFilter) return;
     loadMoreRef.current = true;
     setLoadingMore(true);
@@ -145,13 +260,11 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     } finally {
       loadMoreRef.current = false;
     }
-  }, [hasMore, isLoadingMore, tickerFilter, articles.length, setLoadingMore, loadOlderArticles]);
+  }, [isSearchMode, hasMore, isLoadingMore, tickerFilter, articles.length, setLoadingMore, loadOlderArticles]);
 
   // ================================================================
-  // EFECTOS
+  // EFFECTS
   // ================================================================
-
-  // Scroll al artículo destacado
   useEffect(() => {
     if (highlightedId && virtuosoRef.current) {
       const index = filteredNews.findIndex(a => {
@@ -166,7 +279,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     }
   }, [highlightedId, filteredNews]);
 
-  // Close news menu on outside click
   useEffect(() => {
     if (!newsMenu) return;
     const handle = (e: MouseEvent) => {
@@ -176,7 +288,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     return () => { clearTimeout(tid); document.removeEventListener('mousedown', handle); };
   }, [newsMenu]);
 
-  // Close column panel on outside click
   useEffect(() => {
     if (!colPanel) return;
     const handle = (e: MouseEvent) => {
@@ -187,15 +298,10 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   }, [colPanel]);
 
   // ================================================================
-  // HANDLERS
+  // HANDLERS (existing)
   // ================================================================
-
   const handleTogglePause = useCallback(() => {
-    if (isPaused) {
-      resumeWithBuffer();
-    } else {
-      setPaused(true);
-    }
+    if (isPaused) { resumeWithBuffer(); } else { setPaused(true); }
   }, [isPaused, setPaused, resumeWithBuffer]);
 
   const handleNewsMenuBtn = useCallback((e: React.MouseEvent) => {
@@ -233,7 +339,6 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
     setTickerFilter(newFilter);
   }, [tickerInputValue]);
 
-  // Format dates in Eastern Time (ET) - standard for US markets
   const formatDateTime = useCallback((isoString: string) => {
     try {
       const d = new Date(isoString);
@@ -247,9 +352,9 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   }, []);
 
   // ================================================================
-  // LOADING STATE (solo en carga inicial)
+  // LOADING STATE
   // ================================================================
-  if (!stats.initialLoadComplete) {
+  if (!stats.initialLoadComplete && !isSearchMode) {
     return (
       <div className="flex items-center justify-center h-full bg-white">
         <div className="text-center">
@@ -276,7 +381,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             onClick={() => setSelectedArticle(null)}
             className="px-2 py-1 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 text-xs font-medium flex items-center gap-1"
           >
-            ← {t('common.back')}
+            <ArrowLeft className="w-3 h-3" /> {t('common.back')}
           </button>
           <div className="text-xs text-slate-600 font-mono flex items-center gap-2">
             {ticker && (
@@ -323,27 +428,17 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             ) : hasTeaser ? (
               <div className="text-slate-700 leading-relaxed">
                 <p className="mb-4">{decodeHtmlEntities(selectedArticle.teaser || '')}</p>
-                <a
-                  href={selectedArticle.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm"
-                >
-                  {t('news.readMore')}
-                  <ExternalLink className="w-3.5 h-3.5" />
+                <a href={selectedArticle.url} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-medium text-sm">
+                  {t('news.readMore')} <ExternalLink className="w-3.5 h-3.5" />
                 </a>
               </div>
             ) : (
               <div className="text-center py-8">
                 <p className="text-slate-500 mb-4">{t('news.fullContentNotAvailable')}</p>
-                <a
-                  href={selectedArticle.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  {t('news.openOnBenzinga')}
+                <a href={selectedArticle.url} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
+                  <ExternalLink className="w-4 h-4" /> {t('news.openOnBenzinga')}
                 </a>
               </div>
             )}
@@ -354,94 +449,216 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
   }
 
   // ================================================================
-  // MAIN VIEW - VIRTUALIZED TABLE
+  // MAIN VIEW
   // ================================================================
   return (
     <div className="flex flex-col h-full bg-white" style={{ fontFamily }}>
-      {/* Header - Compacto */}
-      <div className="flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200">
-        <div className="flex items-center gap-2">
-          {/* Connection Status */}
-          <div className="flex items-center gap-1">
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`}
-            />
-            <span className={`text-[10px] ${isConnected ? 'text-emerald-600' : 'text-slate-500'}`} style={{ fontFamily }}>
-              {isConnected ? t('common.live') : t('common.offline')}
-            </span>
-          </div>
-
-          {/* Pause Button */}
-          <StreamPauseButton isPaused={isPaused} onToggle={handleTogglePause} size="sm" />
-
-          {/* Squawk Button */}
-          <SquawkButton
-            isEnabled={squawk.isEnabled}
-            isSpeaking={squawk.isSpeaking}
-            queueSize={squawk.queueSize}
-            onToggle={squawk.toggleEnabled}
-            size="sm"
-          />
-
-          {/* Paused Buffer Count */}
-          {isPaused && pausedBuffer.length > 0 && (
-            <span className="text-amber-600 text-[10px]" style={{ fontFamily }}>(+{pausedBuffer.length})</span>
-          )}
-
-          {/* Ticker Filter */}
-          <form
-            onSubmit={(e) => { e.preventDefault(); handleApplyFilter(); }}
-            className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-300"
+      {/* Title bar toggle via portal */}
+      {portalTarget && createPortal(
+        <div className="flex items-center bg-slate-200 rounded p-0.5 mr-1.5" style={{ fontFamily }}>
+          <button
+            onClick={isSearchMode ? handleExitSearch : undefined}
+            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${!isSearchMode ? 'bg-white text-emerald-700 shadow-sm font-medium' : 'text-slate-500 hover:text-slate-700'}`}
           >
-            <TickerSearch
-              value={tickerInputValue}
-              onChange={(value) => {
-                setTickerInputValue(value);
-                if (!value) {
-                  setTickerFilter('');
-                }
-              }}
-              onSelect={(ticker) => {
-                setTickerInputValue(ticker.symbol);
-                setTickerFilter(ticker.symbol.toUpperCase());
-              }}
-              placeholder={t('news.ticker')}
-              className="w-20"
-            />
-            <button
-              type="submit"
-              className="px-2 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 transition-colors"
-              style={{ fontFamily }}
-            >
-              {t('common.filter')}
-            </button>
-          </form>
+            {t('news.liveMode')}
+          </button>
+          <button
+            onClick={!isSearchMode ? handleEnterSearch : undefined}
+            className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${isSearchMode ? 'bg-white text-slate-800 shadow-sm font-medium' : 'text-slate-500 hover:text-slate-700'}`}
+          >
+            {t('news.searchMode')}
+          </button>
+        </div>,
+        portalTarget
+      )}
+
+      {/* Header Row 1 */}
+      <div className={`flex items-center justify-between px-2 py-1 border-b border-slate-200 bg-slate-50`}>
+        <div className="flex items-center gap-2">
+          {!isSearchMode ? (
+            <>
+              {/* Live mode controls */}
+              <div className="flex items-center gap-1">
+                <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                <span className={`text-[10px] ${isConnected ? 'text-emerald-600' : 'text-slate-500'}`} style={{ fontFamily }}>
+                  {isConnected ? t('common.live') : t('common.offline')}
+                </span>
+              </div>
+
+              <StreamPauseButton isPaused={isPaused} onToggle={handleTogglePause} size="sm" />
+
+              <SquawkButton
+                isEnabled={squawk.isEnabled}
+                isSpeaking={squawk.isSpeaking}
+                queueSize={squawk.queueSize}
+                onToggle={squawk.toggleEnabled}
+                size="sm"
+              />
+
+              {isPaused && pausedBuffer.length > 0 && (
+                <span className="text-slate-500 text-[10px]" style={{ fontFamily }}>(+{pausedBuffer.length})</span>
+              )}
+
+              {/* Ticker Filter (live mode) */}
+              <form
+                onSubmit={(e) => { e.preventDefault(); handleApplyFilter(); }}
+                className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-300"
+              >
+                <TickerSearch
+                  value={tickerInputValue}
+                  onChange={(value) => { setTickerInputValue(value); if (!value) setTickerFilter(''); }}
+                  onSelect={(ticker) => { setTickerInputValue(ticker.symbol); setTickerFilter(ticker.symbol.toUpperCase()); }}
+                  placeholder={t('news.ticker')}
+                  className="w-20"
+                />
+                <button type="submit" className="px-2 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 transition-colors" style={{ fontFamily }}>
+                  {t('common.filter')}
+                </button>
+              </form>
+            </>
+          ) : (
+            <span className="text-[10px] text-slate-500" style={{ fontFamily }}>
+              {searchExecuted ? `${searchResults.length} ${t('news.searchResults').toLowerCase()}` : ''}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Stats */}
-          <div className="flex items-center gap-1.5 text-[10px]" style={{ fontFamily }}>
-            {tickerFilter && (
-              <span className="px-1 py-0.5 bg-blue-100 text-blue-700 rounded">
-                {tickerFilter}
+          {!isSearchMode && (
+            <div className="flex items-center gap-1.5 text-[10px]" style={{ fontFamily }}>
+              {tickerFilter && (
+                <span className="px-1 py-0.5 bg-blue-100 text-blue-700 rounded">{tickerFilter}</span>
+              )}
+              <span className="text-slate-600">
+                {filteredNews.length}{tickerFilter ? ` / ${articles.length}` : ''}
               </span>
-            )}
-            <span className="text-slate-600">
-              {filteredNews.length}{tickerFilter ? ` / ${articles.length}` : ''}
-            </span>
-            {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
-          </div>
+              {liveCount > 0 && <span className="text-emerald-600">({liveCount} live)</span>}
+            </div>
+          )}
 
-          {/* 3-dot menu */}
           <button ref={menuBtnRef} onClick={handleNewsMenuBtn}
-            className="p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-            title="Menu">
+            className="p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors" title="Menu">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <circle cx="8" cy="3" r="1.5" /><circle cx="8" cy="8" r="1.5" /><circle cx="8" cy="13" r="1.5" />
             </svg>
           </button>
         </div>
       </div>
+
+      {/* Search Filters Row (only in search mode) */}
+      {isSearchMode && (
+        <div className="px-2 py-1.5 bg-slate-50 border-b border-slate-200">
+          <form onSubmit={(e) => { e.preventDefault(); handleSearch(); }} className="flex flex-wrap items-center gap-1.5">
+            {/* Ticker */}
+            <input
+              type="text"
+              value={searchFilters.tickers}
+              onChange={(e) => updateSearchFilter('tickers', e.target.value)}
+              placeholder={t('news.ticker')}
+              className="w-16 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              style={{ fontFamily }}
+            />
+
+            {/* Date From */}
+            <div className="flex items-center gap-0.5">
+              <span className="text-[9px] text-slate-400">{t('news.dateFrom')}</span>
+              <input
+                type="date"
+                value={searchFilters.dateFrom}
+                onChange={(e) => updateSearchFilter('dateFrom', e.target.value)}
+                className="w-[105px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+                style={{ fontFamily }}
+              />
+            </div>
+
+            {/* Date To */}
+            <div className="flex items-center gap-0.5">
+              <span className="text-[9px] text-slate-400">{t('news.dateTo')}</span>
+              <input
+                type="date"
+                value={searchFilters.dateTo}
+                onChange={(e) => updateSearchFilter('dateTo', e.target.value)}
+                className="w-[105px] px-1 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+                style={{ fontFamily }}
+              />
+            </div>
+
+            {/* Quick dates */}
+            <div className="flex items-center gap-0.5">
+              {[
+                { label: t('news.today'), days: 0 },
+                { label: '7d', days: 7 },
+                { label: '30d', days: 30 },
+                { label: '90d', days: 90 },
+                { label: 'YTD', days: -1 },
+              ].map(r => (
+                <button key={r.label} type="button" onClick={() => handleQuickDate(r.days)}
+                  className="px-1.5 py-0.5 text-[9px] text-blue-600 border border-blue-200 hover:border-blue-400 hover:bg-blue-50 rounded transition-colors"
+                  style={{ fontFamily }}>
+                  {r.label}
+                </button>
+              ))}
+              {(searchFilters.dateFrom || searchFilters.dateTo) && (
+                <button type="button" onClick={() => setSearchFilters(prev => ({ ...prev, dateFrom: '', dateTo: '' }))}
+                  className="p-0.5 text-slate-400 hover:text-slate-600">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            <span className="text-slate-300">|</span>
+
+            {/* Tags */}
+            <input
+              type="text"
+              value={searchFilters.tags}
+              onChange={(e) => updateSearchFilter('tags', e.target.value)}
+              placeholder={t('news.tags')}
+              className="w-20 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              style={{ fontFamily }}
+            />
+
+            {/* Channels */}
+            <input
+              type="text"
+              value={searchFilters.channels}
+              onChange={(e) => updateSearchFilter('channels', e.target.value)}
+              placeholder={t('news.channels')}
+              className="w-20 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              style={{ fontFamily }}
+            />
+
+            {/* Author */}
+            <input
+              type="text"
+              value={searchFilters.author}
+              onChange={(e) => updateSearchFilter('author', e.target.value)}
+              placeholder={t('news.author')}
+              className="w-20 px-1.5 py-0.5 text-[10px] border border-slate-200 rounded focus:outline-none focus:border-blue-400 bg-white"
+              style={{ fontFamily }}
+            />
+
+            {/* Search button */}
+            <button
+              type="submit"
+              disabled={searchLoading}
+              className="flex items-center gap-1 px-2.5 py-0.5 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              style={{ fontFamily }}
+            >
+              {searchLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+              {t('common.search')}
+            </button>
+
+            {/* Clear filters */}
+            {searchExecuted && (
+              <button type="button" onClick={() => { setSearchFilters(EMPTY_FILTERS); setSearchResults([]); setSearchNextUrl(null); setSearchExecuted(false); }}
+                className="px-1.5 py-0.5 text-[10px] text-slate-500 hover:text-slate-700" style={{ fontFamily }}>
+                {t('common.clear')}
+              </button>
+            )}
+          </form>
+        </div>
+      )}
 
       {/* Context menu */}
       {newsMenu && (
@@ -473,8 +690,7 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
             {NEWS_COLS.map(col => (
               <label key={col} className="flex items-center gap-2 px-3 py-1 cursor-pointer hover:bg-slate-50">
                 <input type="checkbox" checked={!hiddenCols.has(col)}
-                  onChange={() => toggleCol(col)}
-                  disabled={col === 'headline'}
+                  onChange={() => toggleCol(col)} disabled={col === 'headline'}
                   className="w-3 h-3 rounded border-slate-300 text-blue-600 focus:ring-0 focus:ring-offset-0" />
                 <span className={`text-[11px] ${hiddenCols.has(col) ? 'text-slate-400' : 'text-slate-700'}`}>
                   {COL_LABELS[col]}
@@ -491,150 +707,141 @@ export function NewsContent({ initialTicker, highlightArticleId }: NewsContentPr
         </div>
       )}
 
-      {/* Virtualized Table */}
-      <div className="flex-1">
-        <TableVirtuoso
-          ref={virtuosoRef}
-          style={{ height: '100%' }}
-          data={filteredNews}
-          overscan={20}
-          endReached={handleEndReached}
-          fixedHeaderContent={() => (
-            <tr className="text-left text-slate-600 uppercase tracking-wide bg-slate-100">
-              {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
-              <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
-              {!hiddenCols.has('date') && <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>}
-              {!hiddenCols.has('time') && <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>}
-              {!hiddenCols.has('source') && <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>}
-            </tr>
-          )}
-          itemContent={(index, article) => {
-            const dt = formatDateTime(article.published);
-            const displayTicker = tickerFilter
-              ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
-              : (article.tickers?.[0] || '—');
-            const hasMultipleTickers = (article.tickers?.length || 0) > 1;
-            const articleId = String(article.benzinga_id || article.id || '');
-            const isHighlighted = highlightedId && highlightedId.includes(articleId);
+      {/* Search: loading/error/empty states */}
+      {isSearchMode && searchLoading && (
+        <div className="flex items-center justify-center py-8 bg-white">
+          <Loader2 className="w-6 h-6 animate-spin text-slate-400 mr-2" />
+          <span className="text-sm text-slate-500">{t('news.searching')}</span>
+        </div>
+      )}
 
-            return (
-              <>
-                {/* Ticker */}
-                {!hiddenCols.has('ticker') && (
-                  <td
-                    className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
-                      }`}
-                    style={{ fontFamily, height: ROW_HEIGHT }}
-                    onClick={() => setSelectedArticle(article)}
-                  >
-                    <span className="text-blue-600 font-semibold">
-                      {displayTicker}
-                      {hasMultipleTickers && (
-                        <span className="text-slate-400 text-[9px] ml-0.5">
-                          +{(article.tickers?.length || 1) - 1}
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                )}
-                {/* Headline */}
-                <td
-                  className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted
-                    ? 'bg-rose-100'
-                    : article.isLive ? 'bg-emerald-50/50' : ''
-                    }`}
-                  style={{ fontFamily, height: ROW_HEIGHT }}
-                  onClick={() => setSelectedArticle(article)}
-                >
-                  <div className="flex items-center gap-1">
-                    {article.isLive && (
-                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />
-                    )}
-                    <span className="text-slate-800 truncate" style={{ maxWidth: '450px' }}>
-                      {decodeHtmlEntities(article.title)}
-                    </span>
-                  </div>
-                </td>
-                {/* Date */}
-                {!hiddenCols.has('date') && (
-                  <td
-                    className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
-                      }`}
-                    style={{ fontFamily, height: ROW_HEIGHT }}
-                    onClick={() => setSelectedArticle(article)}
-                  >
-                    {dt.date}
-                  </td>
-                )}
-                {/* Time */}
-                {!hiddenCols.has('time') && (
-                  <td
-                    className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
-                      }`}
-                    style={{ fontFamily, height: ROW_HEIGHT }}
-                    onClick={() => setSelectedArticle(article)}
-                  >
-                    {dt.time}
-                  </td>
-                )}
-                {/* Source */}
-                {!hiddenCols.has('source') && (
-                  <td
-                    className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${isHighlighted
-                      ? 'bg-rose-100'
-                      : article.isLive ? 'bg-emerald-50/50' : ''
-                      }`}
-                    style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }}
-                    onClick={() => setSelectedArticle(article)}
-                  >
-                    {article.author}
-                  </td>
-                )}
-              </>
-            );
-          }}
-          components={{
-            Table: ({ style, ...props }) => (
-              <table
-                {...props}
-                style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}
-                className="text-[11px]"
-              />
-            ),
-            TableHead: React.forwardRef(({ style, ...props }, ref) => (
-              <thead
-                {...props}
-                ref={ref}
-                style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }}
-              />
-            )),
-            TableRow: ({ style, ...props }) => (
-              <tr
-                {...props}
-                style={{ ...style }}
-                className="hover:bg-slate-50 transition-colors border-b border-slate-100"
-              />
-            ),
-            TableFoot: React.forwardRef(({ style, ...props }, ref) => (
-              <tfoot {...props} ref={ref} style={style}>
-                {isLoadingMore && (
-                  <tr>
-                    <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-slate-400" style={{ fontFamily }}>
-                      Loading more...
+      {isSearchMode && searchError && (
+        <div className="flex items-center justify-center py-8 bg-white">
+          <span className="text-sm text-red-500">{searchError}</span>
+        </div>
+      )}
+
+      {isSearchMode && searchExecuted && !searchLoading && !searchError && searchResults.length === 0 && (
+        <div className="flex items-center justify-center py-8 bg-white">
+          <span className="text-sm text-slate-500">{t('news.noSearchResults')}</span>
+        </div>
+      )}
+
+      {/* Virtualized Table */}
+      {(!isSearchMode || (isSearchMode && searchResults.length > 0)) && !searchLoading && (
+        <div className="flex-1">
+          <TableVirtuoso
+            ref={virtuosoRef}
+            style={{ height: '100%' }}
+            data={displayedArticles}
+            overscan={20}
+            endReached={isSearchMode ? undefined : handleEndReached}
+            fixedHeaderContent={() => (
+              <tr className={`text-left uppercase tracking-wide 'text-slate-600 bg-slate-100'`}>
+                {!hiddenCols.has('ticker') && <th className="px-1.5 py-1 font-medium w-14 text-center text-[11px]" style={{ fontFamily }}>{t('news.ticker')}</th>}
+                <th className="px-1.5 py-1 font-medium text-[11px]" style={{ fontFamily }}>{t('news.headline')}</th>
+                {!hiddenCols.has('date') && <th className="px-1.5 py-1 font-medium w-20 text-center text-[11px]" style={{ fontFamily }}>{t('news.date')}</th>}
+                {!hiddenCols.has('time') && <th className="px-1.5 py-1 font-medium w-16 text-center text-[11px]" style={{ fontFamily }}>{t('news.time')}</th>}
+                {!hiddenCols.has('source') && <th className="px-1.5 py-1 font-medium w-28 text-[11px]" style={{ fontFamily }}>{t('news.source')}</th>}
+              </tr>
+            )}
+            itemContent={(index, article) => {
+              const dt = formatDateTime(article.published);
+              const displayTicker = tickerFilter && !isSearchMode
+                ? (article.tickers?.find(t => t.toUpperCase() === tickerFilter) || article.tickers?.[0] || '—')
+                : (article.tickers?.[0] || '—');
+              const hasMultipleTickers = (article.tickers?.length || 0) > 1;
+              const articleId = String(article.benzinga_id || article.id || '');
+              const isHighlighted = highlightedId && highlightedId.includes(articleId);
+
+              return (
+                <>
+                  {!hiddenCols.has('ticker') && (
+                    <td
+                      className={`px-1.5 py-0.5 text-center text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                      style={{ fontFamily, height: ROW_HEIGHT }}
+                      onClick={() => setSelectedArticle(article)}
+                    >
+                      <span className="text-blue-600 font-semibold">
+                        {displayTicker}
+                        {hasMultipleTickers && <span className="text-slate-400 text-[9px] ml-0.5">+{(article.tickers?.length || 1) - 1}</span>}
+                      </span>
                     </td>
-                  </tr>
-                )}
-              </tfoot>
-            )),
-          }}
-        />
-      </div>
+                  )}
+                  <td
+                    className={`px-1.5 py-0.5 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                    style={{ fontFamily, height: ROW_HEIGHT }}
+                    onClick={() => setSelectedArticle(article)}
+                  >
+                    <div className="flex items-center gap-1">
+                      {article.isLive && <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse flex-shrink-0" />}
+                      <span className="text-slate-800 truncate" style={{ maxWidth: '450px' }}>{decodeHtmlEntities(article.title)}</span>
+                    </div>
+                  </td>
+                  {!hiddenCols.has('date') && (
+                    <td className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                      style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
+                      {dt.date}
+                    </td>
+                  )}
+                  {!hiddenCols.has('time') && (
+                    <td className={`px-1.5 py-0.5 text-center text-slate-500 text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                      style={{ fontFamily, height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
+                      {dt.time}
+                    </td>
+                  )}
+                  {!hiddenCols.has('source') && (
+                    <td className={`px-1.5 py-0.5 text-slate-500 truncate text-[11px] cursor-pointer ${isHighlighted ? 'bg-rose-100' : article.isLive ? 'bg-emerald-50/50' : ''}`}
+                      style={{ fontFamily, maxWidth: '110px', height: ROW_HEIGHT }} onClick={() => setSelectedArticle(article)}>
+                      {article.author}
+                    </td>
+                  )}
+                </>
+              );
+            }}
+            components={{
+              Table: ({ style, ...props }) => (
+                <table {...props} style={{ ...style, width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }} className="text-[11px]" />
+              ),
+              TableHead: React.forwardRef(({ style, ...props }, ref) => (
+                <thead {...props} ref={ref} style={{ ...style, position: 'sticky', top: 0, zIndex: 1 }} />
+              )),
+              TableRow: ({ style, ...props }) => (
+                <tr {...props} style={{ ...style }} className="hover:bg-slate-50 transition-colors border-b border-slate-100" />
+              ),
+              TableFoot: React.forwardRef(({ style, ...props }, ref) => (
+                <tfoot {...props} ref={ref} style={style}>
+                  {/* Live mode: loading more */}
+                  {!isSearchMode && isLoadingMore && (
+                    <tr>
+                      <td colSpan={5 - hiddenCols.size} className="text-center py-2 text-xs text-slate-400" style={{ fontFamily }}>
+                        Loading more...
+                      </td>
+                    </tr>
+                  )}
+                  {/* Search mode: load more button */}
+                  {isSearchMode && searchNextUrl && (
+                    <tr>
+                      <td colSpan={5 - hiddenCols.size} className="text-center py-2">
+                        <button
+                          onClick={handleLoadMoreSearch}
+                          disabled={searchLoadingMore}
+                          className="px-3 py-1 text-[10px] bg-slate-100 text-slate-700 rounded hover:bg-slate-200 disabled:opacity-50 transition-colors"
+                          style={{ fontFamily }}
+                        >
+                          {searchLoadingMore ? (
+                            <span className="flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading...</span>
+                          ) : t('news.loadMore')}
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                </tfoot>
+              )),
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

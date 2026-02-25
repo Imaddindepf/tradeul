@@ -228,6 +228,88 @@ export function useMarketPulse({
   return { data, loading, error, lastUpdate, totalTickers, tickCount, refetch: fetchData };
 }
 
+// ── Ticker Context (search result) ──
+
+export interface TickerContextPeer {
+  symbol: string;
+  price: number | null;
+  change_percent: number | null;
+  volume: number | null;
+  market_cap: number | null;
+  rvol: number | null;
+}
+
+export interface SectorRanked {
+  name: string;
+  count: number;
+  weighted_change: number;
+  avg_change: number;
+  breadth: number;
+  avg_rvol: number;
+  total_market_cap: number;
+}
+
+export interface ThemeContext {
+  name: string;
+  relevance: number;
+  count: number;
+  weighted_change: number;
+  avg_change: number;
+  breadth: number;
+}
+
+export interface TickerContextData {
+  symbol: string;
+  ticker: Record<string, number | null>;
+  sector: string;
+  industry: string;
+  sectors_ranked: SectorRanked[];
+  industry_peers: TickerContextPeer[];
+  rank_in_industry: number | null;
+  industry_total: number;
+  themes: ThemeContext[];
+}
+
+export function useTickerContext() {
+  const [data, setData] = useState<TickerContextData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetch_ = useCallback(async (symbol: string) => {
+    if (!symbol.trim()) { setData(null); return; }
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setLoading(true);
+    setError(null);
+    try {
+      const url = `${API_BASE}/api/v1/performance/ticker-context/${encodeURIComponent(symbol.toUpperCase().trim())}`;
+      const res = await fetch(url, { signal: ac.signal });
+      if (!res.ok) {
+        if (res.status === 404) { setData(null); setError('not_found'); return; }
+        throw new Error(`HTTP ${res.status}`);
+      }
+      const json: TickerContextData = await res.json();
+      setData(json);
+    } catch (e: any) {
+      if (e.name === 'AbortError') return;
+      setError(e.message || 'Failed to fetch');
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const clear = useCallback(() => { setData(null); setError(null); }, []);
+
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
+
+  return { data, loading, error, fetchContext: fetch_, clear };
+}
+
 export function useDrilldown() {
   const [data, setData] = useState<DrilldownTicker[]>([]);
   const [loading, setLoading] = useState(false);
@@ -248,7 +330,7 @@ export function useDrilldown() {
     abortRef.current = ac;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ sort_by: sortBy, limit: '100' });
+      const params = new URLSearchParams({ sort_by: sortBy, limit: '1500' });
       if (minMarketCap) params.set('min_market_cap', String(minMarketCap));
       const encoded = encodeURIComponent(groupName);
       const url = `${API_BASE}/api/v1/performance/drilldown/${groupType}/${encoded}?${params}`;

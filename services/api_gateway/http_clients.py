@@ -857,6 +857,42 @@ class BenzingaNewsClient(InternalServiceClient):
         response.raise_for_status()
         return response.json()
 
+    async def search_news(
+        self,
+        tickers: str = None,
+        channels: str = None,
+        tags: str = None,
+        author: str = None,
+        published_after: str = None,
+        published_before: str = None,
+        limit: int = 100,
+        sort: str = "published.desc"
+    ) -> Dict[str, Any]:
+        """Búsqueda de noticias con filtros completos (query directa a Polygon)"""
+        params = {"limit": limit, "sort": sort}
+        if tickers:
+            params["tickers"] = tickers
+        if channels:
+            params["channels"] = channels
+        if tags:
+            params["tags"] = tags
+        if author:
+            params["author"] = author
+        if published_after:
+            params["published_after"] = published_after
+        if published_before:
+            params["published_before"] = published_before
+        
+        response = await self.get("/api/v1/news/search", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def search_news_cursor(self, cursor_url: str) -> Dict[str, Any]:
+        """Sigue cursor de paginación de búsqueda"""
+        response = await self.get("/api/v1/news/search/cursor", params={"cursor_url": cursor_url})
+        response.raise_for_status()
+        return response.json()
+
 
 class FinancialsClient(InternalServiceClient):
     """

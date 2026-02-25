@@ -338,6 +338,105 @@ async def fill_cache(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+# =============================================
+# SEARCH ENDPOINTS (direct Polygon query)
+# =============================================
+
+@app.get("/api/v1/news/search")
+async def search_news(
+    tickers: Optional[str] = QueryParam(None, description="Comma-separated tickers (e.g., AAPL,TSLA)"),
+    channels: Optional[str] = QueryParam(None, description="Comma-separated channels (e.g., News,Markets)"),
+    tags: Optional[str] = QueryParam(None, description="Comma-separated tags (e.g., FDA,Earnings)"),
+    author: Optional[str] = QueryParam(None, description="Author name"),
+    published_after: Optional[str] = QueryParam(None, description="Start date (YYYY-MM-DD)"),
+    published_before: Optional[str] = QueryParam(None, description="End date (YYYY-MM-DD)"),
+    limit: int = QueryParam(100, ge=1, le=1000, description="Limit results"),
+    sort: str = QueryParam("published.desc", description="Sort order (published.desc or published.asc)")
+):
+    """
+    Search Benzinga news directly from Polygon API with full filtering.
+    Bypasses Redis cache - queries Polygon in real-time.
+    Returns articles + next_url for cursor pagination.
+    """
+    try:
+        if not stream_manager or not stream_manager.news_client:
+            raise HTTPException(status_code=503, detail="News client not available")
+        
+        params = NewsFilterParams(
+            tickers=tickers,
+            channels=channels,
+            tags=tags,
+            author=author,
+            published_after=published_after,
+            published_before=published_before,
+            limit=limit,
+            sort=sort
+        )
+        
+        result = await stream_manager.news_client.search_news(params=params)
+        
+        articles = result["articles"]
+        next_url_raw = result.get("next_url")
+        
+        # Strip apiKey from next_url before sending to frontend
+        next_url = None
+        if next_url_raw:
+            import re
+            next_url = re.sub(r'[&?]apiKey=[^&]*', '', next_url_raw)
+        
+        return {
+            "status": "OK",
+            "source": "polygon",
+            "count": len(articles),
+            "results": [a.model_dump() for a in articles],
+            "next_url": next_url
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("search_news_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/news/search/cursor")
+async def search_news_cursor(
+    cursor_url: str = QueryParam(..., description="Polygon next_url for pagination")
+):
+    """
+    Follow cursor pagination from a previous search.
+    The cursor_url is the next_url returned from /search.
+    """
+    try:
+        if not stream_manager or not stream_manager.news_client:
+            raise HTTPException(status_code=503, detail="News client not available")
+        
+        result = await stream_manager.news_client.fetch_cursor_url(cursor_url)
+        
+        articles = result["articles"]
+        next_url_raw = result.get("next_url")
+        
+        # Strip apiKey from next_url
+        next_url = None
+        if next_url_raw:
+            import re
+            next_url = re.sub(r'[&?]apiKey=[^&]*', '', next_url_raw)
+        
+        return {
+            "status": "OK",
+            "source": "polygon",
+            "count": len(articles),
+            "results": [a.model_dump() for a in articles],
+            "next_url": next_url
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("search_cursor_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
 # =============================================
 # MAIN
 # =============================================

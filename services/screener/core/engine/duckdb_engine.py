@@ -250,13 +250,19 @@ class ScreenerEngine:
         # Parse filters to WHERE clause
         where_clause = self.parser.parse(filters)
         
-        # Sort field - use column names from precomputed table
-        valid_sort_fields = ['price', 'volume', 'change_1d', 'change_5d', 'change_20d', 
-                            'gap_percent', 'relative_volume', 'rsi_14', 'atr_14', 
-                            'atr_percent', 'from_52w_high', 'from_52w_low', 
-                            'bb_width', 'bb_position', 'dist_sma_20', 'dist_sma_50',
-                            'market_cap', 'free_float', 'adx_14', 'squeeze_momentum',
-                            'keltner_upper', 'keltner_lower', 'plus_di_14', 'minus_di_14']
+        # Sort field - all numeric columns in screener_data
+        valid_sort_fields = [
+            'price', 'volume', 'change_1d', 'change_3d', 'change_5d',
+            'change_10d', 'change_20d', 'gap_percent',
+            'high_52w', 'low_52w', 'from_52w_high', 'from_52w_low',
+            'avg_volume_5', 'avg_volume_10', 'avg_volume_20', 'relative_volume',
+            'sma_20', 'sma_50', 'sma_200', 'dist_sma_20', 'dist_sma_50',
+            'rsi_14', 'atr_14', 'atr_percent',
+            'bb_width', 'bb_position', 'squeeze_momentum',
+            'keltner_upper', 'keltner_lower',
+            'adx_14', 'plus_di_14', 'minus_di_14',
+            'market_cap', 'free_float',
+        ]
         sort_field = sort_by if sort_by in valid_sort_fields else "volume"
         
         # Limit
@@ -298,12 +304,19 @@ class ScreenerEngine:
         filters_clean = [{k: v for k, v in f.items() if k != 'params'} for f in filters]
         base_where = self.parser.parse(filters_clean)
         
-        # Sort field validation
-        valid_sort_fields = ['price', 'volume', 'change_1d', 'change_5d', 'change_20d', 
-                            'gap_percent', 'relative_volume', 'rsi_14', 'atr_14', 
-                            'atr_percent', 'from_52w_high', 'from_52w_low', 
-                            'bb_width', 'bb_position', 'dist_sma_20', 'dist_sma_50',
-                            'market_cap', 'free_float', 'adx_14', 'squeeze_momentum']
+        # Sort field validation (same as _build_query)
+        valid_sort_fields = [
+            'price', 'volume', 'change_1d', 'change_3d', 'change_5d',
+            'change_10d', 'change_20d', 'gap_percent',
+            'high_52w', 'low_52w', 'from_52w_high', 'from_52w_low',
+            'avg_volume_5', 'avg_volume_10', 'avg_volume_20', 'relative_volume',
+            'sma_20', 'sma_50', 'sma_200', 'dist_sma_20', 'dist_sma_50',
+            'rsi_14', 'atr_14', 'atr_percent',
+            'bb_width', 'bb_position', 'squeeze_momentum',
+            'keltner_upper', 'keltner_lower',
+            'adx_14', 'plus_di_14', 'minus_di_14',
+            'market_cap', 'free_float',
+        ]
         sort_field = sort_by if sort_by in valid_sort_fields else "volume"
         
         # Limit

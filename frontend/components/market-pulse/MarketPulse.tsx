@@ -2,9 +2,9 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useMarketPulse, useDrilldown, type PulseTab, type PerformanceEntry, type DrilldownTicker } from '@/hooks/useMarketPulse';
+import { useMarketPulse, useDrilldown, useTickerContext, type PulseTab, type PerformanceEntry, type DrilldownTicker } from '@/hooks/useMarketPulse';
 import { useCloseCurrentWindow } from '@/contexts/FloatingWindowContext';
-import { ArrowLeft, RefreshCw, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Plus, X, GripHorizontal, ExternalLink } from 'lucide-react';
+import { ArrowLeft, RefreshCw, ChevronRight, ChevronDown, ArrowDown, ArrowUp, Plus, X, GripHorizontal, ExternalLink, Search } from 'lucide-react';
 import { ALL_COLUMNS, DEFAULT_COLUMNS, DD_COLUMNS, DEFAULT_DD_COLUMNS, type ColumnDef, type RenderMode } from './columns';
 import type { PulseViewType } from './types';
 import { VIEW_DEFINITIONS } from './viewRegistry';
@@ -13,6 +13,7 @@ import BreadthMonitorView from './views/BreadthMonitorView';
 import BubbleScatterView from './views/BubbleScatterView';
 import OverviewView from './views/OverviewView';
 import TreemapView from './views/TreemapView';
+import TickerContextView from './views/TickerContextView';
 
 function clamp(v: number, min: number, max: number) { return Math.max(min, Math.min(max, v)); }
 function fmtTheme(n: string) { return n.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); }
@@ -239,6 +240,30 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
   const [sectorFilter, setSF] = useState<string>();
   const [minCap, setMinCap] = useState(() => loadPrefs().minCap || 0);
 
+  // ── Ticker search ──
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const { data: tickerCtx, loading: searchLoading, error: searchError, fetchContext, clear: clearSearch } = useTickerContext();
+
+  const handleSearch = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchInput.trim()) {
+      fetchContext(searchInput.trim());
+      setDd(null);
+    }
+  }, [searchInput, fetchContext]);
+
+  const handleSearchClear = useCallback(() => {
+    setSearchInput('');
+    clearSearch();
+    setSearchOpen(false);
+  }, [clearSearch]);
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
   // ── View switching ──
   const [activeView, setActiveView] = useState<PulseViewType>(() => loadPrefs().view || 'table');
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
@@ -374,7 +399,15 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       <div className="table-drag-handle flex items-center justify-between px-4 py-1.5 border-b border-slate-200 bg-slate-50 shrink-0 cursor-move select-none">
         <div className="flex items-center gap-2">
           <GripHorizontal className="w-4 h-4 text-slate-500" />
-          {dd ? (
+          {tickerCtx ? (
+            <>
+              <button onClick={handleSearchClear} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-slate-600 hover:text-slate-900 font-medium">
+                <ArrowLeft className="w-3.5 h-3.5" /> Back
+              </button>
+              <span className="text-[13px] font-black text-blue-600 ml-1">{tickerCtx.symbol}</span>
+              <span className="text-[10px] text-slate-400 font-medium">{tickerCtx.sector} · {tickerCtx.industry}</span>
+            </>
+          ) : dd ? (
             <>
               <button onClick={doBack} onMouseDown={e => e.stopPropagation()} className="flex items-center gap-1 text-[12px] text-slate-600 hover:text-slate-900 font-medium">
                 <ArrowLeft className="w-3.5 h-3.5" /> Back
@@ -421,7 +454,35 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
           )}
         </div>
         <div className="flex items-center gap-2.5" onMouseDown={e => e.stopPropagation()}>
-          {!dd && (
+          {/* Search */}
+          {!tickerCtx && (
+            searchOpen ? (
+              <form onSubmit={handleSearch} className="flex items-center gap-1">
+                <div className="relative">
+                  <input
+                    ref={searchInputRef}
+                    value={searchInput}
+                    onChange={e => setSearchInput(e.target.value.toUpperCase())}
+                    placeholder="Ticker..."
+                    className="w-[80px] h-[22px] text-[11px] font-mono font-semibold pl-1.5 pr-5 rounded border border-slate-300 focus:border-blue-400 focus:ring-1 focus:ring-blue-200 outline-none bg-white text-slate-800 placeholder:text-slate-300"
+                    maxLength={10}
+                  />
+                  {searchLoading && <RefreshCw className="absolute right-1 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 animate-spin" />}
+                </div>
+                <button type="button" onClick={handleSearchClear} className="p-0.5 hover:bg-slate-200 rounded">
+                  <X className="w-3 h-3 text-slate-400" />
+                </button>
+              </form>
+            ) : (
+              <button onClick={() => setSearchOpen(true)} className="p-0.5 hover:bg-blue-100 rounded transition-colors group" title="Search ticker">
+                <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600" />
+              </button>
+            )
+          )}
+          {searchError === 'not_found' && !tickerCtx && (
+            <span className="text-[9px] text-amber-600 font-medium">Not found</span>
+          )}
+          {!dd && !tickerCtx && (
             <div className="flex bg-slate-100 rounded p-px gap-px">
               {[{ l: 'All', v: 0 }, { l: '>300M', v: 3e8 }, { l: '>2B', v: 2e9 }, { l: '>10B', v: 1e10 }].map(p => (
                 <button key={p.v} onClick={() => setMinCap(p.v)}
@@ -431,7 +492,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
               ))}
             </div>
           )}
-          {!dd && totalTickers > 0 && <span className="text-[10px] text-slate-500 font-medium tabular-nums">{totalTickers.toLocaleString()}</span>}
+          {!dd && !tickerCtx && totalTickers > 0 && <span className="text-[10px] text-slate-500 font-medium tabular-nums">{totalTickers.toLocaleString()}</span>}
           <LiveDot tick={dd ? ddTickCount : tickCount} />
           <span className="text-[10px] text-slate-500 font-mono tabular-nums">{ts}</span>
           <button className="p-0.5 hover:bg-blue-100 rounded transition-colors group" title="Pop out"><ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-blue-600" /></button>
@@ -440,7 +501,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       </div>
 
       {/* Tabs (main view only — visible for all view types) */}
-      {!dd && (
+      {!dd && !tickerCtx && (
         <div className="flex shrink-0 border-b border-slate-200">
           {TABS.map(t => (
             <button key={t.key} onClick={() => doTab(t.key)} className={`flex-1 py-1.5 text-[10px] font-bold tracking-widest uppercase transition-colors ${tab === t.key ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:text-slate-700'
@@ -450,7 +511,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       )}
 
       {/* Column headers — MAIN (table view only) */}
-      {!dd && !error && activeView === 'table' && (
+      {!dd && !tickerCtx && !error && activeView === 'table' && (
         <ColumnHeaders
           columns={cols} sortKey={sortKey} sortDir={sortDir} modes={modes}
           onSort={doSort} onCycleMode={cycleMode} onRemove={rmCol}
@@ -471,7 +532,12 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
         />
       )}
 
-      {error && (
+      {/* ── Ticker Context View (search result) ── */}
+      {tickerCtx && (
+        <TickerContextView data={tickerCtx} onOpenTicker={onOpenTicker} />
+      )}
+
+      {error && !tickerCtx && (
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center">
           <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center mb-3">
             <RefreshCw className="w-5 h-5 text-amber-500" />
@@ -485,7 +551,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       )}
 
       {/* ── TABLE VIEW ── */}
-      {!error && !dd && activeView === 'table' && (
+      {!error && !dd && !tickerCtx && activeView === 'table' && (
         loading && !sorted.length ? (
           <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
         ) : !sorted.length ? (
@@ -510,7 +576,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       )}
 
       {/* ── CHART VIEWS (only when no drilldown, no error, data loaded) ── */}
-      {!error && !dd && activeView !== 'table' && (
+      {!error && !dd && !tickerCtx && activeView !== 'table' && (
         loading && !data.length ? (
           <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
         ) : !data.length ? (
@@ -540,7 +606,7 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
       )}
 
       {/* Drilldown list */}
-      {!error && dd && (
+      {!error && !tickerCtx && dd && (
         ddLoad && !ddSorted.length ? (
           <div className="flex-1 flex items-center justify-center"><RefreshCw className="w-4 h-4 text-slate-400 animate-spin" /></div>
         ) : (

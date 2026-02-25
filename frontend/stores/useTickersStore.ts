@@ -20,7 +20,7 @@ export interface TickersList {
   sequence: number;
   tickers: Map<string, Ticker>;
   order: string[]; // Array de símbolos ordenados por rank
-  lastUpdate: Date | null;
+  lastUpdate: number | null;
 }
 
 interface TickersState {
@@ -36,7 +36,7 @@ interface TickersState {
     totalLists: number;
     totalTickers: number;
     messagesReceived: number;
-    lastMessageTime: Date | null;
+    lastMessageTime: number | null;
   };
 }
 
@@ -147,7 +147,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
             sequence: snapshot.sequence || 0,
             tickers,
             order,
-            lastUpdate: new Date(),
+            lastUpdate: Date.now(),
           });
 
           return {
@@ -160,7 +160,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
                 0
               ),
               messagesReceived: state.stats.messagesReceived + 1,
-              lastMessageTime: new Date(),
+              lastMessageTime: Date.now(),
             },
           };
         }, false, 'initializeList');
@@ -193,7 +193,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
             ...list,
             tickers: newTickers,
             order: newOrder,
-            lastUpdate: new Date(),
+            lastUpdate: Date.now(),
           });
 
           return { lists: newLists };
@@ -215,7 +215,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
           newLists.set(listName, {
             ...list,
             tickers: newTickers,
-            lastUpdate: new Date(),
+            lastUpdate: Date.now(),
           });
 
           return { lists: newLists };
@@ -237,7 +237,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
             ...list,
             tickers: newTickers,
             order: newOrder,
-            lastUpdate: new Date(),
+            lastUpdate: Date.now(),
           });
 
           return { lists: newLists };
@@ -268,7 +268,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
             ...list,
             tickers: newTickers,
             order: newOrder,
-            lastUpdate: new Date(),
+            lastUpdate: Date.now(),
           });
 
           return { lists: newLists };
@@ -355,7 +355,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
             sequence,
             tickers: newTickers,
             order: newOrder,
-            lastUpdate: new Date(),
+            lastUpdate: Date.now(),
           });
 
           return {
@@ -363,7 +363,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
             stats: {
               ...state.stats,
               messagesReceived: state.stats.messagesReceived + deltas.length,
-              lastMessageTime: new Date(),
+              lastMessageTime: Date.now(),
             },
           };
         }, false, 'applyDeltas');
@@ -379,7 +379,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
           // Before: new Map() for ALL lists on every call (600 copies/sec).
           // After: only clone lists that contain matching tickers.
           let newLists: Map<string, any> | null = null;
-          const now = new Date();
+          const now = Date.now();
 
           state.lists.forEach((list, listName) => {
             let newTickers: Map<string, any> | null = null;
@@ -524,7 +524,7 @@ export const useTickersStore = create<TickersState & TickersActions>()(
     }),
     {
       name: 'tickers-store',
-      enabled: process.env.NODE_ENV === 'development',
+      enabled: false,
     }
   )
 );

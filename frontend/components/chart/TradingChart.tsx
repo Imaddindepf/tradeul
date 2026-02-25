@@ -21,18 +21,28 @@ import {
     type Time,
     type UTCTimestamp,
     type SeriesMarker,
+    type LogicalRange,
 } from 'lightweight-charts';
-import { RefreshCw, Maximize2, Minimize2, BarChart3, ZoomIn, ZoomOut, Radio, Trash2, Newspaper, ExternalLink, ChevronDown, Activity, LineChart, Waves, X, Sparkles, Bot } from 'lucide-react';
+import { RefreshCw, Maximize2, Minimize2, BarChart3, Radio, Newspaper, ExternalLink, ChevronDown, LineChart, Waves, X, Sparkles, Bot } from 'lucide-react';
 import { useLiveChartData, type ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
 import { useChartDrawings } from '@/hooks/useChartDrawings';
 import type { Drawing as DrawingType } from '@/hooks/useChartDrawings';
 import { TrendlinePrimitive } from './primitives/TrendlinePrimitive';
 import { HorizontalLinePrimitive } from './primitives/HorizontalLinePrimitive';
+import { VerticalLinePrimitive } from './primitives/VerticalLinePrimitive';
+import { RayPrimitive } from './primitives/RayPrimitive';
+import { ExtendedLinePrimitive } from './primitives/ExtendedLinePrimitive';
+import { ParallelChannelPrimitive } from './primitives/ParallelChannelPrimitive';
 import { FibonacciPrimitive } from './primitives/FibonacciPrimitive';
 import { RectanglePrimitive } from './primitives/RectanglePrimitive';
+import { CirclePrimitive } from './primitives/CirclePrimitive';
+import { TrianglePrimitive } from './primitives/TrianglePrimitive';
+import { MeasurePrimitive } from './primitives/MeasurePrimitive';
 import { TentativePrimitive } from './primitives/TentativePrimitive';
+import { timeToPixelX } from './primitives/coordinateUtils';
 import type { ISeriesPrimitive } from 'lightweight-charts';
 import { useIndicatorWorker, type IndicatorType, PANEL_INDICATORS } from '@/hooks/useIndicatorWorker';
+import { ChartToolbar, HeaderDrawingTools, IndicatorsIcon } from './ChartToolbar';
 import type { IndicatorDataPoint, MACDData, StochData, ADXData, SqueezeData } from '@/hooks/useIndicatorWorker';
 import { ChartNewsPopup } from './ChartNewsPopup';
 import { useArticlesByTicker } from '@/stores/useNewsStore';
@@ -478,6 +488,10 @@ function TradingChartComponent({
 
     const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval);
 
+    // Refs for scroll-position preservation during loadMore
+    const prevDataLengthRef = useRef(0);
+    const prevTickerRef = useRef(currentTicker);
+
     // Fetch market session and subscribe to updates
     useEffect(() => {
         getMarketSession().then(setMarketSession).catch(() => { });
@@ -521,6 +535,7 @@ function TradingChartComponent({
         clearAllDrawings,
         selectDrawing,
         updateHorizontalLinePrice,
+        updateVerticalLineTime,
         updateDrawingPoints,
         updateDrawingLineWidth,
         updateDrawingColor,
@@ -530,6 +545,12 @@ function TradingChartComponent({
         setHoveredDrawing,
         colors: drawingColors,
     } = useChartDrawings(currentTicker);
+
+    // Drawings visibility toggle
+    const [drawingsVisible, setDrawingsVisible] = useState(true);
+    const toggleDrawingsVisibility = useCallback(() => {
+        setDrawingsVisible(prev => !prev);
+    }, []);
 
     // Edit popup state
     const [editPopup, setEditPopup] = useState<{
@@ -933,8 +954,13 @@ function TradingChartComponent({
             const logicalRange = timeScale.getVisibleLogicalRange();
             if (!logicalRange) return;
 
-            // Lazy-load older data
-            if (!loadingMore && hasMore && logicalRange.from < 50) loadMore();
+            // Lazy-load older data using barsInLogicalRange (official v5 pattern)
+            if (!loadingMore && hasMore && candleSeriesRef.current) {
+                const barsInfo = candleSeriesRef.current.barsInLogicalRange(logicalRange);
+                if (barsInfo !== null && barsInfo.barsBefore < 50) {
+                    loadMore();
+                }
+            }
 
             // Detect if user scrolled away from the right edge (latest bars)
             const totalBars = data.length;
@@ -1288,6 +1314,22 @@ function TradingChartComponent({
         if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
         if (!data || data.length === 0) return;
 
+        // Detect if this is a loadMore prepend (not a ticker/interval change)
+        const tickerChanged = prevTickerRef.current !== currentTicker;
+        if (tickerChanged) {
+            prevDataLengthRef.current = 0;
+            prevTickerRef.current = currentTicker;
+        }
+        const isPrepend = !tickerChanged && prevDataLengthRef.current > 0 && data.length > prevDataLengthRef.current;
+        const prependedBars = isPrepend ? data.length - prevDataLengthRef.current : 0;
+
+        // Save viewport BEFORE setData (for loadMore compensation)
+        const timeScale = chartRef.current?.timeScale();
+        let savedLogicalRange: LogicalRange | null = null;
+        if (isPrepend && timeScale) {
+            savedLogicalRange = timeScale.getVisibleLogicalRange();
+        }
+
         const candleData: CandlestickData[] = data.map(bar => ({
             time: bar.time as UTCTimestamp,
             open: bar.open,
@@ -1304,6 +1346,16 @@ function TradingChartComponent({
 
         candleSeriesRef.current.setData(candleData);
         volumeSeriesRef.current.setData(volumeData);
+
+        // Restore viewport with offset: prepended bars shift logical indices
+        if (savedLogicalRange && timeScale && prependedBars > 0) {
+            timeScale.setVisibleLogicalRange({
+                from: savedLogicalRange.from + prependedBars,
+                to: savedLogicalRange.to + prependedBars,
+            });
+        }
+
+        prevDataLengthRef.current = data.length;
 
         // Clear markers if disabled (v5)
         if (!showNewsMarkers && newsMarkersRef.current) {
@@ -1371,7 +1423,8 @@ function TradingChartComponent({
     const applyRangeTimerRef = useRef<ReturnType<typeof setTimeout>>();
     useEffect(() => {
         if (!data || data.length === 0 || !candleSeriesRef.current) return;
-        const key = `${currentTicker}-${selectedInterval}-${data.length}`;
+        // Key excludes data.length: loadMore prepend must NOT reset the viewport
+        const key = `${currentTicker}-${selectedInterval}-${selectedRange}`;
         if (lastAppliedKeyRef.current !== key) {
             lastAppliedKeyRef.current = key;
             clearTimeout(applyRangeTimerRef.current);
@@ -1662,14 +1715,35 @@ function TradingChartComponent({
                     case 'horizontal_line':
                         primitive = new HorizontalLinePrimitive(drawing);
                         break;
+                    case 'vertical_line':
+                        primitive = new VerticalLinePrimitive(drawing);
+                        break;
                     case 'trendline':
                         primitive = new TrendlinePrimitive(drawing);
+                        break;
+                    case 'ray':
+                        primitive = new RayPrimitive(drawing);
+                        break;
+                    case 'extended_line':
+                        primitive = new ExtendedLinePrimitive(drawing);
+                        break;
+                    case 'parallel_channel':
+                        primitive = new ParallelChannelPrimitive(drawing);
                         break;
                     case 'fibonacci':
                         primitive = new FibonacciPrimitive(drawing);
                         break;
                     case 'rectangle':
                         primitive = new RectanglePrimitive(drawing);
+                        break;
+                    case 'circle':
+                        primitive = new CirclePrimitive(drawing);
+                        break;
+                    case 'triangle':
+                        primitive = new TrianglePrimitive(drawing);
+                        break;
+                    case 'measure':
+                        primitive = new MeasurePrimitive(drawing);
                         break;
                 }
                 if (primitive) {
@@ -1680,6 +1754,46 @@ function TradingChartComponent({
             }
         }
     }, [drawings, selectedDrawingId, hoveredDrawingId, chartVersion, dataTimes]);
+
+    // ============================================================================
+    // Auto-loadMore: fetch older data when drawings are outside data range
+    // ============================================================================
+    const autoLoadTriggeredRef = useRef(false);
+
+    // Reset auto-load guard when interval changes (new data range)
+    useEffect(() => {
+        autoLoadTriggeredRef.current = false;
+    }, [selectedInterval]);
+
+    useEffect(() => {
+        if (!hasMore || loadingMore || dataTimes.length === 0 || drawings.length === 0) return;
+        if (autoLoadTriggeredRef.current) return;
+
+        const firstDataTime = dataTimes[0];
+
+        // Check if any drawing has a timestamp before the first data bar
+        const hasOutOfRange = drawings.some(d => {
+            // Extract times based on drawing type (type-safe union handling)
+            if (d.type === "horizontal_line") return false; // No time anchor
+            if (d.type === "vertical_line") return (d as any).time < firstDataTime;
+            // All other types have point1 + point2 (and optionally point3)
+            const dd = d as any;
+            if (dd.point1 && dd.point1.time < firstDataTime) return true;
+            if (dd.point2 && dd.point2.time < firstDataTime) return true;
+            if (dd.point3 && dd.point3.time < firstDataTime) return true;
+            return false;
+        });
+
+        if (hasOutOfRange) {
+            autoLoadTriggeredRef.current = true;
+            loadMore().then((loaded) => {
+                if (loaded) {
+                    // Allow another load if still out of range (will re-check on next render)
+                    autoLoadTriggeredRef.current = false;
+                }
+            });
+        }
+    }, [drawings, dataTimes, hasMore, loadingMore, loadMore]);
 
     // Tentative drawing primitive (preview while placing)
     useEffect(() => {
@@ -1696,7 +1810,8 @@ function TradingChartComponent({
             tentativePrimitiveRef.current.setState({
                 type: pendingDrawing.type,
                 point1: pendingDrawing.point1,
-                screenX: tentativeEndpoint?.x ?? -1,   // -1 = anchor-only (no point2 yet)
+                point2: pendingDrawing.point2,
+                screenX: tentativeEndpoint?.x ?? -1,   // -1 = anchor-only (no endpoint yet)
                 screenY: tentativeEndpoint?.y ?? -1,
                 mousePrice: tentativeEndpoint?.price ?? pendingDrawing.point1.price,
                 color: drawingColors[0],
@@ -1711,13 +1826,15 @@ function TradingChartComponent({
         active: boolean;
         drawingId: string | null;
         drawingType: string | null;
-        dragMode: 'translate' | 'anchor1' | 'anchor2';
+        dragMode: 'translate' | 'anchor1' | 'anchor2' | 'anchor3' | 'anchor4' | 'mid1' | 'mid2';
         startScreenX: number;
         startScreenY: number;
         p1ScreenX: number;
         p1ScreenY: number;
         p2ScreenX: number;
         p2ScreenY: number;
+        p3ScreenX: number;
+        p3ScreenY: number;
     }>({
         active: false,
         drawingId: null,
@@ -1729,6 +1846,8 @@ function TradingChartComponent({
         p1ScreenY: 0,
         p2ScreenX: 0,
         p2ScreenY: 0,
+        p3ScreenX: 0,
+        p3ScreenY: 0,
     });
 
     // Time extrapolation for clicks/drags beyond data range.
@@ -1777,7 +1896,7 @@ function TradingChartComponent({
                     const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
                     if (hit) {
                         const eid = (hit.externalId ?? '') as string;
-                        hitId = eid.endsWith(':p1') || eid.endsWith(':p2') ? eid.slice(0, -3) : eid;
+                        hitId = (eid.endsWith(':p1') || eid.endsWith(':p2') || eid.endsWith(':p3') || eid.endsWith(':p4') || eid.endsWith(':m1') || eid.endsWith(':m2')) ? eid.slice(0, -3) : eid;
                         break;
                     }
                 }
@@ -1853,7 +1972,7 @@ function TradingChartComponent({
         const mouseY = e.clientY - rect.top;
 
         let hitId: string | null = null;
-        let dragMode: 'translate' | 'anchor1' | 'anchor2' = 'translate';
+        let dragMode: 'translate' | 'anchor1' | 'anchor2' | 'anchor3' | 'anchor4' | 'mid1' | 'mid2' = 'translate';
         for (const [id, primitive] of drawingPrimitivesRef.current) {
             const hit = (primitive as any).hitTest?.(mouseX, mouseY);
             if (hit) {
@@ -1864,6 +1983,18 @@ function TradingChartComponent({
                 } else if (eid.endsWith(':p2')) {
                     hitId = eid.slice(0, -3);
                     dragMode = 'anchor2';
+                } else if (eid.endsWith(':p3')) {
+                    hitId = eid.slice(0, -3);
+                    dragMode = 'anchor3';
+                } else if (eid.endsWith(':p4')) {
+                    hitId = eid.slice(0, -3);
+                    dragMode = 'anchor4';
+                } else if (eid.endsWith(':m1')) {
+                    hitId = eid.slice(0, -3);
+                    dragMode = 'mid1';
+                } else if (eid.endsWith(':m2')) {
+                    hitId = eid.slice(0, -3);
+                    dragMode = 'mid2';
                 } else {
                     hitId = eid;
                     dragMode = 'translate';
@@ -1881,21 +2012,27 @@ function TradingChartComponent({
 
         const series = candleSeriesRef.current;
         const ts = chartRef.current.timeScale();
-        let p1ScreenX = 0, p1ScreenY = 0, p2ScreenX = 0, p2ScreenY = 0;
+        let p1ScreenX = 0, p1ScreenY = 0, p2ScreenX = 0, p2ScreenY = 0, p3ScreenX = 0, p3ScreenY = 0;
         if (drawing.type === 'horizontal_line') {
             p1ScreenY = (series.priceToCoordinate(drawing.price) as number) ?? 0;
+        } else if (drawing.type === 'vertical_line') {
+            p1ScreenX = timeToPixelX(drawing.time, dataTimes, ts) ?? 0;
         } else if ('point1' in drawing && 'point2' in drawing) {
             const d = drawing as any;
-            p1ScreenX = (ts.timeToCoordinate(d.point1.time) as number) ?? 0;
+            p1ScreenX = timeToPixelX(d.point1.time, dataTimes, ts) ?? 0;
             p1ScreenY = (series.priceToCoordinate(d.point1.price) as number) ?? 0;
-            p2ScreenX = (ts.timeToCoordinate(d.point2.time) as number) ?? 0;
+            p2ScreenX = timeToPixelX(d.point2.time, dataTimes, ts) ?? 0;
             p2ScreenY = (series.priceToCoordinate(d.point2.price) as number) ?? 0;
+            if ('point3' in d && d.point3) {
+                p3ScreenX = timeToPixelX(d.point3.time, dataTimes, ts) ?? 0;
+                p3ScreenY = (series.priceToCoordinate(d.point3.price) as number) ?? 0;
+            }
         }
 
         setDragState({
             active: true, drawingId: hitId, drawingType: drawing.type, dragMode,
             startScreenX: mouseX, startScreenY: mouseY,
-            p1ScreenX, p1ScreenY, p2ScreenX, p2ScreenY,
+            p1ScreenX, p1ScreenY, p2ScreenX, p2ScreenY, p3ScreenX, p3ScreenY,
         });
         selectDrawing(hitId);
         startDragging();
@@ -1914,6 +2051,93 @@ function TradingChartComponent({
         if (dragState.drawingType === 'horizontal_line') {
             const newPrice = series.coordinateToPrice(dragState.p1ScreenY + dy);
             if (newPrice !== null && newPrice > 0) updateHorizontalLinePrice(dragState.drawingId, newPrice);
+        } else if (dragState.drawingType === 'vertical_line') {
+            const resolved = getTimeAtX(dragState.p1ScreenX + dx);
+            if (resolved) updateVerticalLineTime(dragState.drawingId, resolved.time);
+        } else if (dragState.drawingType === 'parallel_channel') {
+            // 6-point parallel channel: TradingView-style drag behavior
+            // Data model: point1=A, point2=B, point3=C, D=derived (C + B - A)
+            if (dragState.dragMode === 'anchor2') {
+                // Drag B: A,C fixed. D auto-derives.
+                const resolved = getTimeAtX(mouseX);
+                const newPrice = series.coordinateToPrice(mouseY);
+                if (resolved && newPrice != null) {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point2: { time: resolved.time, price: newPrice, logical: resolved.logical },
+                    });
+                }
+            } else if (dragState.dragMode === 'anchor1') {
+                // Drag A: B,D fixed. A moves, C shifts by same delta.
+                const resolved = getTimeAtX(mouseX);
+                const newAPrice = series.coordinateToPrice(mouseY);
+                const cNewScreenY = dragState.p3ScreenY + (mouseY - dragState.p1ScreenY);
+                const newCPrice = series.coordinateToPrice(cNewScreenY);
+                if (resolved && newAPrice != null && newCPrice != null) {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point1: { time: resolved.time, price: newAPrice, logical: resolved.logical },
+                        point3: { time: resolved.time, price: newCPrice },
+                    });
+                }
+            } else if (dragState.dragMode === 'anchor3') {
+                // Drag C: B,D fixed. C moves, A shifts by same delta.
+                const resolved = getTimeAtX(mouseX);
+                const newCPrice = series.coordinateToPrice(mouseY);
+                const aNewScreenY = dragState.p1ScreenY + (mouseY - dragState.p3ScreenY);
+                const newAPrice = series.coordinateToPrice(aNewScreenY);
+                if (resolved && newCPrice != null && newAPrice != null) {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point1: { time: resolved.time, price: newAPrice },
+                        point3: { time: resolved.time, price: newCPrice, logical: resolved.logical },
+                    });
+                }
+            } else if (dragState.dragMode === 'anchor4') {
+                // Drag D (derived): A,C fixed. Compute new B = A + (D_new - C).
+                // C is displayed at A's X (p1ScreenX), so use that instead of p3ScreenX
+                const bNewScreenY = dragState.p1ScreenY + (mouseY - dragState.p3ScreenY);
+                const resolvedB = getTimeAtX(mouseX);
+                const bPrice = series.coordinateToPrice(bNewScreenY);
+                if (resolvedB && bPrice != null) {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point2: { time: resolvedB.time, price: bPrice, logical: resolvedB.logical },
+                    });
+                }
+            } else if (dragState.dragMode === 'mid1') {
+                // Drag M1: shift top line (A,B) vertically. C fixed.
+                const newAPrice = series.coordinateToPrice(dragState.p1ScreenY + dy);
+                const newBPrice = series.coordinateToPrice(dragState.p2ScreenY + dy);
+                const aResolved = getTimeAtX(dragState.p1ScreenX);
+                const bResolved = getTimeAtX(dragState.p2ScreenX);
+                if (newAPrice != null && newBPrice != null && aResolved && bResolved) {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point1: { time: aResolved.time, price: newAPrice },
+                        point2: { time: bResolved.time, price: newBPrice },
+                    });
+                }
+            } else if (dragState.dragMode === 'mid2') {
+                // Drag M2: shift bottom line (C) vertically. A,B fixed.
+                const newCPrice = series.coordinateToPrice(dragState.p3ScreenY + dy);
+                const cResolved = getTimeAtX(dragState.p1ScreenX);
+                if (newCPrice != null && cResolved) {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point3: { time: cResolved.time, price: newCPrice },
+                    });
+                }
+            } else {
+                // Translate: move all 3 stored points
+                const r1 = getTimeAtX(dragState.p1ScreenX + dx);
+                const r2 = getTimeAtX(dragState.p2ScreenX + dx);
+                const r3 = getTimeAtX(dragState.p1ScreenX + dx);
+                const newP1Price = series.coordinateToPrice(dragState.p1ScreenY + dy);
+                const newP2Price = series.coordinateToPrice(dragState.p2ScreenY + dy);
+                const newP3Price = series.coordinateToPrice(dragState.p3ScreenY + dy);
+                if (r1 && r2 && r3 && newP1Price != null && newP2Price != null && newP3Price != null) {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point1: { time: r1.time, price: newP1Price, logical: r1.logical },
+                        point2: { time: r2.time, price: newP2Price, logical: r2.logical },
+                        point3: { time: r3.time, price: newP3Price, logical: r3.logical },
+                    });
+                }
+            }
         } else if (dragState.dragMode === 'anchor1') {
             const resolved = getTimeAtX(mouseX);
             const newPrice = series.coordinateToPrice(mouseY);
@@ -1930,40 +2154,64 @@ function TradingChartComponent({
                     point2: { time: resolved.time, price: newPrice, logical: resolved.logical },
                 });
             }
+        } else if (dragState.dragMode === 'anchor3') {
+            const resolved = getTimeAtX(mouseX);
+            const newPrice = series.coordinateToPrice(mouseY);
+            if (resolved && newPrice != null) {
+                updateDrawingPoints(dragState.drawingId, {
+                    point3: { time: resolved.time, price: newPrice, logical: resolved.logical },
+                });
+            }
         } else {
+            // Translate: move all points by the same delta
             const r1 = getTimeAtX(dragState.p1ScreenX + dx);
             const r2 = getTimeAtX(dragState.p2ScreenX + dx);
             const newP1Price = series.coordinateToPrice(dragState.p1ScreenY + dy);
             const newP2Price = series.coordinateToPrice(dragState.p2ScreenY + dy);
             if (r1 && r2 && newP1Price != null && newP2Price != null) {
-                updateDrawingPoints(dragState.drawingId, {
-                    point1: { time: r1.time, price: newP1Price, logical: r1.logical },
-                    point2: { time: r2.time, price: newP2Price, logical: r2.logical },
-                });
+                // Also move point3 if this is a 3-point drawing
+                const has3 = dragState.p3ScreenX !== 0 || dragState.p3ScreenY !== 0;
+                if (has3) {
+                    const r3 = getTimeAtX(dragState.p3ScreenX + dx);
+                    const newP3Price = series.coordinateToPrice(dragState.p3ScreenY + dy);
+                    if (r3 && newP3Price != null) {
+                        updateDrawingPoints(dragState.drawingId, {
+                            point1: { time: r1.time, price: newP1Price, logical: r1.logical },
+                            point2: { time: r2.time, price: newP2Price, logical: r2.logical },
+                            point3: { time: r3.time, price: newP3Price, logical: r3.logical },
+                        });
+                    }
+                } else {
+                    updateDrawingPoints(dragState.drawingId, {
+                        point1: { time: r1.time, price: newP1Price, logical: r1.logical },
+                        point2: { time: r2.time, price: newP2Price, logical: r2.logical },
+                    });
+                }
             }
         }
-    }, [dragState, updateHorizontalLinePrice, updateDrawingPoints]);
+    }, [dragState, updateHorizontalLinePrice, updateVerticalLineTime, updateDrawingPoints]);
 
     const handleDragEnd = useCallback(() => {
         if (dragState.active) {
-            setDragState({ active: false, drawingId: null, drawingType: null, dragMode: 'translate', startScreenX: 0, startScreenY: 0, p1ScreenX: 0, p1ScreenY: 0, p2ScreenX: 0, p2ScreenY: 0 });
+            setDragState({ active: false, drawingId: null, drawingType: null, dragMode: 'translate', startScreenX: 0, startScreenY: 0, p1ScreenX: 0, p1ScreenY: 0, p2ScreenX: 0, p2ScreenY: 0, p3ScreenX: 0, p3ScreenY: 0 });
             stopDragging();
             setTimeout(() => selectDrawing(null), 50);
         }
     }, [dragState.active, stopDragging, selectDrawing]);
 
-    // Disable scroll during drag
+    // Disable scroll during drag or when drawing tool is active
     useEffect(() => {
         if (!chartRef.current) return;
+        const toolActive = activeTool !== 'none';
         chartRef.current.applyOptions({
             handleScroll: {
                 mouseWheel: !dragState.active,
-                pressedMouseMove: !dragState.active,
+                pressedMouseMove: !dragState.active && !toolActive,
                 horzTouchDrag: !dragState.active,
                 vertTouchDrag: false,
             },
         });
-    }, [dragState.active]);
+    }, [dragState.active, activeTool]);
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -1989,6 +2237,30 @@ function TradingChartComponent({
                 case 'r':
                 case 'R':
                     setActiveTool(activeTool === 'rectangle' ? 'none' : 'rectangle');
+                    break;
+                case 'v':
+                case 'V':
+                    setActiveTool(activeTool === 'vertical_line' ? 'none' : 'vertical_line');
+                    break;
+                case 'y':
+                case 'Y':
+                    setActiveTool(activeTool === 'ray' ? 'none' : 'ray');
+                    break;
+                case 'e':
+                case 'E':
+                    setActiveTool(activeTool === 'extended_line' ? 'none' : 'extended_line');
+                    break;
+                case 'c':
+                case 'C':
+                    if (!e.metaKey && !e.ctrlKey) {
+                        setActiveTool(activeTool === 'circle' ? 'none' : 'circle');
+                    }
+                    break;
+                case 'm':
+                case 'M':
+                    if (!e.metaKey && !e.ctrlKey) {
+                        setActiveTool(activeTool === 'measure' ? 'none' : 'measure');
+                    }
                     break;
                 case 'Delete':
                 case 'Backspace':
@@ -2371,16 +2643,21 @@ function TradingChartComponent({
 
                     <div className="w-px h-4 bg-slate-200" />
 
+                    {/* Drawing tool shortcuts */}
+                    <HeaderDrawingTools activeTool={activeTool} setActiveTool={setActiveTool} />
+
+                    <div className="w-px h-4 bg-slate-200" />
+
                     {/* Indicators button (opens dropdown) */}
                     <div className="relative">
                         <button
                             onClick={() => setShowIndicatorDropdown(!showIndicatorDropdown)}
-                            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${showIndicatorDropdown ? 'bg-blue-50 text-blue-600' : activeIndicatorCount > 0 ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-500 hover:bg-slate-100'}`}
+                            className={`w-[22px] h-[22px] flex items-center justify-center rounded-[3px] transition-colors relative ${showIndicatorDropdown ? 'bg-blue-50 text-blue-600' : activeIndicatorCount > 0 ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+                            title={`Indicators${activeIndicatorCount > 0 ? ` (${activeIndicatorCount} active)` : ''}`}
                         >
-                            <Activity className="w-3 h-3" />
-                            <span>Indicators</span>
+                            <IndicatorsIcon className="w-[13px] h-[13px]" />
                             {activeIndicatorCount > 0 && (
-                                <span className="text-[8px] bg-blue-600 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center">{activeIndicatorCount}</span>
+                                <span className="absolute -top-0.5 -right-0.5 text-[7px] bg-blue-600 text-white rounded-full w-3 h-3 flex items-center justify-center leading-none">{activeIndicatorCount}</span>
                             )}
                         </button>
 
@@ -2517,75 +2794,18 @@ function TradingChartComponent({
 
             {/* ===== Main area: Left Toolbar + Chart ===== */}
             <div className="flex-1 min-h-0 flex bg-white">
-                {/* Left Toolbar — slim, icon-only, TradingView-style */}
+                {/* Left Toolbar */}
                 {!minimal && (
-                    <div className="w-[30px] flex-shrink-0 border-r border-slate-100 flex flex-col items-center py-1 gap-0.5">
-                        {/* Cursor / Select */}
-                        <button
-                            onClick={() => setActiveTool('none')}
-                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'none' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                            title="Select (Esc)"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
-                        </button>
-
-                        {/* Horizontal Line */}
-                        <button
-                            onClick={() => setActiveTool(activeTool === 'horizontal_line' ? 'none' : 'horizontal_line')}
-                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'horizontal_line' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                            title="Horizontal Line (H)"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><line x1="2" y1="12" x2="22" y2="12" strokeWidth="2"/><circle cx="6" cy="12" r="2" fill="currentColor" stroke="none"/></svg>
-                        </button>
-
-                        {/* Trendline */}
-                        <button
-                            onClick={() => setActiveTool(activeTool === 'trendline' ? 'none' : 'trendline')}
-                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'trendline' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                            title="Trend Line (T)"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="4" y1="20" x2="20" y2="4"/><circle cx="4" cy="20" r="2" fill="currentColor" stroke="none"/><circle cx="20" cy="4" r="2" fill="currentColor" stroke="none"/></svg>
-                        </button>
-
-                        {/* Fibonacci */}
-                        <button
-                            onClick={() => setActiveTool(activeTool === 'fibonacci' ? 'none' : 'fibonacci')}
-                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'fibonacci' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                            title="Fibonacci Retracement (F)"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="3" y1="3" x2="21" y2="3"/><line x1="3" y1="8.5" x2="21" y2="8.5" strokeDasharray="3 2"/><line x1="3" y1="12" x2="21" y2="12" strokeDasharray="3 2"/><line x1="3" y1="15.5" x2="21" y2="15.5" strokeDasharray="3 2"/><line x1="3" y1="21" x2="21" y2="21"/></svg>
-                        </button>
-
-                        {/* Rectangle */}
-                        <button
-                            onClick={() => setActiveTool(activeTool === 'rectangle' ? 'none' : 'rectangle')}
-                            className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${activeTool === 'rectangle' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                            title="Rectangle (R)"
-                        >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="1"/></svg>
-                        </button>
-
-                        {/* Clear drawings */}
-                        {drawings.length > 0 && (
-                            <button
-                                onClick={clearAllDrawings}
-                                className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-                                title={`Clear all (${drawings.length})`}
-                            >
-                                <Trash2 className="w-3 h-3" />
-                            </button>
-                        )}
-
-                        <div className="flex-1" />
-
-                        {/* Zoom controls at bottom */}
-                        <button onClick={zoomIn} className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-50" title="Zoom In">
-                            <ZoomIn className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={zoomOut} className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-50" title="Zoom Out">
-                            <ZoomOut className="w-3.5 h-3.5" />
-                        </button>
-                    </div>
+                    <ChartToolbar
+                        activeTool={activeTool}
+                        setActiveTool={setActiveTool}
+                        drawingCount={drawings.length}
+                        clearAllDrawings={clearAllDrawings}
+                        zoomIn={zoomIn}
+                        zoomOut={zoomOut}
+                        drawingsVisible={drawingsVisible}
+                        toggleDrawingsVisibility={toggleDrawingsVisibility}
+                    />
                 )}
 
                 {/* Chart area — takes ALL remaining space */}
@@ -2625,7 +2845,7 @@ function TradingChartComponent({
 
                     {/* Drag overlay */}
                     {dragState.active && (
-                        <div className="absolute inset-0 z-50" style={{ cursor: dragState.dragMode !== 'translate' ? 'crosshair' : dragState.drawingType === 'horizontal_line' ? 'ns-resize' : 'grabbing' }} onMouseMove={handleDragMove} onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd} />
+                        <div className="absolute inset-0 z-50" style={{ cursor: dragState.dragMode === 'mid1' || dragState.dragMode === 'mid2' ? 'ns-resize' : dragState.dragMode !== 'translate' ? 'crosshair' : dragState.drawingType === 'horizontal_line' ? 'ns-resize' : dragState.drawingType === 'vertical_line' ? 'ew-resize' : 'grabbing' }} onMouseMove={handleDragMove} onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd} />
                     )}
 
                     {/* Drawing mode indicator */}

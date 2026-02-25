@@ -38,6 +38,15 @@ class FundamentalIndicators(IndicatorGroup):
                 min_value=0,
                 format_string="{:,.0f}",
             ),
+            IndicatorDefinition(
+                name="sector",
+                display_name="Sector",
+                description="GICS sector classification",
+                category=self.category,
+                data_type=DataType.STRING,
+                sql_expression="sector",
+                operators=[OperatorType.EQ, OperatorType.NEQ],
+            ),
         ]
     
     def get_sql_cte(self) -> str:

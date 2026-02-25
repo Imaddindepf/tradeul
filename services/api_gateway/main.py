@@ -1682,6 +1682,62 @@ async def proxy_news_by_ticker(ticker: str, limit: int = Query(50, ge=1, le=200)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/news/api/v1/news/search")
+async def proxy_news_search(
+    tickers: Optional[str] = Query(None, description="Comma-separated tickers"),
+    channels: Optional[str] = Query(None, description="Comma-separated channels"),
+    tags: Optional[str] = Query(None, description="Comma-separated tags"),
+    author: Optional[str] = Query(None, description="Author name"),
+    published_after: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    published_before: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    limit: int = Query(100, ge=1, le=1000, description="Limit results"),
+    sort: str = Query("published.desc", description="Sort order")
+):
+    """Proxy para búsqueda de noticias con filtros completos (query directa a Polygon)"""
+    try:
+        return await http_clients.benzinga_news.search_news(
+            tickers=tickers,
+            channels=channels,
+            tags=tags,
+            author=author,
+            published_after=published_after,
+            published_before=published_before,
+            limit=limit,
+            sort=sort
+        )
+    except httpx.TimeoutException:
+        logger.error("news_search_timeout")
+        raise HTTPException(status_code=504, detail="News search service timeout")
+    except httpx.ConnectError:
+        logger.error("news_search_unavailable")
+        raise HTTPException(status_code=503, detail="News search service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="News search service error")
+    except Exception as e:
+        logger.error("news_search_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/news/api/v1/news/search/cursor")
+async def proxy_news_search_cursor(
+    cursor_url: str = Query(..., description="Polygon next_url for pagination")
+):
+    """Proxy para paginación cursor de búsqueda de noticias"""
+    try:
+        return await http_clients.benzinga_news.search_news_cursor(cursor_url=cursor_url)
+    except httpx.TimeoutException:
+        logger.error("news_cursor_timeout")
+        raise HTTPException(status_code=504, detail="News cursor service timeout")
+    except httpx.ConnectError:
+        logger.error("news_cursor_unavailable")
+        raise HTTPException(status_code=503, detail="News cursor service unavailable")
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="News cursor service error")
+    except Exception as e:
+        logger.error("news_cursor_error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/v1/proxy/news")
 async def proxy_news_article(url: str = Query(..., description="News article URL to proxy")):
     """
@@ -3035,13 +3091,13 @@ async def get_insider_clusters(
 #
 
 CHART_INTERVALS = {
-    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 30, "bars_per_page": 500},   # 30s cache - datos muy frescos
-    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 120, "bars_per_page": 500},  # 2 min cache
-    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 300, "bars_per_page": 500}, # 5 min cache
-    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 600, "bars_per_page": 500}, # 10 min cache
-    "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 1800, "bars_per_page": 500},   # 30 min cache
-    "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 3600, "bars_per_page": 500},   # 1h cache
-    "1day": {"source": "fmp", "cache_ttl": 14400, "bars_per_page": 1000},  # 4h cache - FMP para daily
+    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 30, "bars_per_page": 1500},   # 30s cache - ~3 trading days
+    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 120, "bars_per_page": 2000},  # 2 min cache - ~21 trading days
+    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 300, "bars_per_page": 1500}, # 5 min cache - ~47 trading days
+    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 600, "bars_per_page": 1000}, # 10 min cache - ~63 trading days
+    "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 1800, "bars_per_page": 750},   # 30 min cache - ~94 trading days
+    "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 3600, "bars_per_page": 500},   # 1h cache (unchanged)
+    "1day": {"source": "fmp", "cache_ttl": 14400, "bars_per_page": 1000},  # 4h cache - FMP para daily (unchanged)
 }
 
 POLYGON_AGGS_URL = "https://api.polygon.io/v2/aggs/ticker"

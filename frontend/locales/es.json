@@ -315,7 +315,22 @@
     "ticker": "Ticker",
     "source": "Fuente",
     "articles": "noticia",
-    "articles_plural": "noticias"
+    "articles_plural": "noticias",
+    "search": "Buscar",
+    "searchNews": "Buscar Noticias",
+    "backToLive": "Volver a Directo",
+    "searchResults": "Resultados de Búsqueda",
+    "searching": "Buscando...",
+    "noSearchResults": "Sin resultados. Prueba con otros filtros.",
+    "loadMore": "Cargar Más",
+    "tags": "Tags",
+    "channels": "Canales",
+    "author": "Autor",
+    "dateFrom": "Desde",
+    "dateTo": "Hasta",
+    "today": "Hoy",
+    "searchMode": "Modo Búsqueda",
+    "liveMode": "Modo Directo"
   },
   "secFilings": {
     "title": "SEC Filings",

@@ -21,23 +21,30 @@ mcp = FastMCP(
 )
 
 AVAILABLE_INDICATORS = [
-    "open", "high", "low", "close", "volume", "vwap", "transactions",
-    "change_pct", "gap_pct", "range_pct", "dollar_volume",
-    "relative_volume", "avg_volume_5d", "avg_volume_10d", "avg_volume_20d",
-    "rsi_14", "rsi_7",
-    "sma_5", "sma_10", "sma_20", "sma_50", "sma_200",
-    "ema_9", "ema_12", "ema_20", "ema_26", "ema_50",
-    "macd_line", "macd_signal", "macd_histogram",
-    "bb_upper", "bb_middle", "bb_lower", "bb_width", "bb_position",
+    # Price & Returns
+    "price", "change_1d", "change_3d", "change_5d", "change_10d", "change_20d",
+    "gap_percent", "high_52w", "low_52w", "from_52w_high", "from_52w_low",
+    # Volume
+    "volume", "avg_volume_5", "avg_volume_10", "avg_volume_20",
+    "relative_volume", "dollar_volume", "volume_spike",
+    # Trend
+    "sma_20", "sma_50", "sma_200",
+    "above_sma_20", "above_sma_50", "above_sma_200", "sma_50_above_200",
+    "dist_sma_20", "dist_sma_50",
+    # Momentum
+    "rsi_14", "rsi_oversold", "rsi_overbought",
+    # Volatility & Bands
     "atr_14", "atr_percent",
-    "adx_14", "plus_di", "minus_di",
-    "stoch_k", "stoch_d",
-    "obv", "obv_change",
-    "change_1d", "change_3d", "change_5d", "change_10d", "change_20d",
-    "high_52w", "low_52w", "from_52w_high", "from_52w_low",
-    "above_sma_20", "above_sma_50", "above_sma_200",
-    "dist_from_sma_20", "dist_from_sma_50", "dist_from_sma_200",
-    "market_cap", "float_shares", "sector", "industry",
+    "bb_upper", "bb_middle", "bb_lower", "bb_width", "bb_position",
+    "bb_squeeze", "above_bb_upper", "below_bb_lower",
+    # Keltner & Squeeze
+    "keltner_upper", "keltner_middle", "keltner_lower",
+    "squeeze_on", "squeeze_momentum",
+    # ADX
+    "adx_14", "plus_di_14", "minus_di_14", "adx_trend",
+    "strong_uptrend", "strong_downtrend",
+    # Fundamentals
+    "market_cap", "free_float", "sector",
 ]
 
 
@@ -62,9 +69,9 @@ async def run_screen(
       {"field": "price", "operator": "between", "value": [5, 50]}
     ]
 
-    Available indicators: close, volume, rsi_14, macd_line, bb_position,
-    atr_percent, adx_14, stoch_k, relative_volume, change_pct, gap_pct,
-    sma_20, ema_50, market_cap, float_shares, and 50+ more.
+    Available indicators: price, volume, rsi_14, bb_position, bb_width,
+    atr_percent, adx_14, relative_volume, change_1d, change_5d, gap_percent,
+    sma_20, sma_50, market_cap, free_float, squeeze_on, and 40+ more.
 
     Returns: list of matching tickers with all requested indicator values.
     """

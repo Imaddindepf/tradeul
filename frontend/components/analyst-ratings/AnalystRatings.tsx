@@ -44,15 +44,16 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function fmtUSD(n: number) {
+function fmtUSD(n: number | null | undefined) {
+  if (n == null) return "--";
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 /* ── Price Target Range ── */
 function PriceTargetRange({ low, high, avg, median }: { low: number; high: number; avg: number; median: number }) {
-  const range = high - low || 1;
-  const avgPct = Math.min(100, Math.max(0, ((avg - low) / range) * 100));
-  const medPct = Math.min(100, Math.max(0, ((median - low) / range) * 100));
+  const range = (high || 0) - (low || 0) || 1;
+  const avgPct = Math.min(100, Math.max(0, (((avg || 0) - (low || 0)) / range) * 100));
+  const medPct = Math.min(100, Math.max(0, (((median || 0) - (low || 0)) / range) * 100));
 
   return (
     <div className="flex flex-col gap-2">
@@ -147,9 +148,9 @@ function ConsensusPanel({ c }: { c: AnalystConsensus }) {
 /* ── Rating Row ── */
 function RatingRow({ r }: { r: AnalystRating }) {
   const badgeCls = RATING_STYLE[r.ratingCurrent] || 'border-slate-300 text-slate-600 bg-slate-50';
-  const ptDiff = r.priceTargetCurrent - r.priceTargetPrior;
-  const ptPct = r.priceTargetPrior > 0 ? (ptDiff / r.priceTargetPrior) * 100 : 0;
-  const hasPriorChange = r.priceTargetPrior > 0 && r.priceTargetPrior !== r.priceTargetCurrent;
+  const ptDiff = (r.priceTargetCurrent || 0) - (r.priceTargetPrior || 0);
+  const ptPct = (r.priceTargetPrior || 0) > 0 ? (ptDiff / r.priceTargetPrior) * 100 : 0;
+  const hasPriorChange = (r.priceTargetPrior || 0) > 0 && r.priceTargetPrior !== r.priceTargetCurrent;
 
   return (
     <div className="flex items-center px-4 h-full border-b border-slate-100 hover:bg-slate-50/60 transition-colors text-[11px]">
