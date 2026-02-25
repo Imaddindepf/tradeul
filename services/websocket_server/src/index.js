@@ -2681,9 +2681,24 @@ function broadcastSECFiling(filingData) {
  */
 async function processBenzingaNewsStream() {
   const STREAM_NAME = "stream:benzinga:news";
-  let lastId = "$"; // Leer solo mensajes nuevos
+  const CURSOR_KEY = "news:stream:cursor";
 
-  logger.info("📰 Starting Benzinga News stream processor (dedicated Redis client)");
+  // Restore cursor from Redis (survives restarts)
+  let lastId;
+  try {
+    lastId = await redisCommands.get(CURSOR_KEY);
+    if (lastId) {
+      logger.info({ lastId }, "📰 Restored news stream cursor from Redis");
+    } else {
+      lastId = "$";
+      logger.info("📰 No persisted cursor, starting from $ (new messages only)");
+    }
+  } catch (err) {
+    lastId = "$";
+    logger.warn({ err }, "📰 Failed to read cursor, defaulting to $");
+  }
+
+  logger.info({ lastId }, "📰 Starting Benzinga News stream processor (dedicated Redis client)");
 
   while (true) {
     try {
@@ -2748,6 +2763,14 @@ async function processBenzingaNewsStream() {
               logger.error({ err: parseErr }, "Error parsing catalyst alert");
             }
           }
+        }
+      }
+      // Persist cursor after each batch (amortized, not per-message)
+      if (lastId !== "$") {
+        try {
+          await redisCommands.set(CURSOR_KEY, lastId);
+        } catch (persistErr) {
+          logger.warn({ err: persistErr }, "Failed to persist news cursor");
         }
       }
     } catch (err) {

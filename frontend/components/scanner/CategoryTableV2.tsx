@@ -14,6 +14,7 @@
  */
 
 'use client';
+import React from 'react';
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -31,6 +32,8 @@ import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useLinkGroupPublisher } from '@/hooks/useLinkGroup';
+import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
 
 // Zustand store
 import { useTickersStore, selectOrderedTickers } from '@/stores/useTickersStore';
@@ -284,6 +287,25 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
 
   // Command executor para abrir Description
   const { executeTickerCommand } = useCommandExecutor();
+  const { publish: publishTicker, hasSubscribers, linkGroup } = useLinkGroupPublisher();
+  const { openWindow } = useFloatingWindow();
+
+  // Refs to avoid stale closures inside memoized column definitions.
+  // columns useMemo has [] deps for performance, so onClick handlers
+  // would otherwise capture values from the initial render only.
+  const linkGroupRef = useRef(linkGroup);
+  const hasSubscribersRef = useRef(hasSubscribers);
+  const publishTickerRef = useRef(publishTicker);
+  const executeTickerCommandRef = useRef(executeTickerCommand);
+  const openWindowRef = useRef(openWindow);
+
+  useEffect(() => {
+    linkGroupRef.current = linkGroup;
+    hasSubscribersRef.current = hasSubscribers;
+    publishTickerRef.current = publishTicker;
+    executeTickerCommandRef.current = executeTickerCommand;
+    openWindowRef.current = openWindow;
+  });
 
   // ======================================================================
   // WEBSOCKET (desde AuthWebSocketProvider)
@@ -489,7 +511,28 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
               e.stopPropagation();
               const symbol = info.getValue();
               const tickerData = info.row.original;
-              executeTickerCommand(symbol, 'fan', tickerData.exchange);
+              const currentLinkGroup = linkGroupRef.current;
+              if (currentLinkGroup) {
+                if (hasSubscribersRef.current()) {
+                  publishTickerRef.current(symbol, tickerData.exchange);
+                } else {
+                  const sw = typeof window !== 'undefined' ? window.innerWidth : 1920;
+                  const sh = typeof window !== 'undefined' ? window.innerHeight : 1080;
+                  openWindowRef.current({
+                    title: `Chart: ${symbol}`,
+                    content: React.createElement(
+                      require('@/components/chart/ChartContent').ChartContent,
+                      { ticker: symbol, exchange: tickerData.exchange }
+                    ),
+                    width: 900, height: 600,
+                    x: Math.max(50, sw / 2 - 450), y: Math.max(80, sh / 2 - 300),
+                    minWidth: 600, minHeight: 400,
+                    linkGroup: currentLinkGroup,
+                  } as any);
+                }
+              } else {
+                executeTickerCommandRef.current(symbol, 'chart', tickerData.exchange);
+              }
             }}
             title={t('scanner.clickDescription')}
           >
@@ -2019,7 +2062,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
         },
       }),
     ],
-    [] // Sin dependencias - columnas son estáticas, PriceCell maneja su propio estado
+    [] // Columns static - link group accessed via refs
   );
 
   // TanStack Table instance

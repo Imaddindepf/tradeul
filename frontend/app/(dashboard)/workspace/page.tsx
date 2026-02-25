@@ -320,7 +320,8 @@ export default function ScannerPage() {
               height: layout.size.height,
               hideHeader,
               componentState: layout.componentState,
-            });
+              linkGroup: (layout as any).linkGroup || undefined,
+            } as any);
           }
         });
       }, 100);

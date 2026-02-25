@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { X, ExternalLink } from 'lucide-react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { FloatingWindow as FloatingWindowType, useFloatingWindow, WindowIdProvider, WindowStateProvider } from '@/contexts/FloatingWindowContext';
+import { LinkGroupSelector, LINK_GROUP_COLORS } from '@/components/linking/LinkGroupSelector';
 import { FloatingWindowBase } from '@/components/ui/FloatingWindowBase';
 
 interface FloatingWindowProps {
@@ -389,12 +390,23 @@ export function FloatingWindow({ window }: FloatingWindowProps) {
           <div className="window-title-bar flex items-center justify-between px-2 py-1 bg-slate-50 border-b border-slate-200 cursor-move select-none">
             <div className="flex items-center gap-1 flex-1 min-w-0">
               {/* Portal target — chart (or other windows) can render content here */}
+
               <div id={`window-header-extra-${window.id}`} className="flex items-center" />
               <h3 className="text-xs font-medium text-slate-700 truncate"
                   id={`window-title-text-${window.id}`}>{window.title}</h3>
             </div>
 
             <div className="flex items-center gap-0.5 ml-2">
+              {/* Link group selector: only on scanner/chart/relevant windows */}
+              {(window.title.startsWith('Scanner:') ||
+                window.title.startsWith('Chart') ||
+                window.title === 'Dilution Tracker' ||
+                window.title === 'SEC Filings' ||
+                window.title === 'News' ||
+                window.title === 'Market Heatmap' ||
+                window.title.startsWith('Events:')) && (
+                <LinkGroupSelector windowId={window.id} currentLinkGroup={window.linkGroup ?? null} />
+              )}
               {/* Open in New Window Button */}
               <button
                 onMouseDown={(e) => {

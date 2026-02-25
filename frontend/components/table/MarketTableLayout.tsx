@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { ExternalLink, X } from 'lucide-react';
 import { useAuth } from '@clerk/nextjs';
 import { openScannerWindow } from '@/lib/window-injector';
-import { useFloatingWindow } from '@/contexts/FloatingWindowContext';
+import { useFloatingWindow, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
+import { LinkGroupSelector } from '@/components/linking/LinkGroupSelector';
 
 interface MarketTableLayoutProps {
   title: string;
@@ -25,6 +26,8 @@ export function MarketTableLayout({
   const { t } = useTranslation();
   const { windows, updateWindow } = useFloatingWindow();
   const { getToken } = useAuth();
+  const windowId = useCurrentWindowId();
+  const currentWindow = windowId ? windows.find(w => w.id === windowId) : null;
 
   const handleOpenNewWindow = async () => {
     if (!listName) return;
@@ -89,6 +92,10 @@ export function MarketTableLayout({
         onMouseDown={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
+        {/* Link group selector */}
+        {windowId && currentWindow && (
+          <LinkGroupSelector windowId={windowId} currentLinkGroup={currentWindow.linkGroup ?? null} />
+        )}
         {/* Botón de abrir en nueva ventana */}
         {listName && (
           <button

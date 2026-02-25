@@ -9,8 +9,9 @@
  */
 
 'use client';
+import React from 'react';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useReactTable,
@@ -26,6 +27,7 @@ import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useLinkGroupPublisher } from '@/hooks/useLinkGroup';
 import { Newspaper, ExternalLink, Info } from 'lucide-react';
 import { getUserTimezone } from '@/lib/date-utils';
 
@@ -189,6 +191,22 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
   const { t } = useTranslation();
   const { openWindow } = useFloatingWindow();
   const { executeTickerCommand } = useCommandExecutor();
+  const { publish: publishTicker, hasSubscribers, linkGroup } = useLinkGroupPublisher();
+
+  // Refs to avoid stale closures inside memoized column definitions
+  const linkGroupRef = useRef(linkGroup);
+  const hasSubscribersRef = useRef(hasSubscribers);
+  const publishTickerRef = useRef(publishTicker);
+  const executeTickerCommandRef = useRef(executeTickerCommand);
+  const openWindowRef = useRef(openWindow);
+
+  useEffect(() => {
+    linkGroupRef.current = linkGroup;
+    hasSubscribersRef.current = hasSubscribers;
+    publishTickerRef.current = publishTicker;
+    executeTickerCommandRef.current = executeTickerCommand;
+    openWindowRef.current = openWindow;
+  });
 
   // Estado
   const [allNews, setAllNews] = useState<NewsArticle[]>([]);
@@ -471,7 +489,28 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
               type="button"
               className="font-bold text-blue-600 cursor-pointer hover:underline text-left"
               onClick={() => {
-                executeTickerCommand(symbol, 'fan', exchange);
+                const currentLinkGroup = linkGroupRef.current;
+                if (currentLinkGroup) {
+                  if (hasSubscribersRef.current()) {
+                    publishTickerRef.current(symbol, exchange);
+                  } else {
+                    const sw = typeof window !== 'undefined' ? window.innerWidth : 1920;
+                    const sh = typeof window !== 'undefined' ? window.innerHeight : 1080;
+                    openWindowRef.current({
+                      title: `Chart: ${symbol}`,
+                      content: React.createElement(
+                        require('@/components/chart/ChartContent').ChartContent,
+                        { ticker: symbol, exchange }
+                      ),
+                      width: 900, height: 600,
+                      x: Math.max(50, sw / 2 - 450), y: Math.max(80, sh / 2 - 300),
+                      minWidth: 600, minHeight: 400,
+                      linkGroup: currentLinkGroup,
+                    } as any);
+                  }
+                } else {
+                  executeTickerCommandRef.current(symbol, 'fan', exchange);
+                }
               }}
             >
               {symbol}

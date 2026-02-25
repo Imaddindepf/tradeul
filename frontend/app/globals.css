@@ -15,15 +15,10 @@
   display: none !important;
 }
 
-/* ===== Clerk: Eliminar card anidada ===== */
-/* Selector universal para cualquier elemento con clase que contenga cl- */
-[class*="cl-card"],
+/* ===== Clerk: Eliminar card chrome (sin afectar formularios) ===== */
+/* Solo los contenedores card/cardBox — NO los hijos del formulario */
 [class*="cl-cardBox"],
-[class*="cl-signIn"]>div,
-[class*="cl-signUp"]>div,
-[class*="cl-rootBox"]>div,
-div[class^="cl-"]>div[class^="cl-"],
-[class*="cl-main"] {
+[class*="cl-card"]:not([class*="cl-formButton"]):not([class*="cl-formField"]):not([class*="cl-otpCodeField"]):not([class*="cl-alert"]) {
   background: transparent !important;
   background-color: transparent !important;
   box-shadow: none !important;
@@ -31,12 +26,12 @@ div[class^="cl-"]>div[class^="cl-"],
   border-radius: 0 !important;
 }
 
-/* Selector más específico usando atributos data- de Clerk */
-[data-localization-key],
-[data-clerk-component]>div {
+/* Contenedor raíz transparente */
+[class*="cl-rootBox"]>div:first-child,
+[class*="cl-main"] {
   background: transparent !important;
+  background-color: transparent !important;
   box-shadow: none !important;
-  border: none !important;
 }
 
 

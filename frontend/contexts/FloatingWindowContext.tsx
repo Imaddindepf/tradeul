@@ -6,6 +6,19 @@ import { useUserPreferencesStore, consumePendingComponentStates } from '@/stores
 import { getWindowType } from '@/lib/window-config';
 
 // ============================================================================
+// Link Group Types (IBKR-style window linking)
+// ============================================================================
+
+export type LinkGroup = 'red' | 'green' | 'blue' | 'yellow' | null;
+
+export interface TickerBroadcast {
+  ticker: string;
+  exchange?: string;
+}
+
+type LinkGroupSubscriberCallback = (broadcast: TickerBroadcast) => void;
+
+// ============================================================================
 // Window Component State - Estado interno de componentes por ventana
 // ============================================================================
 
@@ -241,6 +254,8 @@ export interface FloatingWindow {
   zIndex: number;
   isMinimized: boolean;
   isMaximized: boolean;
+  /** Color link group for IBKR-style window linking */
+  linkGroup?: LinkGroup;
   /** Si true, no muestra la barra de título (para contenido que ya tiene su propia cabecera) */
   hideHeader?: boolean;
   /** Si true, el contenido ha sido abierto en una ventana externa (about:blank) */
@@ -274,6 +289,10 @@ interface FloatingWindowContextType {
   getMaxZIndex: () => number;
   /** Exportar layout actual de todas las ventanas */
   exportLayout: () => SerializableWindowLayout[];
+  broadcastTicker: (linkGroup: LinkGroup, broadcast: TickerBroadcast) => void;
+  subscribeTicker: (linkGroup: LinkGroup, callback: LinkGroupSubscriberCallback) => () => void;
+  getSubscriberCount: (linkGroup: LinkGroup) => number;
+  setWindowLinkGroup: (windowId: string, linkGroup: LinkGroup) => void;
   /** Cerrar todas las ventanas */
   closeAllWindows: () => void;
 }
@@ -323,6 +342,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         isMinimized: w.isMinimized,
         zIndex: w.zIndex,
         componentState: w.componentState || csMap.get(w.id) || pendingCs.get(w.id),
+        linkGroup: w.linkGroup || undefined,
       }));
 
       if (activeWorkspaceId) {
@@ -403,6 +423,42 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
       prev.map((w) => (w.id === id ? { ...w, isMinimized: false, isMaximized: false } : w))
     );
   }, []);
+
+  // ============================================================================
+  // Link Group Pub/Sub Mechanism
+  // ============================================================================
+  const linkGroupSubscribersRef = useRef<Map<string, Set<LinkGroupSubscriberCallback>>>(new Map());
+
+  const subscribeTicker = useCallback((linkGroup: LinkGroup, callback: LinkGroupSubscriberCallback): (() => void) => {
+    if (!linkGroup) return () => {};
+    if (!linkGroupSubscribersRef.current.has(linkGroup)) {
+      linkGroupSubscribersRef.current.set(linkGroup, new Set());
+    }
+    linkGroupSubscribersRef.current.get(linkGroup)!.add(callback);
+    return () => {
+      linkGroupSubscribersRef.current.get(linkGroup)?.delete(callback);
+      if (linkGroupSubscribersRef.current.get(linkGroup)?.size === 0) {
+        linkGroupSubscribersRef.current.delete(linkGroup);
+      }
+    };
+  }, []);
+
+  const broadcastTicker = useCallback((linkGroup: LinkGroup, broadcast: TickerBroadcast) => {
+    if (!linkGroup) return;
+    const subscribers = linkGroupSubscribersRef.current.get(linkGroup);
+    if (subscribers) {
+      subscribers.forEach(cb => cb(broadcast));
+    }
+  }, []);
+
+  const getSubscriberCount = useCallback((linkGroup: LinkGroup): number => {
+    if (!linkGroup) return 0;
+    return linkGroupSubscribersRef.current.get(linkGroup)?.size ?? 0;
+  }, []);
+
+  const setWindowLinkGroup = useCallback((windowId: string, linkGroup: LinkGroup) => {
+    updateWindow(windowId, { linkGroup } as any);
+  }, [updateWindow]);
 
   const exportLayout = useCallback((): SerializableWindowLayout[] => {
     return windowsRef.current.map((w) => ({
@@ -485,6 +541,10 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         restoreWindow,
         getMaxZIndex,
         exportLayout,
+        broadcastTicker,
+        subscribeTicker,
+        getSubscriberCount,
+        setWindowLinkGroup,
         closeAllWindows,
       }}
     >

@@ -39,6 +39,8 @@ export interface WindowLayout {
   zIndex: number;
   /** Estado interno del componente (tickers, filtros, búsqueda, etc.) */
   componentState?: Record<string, unknown>;
+  /** IBKR-style link group color */
+  linkGroup?: string;
 }
 
 // ============================================================================

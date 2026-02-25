@@ -55,6 +55,7 @@ export function NewsProvider({ children }: NewsProviderProps) {
   // Refs para evitar re-ejecuciones innecesarias
   const initialLoadDoneRef = useRef(false);
   const isSubscribedRef = useRef(false);
+  const wasConnectedRef = useRef(false);
   const wsSendRef = useRef(ws.send);
   wsSendRef.current = ws.send;
 
@@ -137,6 +138,33 @@ export function NewsProvider({ children }: NewsProviderProps) {
     ws.subscribeNews();
     isSubscribedRef.current = true;
     setSubscribed(true);
+
+    // Gap fill: on RECONNECTION (not first connect), fetch recent articles
+    // to recover any news missed during the WebSocket disconnection window.
+    // The store's _seenIds dedup ensures no duplicates.
+    if (wasConnectedRef.current && initialLoadDoneRef.current) {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      fetch(`${apiUrl}/news/api/v1/news?limit=100`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.results?.length) {
+            addArticlesBatch(data.results, false);
+            // Also feed tickers store for scanner+news intersection
+            const tickerArticles = data.results
+              .filter((a: any) => a.tickers?.length > 0)
+              .map((a: any) => ({
+                id: a.benzinga_id || a.id || '',
+                title: a.title, author: a.author,
+                published: a.published, url: a.url,
+                tickers: a.tickers || [], teaser: a.teaser,
+              }));
+            if (tickerArticles.length > 0) addNewsArticlesBatchToTickers(tickerArticles);
+            console.log(`[NewsProvider] Gap fill: merged ${data.results.length} articles on reconnect`);
+          }
+        })
+        .catch(err => console.error('[NewsProvider] Gap fill failed:', err));
+    }
+    wasConnectedRef.current = true;
 
     // NO retornamos cleanup aquí - la desuscripción solo ocurre cuando
     // isConnected cambia a false (manejado arriba)

@@ -21,7 +21,7 @@
 
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useReactTable,
@@ -35,6 +35,7 @@ import { VirtualizedDataTable } from '@/components/table/VirtualizedDataTable';
 import { MarketTableLayout } from '@/components/table/MarketTableLayout';
 import { TableSettings } from '@/components/table/TableSettings';
 import { useCommandExecutor } from '@/hooks/useCommandExecutor';
+import { useLinkGroupPublisher } from '@/hooks/useLinkGroup';
 import { useCloseCurrentWindow, useFloatingWindow } from '@/contexts/FloatingWindowContext';
 import { useWebSocket } from '@/contexts/AuthWebSocketContext';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
@@ -500,6 +501,7 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
 export function EventTableContent({ categoryId, categoryName, eventTypes: initialEventTypes, defaultFilters }: EventTableContentProps) {
   const { t } = useTranslation();
   const { executeTickerCommand } = useCommandExecutor();
+  const { publish: publishTicker, hasSubscribers, linkGroup } = useLinkGroupPublisher();
   const closeCurrentWindow = useCloseCurrentWindow();
   const ws = useWebSocket();
 
@@ -510,6 +512,20 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; symbol?: string } | null>(null);
   const { openWindow } = useFloatingWindow();
   const [customEventTypes, setCustomEventTypes] = useState<string[]>(initialEventTypes);
+
+  // Refs to avoid stale closures in memoized column definitions
+  const linkGroupRef = useRef(linkGroup);
+  const hasSubscribersRef = useRef(hasSubscribers);
+  const publishTickerRef = useRef(publishTicker);
+  const openWindowRef = useRef(openWindow);
+  const executeTickerCommandRef = useRef(executeTickerCommand);
+  useEffect(() => {
+    linkGroupRef.current = linkGroup;
+    hasSubscribersRef.current = hasSubscribers;
+    publishTickerRef.current = publishTicker;
+    openWindowRef.current = openWindow;
+    executeTickerCommandRef.current = executeTickerCommand;
+  });
 
   // Active event types: custom selection or initial from category
   // IMPORTANT: useMemo with serialized key to prevent infinite re-render loop
@@ -1038,9 +1054,31 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
             className="font-bold text-blue-600 cursor-pointer hover:text-blue-800 hover:underline transition-colors text-xs"
             onClick={(e) => {
               e.stopPropagation();
-              executeTickerCommand(info.getValue(), 'fan');
+              const symbol = info.getValue();
+              const currentLinkGroup = linkGroupRef.current;
+              if (currentLinkGroup) {
+                if (hasSubscribersRef.current()) {
+                  publishTickerRef.current(symbol);
+                } else {
+                  const sw = typeof window !== 'undefined' ? window.innerWidth : 1920;
+                  const sh = typeof window !== 'undefined' ? window.innerHeight : 1080;
+                  openWindowRef.current({
+                    title: `Chart: ${symbol}`,
+                    content: React.createElement(
+                      require('@/components/chart/ChartContent').ChartContent,
+                      { ticker: symbol }
+                    ),
+                    width: 900, height: 600,
+                    x: Math.max(50, sw / 2 - 450), y: Math.max(80, sh / 2 - 300),
+                    minWidth: 600, minHeight: 400,
+                    linkGroup: currentLinkGroup,
+                  } as any);
+                }
+              } else {
+                executeTickerCommandRef.current(symbol, 'chart');
+              }
             }}
-            title="Click to open Financial Analyst"
+            title="Click to open Chart"
           >
             {info.getValue()}
           </div>
@@ -2421,7 +2459,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         },
       }),
     ],
-    [executeTickerCommand]
+    [] // Columns static - link group accessed via refs
   );
 
   const table = useReactTable({
@@ -2497,7 +2535,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     >
       {ctxMenu.symbol && (
         <>
-          <button onClick={() => { executeTickerCommand(ctxMenu.symbol!, 'chart'); setCtxMenu(null); }}
+          <button onClick={() => { executeTickerCommandRef.current(ctxMenu.symbol!, 'chart'); setCtxMenu(null); }}
             className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700">
             Trade {ctxMenu.symbol}
           </button>

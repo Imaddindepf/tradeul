@@ -26,6 +26,7 @@ import {
 import { RefreshCw, Maximize2, Minimize2, BarChart3, Radio, Newspaper, ExternalLink, ChevronDown, LineChart, Waves, X, Sparkles, Bot } from 'lucide-react';
 import { useLiveChartData, type ChartBar as HookChartBar } from '@/hooks/useLiveChartData';
 import { useChartDrawings } from '@/hooks/useChartDrawings';
+import { useLinkGroupSubscription } from '@/hooks/useLinkGroup';
 import type { Drawing as DrawingType } from '@/hooks/useChartDrawings';
 import { TrendlinePrimitive } from './primitives/TrendlinePrimitive';
 import { HorizontalLinePrimitive } from './primitives/HorizontalLinePrimitive';
@@ -651,6 +652,15 @@ function TradingChartComponent({
         setCurrentTicker(initialTicker);
         setInputValue(initialTicker);
     }, [initialTicker]);
+
+    // IBKR-style link group: subscribe to ticker broadcasts
+    const linkBroadcast = useLinkGroupSubscription();
+    useEffect(() => {
+        if (linkBroadcast?.ticker) {
+            setCurrentTicker(linkBroadcast.ticker.toUpperCase());
+            setInputValue(linkBroadcast.ticker.toUpperCase());
+        }
+    }, [linkBroadcast]);
 
     // Apply time range to chart — uses real timestamps, not bar count
     const applyTimeRange = useCallback((range: TimeRange) => {
