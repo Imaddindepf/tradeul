@@ -624,6 +624,19 @@ export default function TickersWithNewsTable({ title, onClose }: TickersWithNews
           );
         },
       }),
+      columnHelper.accessor('change_from_open', {
+        header: 'vs Open',
+        size: 80,
+        cell: (info) => {
+          const value = info.getValue() as number | null | undefined;
+          if (value == null) return <span className="text-slate-400">-</span>;
+          return (
+            <div className={`font-mono font-semibold ${value > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {formatPercent(value)}
+            </div>
+          );
+        },
+      }),
       columnHelper.accessor('volume_today', {
         header: t('scanner.tableHeaders.volume'),
         size: 90,

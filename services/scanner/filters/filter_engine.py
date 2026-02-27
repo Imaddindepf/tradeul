@@ -56,10 +56,20 @@ FILTER_DEFINITIONS = [
     
     # Change percent
     ('min_change_percent', 'max_change_percent', 'change_percent'),
-    
+
+    # Change from open
+    ('min_change_from_open', 'max_change_from_open', 'change_from_open'),
+    ('min_change_from_open_dollars', 'max_change_from_open_dollars', 'change_from_open_dollars'),
+
+    # Price distance filters
+    ('min_price_from_high', 'max_price_from_high', 'price_from_high'),
+    ('min_price_from_low', 'max_price_from_low', 'price_from_low'),
+    ('min_price_from_intraday_high', 'max_price_from_intraday_high', 'price_from_intraday_high'),
+    ('min_price_from_intraday_low', 'max_price_from_intraday_low', 'price_from_intraday_low'),
+
     # Market cap
     ('min_market_cap', 'max_market_cap', 'market_cap'),
-    
+
     # Float
     ('min_float', 'max_float', 'free_float'),
 ]

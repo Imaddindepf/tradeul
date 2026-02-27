@@ -57,12 +57,12 @@ const columnHelper = createColumnHelper<Ticker>();
 
 const DEFAULT_VISIBLE_COLUMNS: Record<string, string[]> = {
   // Gappers: enfocado en gap % (FIJO) y change % (tiempo real)
-  gappers_up: ['price', 'change_percent', 'gap_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
-  gappers_down: ['price', 'change_percent', 'gap_percent', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+  gappers_up: ['price', 'change_percent', 'gap_percent', 'change_from_open', 'volume_today', 'rvol', 'market_cap', 'free_float'],
+  gappers_down: ['price', 'change_percent', 'gap_percent', 'change_from_open', 'volume_today', 'rvol', 'market_cap', 'free_float'],
 
   // Momentum: cambio % + chg_5min (vela de ignición) + RVOL alto
-  momentum_up: ['price', 'change_percent', 'premarket_change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
-  momentum_down: ['price', 'change_percent', 'premarket_change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
+  momentum_up: ['price', 'change_percent', 'change_from_open', 'premarket_change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
+  momentum_down: ['price', 'change_percent', 'change_from_open', 'premarket_change_percent', 'chg_5min', 'volume_today', 'rvol', 'price_vs_vwap', 'market_cap'],
 
   // Winners/Losers: top movers del día
   winners: ['price', 'change_percent', 'volume_today', 'rvol', 'market_cap', 'dollar_volume'],
@@ -79,7 +79,7 @@ const DEFAULT_VISIBLE_COLUMNS: Record<string, string[]> = {
   high_volume: ['price', 'change_percent', 'volume_today', 'rvol', 'dollar_volume', 'vol_1min', 'vol_5min'],
 
   // Reversals: VWAP y momentum corto
-  reversals: ['price', 'change_percent', 'volume_today', 'rvol', 'price_vs_vwap', 'vol_5min'],
+  reversals: ['price', 'change_percent', 'change_from_open', 'volume_today', 'rvol', 'price_vs_vwap', 'vol_5min'],
 
   // Post-Market: SOLO esta tabla muestra columnas PM por defecto
   post_market: ['price', 'change_percent', 'postmarket_change_percent', 'postmarket_volume', 'volume_today', 'market_cap'],
@@ -265,6 +265,8 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
   const [isReady, setIsReady] = useState(false);
   const isReadyRef = useRef(false);
   const [noDataAvailable, setNoDataAvailable] = useState(false);
+  const isTradingRef = useRef(isTrading);
+  isTradingRef.current = isTrading;
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Animaciones (local state) - Solo para ranking changes, no precio
@@ -417,11 +419,15 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
 
     setConnectionError(null);
 
-    // Timeout para mostrar "sin datos" si no llegan datos en 10 segundos
-    // Usa isReadyRef para evitar stale closure (isReady state no está en deps)
+    // Timeout: si no llegan datos en 10 segundos, reintentar si estamos en trading
     const dataTimeout = setTimeout(() => {
       if (!isReadyRef.current) {
-        setNoDataAvailable(true);
+        if (isTradingRef.current) {
+          // Market abierto pero sin datos — reintentar antes de rendirse
+          ws.send({ action: 'resync', list: listName });
+        } else {
+          setNoDataAvailable(true);
+        }
       }
     }, 10000);
 
@@ -446,7 +452,7 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     const errorMsgSub = ws.messages$.subscribe((msg: any) => {
       if (msg.type === 'error' && msg.list === listName) {
         if (msg.message?.includes('No snapshot available')) {
-          if (isTrading) {
+          if (isTradingRef.current) {
             // Market is open but Redis is cold after refresh - retry
             ws.send({ action: 'resync', list: listName });
           } else {
@@ -467,6 +473,14 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     // NOTA: isReady removido de dependencias para evitar bucle infinito
     // El timeout usa isReady solo para lectura, no necesita re-suscribirse cuando cambia
   }, [ws.isConnected, ws.snapshots$, ws.deltas$, ws.messages$, listName, handleSnapshot, handleDelta]);
+
+  // Recovery: si isTrading cambia a true y estábamos en "sin datos", reintentar
+  useEffect(() => {
+    if (isTrading && noDataAvailable && ws.isConnected) {
+      setNoDataAvailable(false);
+      ws.send({ action: 'resync', list: listName });
+    }
+  }, [isTrading, noDataAvailable, ws.isConnected, listName, ws.send]);
 
   // ======================================================================
   // TABLE CONFIGURATION
@@ -579,6 +593,25 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
       }),
       columnHelper.accessor('gap_percent', {
         header: 'Gap %',
+        size: 85,
+        minSize: 70,
+        maxSize: 130,
+        enableResizing: true,
+        enableSorting: true,
+        enableHiding: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+          const isPositive = value > 0;
+          return (
+            <div className={`font-mono font-semibold ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {formatPercent(value)}
+            </div>
+          );
+        },
+      }),
+      columnHelper.accessor('change_from_open', {
+        header: 'vs Open',
         size: 85,
         minSize: 70,
         maxSize: 130,

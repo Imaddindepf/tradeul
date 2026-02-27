@@ -40,6 +40,7 @@ import { EarningsCalendarContent } from '@/components/floating-window/EarningsCa
 import { PredictionMarketsContent } from '@/components/floating-window';
 import { EventTableContent } from '@/components/events';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
+import { useMarketSessionStore } from '@/stores/useMarketSessionStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
 // Phase 1: All window types for full restoration
 import { FinancialAnalystContent } from '@/components/financial-analyst';
@@ -141,7 +142,7 @@ export default function ScannerPage() {
     if (title === 'AI Agent') return <AIAgentContent />;
     if (title === 'Institutional Holdings') return <InstitutionalHoldingsContent />;
     if (title === 'Analyst Ratings') return <AnalystRatingsContent />;
-    if (title === 'Chart') return <ChartContent />;
+    if (title === 'Chart') return <ChartContent ticker={(componentState?.ticker as string) || 'AAPL'} />;
     // Strategy Builder - restore with full callbacks for creating event/scanner windows
     if (title === 'Strategy Builder') return (
       <ConfigWindow
@@ -427,6 +428,9 @@ export default function ScannerPage() {
 
   // Fetch market session inicial
   useEffect(() => {
+    // Inicializar Zustand store global (CategoryTableV2 y otros lo necesitan)
+    useMarketSessionStore.getState().fetchSession();
+
     const fetchSession = async () => {
       try {
         const sessionData = await getMarketSession();
@@ -446,14 +450,23 @@ export default function ScannerPage() {
   useEffect(() => {
     const subscription = ws.messages$.subscribe((message: any) => {
       if (message.type === 'market_session_change' && message.data) {
+        const currentSession = message.data.current_session;
 
         // Actualizar el estado de sesión inmediatamente
         setSession((prev) => ({
           ...prev,
-          current_session: message.data.current_session,
+          current_session: currentSession,
           trading_date: message.data.trading_date,
           timestamp: message.data.timestamp,
         } as MarketSession));
+
+        // Sincronizar Zustand store global (CategoryTableV2 y otros lo leen)
+        useMarketSessionStore.setState({
+          isMarketOpen: currentSession === 'MARKET_OPEN',
+          isPreMarket: currentSession === 'PRE_MARKET',
+          isPostMarket: currentSession === 'POST_MARKET',
+          isClosed: currentSession === 'CLOSED',
+        });
       }
     });
 

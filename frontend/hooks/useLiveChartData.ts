@@ -1,12 +1,11 @@
 /**
  * useLiveChartData - Hook para datos de chart con actualización en tiempo real
  * 
- * ARQUITECTURA PROFESIONAL:
+ * ARQUITECTURA:
  * 1. Datos históricos cargados via API → setData (una sola vez)
  * 2. Actualizaciones en tiempo real via WebSocket → callback imperativo (sin re-render)
- * 
- * El componente TradingChart registra un handler que recibe las actualizaciones
- * y usa series.update() directamente, evitando re-renders de React.
+ * 3. Page Lifecycle recovery: visibilitychange + freeze/resume (Chrome 133+)
+ *    Al volver de background, fetch solo barras faltantes + re-subscribe WS.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -35,7 +34,6 @@ export type RealtimeUpdateHandler = (bar: ChartBar, isNewBar: boolean) => void;
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Intervalo en segundos para cada tipo de barra
 const INTERVAL_SECONDS: Record<ChartInterval, number> = {
   '1min': 60,
   '5min': 300,
@@ -46,11 +44,15 @@ const INTERVAL_SECONDS: Record<ChartInterval, number> = {
   '1day': 86400,
 };
 
+// Recovery thresholds
+const GAP_IGNORE_MS = 5_000;       // < 5s away → do nothing
+const GAP_PARTIAL_MAX_MS = 300_000; // < 5min → partial fetch
+                                     // > 5min → full refetch
+
 // ============================================================================
 // WebSocket Manager Access
 // ============================================================================
 
-// Importar WebSocket hook principal
 import { useRxWebSocket } from './useRxWebSocket';
 
 // ============================================================================
@@ -83,6 +85,10 @@ export function useLiveChartData(
 
   // Handler registrado por el chart para updates imperativos
   const updateHandlerRef = useRef<RealtimeUpdateHandler | null>(null);
+
+  // Page Lifecycle: track when the tab went hidden
+  const hiddenAtRef = useRef<number | null>(null);
+  const isFrozenRef = useRef(false);
 
   // Actualizar refs cuando cambien
   useEffect(() => {
@@ -186,6 +192,51 @@ export function useLiveChartData(
       setLoadingMore(false);
     }
   }, [ticker, interval, oldestTime, hasMore, loadingMore]);
+
+  // Fetch only the bars missing since `sinceTime` and push them
+  // to the chart imperatively (no full re-render).
+  const fetchGapBars = useCallback(async (sinceTime: number) => {
+    if (!tickerRef.current) return;
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&after=${sinceTime}`
+      );
+      if (!response.ok) return;
+      const result = await response.json();
+      const bars: ChartBar[] = (result.data || []).sort(
+        (a: ChartBar, b: ChartBar) => a.time - b.time
+      );
+      if (bars.length === 0) return;
+
+      // Push each bar to the chart via the imperative handler
+      for (const bar of bars) {
+        const last = lastBarRef.current;
+        const isNew = !last || bar.time > last.time;
+        if (updateHandlerRef.current) {
+          updateHandlerRef.current(bar, isNew);
+        }
+        if (isNew) {
+          lastBarRef.current = bar;
+        } else if (last && bar.time === last.time) {
+          // Merge into current bar
+          const merged: ChartBar = {
+            time: bar.time,
+            open: last.open,
+            high: Math.max(last.high, bar.high),
+            low: Math.min(last.low, bar.low),
+            close: bar.close,
+            volume: bar.volume, // API returns final volume for bar
+          };
+          lastBarRef.current = merged;
+          if (updateHandlerRef.current) {
+            updateHandlerRef.current(merged, false);
+          }
+        }
+      }
+    } catch {
+      // Silent — will recover on next aggregate
+    }
+  }, []);
 
   // Cargar al montar o cambiar ticker/interval
   useEffect(() => {
@@ -323,6 +374,67 @@ export function useLiveChartData(
   }, [loading, data.length, ticker, isConnected, messages$, send]);
 
   // ============================================================================
+  // Page Lifecycle: visibility + freeze/resume recovery
+  //
+  // Only fetches missing data. WS subscriptions are managed entirely by the
+  // real-time useEffect above (reacts to loading / data.length / isConnected).
+  // ============================================================================
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+
+      const hiddenAt = hiddenAtRef.current;
+      hiddenAtRef.current = null;
+      isFrozenRef.current = false;
+
+      if (!hiddenAt || !tickerRef.current) return;
+      const awayMs = Date.now() - hiddenAt;
+
+      if (awayMs < GAP_IGNORE_MS) return;
+
+      const isIntraday = ['1min', '5min', '15min'].includes(intervalRef.current);
+
+      if (awayMs > GAP_PARTIAL_MAX_MS || !isIntraday) {
+        // Long absence → full reload (triggers loading=true → WS effect
+        // will auto-unsubscribe/resubscribe via its deps)
+        fetchHistorical();
+      } else {
+        // Short absence → fetch only missing bars imperatively
+        const lastBar = lastBarRef.current;
+        if (lastBar) {
+          fetchGapBars(lastBar.time);
+        }
+      }
+    };
+
+    const handleFreeze = () => {
+      isFrozenRef.current = true;
+      if (!hiddenAtRef.current) {
+        hiddenAtRef.current = Date.now();
+      }
+    };
+
+    const handleResume = () => {
+      isFrozenRef.current = false;
+      handleVisibilityChange();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('freeze', handleFreeze);
+    document.addEventListener('resume', handleResume);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('freeze', handleFreeze);
+      document.removeEventListener('resume', handleResume);
+    };
+  }, [fetchHistorical, fetchGapBars]);
+
+  // ============================================================================
   // Return
   // ============================================================================
 
@@ -336,7 +448,6 @@ export function useLiveChartData(
     isConnected,
     refetch: fetchHistorical,
     loadMore,
-    // Método para que el chart registre su handler de updates
     registerUpdateHandler,
   };
 }

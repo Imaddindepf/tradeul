@@ -23,10 +23,14 @@ FILTER_FIELD_MAPPING = [
     # === Change % ===
     ("min_change_percent", "max_change_percent", "change_percent"),
     ("min_change_from_open", "max_change_from_open", "change_from_open"),
+    ("min_change_from_open_dollars", "max_change_from_open_dollars", "change_from_open_dollars"),
     ("min_gap_percent", "max_gap_percent", "gap_percent"),
     ("min_premarket_change_percent", "max_premarket_change_percent", "premarket_change_percent"),
     ("min_postmarket_change_percent", "max_postmarket_change_percent", "postmarket_change_percent"),
     ("min_price_from_high", "max_price_from_high", "price_from_high"),
+    ("min_price_from_low", "max_price_from_low", "price_from_low"),
+    ("min_price_from_intraday_high", "max_price_from_intraday_high", "price_from_intraday_high"),
+    ("min_price_from_intraday_low", "max_price_from_intraday_low", "price_from_intraday_low"),
     #
     # === Volume ===
     ("min_rvol", "max_rvol", "rvol"),
@@ -34,6 +38,7 @@ FILTER_FIELD_MAPPING = [
     ("min_volume_today", None, "volume_today"),
     ("min_minute_volume", None, "minute_volume"),
     ("min_volume_today_pct", "max_volume_today_pct", "volume_today_pct"),
+    ("min_volume_yesterday_pct", "max_volume_yesterday_pct", "volume_yesterday_pct"),
     #
     # === Volume Windows ===
     ("min_vol_1min", "max_vol_1min", "vol_1min"),

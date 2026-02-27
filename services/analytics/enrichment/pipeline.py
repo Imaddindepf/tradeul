@@ -571,14 +571,28 @@ class EnrichmentPipeline:
             ticker_data['volume_today_pct'] = round((_day_vol / _avg_vol_10d) * 100, 1)
         else:
             ticker_data.setdefault('volume_today_pct', None)
-        
+
+        # Volume yesterday % = (prev_volume / avg_volume_10d) * 100
+        _prev_vol = ticker_data.get('prev_day_volume')
+        if _prev_vol and _avg_vol_10d and _avg_vol_10d > 0:
+            ticker_data['volume_yesterday_pct'] = round((_prev_vol / _avg_vol_10d) * 100, 1)
+        else:
+            ticker_data.setdefault('volume_yesterday_pct', None)
+
         # Price from day high (%) = ((price - day.h) / day.h) * 100
         _day_high = _day_data.get('h')
         if price and _day_high and _day_high > 0:
             ticker_data['price_from_high'] = round((price - _day_high) / _day_high * 100, 2)
         else:
             ticker_data.setdefault('price_from_high', None)
-        
+
+        # Price from day low (%) = ((price - day.l) / day.l) * 100
+        _day_low = _day_data.get('l')
+        if price and _day_low and _day_low > 0:
+            ticker_data['price_from_low'] = round((price - _day_low) / _day_low * 100, 2)
+        else:
+            ticker_data.setdefault('price_from_low', None)
+
         # Distance from NBBO (%) = distance from inside market
         _bid = ticker_data.get('bid')
         _ask = ticker_data.get('ask')
@@ -638,9 +652,12 @@ class EnrichmentPipeline:
         float_shares = ticker_data.get('float_shares')
         volume = day_volume or 0
         
-        # Gap % (today's open vs prev close)
+        # Gap % (today's open vs prev close, pre-market fallback: use price as expected open)
         if day_open and prev_close and prev_close > 0:
             ticker_data['gap_percent'] = round((day_open - prev_close) / prev_close * 100, 2)
+        elif price and prev_close and prev_close > 0 and not day_open:
+            # Pre-market fallback: current price as expected open
+            ticker_data['gap_percent'] = round((price - prev_close) / prev_close * 100, 2)
         else:
             ticker_data.setdefault('gap_percent', None)
         
@@ -708,7 +725,31 @@ class EnrichmentPipeline:
             ticker_data['change_from_close'] = round(price - prev_close, 4)
         else:
             ticker_data['change_from_close'] = None
-        
+
+        # Change from today's open (%) — Trade Ideas FOP
+        if price and day_open and day_open > 0:
+            ticker_data['change_from_open'] = round((price - day_open) / day_open * 100, 4)
+        else:
+            ticker_data['change_from_open'] = None
+
+        # Change from today's open ($) — Trade Ideas FOD
+        if price and day_open:
+            ticker_data['change_from_open_dollars'] = round(price - day_open, 4)
+        else:
+            ticker_data['change_from_open_dollars'] = None
+
+        # Price from intraday high (%) — includes pre/post market
+        if price and intraday_high and intraday_high > 0:
+            ticker_data['price_from_intraday_high'] = round((price - intraday_high) / intraday_high * 100, 2)
+        else:
+            ticker_data['price_from_intraday_high'] = None
+
+        # Price from intraday low (%) — includes pre/post market
+        if price and intraday_low and intraday_low > 0:
+            ticker_data['price_from_intraday_low'] = round((price - intraday_low) / intraday_low * 100, 2)
+        else:
+            ticker_data['price_from_intraday_low'] = None
+
         # Position of open in today's range (%)
         if day_open and h and l and h != l:
             ticker_data['pos_of_open'] = round((day_open - l) / (h - l) * 100, 2)

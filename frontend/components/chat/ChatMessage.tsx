@@ -258,7 +258,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
           </button>
         )}
         
-        <span className="text-[9px] text-muted-foreground/40">{time}</span>
+        <span className="text-[9px] text-slate-400">{time}</span>
         {' '}
         <span className={nameColor}>{message.user_name}</span>
         <span className="text-muted-foreground/30">:</span>
@@ -303,7 +303,7 @@ export function ChatMessage({ message, onScrollToMessage }: ChatMessageProps) {
           }}
           className={cn(
             "absolute right-1 top-0 p-0.5 rounded transition-opacity",
-            "hover:bg-muted text-muted-foreground",
+            "hover:bg-muted text-slate-500",
             isHovered ? "opacity-100" : "opacity-0"
           )}
         >

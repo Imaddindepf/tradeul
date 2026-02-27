@@ -341,7 +341,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         size: { width: w.width, height: w.height },
         isMinimized: w.isMinimized,
         zIndex: w.zIndex,
-        componentState: w.componentState || csMap.get(w.id) || pendingCs.get(w.id),
+        componentState: pendingCs.get(w.id) || csMap.get(w.id) || w.componentState,
         linkGroup: w.linkGroup || undefined,
       }));
 
@@ -511,7 +511,7 @@ export function FloatingWindowProvider({ children }: { children: ReactNode }) {
         size: { width: w.width, height: w.height },
         isMinimized: w.isMinimized,
         zIndex: w.zIndex,
-        componentState: w.componentState || csMap.get(w.id) || pendingCs.get(w.id),
+        componentState: pendingCs.get(w.id) || csMap.get(w.id) || w.componentState,
       }));
 
       if (activeWorkspaceId) {

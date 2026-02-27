@@ -6,6 +6,9 @@ Endpoint: GET /benzinga/v1/earnings
 """
 
 import httpx
+import logging as _logging
+_logging.getLogger("httpx").setLevel(_logging.WARNING)
+_logging.getLogger("httpcore").setLevel(_logging.WARNING)
 import asyncio
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any

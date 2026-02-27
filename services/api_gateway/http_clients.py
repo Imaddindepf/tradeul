@@ -87,13 +87,14 @@ class PolygonClient:
         timespan: str,
         from_date: str,
         to_date: str,
-        limit: int = 50000
+        limit: int = 50000,
+        sort: str = "asc"
     ) -> Dict[str, Any]:
         """Obtiene datos OHLCV agregados"""
         url = f"/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{from_date}/{to_date}"
         params = {
             "adjusted": "true",
-            "sort": "asc",
+            "sort": sort,
             "limit": str(limit),
             "apiKey": self.api_key
         }

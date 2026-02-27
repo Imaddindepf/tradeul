@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     
     # API limits
     max_results_per_request: int = Field(default=1000, description="Max results per API request")
-    lookback_days: int = Field(default=7, description="Days to look back for earnings")
-    lookahead_days: int = Field(default=14, description="Days to look ahead for earnings")
+    lookback_days: int = Field(default=90, description="Days to look back for earnings")
+    lookahead_days: int = Field(default=30, description="Days to look ahead for earnings")
     
     # Logging
     log_level: str = Field(default="INFO", description="Log level")

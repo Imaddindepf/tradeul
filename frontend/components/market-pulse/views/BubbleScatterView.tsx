@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useCallback } from 'react';
+import { memo, useMemo, useState, useCallback, useEffect } from 'react';
 import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell,
@@ -23,6 +23,7 @@ const AXIS_OPTIONS = [
   { key: 'avg_dist_sma50', label: 'Dist SMA50' },
   { key: 'avg_atr_pct', label: 'ATR%' },
   { key: 'avg_gap_pct', label: 'Gap%' },
+  { key: 'avg_change_from_open', label: 'Chg from Open' },
 ] as const;
 
 function fmtName(n: string, tab: string) {
@@ -60,8 +61,18 @@ function BubbleTooltip({ active, payload }: any) {
 
 function BubbleScatterView({ data, activeTab, onSelect }: PulseViewProps) {
   const { ref, size } = useContainerSize();
-  const [xAxis, setXAxis] = useState('avg_change_5d');
-  const [yAxis, setYAxis] = useState('avg_change');
+  const [xAxis, setXAxis] = useState(() => {
+    try { const s = localStorage.getItem('scatter-axes'); if (s) { return JSON.parse(s).x || 'avg_change_5d'; } } catch {}
+    return 'avg_change_5d';
+  });
+  const [yAxis, setYAxis] = useState(() => {
+    try { const s = localStorage.getItem('scatter-axes'); if (s) { return JSON.parse(s).y || 'avg_change'; } } catch {}
+    return 'avg_change';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('scatter-axes', JSON.stringify({ x: xAxis, y: yAxis }));
+  }, [xAxis, yAxis]);
 
   const xOpt = AXIS_OPTIONS.find(o => o.key === xAxis);
   const yOpt = AXIS_OPTIONS.find(o => o.key === yAxis);

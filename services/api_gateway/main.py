@@ -49,6 +49,7 @@ from routes.halts import router as halts_router
 from routes.alerts import router as alerts_router
 from routes.alert_strategies import router as alert_strategies_router, set_timescale_client as set_alert_strategies_timescale_client
 from routes.performance import router as performance_router, set_redis_client as set_performance_redis, set_timescale_client as set_performance_timescale
+from routes.rrg import router as rrg_router, set_redis_client as set_rrg_redis, set_timescale_client as set_rrg_timescale
 from routes.analyst_ratings import router as analyst_ratings_router
 from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
@@ -97,6 +98,7 @@ async def lifespan(app: FastAPI):
     set_symbols_timescale_client(timescale_client)  # Para symbols (indexed query ~150ms)
     set_alert_strategies_timescale_client(timescale_client)  # Para alert strategies
     set_performance_timescale(timescale_client)  # Para performance aggregation
+    set_rrg_timescale(timescale_client)  # Para RRG trails
     logger.info("timescale_connected")
     
     # Router de financials ahora es un microservicio separado
@@ -124,6 +126,7 @@ async def lifespan(app: FastAPI):
     
     # Configurar router de performance con Redis
     set_performance_redis(redis_client)
+    set_rrg_redis(redis_client)
     logger.info("performance_router_configured")
     
     # Configurar router de institutional con SEC API client
@@ -244,6 +247,7 @@ app.include_router(halts_router)  # Trading halts from LULD stream
 app.include_router(alerts_router)  # Alert catalog and categories
 app.include_router(alert_strategies_router)  # User alert strategies (CRUD)
 app.include_router(performance_router)  # Market performance aggregation (sectors, industries, themes)
+app.include_router(rrg_router)  # RRG (Relative Rotation Graph) with historical trails
 app.include_router(analyst_ratings_router)  # Analyst ratings & price targets (Perplexity proxy)
 
 
@@ -2372,7 +2376,7 @@ async def get_earnings_calendar(
             else:
                 total_projected += 1
         
-        return {
+        result = {
             "date": str(target_date),
             "reports": reports,
             "total_count": len(reports),
@@ -2383,6 +2387,14 @@ async def get_earnings_calendar(
             "total_confirmed": total_confirmed,
             "total_projected": total_projected
         }
+        
+        # Cache for 5 minutes
+        try:
+            await redis_client.set(cache_key, result, ttl=300)
+        except Exception:
+            pass
+        
+        return result
         
     except Exception as e:
         logger.error(f"earnings_calendar_error: {e}")
@@ -2450,6 +2462,45 @@ async def get_upcoming_earnings(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/earnings/ticker/{symbol}/dates")
+async def get_earnings_dates(
+    symbol: str,
+    limit: int = Query(100, ge=1, le=500, description="Max earnings dates to return"),
+):
+    """
+    Lightweight endpoint: returns only earnings dates + time_slot for a ticker.
+    Designed for chart E markers - minimal payload.
+    """
+    try:
+        query = """
+            SELECT report_date, time_slot
+            FROM earnings_calendar
+            WHERE symbol = $1
+            ORDER BY report_date DESC
+            LIMIT $2
+        """
+        
+        rows = await timescale_client.fetch(query, symbol.upper(), limit)
+        
+        dates = []
+        for row in rows:
+            dates.append({
+                "date": str(row["report_date"]) if row.get("report_date") else None,
+                "time_slot": row.get("time_slot", "TBD")
+            })
+        
+        return {
+            "symbol": symbol.upper(),
+            "count": len(dates),
+            "dates": dates
+        }
+        
+    except Exception as e:
+        logger.error(f"earnings_dates_error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @app.get("/api/v1/earnings/ticker/{symbol}")
 async def get_earnings_by_ticker(
     symbol: str,
@@ -2504,6 +2555,7 @@ async def get_earnings_by_ticker(
     except Exception as e:
         logger.error(f"earnings_ticker_error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ============================================================================
@@ -3135,23 +3187,38 @@ async def fetch_polygon_chunk(
         # When loading more (before_timestamp set), need to go further back
         days_needed = max(10, (limit // bars_per_day) + 10)
     else:
-        # Hours: ~7 trading hours per day
-        bars_per_day = 7 // multiplier
+        # Hours: use 16 bars/day (extended hours) to avoid truncation
+        bars_per_day = 16 // multiplier
         days_needed = max(30, (limit // max(1, bars_per_day)) + 10)
     
     from_date = (to_dt - timedelta(days=days_needed)).strftime("%Y-%m-%d")
     
-    # Usar cliente Polygon con connection pooling
-    data = await http_clients.polygon.get_aggregates(
-        symbol=symbol,
-        multiplier=multiplier,
-        timespan=timespan,
-        from_date=from_date,
-        to_date=to_date,
-        limit=50000  # Max limit - get all in one request
-    )
+    # Retry on transient HTTP/2 failures (stale connection, server disconnect)
+    last_err = None
+    for attempt in range(3):
+        try:
+            data = await http_clients.polygon.get_aggregates(
+                symbol=symbol,
+                multiplier=multiplier,
+                timespan=timespan,
+                from_date=from_date,
+                to_date=to_date,
+                limit=50000,
+                sort="desc"
+            )
+            break
+        except httpx.HTTPError as e:
+            last_err = e
+            if attempt < 2:
+                import asyncio
+                await asyncio.sleep(0.3 * (attempt + 1))
+                continue
+            raise last_err
     
     results = data.get("results", [])
+
+    # Results are desc (newest first) - reverse to asc
+    results.reverse()
     
     # Transform to our format
     all_bars = []
@@ -3300,6 +3367,7 @@ async def get_chart_data(
     symbol: str,
     interval: str = Query(default="1day", description="Chart interval: 1min, 5min, 15min, 30min, 1hour, 4hour, 1day"),
     before: Optional[int] = Query(default=None, description="Load bars before this Unix timestamp (for lazy loading)"),
+    after: Optional[int] = Query(default=None, description="Load bars after this Unix timestamp (for gap recovery)"),
     limit: Optional[int] = Query(default=None, description="Number of bars to load (default: 500 for intraday, 1000 for daily)"),
     force_refresh: bool = Query(default=False, description="Force refresh from API")
 ):
@@ -3307,28 +3375,18 @@ async def get_chart_data(
     Get OHLCV chart data - TradingView Style with Lazy Loading.
     
     Strategy:
-    - First call (no 'before'): Returns most recent ~500 bars (fast!)
-    - Subsequent calls (with 'before'): Returns older bars for infinite scroll
+    - First call (no 'before'/'after'): Returns most recent ~500 bars
+    - with 'before': Returns older bars for infinite scroll
+    - with 'after': Returns bars newer than timestamp (gap recovery on tab resume)
     
     Sources:
     - Intraday (1min-4hour): Polygon API
     - Daily (1day): FMP API
     
-    Response:
-    {
-        "symbol": "AAPL",
-        "interval": "1hour",
-        "source": "polygon" | "fmp",
-        "data": [...],
-        "count": 500,
-        "oldest_time": 1699876800,  // For next "load more" call
-        "has_more": true,
-        "cached": false
-    }
-    
     Frontend usage:
     1. Initial: GET /chart/AAPL?interval=1hour
     2. Load more: GET /chart/AAPL?interval=1hour&before=<oldest_time>
+    3. Gap recovery: GET /chart/AAPL?interval=1min&after=<last_bar_time>
     """
     global redis_client
     
@@ -3352,8 +3410,9 @@ async def get_chart_data(
     else:
         to_date = datetime.now().strftime("%Y-%m-%d")
     
-    # Cache key includes the 'before' for proper chunked caching
-    cache_key = f"chart:v3:{symbol}:{interval}:{before or 'latest'}:{bars_limit}"
+    # Cache key includes the 'before'/'after' for proper chunked caching
+    range_key = f"after:{after}" if after else (before or 'latest')
+    cache_key = f"chart:v3:{symbol}:{interval}:{range_key}:{bars_limit}"
     
     try:
         # Check cache first
@@ -3377,38 +3436,42 @@ async def get_chart_data(
         oldest_time = None
         source = "unknown"
         
-        # Usar clientes HTTP con connection pooling (ya inicializados)
         if interval == "1day":
-            # Use FMP for daily data (primary source)
             chart_data, oldest_time = await fetch_fmp_chunk(
                 symbol, to_date, bars_limit
             )
             source = "fmp"
             
-            # FALLBACK: Si FMP no tiene datos, usar Polygon
-            # Esto cubre warrants, OTC, y tickers que FMP no soporta
             if not chart_data:
                 logger.info("fmp_no_data_fallback_polygon", symbol=symbol)
                 chart_data, oldest_time = await fetch_polygon_daily_chunk(
                     symbol, to_date, bars_limit
                 )
-                source = "polygon"  # Update source to reflect actual data provider
+                source = "polygon"
         else:
-            # Use Polygon for intraday data
             chart_data, oldest_time = await fetch_polygon_chunk(
                 symbol,
                 config["polygon_multiplier"],
                 config["polygon_timespan"],
                 to_date,
                 bars_limit,
-                before_timestamp=before  # Pass the before timestamp for filtering
+                before_timestamp=before
             )
             source = "polygon"
         
+        # Gap recovery: keep only bars strictly after the given timestamp
+        if after and chart_data:
+            chart_data = [b for b in chart_data if b["time"] > after]
+        
         has_more = oldest_time is not None
         
-        # Cache the result (longer TTL for historical data)
-        cache_ttl = config["cache_ttl"] if not before else 86400  # 24h for historical chunks
+        # Short TTL for gap recovery (fresh data), longer for historical chunks
+        if after:
+            cache_ttl = 10  # 10s — data is near-realtime
+        elif before:
+            cache_ttl = 86400  # 24h for historical chunks
+        else:
+            cache_ttl = config["cache_ttl"]
         result = {
             "data": chart_data,
             "source": source,

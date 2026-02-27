@@ -168,8 +168,10 @@ class WebSocketManager {
             tap((error) => {
               this.reconnectAttempt++;
               this.errorsSubject.next(error as Error);
-              if (this.debug) {
-              }
+              // Request fresh JWT before next reconnect attempt.
+              // useAuthWebSocket will call updateToken() which triggers
+              // reconnection with the fresh URL (see updateToken below).
+              this.tokenRefreshRequestSubject.next(true);
             }),
             switchMap((_, attempt) => {
               const backoff = Math.min(3000 * Math.pow(2, attempt), 60000);
@@ -259,10 +261,12 @@ class WebSocketManager {
 
   /**
    * 🔐 Actualizar token JWT (para refresh periódico)
-   * Actualiza la URL para futuras reconexiones y envía refresh al servidor
+   * Actualiza la URL para futuras reconexiones y envía refresh al servidor.
+   * In the fallback (direct WS) path, if the connection is down,
+   * kills the stale retryWhen loop and reconnects with the fresh URL.
    */
   updateToken(newUrl: string, token: string) {
-    this.url = newUrl; // Guardar para futuras reconexiones
+    this.url = newUrl;
 
     if (this.workerPort) {
       this.workerPort.postMessage({
@@ -270,8 +274,13 @@ class WebSocketManager {
         url: newUrl,
         token: token
       });
+    } else if (!this.isConnected.value) {
+      // Fallback path: connection is DOWN (retryWhen is looping with stale URL).
+      // Kill the old subscription and reconnect with the fresh token URL.
+      this.disconnect();
+      this.connect(newUrl, this.debug);
     } else {
-      // Sin SharedWorker, enviar directamente
+      // Fallback path: connection is UP — just refresh the token in-band.
       this.send({ action: 'refresh_token', token });
     }
   }
@@ -446,6 +455,10 @@ class WebSocketManager {
   get tokenRefreshRequest$(): Observable<boolean> {
     return this.tokenRefreshRequestSubject.asObservable();
   }
+
+  get currentUrl(): string {
+    return this.url;
+  }
 }
 
 // ============================================================================
@@ -498,7 +511,10 @@ export function useRxWebSocket(url: string, debug: boolean = false): UseRxWebSoc
 
   const reconnect = useCallback(() => {
     managerRef.current.disconnect();
-    managerRef.current.connect(url, debug);
+    // Use the manager's stored URL (kept up-to-date by updateToken)
+    // instead of the closure `url` which may hold a stale token.
+    const freshUrl = managerRef.current.currentUrl || url;
+    managerRef.current.connect(freshUrl, debug);
   }, [url, debug]);
 
   const updateToken = useCallback((newUrl: string, token: string) => {

@@ -39,9 +39,9 @@ from http_clients import http_clients
 from postmarket_capture import PostMarketVolumeCapture
 
 # Calculadores de metricas (refactorizacion)
+# NOTE: PriceMetricsCalculator/VolumeMetricsCalculator removed — enrichment pipeline
+# is now the single source of truth for derived price/volume metrics (Ticker Plant pattern)
 from calculators import (
-    PriceMetricsCalculator,
-    VolumeMetricsCalculator,
     SpreadMetricsCalculator,
     EnrichedDataExtractor
 )
@@ -651,6 +651,7 @@ class ScannerEngine:
             change_percent = None
             gap_percent = None
             change_from_open = None
+            change_from_open_dollars = None
             
             if day_data:
                 if day_data.h and day_data.h > 0:
@@ -662,6 +663,7 @@ class ScannerEngine:
                 # change_from_open: cambio desde la apertura
                 if day_data.o and day_data.o > 0:
                     change_from_open = ((price - day_data.o) / day_data.o) * 100
+                    change_from_open_dollars = price - day_data.o
             
             if prev_day and prev_day.c and prev_day.c > 0:
                 change_percent = ((price - prev_day.c) / prev_day.c) * 100
@@ -784,6 +786,7 @@ class ScannerEngine:
                 # Gap metrics (NUEVOS)
                 gap_percent=gap_percent,
                 change_from_open=change_from_open,
+                change_from_open_dollars=change_from_open_dollars,
                 # Historical data
                 avg_volume_30d=metadata.avg_volume_30d,
                 avg_volume_10d=metadata.avg_volume_10d,
@@ -915,31 +918,17 @@ class ScannerEngine:
             day_data = snapshot.day
             prev_day = snapshot.prevDay
             
-            # === USAR CALCULADORES ===
-            
+            # === TICKER PLANT: enrichment pipeline is single source of truth ===
+
             # 1. Extraer datos enriquecidos (de Analytics)
             enriched = EnrichedDataExtractor.extract(atr_data)
-            
-            # 2. Calcular metricas de precio
-            price_metrics = PriceMetricsCalculator.calculate(
-                price=price,
-                open_price=day_data.o if day_data else None,
-                high=day_data.h if day_data else None,
-                low=day_data.l if day_data else None,
-                prev_close=prev_day.c if prev_day else None,
-                intraday_high=enriched.intraday_high,
-                intraday_low=enriched.intraday_low
-            )
-            
-            # 3. Calcular metricas de volumen
+
+            # 2. Price metrics — read from enriched snapshot (calculated by pipeline)
+            #    Scanner no longer recalculates: change_percent, gap_percent, change_from_open,
+            #    price_from_high/low, price_from_intraday_high/low
+
+            # 3. Volume metrics — read from enriched snapshot
             avg_vol_10d = avg_volumes.get('avg_volume_10d') if avg_volumes else metadata.avg_volume_10d
-            volume_metrics = VolumeMetricsCalculator.calculate(
-                volume_today=volume_today,
-                prev_volume=prev_day.v if prev_day else None,
-                avg_volume_10d=avg_vol_10d,
-                free_float=metadata.free_float,
-                price=price
-            )
             
             # 4. Calcular metricas de spread
             # Bid/Ask from flat enriched fields (pre-converted to shares by analytics)
@@ -961,7 +950,6 @@ class ScannerEngine:
             # 5. VWAP con fallback (enriched > day.vw)
             day_vwap = day_data.vw if day_data and day_data.vw else None
             vwap = enriched.vwap if enriched.vwap and enriched.vwap > 0 else (day_vwap if day_vwap and day_vwap > 0 else None)
-            price_vs_vwap = PriceMetricsCalculator.calculate_price_vs_vwap(price, vwap)
             
             # 6. Campos adicionales del snapshot
             minute_volume = snapshot.min.v if snapshot.min else None
@@ -973,9 +961,10 @@ class ScannerEngine:
             premarket_change_percent = None
             prev_close = prev_day.c if prev_day and prev_day.c and prev_day.c > 0 else None
             
+            _change_pct = atr_data.get('todaysChangePerc') if atr_data else None
             if prev_close:
                 if self.current_session == MarketSession.PRE_MARKET:
-                    premarket_change_percent = price_metrics.change_percent
+                    premarket_change_percent = _change_pct
                 elif day_data and day_data.o and day_data.o > 0:
                     premarket_change_percent = ((day_data.o - prev_close) / prev_close) * 100
             
@@ -1025,17 +1014,20 @@ class ScannerEngine:
                 is_trade_anomaly=enriched.is_trade_anomaly,
                 prev_close=prev_day.c if prev_day else None,
                 prev_volume=prev_day.v if prev_day else None,
-                change_percent=price_metrics.change_percent,
-                gap_percent=price_metrics.gap_percent,
-                change_from_open=price_metrics.change_from_open,
+                # Price metrics — from enrichment pipeline (Ticker Plant)
+                change_percent=_change_pct,
+                gap_percent=atr_data.get('gap_percent') if atr_data else None,
+                change_from_open=atr_data.get('change_from_open') if atr_data else None,
+                change_from_open_dollars=atr_data.get('change_from_open_dollars') if atr_data else None,
                 avg_volume_5d=avg_volumes.get('avg_volume_5d') if avg_volumes else None,
                 avg_volume_10d=avg_vol_10d,
                 avg_volume_3m=avg_volumes.get('avg_volume_3m') if avg_volumes else None,
                 avg_volume_30d=metadata.avg_volume_30d,
-                dollar_volume=volume_metrics.dollar_volume,
-                volume_today_pct=volume_metrics.volume_today_pct,
-                volume_yesterday_pct=volume_metrics.volume_yesterday_pct,
-                float_rotation=volume_metrics.float_rotation,
+                # Volume metrics — from enrichment pipeline (Ticker Plant)
+                dollar_volume=atr_data.get('dollar_volume') if atr_data else None,
+                volume_today_pct=atr_data.get('volume_today_pct') if atr_data else None,
+                volume_yesterday_pct=atr_data.get('volume_yesterday_pct') if atr_data else None,
+                float_rotation=atr_data.get('float_turnover') if atr_data else None,
                 free_float=metadata.free_float,
                 free_float_percent=metadata.free_float_percent,
                 shares_outstanding=metadata.shares_outstanding,
@@ -1049,11 +1041,12 @@ class ScannerEngine:
                 atr=enriched.atr,
                 atr_percent=enriched.atr_percent,
                 vwap=vwap,
-                price_vs_vwap=price_vs_vwap,
-                price_from_high=price_metrics.price_from_high,
-                price_from_low=price_metrics.price_from_low,
-                price_from_intraday_high=price_metrics.price_from_intraday_high,
-                price_from_intraday_low=price_metrics.price_from_intraday_low,
+                price_vs_vwap=atr_data.get('dist_from_vwap') if atr_data else None,
+                # Distance metrics — from enrichment pipeline (Ticker Plant)
+                price_from_high=atr_data.get('price_from_high') if atr_data else None,
+                price_from_low=atr_data.get('price_from_low') if atr_data else None,
+                price_from_intraday_high=atr_data.get('price_from_intraday_high') if atr_data else None,
+                price_from_intraday_low=atr_data.get('price_from_intraday_low') if atr_data else None,
                 premarket_change_percent=premarket_change_percent,
                 postmarket_change_percent=postmarket_change_percent,
                 postmarket_volume=postmarket_volume,

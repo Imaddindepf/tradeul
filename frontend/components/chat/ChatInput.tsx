@@ -299,7 +299,7 @@ export function ChatInput() {
           onClick={() => setShowTickerSearch(!showTickerSearch)}
           className={cn(
             "p-1 rounded transition-colors shrink-0",
-            showTickerSearch ? "bg-primary text-white" : "hover:bg-muted text-muted-foreground"
+            showTickerSearch ? "bg-primary text-white" : "hover:bg-muted text-slate-500"
           )}
           title="Insert ticker ($)"
         >
@@ -331,7 +331,7 @@ export function ChatInput() {
             "p-1 rounded transition-colors shrink-0",
             content.trim() && isSignedIn
               ? "bg-primary text-white hover:bg-primary-hover"
-              : "bg-muted text-muted-foreground/40"
+              : "bg-muted text-slate-400"
           )}
         >
           <Send className="w-3.5 h-3.5" />

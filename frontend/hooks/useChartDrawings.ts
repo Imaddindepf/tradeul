@@ -49,7 +49,7 @@ export type {
 // ============================================================================
 
 const STORAGE_KEY = 'tradeul_chart_drawings_v2';
-const DEFAULT_LINE_WIDTH = 2;
+const DEFAULT_LINE_WIDTH = 1;
 
 // ============================================================================
 // Helpers

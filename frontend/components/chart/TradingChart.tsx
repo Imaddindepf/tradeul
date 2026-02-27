@@ -41,6 +41,7 @@ import { TrianglePrimitive } from './primitives/TrianglePrimitive';
 import { MeasurePrimitive } from './primitives/MeasurePrimitive';
 import { TentativePrimitive } from './primitives/TentativePrimitive';
 import { timeToPixelX } from './primitives/coordinateUtils';
+import { EarningsMarkerPrimitive } from './primitives/EarningsMarkerPrimitive';
 import type { ISeriesPrimitive } from 'lightweight-charts';
 import { useIndicatorWorker, type IndicatorType, PANEL_INDICATORS } from '@/hooks/useIndicatorWorker';
 import { ChartToolbar, HeaderDrawingTools, IndicatorsIcon } from './ChartToolbar';
@@ -420,6 +421,10 @@ function TradingChartComponent({
     const [showEMA, setShowEMA] = useState(windowState.showEMA ?? false);
     const [showVolume, setShowVolume] = useState(windowState.showVolume ?? true);
     const [showNewsMarkers, setShowNewsMarkers] = useState(false);
+    const [showEarningsMarkers, setShowEarningsMarkers] = useState(true);
+    const [earningsDates, setEarningsDates] = useState<{date: string; time_slot: string}[]>([]);
+    const [tickerMeta, setTickerMeta] = useState<{ company_name: string; exchange: string; icon_url: string } | null>(null);
+    const [legendExpanded, setLegendExpanded] = useState(true);
     const [hoveredBar, setHoveredBar] = useState<ChartBar | null>(null);
 
     // === INDICADORES AVANZADOS (Worker-based) ===
@@ -450,6 +455,11 @@ function TradingChartComponent({
 
     // Markers primitive ref (v5)
     const newsMarkersRef = useRef<any>(null);
+
+    // Price overlay with countdown timer (TradingView-style)
+    const priceOverlayRef = useRef<HTMLDivElement>(null);
+    const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const lastPriceInfoRef = useRef<{ close: number; open: number }>({ close: 0, open: 0 });
 
     // Toggle helpers
     const toggleOverlay = useCallback((id: string) => {
@@ -516,8 +526,53 @@ function TradingChartComponent({
     // News for markers
     const tickerNews = useArticlesByTicker(currentTicker);
 
+    // Earnings dates for chart markers
+    useEffect(() => {
+        if (!currentTicker) return;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        fetch(`${apiUrl}/api/v1/earnings/ticker/${currentTicker.toUpperCase()}/dates?limit=100`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                if (data?.dates) setEarningsDates(data.dates);
+            })
+            .catch(() => setEarningsDates([]));
+    }, [currentTicker]);
+
+    // Fetch ticker metadata (company name, exchange, logo)
+    useEffect(() => {
+        if (!currentTicker) return;
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        fetch(`${apiUrl}/api/v1/ticker/${currentTicker.toUpperCase()}/metadata`)
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                if (data) {
+                    const MIC: Record<string, string> = {
+                        XNAS: 'NASDAQ', XNYS: 'NYSE', XASE: 'AMEX',
+                        ARCX: 'NYSE ARCA', BATS: 'CBOE', IEXG: 'IEX',
+                        XNMS: 'NASDAQ', XNGS: 'NASDAQ', XNCM: 'NASDAQ',
+                        OTC: 'OTC', OTCM: 'OTC', OOTC: 'OTC',
+                    };
+                    setTickerMeta({
+                        company_name: data.company_name || currentTicker,
+                        exchange: MIC[data.exchange] || data.exchange || '',
+                        icon_url: data.icon_url || '',
+                    });
+                }
+            })
+            .catch(() => setTickerMeta(null));
+    }, [currentTicker]);
+
     // Floating window for news popup
-    const { openWindow } = useFloatingWindow();
+    const { openWindow, updateWindow } = useFloatingWindow();
+
+    // Update floating window title with current ticker
+    // Title is just "Chart" — ticker is already visible in the legend (logo + company name)
+    // Ticker is persisted via componentState (useWindowState) for restore on reload
+    useEffect(() => {
+        if (windowId) {
+            updateWindow(windowId, { title: "Chart" });
+        }
+    }, [windowId, updateWindow]);
 
     // Drawing tools
     const {
@@ -642,11 +697,22 @@ function TradingChartComponent({
     const findDrawingNearPriceRef = useRef(findDrawingNearPrice);
     findDrawingNearPriceRef.current = findDrawingNearPrice;
 
-    // Update when external ticker changes (skip if windowState already restored a ticker)
-    const hasRestoredTicker = useRef(!!windowState.ticker);
+    // Sync when windowState.ticker arrives late (store hydration race condition)
+    const hasAppliedWindowState = useRef(!!windowState.ticker);
     useEffect(() => {
-        if (hasRestoredTicker.current) {
-            hasRestoredTicker.current = false;
+        if (windowState.ticker && windowState.ticker !== currentTicker && !hasAppliedWindowState.current) {
+            hasAppliedWindowState.current = true;
+            setCurrentTicker(windowState.ticker);
+            setInputValue(windowState.ticker);
+        } else if (windowState.ticker) {
+            hasAppliedWindowState.current = true;
+        }
+    }, [windowState.ticker]);
+
+    // Update when external ticker prop changes (e.g. link group, command palette)
+    useEffect(() => {
+        if (hasAppliedWindowState.current) {
+            hasAppliedWindowState.current = false;
             return;
         }
         setCurrentTicker(initialTicker);
@@ -657,6 +723,7 @@ function TradingChartComponent({
     const linkBroadcast = useLinkGroupSubscription();
     useEffect(() => {
         if (linkBroadcast?.ticker) {
+            tickerSearchRef.current?.suppressSearch();
             setCurrentTicker(linkBroadcast.ticker.toUpperCase());
             setInputValue(linkBroadcast.ticker.toUpperCase());
         }
@@ -856,9 +923,66 @@ function TradingChartComponent({
             priceLineWidth: 1,
             priceLineColor: CHART_COLORS.crosshair,
             priceLineStyle: LineStyle.Dotted,
-            lastValueVisible: true,
+            lastValueVisible: false,
         });
         candleSeriesRef.current = candleSeries;
+
+        // Start countdown timer for candle close (updates HTML overlay)
+        if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
+        const intervalSec = INTERVAL_SECONDS[selectedInterval] || 0;
+        if (intervalSec > 0 && selectedInterval !== '1day') {
+            const intervalMs = intervalSec * 1000;
+            countdownIntervalRef.current = setInterval(() => {
+                const overlay = priceOverlayRef.current;
+                const series = candleSeriesRef.current;
+                if (!overlay || !series) return;
+
+                const { close, open } = lastPriceInfoRef.current;
+                if (close <= 0) { overlay.style.display = 'none'; return; }
+
+                const y = series.priceToCoordinate(close);
+                if (y === null) { overlay.style.display = 'none'; return; }
+
+                const now = Date.now();
+                const candleEnd = Math.ceil(now / intervalMs) * intervalMs;
+                const remaining = Math.max(0, candleEnd - now);
+                const totalSec = Math.floor(remaining / 1000);
+
+                let countdown: string;
+                if (intervalSec >= 3600) {
+                    const hrs = Math.floor(totalSec / 3600);
+                    const mins = Math.floor((totalSec % 3600) / 60);
+                    const secs = totalSec % 60;
+                    countdown = `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                } else {
+                    const mins = Math.floor(totalSec / 60);
+                    const secs = totalSec % 60;
+                    countdown = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+
+                const bgColor = close >= open ? CHART_COLORS.upColor : CHART_COLORS.downColor;
+                overlay.style.display = 'flex';
+                overlay.style.top = `${y - 15}px`;
+                overlay.style.backgroundColor = bgColor;
+                // Create child elements once, then just update text
+                let priceEl = overlay.querySelector('.p-val') as HTMLElement;
+                let cdEl = overlay.querySelector('.p-cd') as HTMLElement;
+                if (!priceEl) {
+                    priceEl = document.createElement('div');
+                    priceEl.className = 'p-val';
+                    priceEl.style.cssText = 'font-size:11px;font-weight:600;line-height:1.2';
+                    overlay.appendChild(priceEl);
+                }
+                if (!cdEl) {
+                    cdEl = document.createElement('div');
+                    cdEl.className = 'p-cd';
+                    cdEl.style.cssText = 'font-size:9px;opacity:0.85;line-height:1.2';
+                    overlay.appendChild(cdEl);
+                }
+                priceEl.textContent = close.toFixed(2);
+                cdEl.textContent = countdown;
+            }, 500);
+        }
 
         // Volume series (v5 API)
         const volumeSeries = chart.addSeries(HistogramSeries, {
@@ -943,8 +1067,14 @@ function TradingChartComponent({
             panelSeriesRef.current.clear();
             panelPaneIndexRef.current.clear();
             newsMarkersRef.current = null;
+            lastPriceInfoRef.current = { close: 0, open: 0 };
+            if (countdownIntervalRef.current) {
+                clearInterval(countdownIntervalRef.current);
+                countdownIntervalRef.current = null;
+            }
             watermarkRef.current = null;
             sessionBgSeriesRef.current = null;
+            earningsPrimitiveRef.current = null;
             chart.remove();
             chartRef.current = null;
             candleSeriesRef.current = null;
@@ -1015,7 +1145,7 @@ function TradingChartComponent({
                     color: CHART_COLORS.ma20,
                     lineWidth: 2,
                     priceLineVisible: false,
-                    lastValueVisible: false,
+                    lastValueVisible: true,
                     crosshairMarkerVisible: true,
                     crosshairMarkerRadius: 4,
                 });
@@ -1025,7 +1155,7 @@ function TradingChartComponent({
                     color: CHART_COLORS.ma50,
                     lineWidth: 2,
                     priceLineVisible: false,
-                    lastValueVisible: false,
+                    lastValueVisible: true,
                     crosshairMarkerVisible: true,
                     crosshairMarkerRadius: 4,
                 });
@@ -1049,7 +1179,7 @@ function TradingChartComponent({
                     lineWidth: 1,
                     lineStyle: LineStyle.Solid,
                     priceLineVisible: false,
-                    lastValueVisible: false,
+                    lastValueVisible: true,
                     crosshairMarkerVisible: true,
                     crosshairMarkerRadius: 3,
                 });
@@ -1060,7 +1190,7 @@ function TradingChartComponent({
                     lineWidth: 1,
                     lineStyle: LineStyle.Solid,
                     priceLineVisible: false,
-                    lastValueVisible: false,
+                    lastValueVisible: true,
                     crosshairMarkerVisible: true,
                     crosshairMarkerRadius: 3,
                 });
@@ -1128,7 +1258,7 @@ function TradingChartComponent({
                         lineWidth: seriesConfig.lineWidth as 1 | 2 | 3 | 4,
                         lineStyle: seriesConfig.lineStyle ?? LineStyle.Solid,
                         priceLineVisible: false,
-                        lastValueVisible: false,
+                        lastValueVisible: true,
                     });
                     overlaySeriesRef.current.set(key, series);
                 }
@@ -1357,6 +1487,12 @@ function TradingChartComponent({
         candleSeriesRef.current.setData(candleData);
         volumeSeriesRef.current.setData(volumeData);
 
+        // Update price info for countdown timer
+        if (data.length > 0) {
+            const lastBar = data[data.length - 1];
+            lastPriceInfoRef.current = { close: lastBar.close, open: lastBar.open };
+        }
+
         // Restore viewport with offset: prepended bars shift logical indices
         if (savedLogicalRange && timeScale && prependedBars > 0) {
             timeScale.setVisibleLogicalRange({
@@ -1533,6 +1669,29 @@ function TradingChartComponent({
         }
     }, [showNewsMarkers, tickerNews, data, selectedInterval, currentTicker]);
 
+    // ============================================================================
+    // Earnings markers (E labels on time axis via custom primitive)
+    // ============================================================================
+    const earningsPrimitiveRef = useRef<EarningsMarkerPrimitive | null>(null);
+
+    useEffect(() => {
+        if (!candleSeriesRef.current || !data || data.length === 0) return;
+
+        // Create primitive if needed
+        if (!earningsPrimitiveRef.current) {
+            earningsPrimitiveRef.current = new EarningsMarkerPrimitive();
+            candleSeriesRef.current.attachPrimitive(earningsPrimitiveRef.current);
+        }
+
+        const primitive = earningsPrimitiveRef.current;
+        primitive.setVisible(showEarningsMarkers);
+        primitive.setInterval(selectedInterval);
+        primitive.setDataTimes(data.map(b => b.time));
+        primitive.setEarnings(earningsDates);
+    }, [showEarningsMarkers, earningsDates, data, selectedInterval]);
+
+
+
     // Handler for clicking on news markers
     const handleNewsMarkerClick = useCallback((time: number) => {
         const newsAtTime = newsTimeMapRef.current.get(time);
@@ -1586,29 +1745,37 @@ function TradingChartComponent({
             return;
         }
 
-        const candleSeries = candleSeriesRef.current;
-        const volumeSeries = volumeSeriesRef.current;
-
+        // Read from refs on each call to avoid stale closure over disposed series.
         const handleRealtimeUpdate = (bar: HookChartBar, isNewBar: boolean) => {
-            candleSeries.update({
-                time: bar.time as UTCTimestamp,
-                open: bar.open,
-                high: bar.high,
-                low: bar.low,
-                close: bar.close,
-            });
+            const candleSeries = candleSeriesRef.current;
+            const volumeSeries = volumeSeriesRef.current;
+            if (!candleSeries || !volumeSeries) return;
 
-            const volumeColor = bar.close >= bar.open
-                ? CHART_COLORS.volumeUp
-                : CHART_COLORS.volumeDown;
+            try {
+                candleSeries.update({
+                    time: bar.time as UTCTimestamp,
+                    open: bar.open,
+                    high: bar.high,
+                    low: bar.low,
+                    close: bar.close,
+                });
 
-            volumeSeries.update({
-                time: bar.time as UTCTimestamp,
-                value: bar.volume,
-                color: volumeColor,
-            });
+                // Update price info for countdown timer
+                lastPriceInfoRef.current = { close: bar.close, open: bar.open };
 
-            // Auto-scroll to latest bar if user is near the right edge (v5 scrollToRealtime)
+                const volumeColor = bar.close >= bar.open
+                    ? CHART_COLORS.volumeUp
+                    : CHART_COLORS.volumeDown;
+
+                volumeSeries.update({
+                    time: bar.time as UTCTimestamp,
+                    value: bar.volume,
+                    color: volumeColor,
+                });
+            } catch {
+                return;
+            }
+
             if (isNewBar && chartRef.current) {
                 const timeScale = chartRef.current.timeScale();
                 const logicalRange = timeScale.getVisibleLogicalRange();
@@ -1625,38 +1792,30 @@ function TradingChartComponent({
                 );
                 const time = bar.time as UTCTimestamp;
 
-                // Legacy SMA overlays
                 if (vals.sma20 != null) maSeriesRef.current?.ma20?.update({ time, value: vals.sma20 });
                 if (vals.sma50 != null) maSeriesRef.current?.ma50?.update({ time, value: vals.sma50 });
 
-                // Legacy EMA overlays
                 if (vals.ema12 != null) emaSeriesRef.current?.ema12?.update({ time, value: vals.ema12 });
                 if (vals.ema26 != null) emaSeriesRef.current?.ema26?.update({ time, value: vals.ema26 });
 
-                // Worker overlays: SMA200
                 if (vals.sma200 != null) overlaySeriesRef.current.get('sma200')?.update({ time, value: vals.sma200 });
 
-                // Worker overlays: Bollinger Bands
                 if (vals.bb) {
                     overlaySeriesRef.current.get('bb_upper')?.update({ time, value: vals.bb.upper });
                     overlaySeriesRef.current.get('bb_middle')?.update({ time, value: vals.bb.middle });
                     overlaySeriesRef.current.get('bb_lower')?.update({ time, value: vals.bb.lower });
                 }
 
-                // Worker overlays: Keltner Channels
                 if (vals.keltner) {
                     overlaySeriesRef.current.get('keltner_upper')?.update({ time, value: vals.keltner.upper });
                     overlaySeriesRef.current.get('keltner_middle')?.update({ time, value: vals.keltner.middle });
                     overlaySeriesRef.current.get('keltner_lower')?.update({ time, value: vals.keltner.lower });
                 }
 
-                // Worker overlays: VWAP
                 if (vals.vwap != null) overlaySeriesRef.current.get('vwap')?.update({ time, value: vals.vwap });
 
-                // Panel: RSI
                 if (vals.rsi != null) panelSeriesRef.current.get('rsi')?.get('main')?.update({ time, value: vals.rsi });
 
-                // Panel: MACD
                 if (vals.macd) {
                     panelSeriesRef.current.get('macd')?.get('macd')?.update({ time, value: vals.macd.macd });
                     panelSeriesRef.current.get('macd')?.get('signal')?.update({ time, value: vals.macd.signal });
@@ -1664,26 +1823,21 @@ function TradingChartComponent({
                     panelSeriesRef.current.get('macd')?.get('histogram')?.update({ time, value: vals.macd.histogram, color: histColor });
                 }
 
-                // Panel: Stochastic
                 if (vals.stoch) {
                     panelSeriesRef.current.get('stoch')?.get('k')?.update({ time, value: vals.stoch.k });
                     panelSeriesRef.current.get('stoch')?.get('d')?.update({ time, value: vals.stoch.d });
                 }
 
-                // Panel: ADX
                 if (vals.adx) {
                     panelSeriesRef.current.get('adx')?.get('adx')?.update({ time, value: vals.adx.adx });
                     panelSeriesRef.current.get('adx')?.get('pdi')?.update({ time, value: vals.adx.pdi });
                     panelSeriesRef.current.get('adx')?.get('mdi')?.update({ time, value: vals.adx.mdi });
                 }
 
-                // Panel: ATR
                 if (vals.atr != null) panelSeriesRef.current.get('atr')?.get('main')?.update({ time, value: vals.atr });
 
-                // Panel: OBV
                 if (vals.obv != null) panelSeriesRef.current.get('obv')?.get('main')?.update({ time, value: vals.obv });
 
-                // Panel: Squeeze
                 if (vals.squeeze) {
                     const sqColor = vals.squeeze.isOn ? '#ef4444' : '#10b981';
                     panelSeriesRef.current.get('squeeze')?.get('main')?.update({ time, value: vals.squeeze.value, color: sqColor });
@@ -1886,8 +2040,11 @@ function TradingChartComponent({
 
         const chart = chartRef.current;
 
+        // LWC subscribeClick for selection and news markers (non-drawing mode)
         const handleClick = (param: any) => {
             if (!param.point || !candleSeriesRef.current) return;
+            if (activeToolRef.current !== 'none') return; // Drawing clicks handled by DOM listener below
+
             const price = candleSeriesRef.current.coordinateToPrice(param.point.y);
             if (price === null) return;
 
@@ -1896,22 +2053,16 @@ function TradingChartComponent({
                 return;
             }
 
-            if (activeToolRef.current !== 'none') {
-                const resolved = param.time ? { time: param.time as number } : getTimeAtX(param.point.x);
-                if (!resolved) return;
-                handleChartClickRef.current(resolved.time, price, resolved.logical);
-            } else {
-                let hitId: string | null = null;
-                for (const [id, primitive] of drawingPrimitivesRef.current) {
-                    const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
-                    if (hit) {
-                        const eid = (hit.externalId ?? '') as string;
-                        hitId = (eid.endsWith(':p1') || eid.endsWith(':p2') || eid.endsWith(':p3') || eid.endsWith(':p4') || eid.endsWith(':m1') || eid.endsWith(':m2')) ? eid.slice(0, -3) : eid;
-                        break;
-                    }
+            let hitId: string | null = null;
+            for (const [id, primitive] of drawingPrimitivesRef.current) {
+                const hit = (primitive as any).hitTest?.(param.point.x, param.point.y);
+                if (hit) {
+                    const eid = (hit.externalId ?? '') as string;
+                    hitId = (eid.endsWith(':p1') || eid.endsWith(':p2') || eid.endsWith(':p3') || eid.endsWith(':p4') || eid.endsWith(':m1') || eid.endsWith(':m2')) ? eid.slice(0, -3) : eid;
+                    break;
                 }
-                selectDrawingRef.current(hitId);
             }
+            selectDrawingRef.current(hitId);
         };
 
         const handleDoubleClick = (param: any) => {
@@ -1930,6 +2081,36 @@ function TradingChartComponent({
             chart.unsubscribeClick(handleClick);
             chart.unsubscribeDblClick(handleDoubleClick);
         };
+    }, [chartVersion]);
+
+    // Direct DOM click for drawing tools — bypasses LWC's internal click threshold
+    // LWC subscribeClick can miss clicks if mouse moves even 1-2px (treated as drag).
+    // A direct DOM "click" event always fires regardless of mouse movement.
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleDrawingClick = (e: MouseEvent) => {
+            if (activeToolRef.current === 'none') return;
+            if (!candleSeriesRef.current || !chartRef.current) return;
+
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const price = candleSeriesRef.current.coordinateToPrice(y);
+            if (price === null) return;
+
+            const ts = chartRef.current.timeScale();
+            const time = ts.coordinateToTime(x);
+            const resolved = time != null ? { time: time as number } : getTimeAtX(x);
+            if (!resolved) return;
+
+            handleChartClickRef.current(resolved.time, price, resolved.logical);
+        };
+
+        container.addEventListener('click', handleDrawingClick);
+        return () => container.removeEventListener('click', handleDrawingClick);
     }, [chartVersion]);
 
     // Hover detection (reads from refs)
@@ -2566,7 +2747,7 @@ function TradingChartComponent({
     const isPositive = priceChange >= 0;
 
     // Active indicator count for badge
-    const activeIndicatorCount = (showMA ? 1 : 0) + (showEMA ? 1 : 0) + activeOverlays.length + activePanels.length + (showVolume ? 1 : 0) + (showNewsMarkers ? 1 : 0);
+    const activeIndicatorCount = (showMA ? 1 : 0) + (showEMA ? 1 : 0) + activeOverlays.length + activePanels.length + (showVolume ? 1 : 0) + (showNewsMarkers ? 1 : 0) + (showEarningsMarkers ? 1 : 0);
 
     // ============================================================================
     // RENDER
@@ -2747,6 +2928,11 @@ function TradingChartComponent({
                                         {tickerNews.length > 0 && <span className="text-[8px] text-slate-400">{tickerNews.length}</span>}
                                         {showNewsMarkers && <span className="text-emerald-500 text-[9px]">✓</span>}
                                     </button>
+                                    <button onClick={() => setShowEarningsMarkers(!showEarningsMarkers)} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${showEarningsMarkers ? 'text-blue-600' : 'text-slate-600'}`}>
+                                        <span className="w-3 h-3 flex-shrink-0 text-center font-bold text-[9px] leading-3 border border-current rounded-full">E</span>
+                                        <span className="flex-1 text-left">Earnings</span>
+                                        {earningsDates.length > 0 && <span className="text-[8px] text-slate-400">{earningsDates.length}</span>}
+                                    </button>
 
                                     {indicatorsLoading && (
                                         <div className="px-2 py-1.5 text-[9px] text-blue-500 bg-blue-50/50 border-t border-slate-100 flex items-center gap-1">
@@ -2776,22 +2962,6 @@ function TradingChartComponent({
                     {/* Spacer */}
                     <div className="flex-1" />
 
-                    {/* Price display */}
-                    {displayBar && (
-                        <div className="flex items-center gap-1.5 mr-1">
-                            <span className="font-bold text-slate-800 text-sm">${formatPrice(displayBar.close)}</span>
-                            <span className={`text-[10px] font-medium px-1 rounded ${isPositive ? 'text-emerald-600 bg-emerald-50' : 'text-red-600 bg-red-50'}`}>
-                                {isPositive ? '+' : ''}{priceChangePercent.toFixed(2)}%
-                            </span>
-                            {showLiveIndicator && (
-                                <span className="flex items-center gap-0.5 text-[9px] font-medium text-red-500 animate-pulse">
-                                    <Radio className="w-2.5 h-2.5" />
-                                    LIVE
-                                </span>
-                            )}
-                        </div>
-                    )}
-
                     {/* Actions */}
                     <button onClick={refetch} disabled={loading} className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 disabled:opacity-50" title="Refresh">
                         <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
@@ -2820,27 +2990,158 @@ function TradingChartComponent({
 
                 {/* Chart area — takes ALL remaining space */}
                 <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative">
-                    {/* Indicator legend overlay (top-left, over the chart like TV) */}
-                    {!minimal && (showMA || showEMA || activeOverlays.length > 0) && (
-                        <div className="absolute top-1 left-1 z-10 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] pointer-events-none opacity-70">
-                            {showMA && (
-                                <>
-                                    <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded" style={{ background: CHART_COLORS.ma20 }}></span><span className="text-slate-500">MA20</span></span>
-                                    <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded" style={{ background: CHART_COLORS.ma50 }}></span><span className="text-slate-500">MA50</span></span>
-                                </>
+                    {/* TradingView-style chart legend (top-left overlay) */}
+                    {!minimal && (
+                        <div className="absolute top-1 left-2 z-10 text-[10px]" style={{ fontFamily, maxWidth: '85%' }}>
+                            {/* Line 1: Logo + Company + Exchange + OHLC */}
+                            <div className="flex items-center gap-1 flex-wrap pointer-events-none">
+                                {tickerMeta?.icon_url ? (
+                                    <img
+                                        src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/proxy/logo?url=${encodeURIComponent(tickerMeta.icon_url)}`}
+                                        alt=""
+                                        className="w-4 h-4 rounded-sm object-contain"
+                                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                    />
+                                ) : (
+                                    <div className="w-4 h-4 rounded-sm bg-blue-500 flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0">
+                                        {currentTicker?.[0] || '?'}
+                                    </div>
+                                )}
+                                <span className="font-medium text-slate-700">{tickerMeta?.company_name || currentTicker}</span>
+                                {tickerMeta?.exchange && (
+                                    <span className="text-slate-400">{`\u00b7 ${tickerMeta.exchange}`}</span>
+                                )}
+                                {displayBar && (
+                                    <>
+                                        <span className="text-slate-400 ml-1">O<span className="text-slate-600">{formatPrice(displayBar.open)}</span></span>
+                                        <span className="text-slate-400">H<span className="text-emerald-600">{formatPrice(displayBar.high)}</span></span>
+                                        <span className="text-slate-400">L<span className="text-red-500">{formatPrice(displayBar.low)}</span></span>
+                                        <span className="text-slate-400">C<span className="text-slate-600">{formatPrice(displayBar.close)}</span></span>
+                                        {prevBar && (
+                                            <span className={isPositive ? 'text-emerald-600' : 'text-red-500'}>
+                                                {isPositive ? '+' : ''}{priceChange.toFixed(2)} ({isPositive ? '+' : ''}{priceChangePercent.toFixed(2)}%)
+                                            </span>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                            {/* Line 2: Collapsible active indicators */}
+                            {(showMA || showEMA || activeOverlays.length > 0 || activePanels.length > 0) && (
+                                <div className="mt-0.5">
+                                    <button
+                                        onClick={() => setLegendExpanded(!legendExpanded)}
+                                        className="pointer-events-auto text-slate-400 hover:text-slate-600 text-[9px] flex items-center gap-0.5"
+                                    >
+                                        <span>{legendExpanded ? '\u25be' : '\u25b8'}</span>
+                                        <span>{(showMA ? 2 : 0) + (showEMA ? 2 : 0) + activeOverlays.length + activePanels.length}</span>
+                                    </button>
+                                    {legendExpanded && (
+                                        <div className="flex flex-col gap-0 mt-0.5">
+                                            {showMA && (<>
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ma20 }}></span>
+                                                    <span className="text-slate-500">MA 20</span>
+                                                    {indicatorResults?.overlays?.sma20?.length ? <span style={{ color: CHART_COLORS.ma20 }}>{indicatorResults.overlays.sma20[indicatorResults.overlays.sma20.length - 1].value.toFixed(2)}</span> : null}
+                                                    <button onClick={() => setShowMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ma50 }}></span>
+                                                    <span className="text-slate-500">MA 50</span>
+                                                    {indicatorResults?.overlays?.sma50?.length ? <span style={{ color: CHART_COLORS.ma50 }}>{indicatorResults.overlays.sma50[indicatorResults.overlays.sma50.length - 1].value.toFixed(2)}</span> : null}
+                                                    <button onClick={() => setShowMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                            </>)}
+                                            {showEMA && (<>
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ema12 }}></span>
+                                                    <span className="text-slate-500">EMA 12</span>
+                                                    {indicatorResults?.overlays?.ema12?.length ? <span style={{ color: CHART_COLORS.ema12 }}>{indicatorResults.overlays.ema12[indicatorResults.overlays.ema12.length - 1].value.toFixed(2)}</span> : null}
+                                                    <button onClick={() => setShowEMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ema26 }}></span>
+                                                    <span className="text-slate-500">EMA 26</span>
+                                                    {indicatorResults?.overlays?.ema26?.length ? <span style={{ color: CHART_COLORS.ema26 }}>{indicatorResults.overlays.ema26[indicatorResults.overlays.ema26.length - 1].value.toFixed(2)}</span> : null}
+                                                    <button onClick={() => setShowEMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                            </>)}
+                                            {activeOverlays.includes('sma200') && (
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded bg-red-500"></span>
+                                                    <span className="text-slate-500">SMA 200</span>
+                                                    {indicatorResults?.overlays?.sma200?.length ? <span className="text-red-500">{indicatorResults.overlays.sma200[indicatorResults.overlays.sma200.length - 1].value.toFixed(2)}</span> : null}
+                                                    <button onClick={() => toggleOverlay('sma200')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                            )}
+                                            {activeOverlays.includes('bb') && (
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded bg-blue-500"></span>
+                                                    <span className="text-slate-500">BB</span>
+                                                    <button onClick={() => toggleOverlay('bb')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                            )}
+                                            {activeOverlays.includes('keltner') && (
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded bg-teal-500"></span>
+                                                    <span className="text-slate-500">Keltner</span>
+                                                    <button onClick={() => toggleOverlay('keltner')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                            )}
+                                            {activeOverlays.includes('vwap') && (
+                                                <div className="flex items-center gap-1 pointer-events-auto group">
+                                                    <span className="w-3 h-[2px] rounded bg-orange-500"></span>
+                                                    <span className="text-slate-500">VWAP</span>
+                                                    {indicatorResults?.overlays?.vwap?.length ? <span className="text-orange-500">{indicatorResults.overlays.vwap[indicatorResults.overlays.vwap.length - 1].value.toFixed(2)}</span> : null}
+                                                    <button onClick={() => toggleOverlay('vwap')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                </div>
+                                            )}
+                                            {activePanels.map(p => {
+                                                const cfg: Record<string, { label: string; color: string }> = {
+                                                    rsi: { label: 'RSI 14', color: '#8b5cf6' },
+                                                    macd: { label: 'MACD', color: '#3b82f6' },
+                                                    stoch: { label: 'Stoch', color: '#3b82f6' },
+                                                    adx: { label: 'ADX', color: '#8b5cf6' },
+                                                    atr: { label: 'ATR', color: '#6366f1' },
+                                                    bbWidth: { label: 'BB Width', color: '#14b8a6' },
+                                                    squeeze: { label: 'Squeeze', color: '#ef4444' },
+                                                    obv: { label: 'OBV', color: '#3b82f6' },
+                                                    rvol: { label: 'RVOL', color: '#f97316' },
+                                                };
+                                                const c = cfg[p];
+                                                if (!c) return null;
+                                                return (
+                                                    <div key={p} className="flex items-center gap-1 pointer-events-auto group">
+                                                        <span className="w-3 h-[2px] rounded" style={{ background: c.color }}></span>
+                                                        <span className="text-slate-500">{c.label}</span>
+                                                        <button onClick={() => togglePanel(p)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
                             )}
-                            {showEMA && (
-                                <>
-                                    <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded" style={{ background: CHART_COLORS.ema12 }}></span><span className="text-slate-500">EMA12</span></span>
-                                    <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded" style={{ background: CHART_COLORS.ema26 }}></span><span className="text-slate-500">EMA26</span></span>
-                                </>
-                            )}
-                            {activeOverlays.includes('sma200') && <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded bg-red-500"></span><span className="text-slate-500">SMA200</span></span>}
-                            {activeOverlays.includes('bb') && <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded bg-blue-500"></span><span className="text-slate-500">BB</span></span>}
-                            {activeOverlays.includes('keltner') && <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded bg-teal-500"></span><span className="text-slate-500">KC</span></span>}
-                            {activeOverlays.includes('vwap') && <span className="flex items-center gap-0.5"><span className="w-2.5 h-[2px] rounded bg-orange-500"></span><span className="text-slate-500">VWAP</span></span>}
                         </div>
                     )}
+
+                    {/* Price + countdown overlay (TradingView-style, positioned over price axis) */}
+                    <div
+                        ref={priceOverlayRef}
+                        style={{
+                            position: 'absolute',
+                            right: 0,
+                            display: 'none',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            color: 'white',
+                            padding: '1px 4px',
+                            borderRadius: '2px',
+                            textAlign: 'center',
+                            zIndex: 20,
+                            pointerEvents: 'none',
+                            minWidth: '50px',
+                        }}
+                    />
 
                     {/* "Go to realtime" button — shown when user scrolls away */}
                     {isScrolledAway && isLive && (
@@ -2972,17 +3273,11 @@ function TradingChartComponent({
                 </div>
             </div>
 
-            {/* Footer — compact OHLCV */}
-            {displayBar && !minimal && (
-                <div className="flex items-center justify-between px-2 py-0.5 border-t border-slate-100 text-[9px]" style={{ fontFamily }}>
-                    <div className="flex items-center gap-2 font-mono text-slate-500">
-                        <span>O:<span className="text-slate-700">{formatPrice(displayBar.open)}</span></span>
-                        <span>H:<span className="text-emerald-600">{formatPrice(displayBar.high)}</span></span>
-                        <span>L:<span className="text-red-500">{formatPrice(displayBar.low)}</span></span>
-                        <span>C:<span className="text-slate-700">{formatPrice(displayBar.close)}</span></span>
-                        <span>V:<span className="text-slate-700">{formatVolume(displayBar.volume)}</span></span>
-                    </div>
+            {/* Footer — bar count & status */}
+            {!minimal && (
+                <div className="flex items-center justify-end px-2 py-0.5 border-t border-slate-100 text-[9px]" style={{ fontFamily }}>
                     <div className="flex items-center gap-2 text-slate-400">
+                        {displayBar && <span className="font-mono">V:{formatVolume(displayBar.volume)}</span>}
                         {loadingMore && <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-500" />}
                         <span>{data.length.toLocaleString()} bars</span>
                         {hasMore && !loadingMore && <span>← more</span>}

@@ -51,6 +51,7 @@ function OverviewView({ data }: PulseViewProps) {
     const sma20 = wavg('avg_dist_sma20');
     const sma50 = wavg('avg_dist_sma50');
     const volPct = wavg('avg_vol_today_pct');
+    const cOpen = wavg('avg_change_from_open');
     const c5 = wavg('avg_change_5d');
     const c10 = wavg('avg_change_10d');
     const c20 = wavg('avg_change_20d');
@@ -63,7 +64,7 @@ function OverviewView({ data }: PulseViewProps) {
       wtdChange, eqChange, spread: wtdChange - eqChange,
       adRatio, totalAdv, totalDec, totalDv, volPct, totalCount,
       rsi, adx, bb, sma20, sma50,
-      c5, c10, c20, h52, l52,
+      cOpen, c5, c10, c20, h52, l52,
       sectors,
     };
   }, [data]);
@@ -144,6 +145,7 @@ function OverviewView({ data }: PulseViewProps) {
           <div className="space-y-1">
             {([
               ['Today', m.wtdChange],
+              ['vs Open', m.cOpen],
               ['5 Day', m.c5],
               ['10 Day', m.c10],
               ['20 Day', m.c20],

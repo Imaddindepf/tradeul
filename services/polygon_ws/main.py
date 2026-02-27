@@ -1644,13 +1644,25 @@ def _get_halt_reason_desc(code: str) -> str:
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with queue metrics"""
+    if ws_client:
+        stats = ws_client.get_stats()
+        return {
+            "status": "healthy",
+            "service": "polygon_ws",
+            "timestamp": datetime.now().isoformat(),
+            "ws_connected": stats["is_connected"],
+            "ws_authenticated": stats["is_authenticated"],
+            "queue_depth": stats["queue_depth"],
+            "workers_active": stats["workers_active"],
+            "reconnections": stats["reconnections"],
+        }
     return {
-        "status": "healthy",
+        "status": "starting",
         "service": "polygon_ws",
         "timestamp": datetime.now().isoformat(),
-        "ws_connected": ws_client.is_connected if ws_client else False,
-        "ws_authenticated": ws_client.is_authenticated if ws_client else False
+        "ws_connected": False,
+        "ws_authenticated": False,
     }
 
 

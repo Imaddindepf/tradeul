@@ -13,4 +13,5 @@ export const VIEW_DEFINITIONS: ViewDefinition[] = [
   { key: 'bubble',   label: 'Bubble Scatter',   shortLabel: 'Scatter' },
   { key: 'rotation', label: 'Rotation',         shortLabel: 'Bars' },
   { key: 'breadth',  label: 'Breadth Monitor',  shortLabel: 'Breadth' },
+  { key: 'rrg',      label: 'RRG',              shortLabel: 'RRG' },
 ];

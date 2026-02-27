@@ -47,6 +47,8 @@ export interface EventFilterParameters {
   // Change from open filters
   min_change_from_open?: number;
   max_change_from_open?: number;
+  min_change_from_open_dollars?: number;
+  max_change_from_open_dollars?: number;
 
   // VWAP filters
   min_vwap?: number;
@@ -270,6 +272,12 @@ export interface EventFilterParameters {
   // Price from day high (%)
   min_price_from_high?: number;
   max_price_from_high?: number;
+  min_price_from_low?: number;
+  max_price_from_low?: number;
+  min_price_from_intraday_high?: number;
+  max_price_from_intraday_high?: number;
+  min_price_from_intraday_low?: number;
+  max_price_from_intraday_low?: number;
   // Distance from NBBO (%)
   min_distance_from_nbbo?: number;
   max_distance_from_nbbo?: number;

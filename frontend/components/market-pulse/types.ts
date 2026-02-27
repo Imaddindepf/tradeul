@@ -1,6 +1,6 @@
 import type { PerformanceEntry, PulseTab } from '@/hooks/useMarketPulse';
 
-export type PulseViewType = 'overview' | 'table' | 'treemap' | 'bubble' | 'rotation' | 'breadth';
+export type PulseViewType = 'overview' | 'table' | 'treemap' | 'bubble' | 'rotation' | 'breadth' | 'rrg';
 
 export interface PulseViewProps {
   data: PerformanceEntry[];

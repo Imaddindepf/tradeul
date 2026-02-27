@@ -164,6 +164,7 @@ function TickerContextView({ data, onOpenTicker }: Props) {
             <MetricRow label="dVWAP" value={t.dist_from_vwap} min={-5} max={5} diverging fmt={pct} />
             <MetricRow label="ATR%" value={t.atr_percent} min={0} max={10} fmt={pct1} />
             <MetricRow label="Gap" value={t.gap_percent} min={-5} max={5} diverging fmt={pct} />
+            <MetricRow label="vs Open" value={t.change_from_open} min={-5} max={5} diverging fmt={pct} />
             <MetricRow label="RPos" value={t.pos_in_range} min={0} max={100} fmt={num1} />
           </div>
         </div>

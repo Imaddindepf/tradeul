@@ -43,6 +43,8 @@ export interface Ticker {
   gap?: number;
   gap_percent?: number;
   gapPercent?: number;
+  change_from_open?: number;
+  change_from_open_dollars?: number;
 
   // Volume metrics
   volume?: number;
@@ -53,6 +55,12 @@ export interface Ticker {
   rvol_slot?: number;
   volume_today_pct?: number;     // Volume today as % of avg 10d
   volume_yesterday_pct?: number; // Volume yesterday as % of avg 10d
+
+  // Price distance metrics
+  price_from_high?: number;
+  price_from_low?: number;
+  price_from_intraday_high?: number;
+  price_from_intraday_low?: number;
 
   // Volume window metrics (volume in last N minutes)
   vol_1min?: number;

@@ -24,6 +24,7 @@ type TickerSearchProps = {
 export type TickerSearchRef = {
     close: () => void;
     focus: () => void;
+    suppressSearch: () => void;
 };
 
 export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(function TickerSearch({
@@ -45,11 +46,13 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
     const dropdownRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const isInitialMount = useRef(true); // Track initial mount to avoid opening dropdown
+    const skipNextSearchRef = useRef(false); // Skip search when value set programmatically (e.g. link group)
 
     // Expose methods to parent via ref
     useImperativeHandle(ref, () => ({
         close: () => setIsOpen(false),
-        focus: () => inputRef.current?.focus()
+        focus: () => inputRef.current?.focus(),
+        suppressSearch: () => { skipNextSearchRef.current = true; }
     }));
 
     // Fetch results from API
@@ -119,6 +122,11 @@ export const TickerSearch = forwardRef<TickerSearchRef, TickerSearchProps>(funct
     useEffect(() => {
         if (isInitialMount.current) {
             isInitialMount.current = false;
+            return;
+        }
+
+        if (skipNextSearchRef.current) {
+            skipNextSearchRef.current = false;
             return;
         }
 

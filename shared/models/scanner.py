@@ -57,6 +57,7 @@ class ScannerTicker(BaseModel):
     # Gap metrics (NUEVOS - para categorías GAPPERS correctas)
     gap_percent: Optional[float] = Field(None, description="True gap % = (open - prev_close) / prev_close")
     change_from_open: Optional[float] = Field(None, description="Change from open % = (price - open) / open")
+    change_from_open_dollars: Optional[float] = Field(None, description="Change from open $ = price - open")
     
     # Historical/Reference data - Average Daily Volume
     avg_volume_5d: Optional[int] = Field(None, description="5-day average daily volume")
@@ -396,10 +397,22 @@ class FilterParameters(BaseModel):
     industries: Optional[List[str]] = Field(None, description="Allowed industries")
     exchanges: Optional[List[str]] = Field(None, description="Allowed exchanges")
     
-    # Advanced filters
+    # Advanced price distance filters
     min_price_from_high: Optional[float] = Field(None, description="Min % from day high")
     max_price_from_high: Optional[float] = Field(None, description="Max % from day high")
-    
+    min_price_from_low: Optional[float] = Field(None, description="Min % from day low")
+    max_price_from_low: Optional[float] = Field(None, description="Max % from day low")
+    min_price_from_intraday_high: Optional[float] = Field(None, description="Min % from intraday high")
+    max_price_from_intraday_high: Optional[float] = Field(None, description="Max % from intraday high")
+    min_price_from_intraday_low: Optional[float] = Field(None, description="Min % from intraday low")
+    max_price_from_intraday_low: Optional[float] = Field(None, description="Max % from intraday low")
+
+    # Change from open filters
+    min_change_from_open: Optional[float] = Field(None, description="Min change from open %")
+    max_change_from_open: Optional[float] = Field(None, description="Max change from open %")
+    min_change_from_open_dollars: Optional[float] = Field(None, description="Min change from open $")
+    max_change_from_open_dollars: Optional[float] = Field(None, description="Max change from open $")
+
     # Post-Market filters (only active during POST_MARKET session)
     min_postmarket_change_percent: Optional[float] = Field(None, description="Min post-market % change from close")
     max_postmarket_change_percent: Optional[float] = Field(None, description="Max post-market % change from close")

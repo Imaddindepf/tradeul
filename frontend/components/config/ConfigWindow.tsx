@@ -113,6 +113,10 @@ function filtersToDisplay(filters: Record<string, any>): string[] {
     min_premarket_change_percent: 'PreMkt >', max_premarket_change_percent: 'PreMkt <',
     min_postmarket_change_percent: 'PostMkt >', max_postmarket_change_percent: 'PostMkt <',
     min_price_from_high: 'FrHigh >', max_price_from_high: 'FrHigh <',
+    min_price_from_low: 'FrLow >', max_price_from_low: 'FrLow <',
+    min_price_from_intraday_high: 'FrHi >', max_price_from_intraday_high: 'FrHi <',
+    min_price_from_intraday_low: 'FrLo >', max_price_from_intraday_low: 'FrLo <',
+    min_change_from_open_dollars: 'Open$ >', max_change_from_open_dollars: 'Open$ <',
     min_rvol: 'RVOL >', max_rvol: 'RVOL <',
     min_volume: 'Vol >', max_volume: 'Vol <',
     min_avg_volume_5d: 'AvgV5D >', max_avg_volume_5d: 'AvgV5D <',
@@ -1027,6 +1031,10 @@ export function ConfigWindow({
                 { label: 'Pre-Mkt %', minK: 'min_premarket_change_percent', maxK: 'max_premarket_change_percent', suf: '%', phMin: '-5', phMax: '20' },
                 { label: 'Post-Mkt %', minK: 'min_postmarket_change_percent', maxK: 'max_postmarket_change_percent', suf: '%', phMin: '-5', phMax: '10' },
                 { label: 'From High', minK: 'min_price_from_high', maxK: 'max_price_from_high', suf: '%', phMin: '-20', phMax: '0' },
+                { label: 'From Low', minK: 'min_price_from_low', maxK: 'max_price_from_low', suf: '%', phMin: '0', phMax: '50' },
+                { label: 'Open $', minK: 'min_change_from_open_dollars', maxK: 'max_change_from_open_dollars', suf: '$', phMin: '-5', phMax: '10' },
+                { label: 'From Intra Hi', minK: 'min_price_from_intraday_high', maxK: 'max_price_from_intraday_high', suf: '%', phMin: '-10', phMax: '0' },
+                { label: 'From Intra Lo', minK: 'min_price_from_intraday_low', maxK: 'max_price_from_intraday_low', suf: '%', phMin: '0', phMax: '20' },
               ]
             },
             {

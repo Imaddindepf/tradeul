@@ -334,7 +334,7 @@ export function ChatContent() {
             </button>
             <button
               onClick={() => setShowCreateGroup(true)}
-              className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+              className="p-0.5 rounded hover:bg-muted text-slate-500 hover:text-foreground"
               title="New conversation"
             >
               <Plus className="w-3 h-3" />
@@ -354,7 +354,7 @@ export function ChatContent() {
                       : "hover:bg-muted text-foreground"
                   )}
                 >
-                  <Users className="w-2.5 h-2.5 shrink-0" />
+                  <Users className="w-2.5 h-2.5 shrink-0 text-slate-500" />
                   <span className="truncate">{group.name}</span>
                 </button>
               ))}
@@ -385,7 +385,7 @@ export function ChatContent() {
                       : "hover:bg-muted text-foreground"
                   )}
                 >
-                  <Hash className="w-2.5 h-2.5 shrink-0" />
+                  <Hash className="w-2.5 h-2.5 shrink-0 text-slate-500" />
                   <span className="truncate">{channel.name}</span>
                 </button>
               ))}
@@ -537,9 +537,9 @@ export function ChatContent() {
           <div className="h-7 px-2 flex items-center gap-2 border-b border-border bg-muted/30">
             <div className="flex items-center gap-1">
               {isGroup ? (
-                <Users className="w-3 h-3 text-muted-foreground" />
+                <Users className="w-3 h-3 text-slate-500" />
               ) : (
-                <Hash className="w-3 h-3 text-muted-foreground" />
+                <Hash className="w-3 h-3 text-slate-500" />
               )}
               <span className="font-medium text-xs">{activeName}</span>
             </div>
@@ -555,7 +555,7 @@ export function ChatContent() {
                   onClick={() => setShowGroupMenu(!showGroupMenu)}
                   className="p-1 hover:bg-muted rounded transition-colors"
                 >
-                  <MoreVertical className="w-3.5 h-3.5 text-muted-foreground" />
+                  <MoreVertical className="w-3.5 h-3.5 text-slate-500" />
                 </button>
 
                 {showGroupMenu && (

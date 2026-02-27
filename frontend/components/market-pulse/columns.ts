@@ -39,6 +39,7 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { key: 'avg_daily_rsi', label: 'RSI Daily', shortLabel: 'dRSI', defaultMode: 'heatmap', format: num1, colorScale: 'diverging', domain: [30, 70], description: 'Avg daily RSI' },
   { key: 'avg_atr_pct', label: 'ATR %', shortLabel: 'ATR%', defaultMode: 'numeric', format: pct1, colorScale: 'positive', domain: [0, 10], description: 'Avg ATR as % of price' },
   { key: 'avg_gap_pct', label: 'Gap', shortLabel: 'Gap', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-3, 3], description: 'Avg gap %' },
+  { key: 'avg_change_from_open', label: 'Chg Open', shortLabel: 'Open%', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-5, 5], description: 'Avg change from open price' },
   { key: 'avg_adx', label: 'ADX', shortLabel: 'ADX', defaultMode: 'numeric', format: num1, colorScale: 'positive', domain: [0, 60], description: 'Avg ADX (trend strength)' },
   { key: 'avg_dist_vwap', label: 'Dist VWAP', shortLabel: 'dVWAP', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-2, 2], description: 'Avg distance from VWAP' },
   { key: 'avg_change_5d', label: 'Chg 5D', shortLabel: '5D', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-10, 10], description: 'Avg 5-day change' },
@@ -70,6 +71,7 @@ export const DD_COLUMNS: ColumnDef[] = [
   { key: 'rsi_14', label: 'RSI 1m', shortLabel: 'RSI', defaultMode: 'heatmap', format: num1, colorScale: 'diverging', domain: [30, 70], description: '1-min RSI(14)' },
   { key: 'daily_rsi', label: 'RSI Daily', shortLabel: 'dRSI', defaultMode: 'heatmap', format: num1, colorScale: 'diverging', domain: [30, 70], description: 'Daily RSI' },
   { key: 'gap_percent', label: 'Gap %', shortLabel: 'Gap', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-5, 5], description: 'Gap from previous close' },
+  { key: 'change_from_open', label: 'Chg Open', shortLabel: 'Open%', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-5, 5], description: 'Change from open price' },
   { key: 'atr_percent', label: 'ATR %', shortLabel: 'ATR%', defaultMode: 'numeric', format: pct1, colorScale: 'positive', domain: [0, 10], description: 'ATR as % of price' },
   { key: 'rvol', label: 'RVOL', shortLabel: 'RVOL', defaultMode: 'numeric', format: mult, colorScale: 'positive', domain: [0, 5], description: 'Relative volume' },
   { key: 'dist_from_vwap', label: 'Dist VWAP', shortLabel: 'dVWAP', defaultMode: 'bar', format: pct, colorScale: 'diverging', domain: [-2, 2], description: 'Distance from VWAP' },
@@ -84,4 +86,4 @@ export const DD_COLUMNS: ColumnDef[] = [
   { key: 'adx_14', label: 'ADX', shortLabel: 'ADX', defaultMode: 'numeric', format: num1, colorScale: 'positive', domain: [0, 60], description: 'ADX (trend strength)' },
 ];
 
-export const DEFAULT_DD_COLUMNS = ['change_percent', '_relative', 'volume', 'market_cap'];
+export const DEFAULT_DD_COLUMNS = ['change_percent', '_relative', 'change_from_open', 'volume', 'market_cap'];

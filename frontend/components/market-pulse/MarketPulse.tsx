@@ -10,6 +10,7 @@ import type { PulseViewType } from './types';
 import { VIEW_DEFINITIONS } from './viewRegistry';
 import RotationBarsView from './views/RotationBarsView';
 import BreadthMonitorView from './views/BreadthMonitorView';
+import RRGView from './views/RRGView';
 import BubbleScatterView from './views/BubbleScatterView';
 import OverviewView from './views/OverviewView';
 import TreemapView from './views/TreemapView';
@@ -600,6 +601,9 @@ export function MarketPulseContent({ onOpenTicker }: { onOpenTicker?: (sym: stri
             )}
             {activeView === 'breadth' && (
               <BreadthMonitorView data={data} activeTab={tab} onSelect={doSelect} />
+            )}
+            {activeView === 'rrg' && (
+              <RRGView data={data} activeTab={tab} onSelect={doSelect} />
             )}
           </>
         )

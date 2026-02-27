@@ -23,6 +23,7 @@ export interface PerformanceEntry {
   avg_atr_pct: number;
   avg_daily_atr_pct: number;
   avg_gap_pct: number;
+  avg_change_from_open: number;
   avg_adx: number;
   avg_daily_adx: number;
   avg_dist_vwap: number;
@@ -64,6 +65,7 @@ export interface DrilldownTicker {
   rvol?: number;
   dollar_volume?: number;
   gap_percent?: number;
+  change_from_open?: number;
   atr_percent?: number;
   rsi_14?: number;
   daily_rsi?: number;
@@ -103,7 +105,7 @@ export interface DrilldownResponse {
 
 const TRACKED_KEYS = [
   'weighted_change', 'avg_change', 'median_change', 'breadth', 'avg_rvol',
-  'avg_rsi', 'avg_daily_rsi', 'avg_atr_pct', 'avg_gap_pct', 'avg_adx',
+  'avg_rsi', 'avg_daily_rsi', 'avg_atr_pct', 'avg_gap_pct', 'avg_change_from_open', 'avg_adx',
   'avg_change_5d', 'avg_change_10d', 'avg_change_20d', 'avg_from_52w_high',
   'avg_pos_in_range', 'avg_bb_position', 'avg_dist_vwap', 'avg_vol_today_pct',
   'avg_dist_sma20', 'avg_dist_sma50', 'avg_range_pct',
@@ -112,7 +114,7 @@ const TRACKED_KEYS = [
 
 const DD_TRACKED_KEYS = [
   'change_percent', 'price', 'volume', 'rsi_14', 'daily_rsi',
-  'gap_percent', 'dist_from_vwap', 'pos_in_range', 'daily_bb_position',
+  'gap_percent', 'change_from_open', 'dist_from_vwap', 'pos_in_range', 'daily_bb_position',
   'rvol', 'atr_percent', 'adx_14', 'market_cap',
 ];
 

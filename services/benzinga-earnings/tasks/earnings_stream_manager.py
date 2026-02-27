@@ -236,11 +236,14 @@ class EarningsStreamManager:
         logger.info("Starting full sync...")
         
         try:
-            # Fetch upcoming earnings (next 14 days)
-            upcoming = await self.client.fetch_upcoming_earnings(days=14)
+            # Fetch upcoming earnings (using config lookahead)
+            from config import settings
+            lookahead = settings.lookahead_days
+            lookback = settings.lookback_days
+            upcoming = await self.client.fetch_upcoming_earnings(days=lookahead)
             
-            # Fetch recent earnings (past 7 days)
-            recent = await self.client.fetch_recent_earnings(days=7)
+            # Fetch recent earnings (using config lookback)
+            recent = await self.client.fetch_recent_earnings(days=lookback)
             
             # Combine and dedupe
             all_earnings = {f"{e.ticker}-{e.date}": e for e in upcoming + recent}
@@ -344,12 +347,19 @@ class EarningsStreamManager:
         return False
     
     async def _exists_in_dedup(self, key: str) -> bool:
-        """Check if key exists in dedup set."""
-        return bool(await self.redis.sismember(self.DEDUP_SET_KEY, key))
+        """Check if key exists in dedup sorted set."""
+        score = await self.redis.zscore(self.DEDUP_SET_KEY, key)
+        return score is not None
     
     async def _add_to_dedup(self, key: str):
-        """Add key to dedup set."""
-        await self.redis.sadd(self.DEDUP_SET_KEY, key)
+        """Add key to dedup sorted set with timestamp for TTL."""
+        import time
+        now = time.time()
+        # Use sorted set with score=timestamp for natural TTL cleanup
+        await self.redis.zadd(self.DEDUP_SET_KEY, {key: now})
+        # Prune entries older than DEDUP_TTL
+        cutoff = now - self.DEDUP_TTL
+        await self.redis.zremrangebyscore(self.DEDUP_SET_KEY, 0, cutoff)
     
     async def _get_cached_earning(
         self, 
