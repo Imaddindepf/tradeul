@@ -43,9 +43,11 @@ import { TentativePrimitive } from './primitives/TentativePrimitive';
 import { timeToPixelX } from './primitives/coordinateUtils';
 import { EarningsMarkerPrimitive } from './primitives/EarningsMarkerPrimitive';
 import type { ISeriesPrimitive } from 'lightweight-charts';
-import { useIndicatorWorker, type IndicatorType, PANEL_INDICATORS } from '@/hooks/useIndicatorWorker';
+import { useIndicatorWorker } from '@/hooks/useIndicatorWorker';
 import { ChartToolbar, HeaderDrawingTools, IndicatorsIcon } from './ChartToolbar';
-import type { IndicatorDataPoint, MACDData, StochData, ADXData, SqueezeData } from '@/hooks/useIndicatorWorker';
+import { IndicatorSettingsDialog } from './IndicatorSettingsDialog';
+import { getSettingsForIndicator, INDICATOR_TYPE_DEFAULTS, OVERLAY_TYPES, PANEL_TYPES, getNextColor, getInstanceLabel, migrateOldIndicatorState, type IndicatorInstance } from './constants';
+import type { IndicatorDataPoint, WorkerIndicatorConfig, IndicatorResults } from '@/hooks/useIndicatorWorker';
 import { ChartNewsPopup } from './ChartNewsPopup';
 import { useArticlesByTicker } from '@/stores/useNewsStore';
 import { useFloatingWindow, useWindowState, useCurrentWindowId } from '@/contexts/FloatingWindowContext';
@@ -70,10 +72,36 @@ import {
 } from './constants';
 import { formatPrice, formatVolume, roundToInterval } from './formatters';
 import { calculateSMA, calculateEMA } from './indicators';
-import { IncrementalIndicatorEngine } from './IncrementalIndicatorEngine';
+import { IncrementalIndicatorEngine, type IndicatorValue } from './IncrementalIndicatorEngine';
 import type { ChartContext, ChartSnapshot } from '@/components/ai-agent/types';
-import type { IndicatorResults } from '@/hooks/useIndicatorWorker';
+// IndicatorResults imported above
 import type { Drawing } from '@/hooks/useChartDrawings';
+
+// ============================================================================
+// Session Background Colors (pre-market / post-market)
+// ============================================================================
+
+const SESSION_COLORS = {
+    preMarket: 'rgba(255, 247, 235, 0.85)',   // warm amber #fff7eb
+    postMarket: 'rgba(238, 243, 255, 0.85)',   // cool blue #eef3ff
+    regular: 'rgba(0, 0, 0, 0)',               // transparent
+};
+
+function getSessionColor(barTimeSeconds: number): string {
+    const date = new Date(barTimeSeconds * 1000);
+    const etParts = date.toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false,
+    });
+    const [hStr, mStr] = etParts.split(':');
+    const totalMinutes = parseInt(hStr) * 60 + parseInt(mStr);
+
+    if (totalMinutes >= 240 && totalMinutes < 570) return SESSION_COLORS.preMarket;
+    if (totalMinutes >= 960 && totalMinutes < 1200) return SESSION_COLORS.postMarket;
+    return SESSION_COLORS.regular;
+}
 
 // ============================================================================
 // Chart AI Snapshot Builder
@@ -83,10 +111,7 @@ function buildChartSnapshot(
     data: ChartBar[],
     indicatorResults: IndicatorResults | null,
     drawings: Drawing[],
-    activeOverlays: string[],
-    activePanels: string[],
-    showMA: boolean,
-    showEMA: boolean,
+    activeIndicators: IndicatorInstance[],
     chartApi: IChartApi | null,
 ): ChartSnapshot {
     const visibleRange = chartApi?.timeScale().getVisibleLogicalRange();
@@ -115,40 +140,37 @@ function buildChartSnapshot(
     const indicators: ChartSnapshot['indicators'] = {};
 
     if (indicatorResults) {
-        const { overlays, panels } = indicatorResults;
-
-        // Capture ALL available indicators regardless of UI visibility
-        if (overlays.sma20) indicators.sma20 = findValue(overlays.sma20);
-        if (overlays.sma50) indicators.sma50 = findValue(overlays.sma50);
-        if (overlays.sma200) indicators.sma200 = findValue(overlays.sma200);
-        if (overlays.ema12) indicators.ema12 = findValue(overlays.ema12);
-        if (overlays.ema26) indicators.ema26 = findValue(overlays.ema26);
-        if (overlays.vwap) indicators.vwap = findValue(overlays.vwap);
-        if (overlays.bb) {
-            indicators.bb_upper = findValue(overlays.bb.upper);
-            indicators.bb_mid = findValue(overlays.bb.middle);
-            indicators.bb_lower = findValue(overlays.bb.lower);
+        // Dynamic instance-based extraction
+        for (const [instId, result] of Object.entries(indicatorResults)) {
+            const { type, data: rData } = result as any;
+            const label = instId; // e.g. 'sma_1', 'rsi_2'
+            if (type === 'sma' || type === 'ema' || type === 'vwap' || type === 'atr' || type === 'obv') {
+                if (Array.isArray(rData)) indicators[label] = findValue(rData);
+            } else if (type === 'bb' || type === 'keltner') {
+                if (rData?.upper) indicators[label + '_upper'] = findValue(rData.upper);
+                if (rData?.middle) indicators[label + '_mid'] = findValue(rData.middle);
+                if (rData?.lower) indicators[label + '_lower'] = findValue(rData.lower);
+            } else if (type === 'rsi') {
+                if (Array.isArray(rData)) {
+                    indicators[label] = findValue(rData);
+                    indicators[label + '_trajectory'] = trajectory(rData);
+                }
+            } else if (type === 'macd') {
+                if (rData?.macd) indicators[label + '_line'] = findValue(rData.macd);
+                if (rData?.signal) indicators[label + '_signal'] = findValue(rData.signal);
+                if (rData?.histogram) {
+                    indicators[label + '_histogram'] = findValue(rData.histogram);
+                    indicators[label + '_hist_trajectory'] = trajectory(rData.histogram);
+                }
+            } else if (type === 'stoch') {
+                if (rData?.k) indicators[label + '_k'] = findValue(rData.k);
+                if (rData?.d) indicators[label + '_d'] = findValue(rData.d);
+            } else if (type === 'adx') {
+                if (rData?.adx) indicators[label + '_adx'] = findValue(rData.adx);
+                if (rData?.pdi) indicators[label + '_pdi'] = findValue(rData.pdi);
+                if (rData?.mdi) indicators[label + '_mdi'] = findValue(rData.mdi);
+            }
         }
-        if (panels.rsi) {
-            indicators.rsi = findValue(panels.rsi.data);
-            indicators.rsi_trajectory = trajectory(panels.rsi.data);
-        }
-        if (panels.macd) {
-            indicators.macd_line = findValue(panels.macd.data.macd);
-            indicators.macd_signal = findValue(panels.macd.data.signal);
-            indicators.macd_histogram = findValue(panels.macd.data.histogram);
-            indicators.macd_hist_trajectory = trajectory(panels.macd.data.histogram);
-        }
-        if (panels.stoch) {
-            indicators.stoch_k = findValue(panels.stoch.data.k);
-            indicators.stoch_d = findValue(panels.stoch.data.d);
-        }
-        if (panels.adx) {
-            indicators.adx = findValue(panels.adx.data.adx);
-            indicators.adx_pdi = findValue(panels.adx.data.pdi);
-            indicators.adx_mdi = findValue(panels.adx.data.mdi);
-        }
-        if (panels.atr) indicators.atr = findValue(panels.atr.data);
     }
 
     // Fallback: calculate all key indicators from visible bars when worker didn't provide them
@@ -265,7 +287,7 @@ interface ContextMenuState {
 }
 
 function ChartContextMenu({
-    state, ticker, interval, range, data, indicatorResults, drawings, activeOverlays, activePanels, showMA, showEMA, chartApi, onClose,
+    state, ticker, interval, range, data, indicatorResults, drawings, activeIndicators, chartApi, onClose,
 }: {
     state: ContextMenuState;
     ticker: string;
@@ -274,22 +296,18 @@ function ChartContextMenu({
     data: ChartBar[];
     indicatorResults: IndicatorResults | null;
     drawings: Drawing[];
-    activeOverlays: string[];
-    activePanels: string[];
-    showMA: boolean;
-    showEMA: boolean;
+    activeIndicators: IndicatorInstance[];
     chartApi: IChartApi | null;
     onClose: () => void;
 }) {
     if (!state.visible) return null;
 
     const dispatchChartAsk = (prompt: string) => {
-        const snapshot = buildChartSnapshot(data, indicatorResults, drawings, activeOverlays, activePanels, showMA, showEMA, chartApi);
-        const activeIndicatorNames: string[] = [];
-        if (showMA) activeIndicatorNames.push('SMA20', 'SMA50');
-        if (showEMA) activeIndicatorNames.push('EMA12', 'EMA26');
-        activeOverlays.forEach(o => activeIndicatorNames.push(o.toUpperCase()));
-        activePanels.forEach(p => activeIndicatorNames.push(p.toUpperCase()));
+        const snapshot = buildChartSnapshot(data, indicatorResults, drawings, activeIndicators, chartApi);
+        const activeIndicatorNames: string[] = activeIndicators.map(i => {
+            const defaults = INDICATOR_TYPE_DEFAULTS[i.type];
+            return defaults ? `${defaults.name}${i.params.length ? ' ' + i.params.length : ''}` : i.type.toUpperCase();
+        });
 
         const chartCtx: ChartContext = {
             ticker,
@@ -417,8 +435,15 @@ function TradingChartComponent({
     const [inputValue, setInputValue] = useState(windowState.ticker || initialTicker);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isScrolledAway, setIsScrolledAway] = useState(false);
-    const [showMA, setShowMA] = useState(windowState.showMA ?? true);
-    const [showEMA, setShowEMA] = useState(windowState.showEMA ?? false);
+    // Dynamic indicator instances
+    const [indicators, setIndicators] = useState<IndicatorInstance[]>(() => {
+        if (windowState.indicators && windowState.indicators.length > 0) return windowState.indicators;
+        if (windowState.showMA || windowState.showEMA || windowState.activeOverlays?.length || windowState.activePanels?.length) {
+            return migrateOldIndicatorState(windowState);
+        }
+        return [];
+    });
+    const nextInstanceIdRef = useRef(windowState.nextInstanceId || 1);
     const [showVolume, setShowVolume] = useState(windowState.showVolume ?? true);
     const [showNewsMarkers, setShowNewsMarkers] = useState(false);
     const [showEarningsMarkers, setShowEarningsMarkers] = useState(true);
@@ -430,22 +455,16 @@ function TradingChartComponent({
     // === INDICADORES AVANZADOS (Worker-based) ===
     const { calculate, clearCache, results: indicatorResults, isCalculating: indicatorsLoading, isReady: workerReady } = useIndicatorWorker();
 
-    // Overlays activos (sobre el precio): sma200, bb, keltner, vwap
-    const [activeOverlays, setActiveOverlays] = useState<string[]>(windowState.activeOverlays || []);
+    // Derived overlay/panel lists from indicators
+    const overlayInstances = useMemo(() => indicators.filter(i => i.visible && OVERLAY_TYPES.has(i.type)), [indicators]);
+    const panelInstances = useMemo(() => indicators.filter(i => i.visible && PANEL_TYPES.has(i.type)), [indicators]);
 
-    // Paneles activos (debajo del chart): rsi, macd, stoch, adx, atr, squeeze
-    const [activePanels, setActivePanels] = useState<string[]>(windowState.activePanels || []);
-
-    // On-demand overlay series refs (created when activated)
-    const overlaySeriesRef = useRef<Map<string, ISeriesApi<any>>>(new Map());
-
-    // On-demand MA/EMA series refs
-    const maSeriesRef = useRef<{ ma20: ISeriesApi<any> | null; ma50: ISeriesApi<any> | null }>({ ma20: null, ma50: null });
-    const emaSeriesRef = useRef<{ ema12: ISeriesApi<any> | null; ema26: ISeriesApi<any> | null }>({ ema12: null, ema26: null });
-
-    // Panel indicator series refs (pane-based)
-    const panelSeriesRef = useRef<Map<string, Map<string, ISeriesApi<any>>>>(new Map());
+    // Unified indicator series ref: Map<instanceId, Map<subKey, ISeriesApi>>
+    const indicatorSeriesRef = useRef<Map<string, Map<string, ISeriesApi<any>>>>(new Map());
     const panelPaneIndexRef = useRef<Map<string, number>>(new Map());
+    // Keep overlaySeriesRef as alias for backward compat in context menu etc
+    const overlaySeriesRef = indicatorSeriesRef;
+    const panelSeriesRef = indicatorSeriesRef;
 
     // Incremental indicator engine for real-time updates
     const engineRef = useRef<IncrementalIndicatorEngine | null>(null);
@@ -461,27 +480,94 @@ function TradingChartComponent({
     const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastPriceInfoRef = useRef<{ close: number; open: number }>({ close: 0, open: 0 });
 
-    // Toggle helpers
-    const toggleOverlay = useCallback((id: string) => {
-        setActiveOverlays(prev =>
-            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-        );
-    }, []);
-
-    const togglePanel = useCallback((id: string) => {
-        setActivePanels(prev =>
-            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-        );
-    }, []);
-
-    const removePanel = useCallback((id: string) => {
-        setActivePanels(prev => prev.filter(x => x !== id));
-    }, []);
+    // Add a new indicator instance
+    const addIndicator = useCallback((type: string) => {
+        const id = `${type}_${nextInstanceIdRef.current++}`;
+        const config = INDICATOR_TYPE_DEFAULTS[type];
+        if (!config) return;
+        const color = getNextColor(indicators);
+        const newInst: IndicatorInstance = {
+            id, type,
+            params: { ...config.defaultParams },
+            styles: { ...config.defaultStyles, color },
+            visible: true,
+        };
+        setIndicators(prev => [...prev, newInst]);
+        setShowIndicatorDropdown(false);
+    }, [indicators]);
 
     // Dropdown states
     const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
     const [showIndicatorDropdown, setShowIndicatorDropdown] = useState(false);
+    const indicatorDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close indicator dropdown on click outside
+    useEffect(() => {
+        if (!showIndicatorDropdown) return;
+        const handleClick = (e: MouseEvent) => {
+            if (indicatorDropdownRef.current && !indicatorDropdownRef.current.contains(e.target as Node)) {
+                setShowIndicatorDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [showIndicatorDropdown]);
+    const [indicatorSettingsOpen, setIndicatorSettingsOpen] = useState<string | null>(null);
+    const [indicatorSettingsPos, setIndicatorSettingsPos] = useState<{ x: number; y: number } | undefined>();
+    const [selectedIndicator, setSelectedIndicator] = useState<string | null>(null);
     const [showToolsDropdown, setShowToolsDropdown] = useState(false);
+
+    const openIndicatorSettings = useCallback((indicatorId: string, event?: React.MouseEvent) => {
+        const pos = event ? { x: Math.min(event.clientX, window.innerWidth - 340), y: Math.min(event.clientY, window.innerHeight - 460) } : undefined;
+        setIndicatorSettingsPos(pos);
+        setIndicatorSettingsOpen(indicatorId);
+    }, []);
+
+    const removeIndicator = useCallback((instanceId: string) => {
+        if (instanceId === 'volume') { setShowVolume(false); return; }
+        setIndicators(prev => prev.filter(i => i.id !== instanceId));
+        setSelectedIndicator(null);
+    }, []);
+
+    const onApplyIndicatorSettings = useCallback((id: string, settings: { inputs: Record<string, number | string>; styles: Record<string, string | number>; visibility: string[] }) => {
+        const { styles, inputs } = settings;
+        // Update the instance params/styles in state
+        setIndicators(prev => prev.map(inst => {
+            if (inst.id !== id) return inst;
+            return { ...inst, params: { ...inst.params, ...inputs }, styles: { ...inst.styles, ...styles } };
+        }));
+        // Apply visual changes immediately to series
+        const seriesMap = indicatorSeriesRef.current.get(id);
+        if (!seriesMap) return;
+        const inst = indicators.find(i => i.id === id);
+        if (!inst) return;
+        const color = styles.color as string;
+        const lw = styles.lineWidth as number;
+        const apply = (s: any, c?: string, w?: number) => {
+            if (!s) return;
+            const opts: any = {};
+            if (c) opts.color = c;
+            if (w) opts.lineWidth = w;
+            try { s.applyOptions(opts); } catch {}
+        };
+        if (['sma', 'ema', 'vwap', 'atr', 'rsi', 'obv'].includes(inst.type)) {
+            apply(seriesMap.get('main'), color, lw);
+        } else if (inst.type === 'bb' || inst.type === 'keltner') {
+            apply(seriesMap.get('upper'), styles.upperColor as string, lw);
+            apply(seriesMap.get('middle'), styles.middleColor as string, lw);
+            apply(seriesMap.get('lower'), styles.lowerColor as string, lw);
+        } else if (inst.type === 'macd') {
+            apply(seriesMap.get('macd'), styles.macdColor as string);
+            apply(seriesMap.get('signal'), styles.signalColor as string);
+        } else if (inst.type === 'stoch') {
+            apply(seriesMap.get('k'), styles.kColor as string);
+            apply(seriesMap.get('d'), styles.dColor as string);
+        } else if (inst.type === 'adx') {
+            apply(seriesMap.get('adx'), styles.adxColor as string);
+            apply(seriesMap.get('pdi'), styles.pdiColor as string);
+            apply(seriesMap.get('mdi'), styles.mdiColor as string);
+        }
+    }, [indicators]);
 
     // Persist state changes
     useEffect(() => {
@@ -489,13 +575,11 @@ function TradingChartComponent({
             ticker: currentTicker,
             interval: selectedInterval,
             range: selectedRange,
-            showMA,
-            showEMA,
             showVolume,
-            activeOverlays,
-            activePanels,
+            indicators,
+            nextInstanceId: nextInstanceIdRef.current,
         });
-    }, [currentTicker, selectedInterval, selectedRange, showMA, showEMA, showVolume, activeOverlays, activePanels, updateWindowState]);
+    }, [currentTicker, selectedInterval, selectedRange, showVolume, indicators, updateWindowState]);
 
     const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval);
 
@@ -1061,10 +1145,7 @@ function TradingChartComponent({
             // Clean up refs
             drawingPrimitivesRef.current.clear();
             tentativePrimitiveRef.current = null;
-            overlaySeriesRef.current.clear();
-            maSeriesRef.current = { ma20: null, ma50: null };
-            emaSeriesRef.current = { ema12: null, ema26: null };
-            panelSeriesRef.current.clear();
+            indicatorSeriesRef.current.clear();
             panelPaneIndexRef.current.clear();
             newsMarkersRef.current = null;
             lastPriceInfoRef.current = { close: 0, open: 0 };
@@ -1132,76 +1213,127 @@ function TradingChartComponent({
     }, [currentTicker]);
 
     // ============================================================================
-    // On-demand MA/EMA series creation
+    // Dynamic indicator series creation/destruction
     // ============================================================================
 
     useEffect(() => {
         const chart = chartRef.current;
         if (!chart) return;
 
-        if (showMA) {
-            if (!maSeriesRef.current.ma20) {
-                maSeriesRef.current.ma20 = chart.addSeries(LineSeries, {
-                    color: CHART_COLORS.ma20,
-                    lineWidth: 2,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    crosshairMarkerVisible: true,
-                    crosshairMarkerRadius: 4,
-                });
-            }
-            if (!maSeriesRef.current.ma50) {
-                maSeriesRef.current.ma50 = chart.addSeries(LineSeries, {
-                    color: CHART_COLORS.ma50,
-                    lineWidth: 2,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    crosshairMarkerVisible: true,
-                    crosshairMarkerRadius: 4,
-                });
-            }
-            maSeriesRef.current.ma20.applyOptions({ visible: true });
-            maSeriesRef.current.ma50.applyOptions({ visible: true });
-        } else {
-            if (maSeriesRef.current.ma20) maSeriesRef.current.ma20.applyOptions({ visible: false });
-            if (maSeriesRef.current.ma50) maSeriesRef.current.ma50.applyOptions({ visible: false });
-        }
-    }, [showMA]);
+        const activeIds = new Set(indicators.filter(i => i.visible).map(i => i.id));
 
-    useEffect(() => {
-        const chart = chartRef.current;
-        if (!chart) return;
-
-        if (showEMA) {
-            if (!emaSeriesRef.current.ema12) {
-                emaSeriesRef.current.ema12 = chart.addSeries(LineSeries, {
-                    color: CHART_COLORS.ema12,
-                    lineWidth: 1,
-                    lineStyle: LineStyle.Solid,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    crosshairMarkerVisible: true,
-                    crosshairMarkerRadius: 3,
-                });
+        // Remove series for deleted/hidden instances
+        for (const [id, seriesMap] of indicatorSeriesRef.current) {
+            if (!activeIds.has(id)) {
+                // Check if it's a panel — remove pane
+                const paneIdx = panelPaneIndexRef.current.get(id);
+                if (paneIdx !== undefined) {
+                    try { chart.removePane(paneIdx); } catch {}
+                    panelPaneIndexRef.current.delete(id);
+                }
+                // Remove series from chart
+                for (const [, series] of seriesMap) {
+                    try { chart.removeSeries(series); } catch {}
+                }
+                indicatorSeriesRef.current.delete(id);
             }
-            if (!emaSeriesRef.current.ema26) {
-                emaSeriesRef.current.ema26 = chart.addSeries(LineSeries, {
-                    color: CHART_COLORS.ema26,
-                    lineWidth: 1,
-                    lineStyle: LineStyle.Solid,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    crosshairMarkerVisible: true,
-                    crosshairMarkerRadius: 3,
-                });
-            }
-            emaSeriesRef.current.ema12.applyOptions({ visible: true });
-            emaSeriesRef.current.ema26.applyOptions({ visible: true });
-        } else {
-            if (emaSeriesRef.current.ema12) emaSeriesRef.current.ema12.applyOptions({ visible: false });
-            if (emaSeriesRef.current.ema26) emaSeriesRef.current.ema26.applyOptions({ visible: false });
         }
-    }, [showEMA]);
+
+        // Create series for new instances
+        let nextPaneIndex = 1;
+        const usedPanes = new Set(panelPaneIndexRef.current.values());
+        while (usedPanes.has(nextPaneIndex)) nextPaneIndex++;
+
+        for (const inst of indicators) {
+            if (!inst.visible) continue;
+            if (indicatorSeriesRef.current.has(inst.id)) continue;
+
+            const seriesMap = new Map<string, ISeriesApi<any>>();
+            const config = INDICATOR_TYPE_DEFAULTS[inst.type];
+            if (!config) continue;
+
+            try {
+                if (config.category === 'overlay') {
+                    // Overlay types → LineSeries on main chart
+                    if (inst.type === 'sma' || inst.type === 'ema' || inst.type === 'vwap') {
+                        const s = chart.addSeries(LineSeries, {
+                            color: (inst.styles.color as string) || config.defaultStyles.color as string,
+                            lineWidth: ((inst.styles.lineWidth as number) || config.defaultStyles.lineWidth as number) as 1 | 2 | 3 | 4,
+                            priceLineVisible: false,
+                            lastValueVisible: true,
+                            crosshairMarkerVisible: true,
+                            crosshairMarkerRadius: 3,
+                        });
+                        seriesMap.set('main', s);
+                    } else if (inst.type === 'bb' || inst.type === 'keltner') {
+                        const uc = (inst.styles.upperColor as string) || config.defaultStyles.upperColor as string;
+                        const mc = (inst.styles.middleColor as string) || config.defaultStyles.middleColor as string;
+                        const lc = (inst.styles.lowerColor as string) || config.defaultStyles.lowerColor as string;
+                        const lw = ((inst.styles.lineWidth as number) || config.defaultStyles.lineWidth as number) as 1 | 2 | 3 | 4;
+                        seriesMap.set('upper', chart.addSeries(LineSeries, { color: uc, lineWidth: lw, priceLineVisible: false, lastValueVisible: false }));
+                        seriesMap.set('middle', chart.addSeries(LineSeries, { color: mc, lineWidth: lw, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: true }));
+                        seriesMap.set('lower', chart.addSeries(LineSeries, { color: lc, lineWidth: lw, priceLineVisible: false, lastValueVisible: false }));
+                    }
+                } else {
+                    // Panel types → separate pane
+                    while (usedPanes.has(nextPaneIndex)) nextPaneIndex++;
+
+                    switch (inst.type) {
+                        case 'rsi': {
+                            const s = chart.addSeries(LineSeries, { color: (inst.styles.color as string) || '#8b5cf6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex);
+                            s.createPriceLine({ price: 70, color: 'rgba(239,68,68,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
+                            s.createPriceLine({ price: 30, color: 'rgba(16,185,129,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
+                            seriesMap.set('main', s);
+                            break;
+                        }
+                        case 'macd': {
+                            const psId = `macd_${nextPaneIndex}`;
+                            seriesMap.set('histogram', chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, priceScaleId: psId }, nextPaneIndex));
+                            seriesMap.set('macd', chart.addSeries(LineSeries, { color: (inst.styles.macdColor as string) || '#3b82f6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true, priceScaleId: psId }, nextPaneIndex));
+                            seriesMap.set('signal', chart.addSeries(LineSeries, { color: (inst.styles.signalColor as string) || '#f97316', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false, priceScaleId: psId }, nextPaneIndex));
+                            break;
+                        }
+                        case 'stoch': {
+                            const kS = chart.addSeries(LineSeries, { color: (inst.styles.kColor as string) || '#3b82f6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex);
+                            const dS = chart.addSeries(LineSeries, { color: (inst.styles.dColor as string) || '#f97316', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false }, nextPaneIndex);
+                            kS.createPriceLine({ price: 80, color: 'rgba(239,68,68,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
+                            kS.createPriceLine({ price: 20, color: 'rgba(16,185,129,0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
+                            seriesMap.set('k', kS);
+                            seriesMap.set('d', dS);
+                            seriesMap.set('main', kS);
+                            break;
+                        }
+                        case 'adx': {
+                            seriesMap.set('adx', chart.addSeries(LineSeries, { color: (inst.styles.adxColor as string) || '#8b5cf6', lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex));
+                            seriesMap.set('pdi', chart.addSeries(LineSeries, { color: (inst.styles.pdiColor as string) || '#10b981', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false }, nextPaneIndex));
+                            seriesMap.set('mdi', chart.addSeries(LineSeries, { color: (inst.styles.mdiColor as string) || '#ef4444', lineWidth: 1 as 1|2|3|4, priceLineVisible: false, lastValueVisible: false }, nextPaneIndex));
+                            seriesMap.set('main', seriesMap.get('adx')!);
+                            break;
+                        }
+                        case 'atr':
+                        case 'obv': {
+                            seriesMap.set('main', chart.addSeries(LineSeries, { color: (inst.styles.color as string) || config.defaultStyles.color as string, lineWidth: 2 as 1|2|3|4, priceLineVisible: false, lastValueVisible: true }, nextPaneIndex));
+                            break;
+                        }
+                        case 'squeeze':
+                        case 'rvol': {
+                            seriesMap.set('main', chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: true }, nextPaneIndex));
+                            break;
+                        }
+                    }
+
+                    panelPaneIndexRef.current.set(inst.id, nextPaneIndex);
+                    usedPanes.add(nextPaneIndex);
+                    try { const pane = chart.panes()[nextPaneIndex]; if (pane) pane.setHeight(100); } catch {}
+                    nextPaneIndex++;
+                }
+
+                indicatorSeriesRef.current.set(inst.id, seriesMap);
+            } catch (err) {
+                console.warn('[TradingChart] Failed to create indicator', inst.id, err);
+            }
+        }
+    }, [indicators]);
 
     // Toggle volume visibility
     useEffect(() => {
@@ -1210,242 +1342,8 @@ function TradingChartComponent({
         }
     }, [showVolume]);
 
-    // ============================================================================
-    // On-demand overlay series (sma200, bb, keltner, vwap)
-    // ============================================================================
+    // Overlay creation is now handled by the unified indicators effect above
 
-    useEffect(() => {
-        const chart = chartRef.current;
-        if (!chart) return;
-
-        const overlayConfigs: Record<string, { keys: string[]; configs: Record<string, { color: string; lineWidth: number; lineStyle?: number }> }> = {
-            sma200: {
-                keys: ['sma200'],
-                configs: { sma200: { color: '#ef4444', lineWidth: 2 } }
-            },
-            bb: {
-                keys: ['bb_upper', 'bb_middle', 'bb_lower'],
-                configs: {
-                    bb_upper: { color: 'rgba(59, 130, 246, 0.6)', lineWidth: 1 },
-                    bb_middle: { color: 'rgba(59, 130, 246, 0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed },
-                    bb_lower: { color: 'rgba(59, 130, 246, 0.6)', lineWidth: 1 },
-                }
-            },
-            keltner: {
-                keys: ['keltner_upper', 'keltner_middle', 'keltner_lower'],
-                configs: {
-                    keltner_upper: { color: 'rgba(20, 184, 166, 0.6)', lineWidth: 1 },
-                    keltner_middle: { color: 'rgba(20, 184, 166, 0.4)', lineWidth: 1, lineStyle: LineStyle.Dashed },
-                    keltner_lower: { color: 'rgba(20, 184, 166, 0.6)', lineWidth: 1 },
-                }
-            },
-            vwap: {
-                keys: ['vwap'],
-                configs: { vwap: { color: '#f97316', lineWidth: 2 } }
-            },
-        };
-
-        for (const [overlayId, config] of Object.entries(overlayConfigs)) {
-            const isActive = activeOverlays.includes(overlayId);
-
-            for (const key of config.keys) {
-                let series = overlaySeriesRef.current.get(key);
-
-                if (isActive && !series) {
-                    const seriesConfig = config.configs[key];
-                    series = chart.addSeries(LineSeries, {
-                        color: seriesConfig.color,
-                        lineWidth: seriesConfig.lineWidth as 1 | 2 | 3 | 4,
-                        lineStyle: seriesConfig.lineStyle ?? LineStyle.Solid,
-                        priceLineVisible: false,
-                        lastValueVisible: true,
-                    });
-                    overlaySeriesRef.current.set(key, series);
-                }
-
-                if (series) {
-                    series.applyOptions({ visible: isActive });
-                }
-            }
-        }
-    }, [activeOverlays]);
-
-    // ============================================================================
-    // Multi-pane indicator panels (v5 native panes)
-    // ============================================================================
-
-    useEffect(() => {
-        const chart = chartRef.current;
-        if (!chart) return;
-
-        // Remove panes for deactivated panels
-        const currentPanelIds = new Set(activePanels);
-        for (const [panelId, paneIndex] of panelPaneIndexRef.current.entries()) {
-            if (!currentPanelIds.has(panelId)) {
-                try {
-                    chart.removePane(paneIndex);
-                } catch {
-                    // Pane may already be removed
-                }
-                panelSeriesRef.current.delete(panelId);
-                panelPaneIndexRef.current.delete(panelId);
-            }
-        }
-
-        // Reassign pane indices (pane 0 = main, pane 1+ = panels)
-        let nextPaneIndex = 1;
-        for (const panelId of activePanels) {
-            if (!panelPaneIndexRef.current.has(panelId)) {
-                // Find next available pane index
-                const usedIndices = new Set(panelPaneIndexRef.current.values());
-                while (usedIndices.has(nextPaneIndex)) nextPaneIndex++;
-
-                const seriesMap = new Map<string, ISeriesApi<any>>();
-
-                try {
-                    switch (panelId) {
-                        case 'rsi': {
-                            const rsiSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.rsi,
-                                lineWidth: 2,
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                            }, nextPaneIndex);
-                            seriesMap.set('main', rsiSeries);
-
-                            // Reference lines
-                            rsiSeries.createPriceLine({ price: 70, color: 'rgba(239, 68, 68, 0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
-                            rsiSeries.createPriceLine({ price: 30, color: 'rgba(16, 185, 129, 0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
-                            break;
-                        }
-                        case 'macd': {
-                            const histSeries = chart.addSeries(HistogramSeries, {
-                                priceLineVisible: false,
-                                lastValueVisible: false,
-                                priceScaleId: `macd_${nextPaneIndex}`,
-                            }, nextPaneIndex);
-                            const macdLine = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.macdLine,
-                                lineWidth: 2,
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                                priceScaleId: `macd_${nextPaneIndex}`,
-                            }, nextPaneIndex);
-                            const sigLine = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.macdSignal,
-                                lineWidth: 1,
-                                priceLineVisible: false,
-                                lastValueVisible: false,
-                                priceScaleId: `macd_${nextPaneIndex}`,
-                            }, nextPaneIndex);
-                            seriesMap.set('histogram', histSeries);
-                            seriesMap.set('macd', macdLine);
-                            seriesMap.set('signal', sigLine);
-                            break;
-                        }
-                        case 'stoch': {
-                            const kSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.stochK,
-                                lineWidth: 2,
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                            }, nextPaneIndex);
-                            const dSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.stochD,
-                                lineWidth: 1,
-                                priceLineVisible: false,
-                                lastValueVisible: false,
-                            }, nextPaneIndex);
-                            seriesMap.set('k', kSeries);
-                            seriesMap.set('d', dSeries);
-                            seriesMap.set('main', kSeries);
-
-                            kSeries.createPriceLine({ price: 80, color: 'rgba(239, 68, 68, 0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
-                            kSeries.createPriceLine({ price: 20, color: 'rgba(16, 185, 129, 0.3)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
-                            break;
-                        }
-                        case 'adx': {
-                            const adxSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.adxLine,
-                                lineWidth: 2,
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                            }, nextPaneIndex);
-                            const pdiSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.pdiLine,
-                                lineWidth: 1,
-                                priceLineVisible: false,
-                                lastValueVisible: false,
-                            }, nextPaneIndex);
-                            const mdiSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.mdiLine,
-                                lineWidth: 1,
-                                priceLineVisible: false,
-                                lastValueVisible: false,
-                            }, nextPaneIndex);
-                            seriesMap.set('adx', adxSeries);
-                            seriesMap.set('pdi', pdiSeries);
-                            seriesMap.set('mdi', mdiSeries);
-                            seriesMap.set('main', adxSeries);
-                            break;
-                        }
-                        case 'atr': {
-                            const atrSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.atr,
-                                lineWidth: 2,
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                            }, nextPaneIndex);
-                            seriesMap.set('main', atrSeries);
-                            break;
-                        }
-                        case 'squeeze': {
-                            const sqSeries = chart.addSeries(HistogramSeries, {
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                            }, nextPaneIndex);
-                            seriesMap.set('main', sqSeries);
-                            break;
-                        }
-                        case 'obv': {
-                            const obvSeries = chart.addSeries(LineSeries, {
-                                color: INDICATOR_COLORS.obv,
-                                lineWidth: 2,
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                            }, nextPaneIndex);
-                            seriesMap.set('main', obvSeries);
-                            break;
-                        }
-                        case 'rvol': {
-                            const rvolSeries = chart.addSeries(HistogramSeries, {
-                                priceLineVisible: false,
-                                lastValueVisible: true,
-                                priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-                            }, nextPaneIndex);
-                            seriesMap.set('main', rvolSeries);
-                            break;
-                        }
-                    }
-
-                    panelSeriesRef.current.set(panelId, seriesMap);
-                    panelPaneIndexRef.current.set(panelId, nextPaneIndex);
-
-                    // Set pane height
-                    try {
-                        const pane = chart.panes()[nextPaneIndex];
-                        if (pane) pane.setHeight(100);
-                    } catch {
-                        // Pane height not critical
-                    }
-
-                    nextPaneIndex++;
-                } catch (err) {
-                    console.warn(`[TradingChart] Failed to create panel ${panelId}:`, err);
-                }
-            }
-        }
-    }, [activePanels]);
 
     // ============================================================================
     // Update chart data
@@ -1508,17 +1406,7 @@ function TradingChartComponent({
             newsMarkersRef.current.setMarkers([]);
         }
 
-        // Calculate and set MAs (if series exist)
-        if (maSeriesRef.current.ma20 && maSeriesRef.current.ma50) {
-            maSeriesRef.current.ma20.setData(calculateSMA(data, 20));
-            maSeriesRef.current.ma50.setData(calculateSMA(data, 50));
-        }
-
-        // Calculate and set EMAs (if series exist)
-        if (emaSeriesRef.current.ema12 && emaSeriesRef.current.ema26) {
-            emaSeriesRef.current.ema12.setData(calculateEMA(data, 12));
-            emaSeriesRef.current.ema26.setData(calculateEMA(data, 26));
-        }
+        // MA/EMA data is now handled by the worker + unified indicator effects
     }, [data, currentTicker, showNewsMarkers]);
 
     // ============================================================================
@@ -1527,40 +1415,11 @@ function TradingChartComponent({
     useEffect(() => {
         if (!sessionBgSeriesRef.current || !data || data.length === 0) return;
 
-        const SESSION_COLORS = {
-            preMarket: 'rgba(59, 130, 246, 0.06)',   // light blue
-            postMarket: 'rgba(139, 92, 246, 0.06)',   // light violet
-            regular: 'rgba(0, 0, 0, 0)',               // transparent
-        };
-
-        const sessionData = data.map(bar => {
-            const date = new Date(bar.time * 1000);
-            // Get hours/minutes in US Eastern Time
-            const etParts = date.toLocaleString('en-US', {
-                timeZone: 'America/New_York',
-                hour: 'numeric',
-                minute: 'numeric',
-                hour12: false,
-            });
-            const [hStr, mStr] = etParts.split(':');
-            const totalMinutes = parseInt(hStr) * 60 + parseInt(mStr);
-
-            // Pre-market:  4:00 AM - 9:30 AM ET  (240 - 570)
-            // Regular:     9:30 AM - 4:00 PM ET  (570 - 960)
-            // Post-market: 4:00 PM - 8:00 PM ET  (960 - 1200)
-            let color = SESSION_COLORS.regular;
-            if (totalMinutes >= 240 && totalMinutes < 570) {
-                color = SESSION_COLORS.preMarket;
-            } else if (totalMinutes >= 960 && totalMinutes < 1200) {
-                color = SESSION_COLORS.postMarket;
-            }
-
-            return {
-                time: bar.time as UTCTimestamp,
-                value: 1,
-                color,
-            };
-        });
+        const sessionData = data.map(bar => ({
+            time: bar.time as UTCTimestamp,
+            value: 1,
+            color: getSessionColor(bar.time),
+        }));
 
         sessionBgSeriesRef.current.setData(sessionData);
     }, [data, selectedInterval]);
@@ -1720,21 +1579,17 @@ function TradingChartComponent({
     // ============================================================================
     useEffect(() => {
         if (data.length === 0) return;
-        const engine = new IncrementalIndicatorEngine();
-        const active: string[] = [
-            ...(showMA ? ['sma20', 'sma50'] : []),
-            ...(showEMA ? ['ema12', 'ema26'] : []),
-            ...activeOverlays,
-            ...activePanels,
-        ];
-        if (active.length === 0) {
+        const activeInsts = indicators.filter(i => i.visible);
+        if (activeInsts.length === 0) {
             engineRef.current = null;
             return;
         }
-        engine.initialize(data, active);
+        const engine = new IncrementalIndicatorEngine();
+        const configs = activeInsts.map(i => ({ id: i.id, type: i.type, params: i.params }));
+        engine.initialize(data, configs);
         engineRef.current = engine;
         return () => { engineRef.current = null; };
-    }, [data, showMA, showEMA, activeOverlays, activePanels]);
+    }, [data, indicators]);
 
     // ============================================================================
     // Register real-time update handler
@@ -1772,6 +1627,16 @@ function TradingChartComponent({
                     value: bar.volume,
                     color: volumeColor,
                 });
+
+                // Update session background for real-time candle
+                const sessionBg = sessionBgSeriesRef.current;
+                if (sessionBg) {
+                    sessionBg.update({
+                        time: bar.time as UTCTimestamp,
+                        value: 1,
+                        color: getSessionColor(bar.time),
+                    });
+                }
             } catch {
                 return;
             }
@@ -1784,63 +1649,44 @@ function TradingChartComponent({
                 }
             }
 
-            // ── Real-time indicator updates ──────────────────────────────
+            // ── Real-time indicator updates (dynamic instances) ────────
             if (engineRef.current) {
-                const vals = engineRef.current.update(
+                const resultsMap = engineRef.current.update(
                     { time: bar.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume },
                     isNewBar,
                 );
                 const time = bar.time as UTCTimestamp;
 
-                if (vals.sma20 != null) maSeriesRef.current?.ma20?.update({ time, value: vals.sma20 });
-                if (vals.sma50 != null) maSeriesRef.current?.ma50?.update({ time, value: vals.sma50 });
+                for (const [instanceId, val] of resultsMap) {
+                    const seriesMap = indicatorSeriesRef.current.get(instanceId);
+                    if (!seriesMap) continue;
 
-                if (vals.ema12 != null) emaSeriesRef.current?.ema12?.update({ time, value: vals.ema12 });
-                if (vals.ema26 != null) emaSeriesRef.current?.ema26?.update({ time, value: vals.ema26 });
-
-                if (vals.sma200 != null) overlaySeriesRef.current.get('sma200')?.update({ time, value: vals.sma200 });
-
-                if (vals.bb) {
-                    overlaySeriesRef.current.get('bb_upper')?.update({ time, value: vals.bb.upper });
-                    overlaySeriesRef.current.get('bb_middle')?.update({ time, value: vals.bb.middle });
-                    overlaySeriesRef.current.get('bb_lower')?.update({ time, value: vals.bb.lower });
-                }
-
-                if (vals.keltner) {
-                    overlaySeriesRef.current.get('keltner_upper')?.update({ time, value: vals.keltner.upper });
-                    overlaySeriesRef.current.get('keltner_middle')?.update({ time, value: vals.keltner.middle });
-                    overlaySeriesRef.current.get('keltner_lower')?.update({ time, value: vals.keltner.lower });
-                }
-
-                if (vals.vwap != null) overlaySeriesRef.current.get('vwap')?.update({ time, value: vals.vwap });
-
-                if (vals.rsi != null) panelSeriesRef.current.get('rsi')?.get('main')?.update({ time, value: vals.rsi });
-
-                if (vals.macd) {
-                    panelSeriesRef.current.get('macd')?.get('macd')?.update({ time, value: vals.macd.macd });
-                    panelSeriesRef.current.get('macd')?.get('signal')?.update({ time, value: vals.macd.signal });
-                    const histColor = vals.macd.histogram >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)';
-                    panelSeriesRef.current.get('macd')?.get('histogram')?.update({ time, value: vals.macd.histogram, color: histColor });
-                }
-
-                if (vals.stoch) {
-                    panelSeriesRef.current.get('stoch')?.get('k')?.update({ time, value: vals.stoch.k });
-                    panelSeriesRef.current.get('stoch')?.get('d')?.update({ time, value: vals.stoch.d });
-                }
-
-                if (vals.adx) {
-                    panelSeriesRef.current.get('adx')?.get('adx')?.update({ time, value: vals.adx.adx });
-                    panelSeriesRef.current.get('adx')?.get('pdi')?.update({ time, value: vals.adx.pdi });
-                    panelSeriesRef.current.get('adx')?.get('mdi')?.update({ time, value: vals.adx.mdi });
-                }
-
-                if (vals.atr != null) panelSeriesRef.current.get('atr')?.get('main')?.update({ time, value: vals.atr });
-
-                if (vals.obv != null) panelSeriesRef.current.get('obv')?.get('main')?.update({ time, value: vals.obv });
-
-                if (vals.squeeze) {
-                    const sqColor = vals.squeeze.isOn ? '#ef4444' : '#10b981';
-                    panelSeriesRef.current.get('squeeze')?.get('main')?.update({ time, value: vals.squeeze.value, color: sqColor });
+                    if (typeof val === 'number') {
+                        seriesMap.get('main')?.update({ time, value: val });
+                    } else if (val && 'upper' in val && 'middle' in val && 'lower' in val) {
+                        seriesMap.get('upper')?.update({ time, value: (val as any).upper });
+                        seriesMap.get('middle')?.update({ time, value: (val as any).middle });
+                        seriesMap.get('lower')?.update({ time, value: (val as any).lower });
+                    } else if (val && 'macd' in val) {
+                        const m = val as { macd: number; signal: number; histogram: number };
+                        seriesMap.get('macd')?.update({ time, value: m.macd });
+                        seriesMap.get('signal')?.update({ time, value: m.signal });
+                        const hc = m.histogram >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)';
+                        seriesMap.get('histogram')?.update({ time, value: m.histogram, color: hc });
+                    } else if (val && 'k' in val) {
+                        const st = val as { k: number; d: number };
+                        seriesMap.get('k')?.update({ time, value: st.k });
+                        seriesMap.get('d')?.update({ time, value: st.d });
+                    } else if (val && 'adx' in val) {
+                        const a = val as { adx: number; pdi: number; mdi: number };
+                        seriesMap.get('adx')?.update({ time, value: a.adx });
+                        seriesMap.get('pdi')?.update({ time, value: a.pdi });
+                        seriesMap.get('mdi')?.update({ time, value: a.mdi });
+                    } else if (val && 'isOn' in val) {
+                        const sq = val as { value: number; isOn: boolean };
+                        const sqc = sq.isOn ? '#ef4444' : '#10b981';
+                        seriesMap.get('main')?.update({ time, value: sq.value, color: sqc });
+                    }
                 }
             }
         };
@@ -1848,6 +1694,133 @@ function TradingChartComponent({
         registerUpdateHandler(handleRealtimeUpdate);
         return () => { registerUpdateHandler(null); };
     }, [registerUpdateHandler, data.length]);
+
+    // ============================================================================
+    // Double-click on indicator line → open settings dialog
+    // ============================================================================
+    useEffect(() => {
+        const chart = chartRef.current;
+        const container = containerRef.current;
+        if (!chart || !container) return;
+
+        const handleDblClick = (e: MouseEvent) => {
+            // Only handle double-clicks on the chart canvas itself
+            const target = e.target as HTMLElement;
+            if (!target.closest('canvas')) return;
+
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // Build candidates from unified indicatorSeriesRef
+            const candidates: { id: string; series: any }[] = [];
+            for (const [instanceId, seriesMap] of indicatorSeriesRef.current) {
+                for (const [, series] of seriesMap) {
+                    candidates.push({ id: instanceId, series });
+                }
+            }
+
+            // Find which series line is closest to the click Y coordinate
+            let bestId: string | null = null;
+            let bestDist = 12; // max 12px threshold
+
+            for (const { id, series } of candidates) {
+                try {
+                    // Get the coordinate of the series value at this X position
+                    const timeScale = chart.timeScale();
+                    const time = timeScale.coordinateToTime(x);
+                    if (time == null) continue;
+
+                    // priceToCoordinate uses the series' own price scale
+                    const dataPoint = series.dataByIndex(timeScale.coordinateToLogical(x));
+                    if (!dataPoint) continue;
+
+                    const val = dataPoint.value ?? dataPoint.close;
+                    if (val == null) continue;
+
+                    const seriesY = series.priceToCoordinate(val);
+                    if (seriesY == null) continue;
+
+                    const dist = Math.abs(seriesY - y);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestId = id;
+                    }
+                } catch {
+                    // Series may not have data at this point
+                }
+            }
+
+            if (bestId) {
+                e.preventDefault();
+                e.stopPropagation();
+                openIndicatorSettings(bestId, e as any);
+            }
+        };
+
+        container.addEventListener('dblclick', handleDblClick);
+        return () => container.removeEventListener('dblclick', handleDblClick);
+    }, [openIndicatorSettings]);
+
+    // Delete selected indicator with Delete/Backspace key
+    useEffect(() => {
+        if (!selectedIndicator) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                e.preventDefault();
+                removeIndicator(selectedIndicator);
+            }
+            if (e.key === 'Escape') {
+                setSelectedIndicator(null);
+            }
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [selectedIndicator, removeIndicator]);
+
+    // Click on canvas selects indicator (single click)
+    useEffect(() => {
+        const chart = chartRef.current;
+        const container = containerRef.current;
+        if (!chart || !container) return;
+
+        const handleClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target.closest('canvas')) { setSelectedIndicator(null); return; }
+
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const candidates: { id: string; series: any }[] = [];
+            for (const [instanceId, seriesMap] of indicatorSeriesRef.current) {
+                for (const [, series] of seriesMap) {
+                    candidates.push({ id: instanceId, series });
+                }
+            }
+
+            let bestId: string | null = null;
+            let bestDist = 10;
+            for (const { id, series } of candidates) {
+                try {
+                    const timeScale = chart.timeScale();
+                    const dataPoint = series.dataByIndex(timeScale.coordinateToLogical(x));
+                    if (!dataPoint) continue;
+                    const val = dataPoint.value ?? dataPoint.close;
+                    if (val == null) continue;
+                    const seriesY = series.priceToCoordinate(val);
+                    if (seriesY == null) continue;
+                    const dist = Math.abs(seriesY - y);
+                    if (dist < bestDist) { bestDist = dist; bestId = id; }
+                } catch { /* */ }
+            }
+
+            setSelectedIndicator(bestId);
+        };
+
+        container.addEventListener('click', handleClick);
+        return () => container.removeEventListener('click', handleClick);
+    }, []);
 
     // ============================================================================
     // Sync drawings to primitives
@@ -2493,19 +2466,13 @@ function TradingChartComponent({
     // Calculate indicators in worker
     // ============================================================================
 
-    const allActiveIndicators = useMemo(() => {
-        const indicators: IndicatorType[] = [];
-        if (activeOverlays.includes('sma200')) indicators.push('sma200');
-        if (activeOverlays.includes('bb')) indicators.push('bb');
-        if (activeOverlays.includes('keltner')) indicators.push('keltner');
-        if (activeOverlays.includes('vwap')) indicators.push('vwap');
-        activePanels.forEach(panel => {
-            if (['rsi', 'macd', 'stoch', 'adx', 'atr', 'bbWidth', 'squeeze', 'obv', 'rvol'].includes(panel)) {
-                indicators.push(panel as IndicatorType);
-            }
-        });
-        return indicators;
-    }, [activeOverlays, activePanels]);
+    const workerConfigs = useMemo((): WorkerIndicatorConfig[] => {
+        return indicators.filter(i => i.visible).map(i => ({
+            id: i.id,
+            type: i.type,
+            params: i.params,
+        }));
+    }, [indicators]);
 
     const lastBarCountRef = useRef(0);
     const lastIntervalRef = useRef(selectedInterval);
@@ -2522,153 +2489,58 @@ function TradingChartComponent({
             lastBarCountRef.current = 0;
         }
 
-        if (!workerReady || !data.length || allActiveIndicators.length === 0) return;
-        calculate(currentTicker, data, allActiveIndicators, selectedInterval);
+        if (!workerReady || !data.length || workerConfigs.length === 0) return;
+        calculate(currentTicker, data, workerConfigs, selectedInterval);
         lastBarCountRef.current = data.length;
-    }, [workerReady, data, data.length, allActiveIndicators, currentTicker, selectedInterval, selectedRange, calculate, clearCache]);
+    }, [workerReady, data, data.length, workerConfigs, currentTicker, selectedInterval, selectedRange, calculate, clearCache]);
 
     // ============================================================================
-    // Update overlay series from worker results
-    // ============================================================================
-
-    useEffect(() => {
-        if (!indicatorResults?.overlays || !chartRef.current) return;
-
-        const { overlays } = indicatorResults;
-
-        // SMA 200
-        const sma200Series = overlaySeriesRef.current.get('sma200');
-        if (sma200Series && overlays.sma200) {
-            sma200Series.setData(overlays.sma200.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-        }
-
-        // Bollinger Bands
-        if (overlays.bb) {
-            const bbUpper = overlaySeriesRef.current.get('bb_upper');
-            const bbMiddle = overlaySeriesRef.current.get('bb_middle');
-            const bbLower = overlaySeriesRef.current.get('bb_lower');
-            if (bbUpper) bbUpper.setData(overlays.bb.upper.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-            if (bbMiddle) bbMiddle.setData(overlays.bb.middle.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-            if (bbLower) bbLower.setData(overlays.bb.lower.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-        }
-
-        // Keltner Channels
-        if (overlays.keltner) {
-            const kU = overlaySeriesRef.current.get('keltner_upper');
-            const kM = overlaySeriesRef.current.get('keltner_middle');
-            const kL = overlaySeriesRef.current.get('keltner_lower');
-            if (kU) kU.setData(overlays.keltner.upper.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-            if (kM) kM.setData(overlays.keltner.middle.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-            if (kL) kL.setData(overlays.keltner.lower.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-        }
-
-        // VWAP
-        const vwapSeries = overlaySeriesRef.current.get('vwap');
-        if (vwapSeries && overlays.vwap) {
-            vwapSeries.setData(overlays.vwap.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-        }
-    }, [indicatorResults, activeOverlays]);
-
-    // ============================================================================
-    // Update panel indicator data from worker results
+    // Update indicator series from worker results (unified)
     // ============================================================================
 
     useEffect(() => {
-        if (!indicatorResults?.panels || !chartRef.current) return;
+        if (!indicatorResults || !chartRef.current) return;
 
-        const { panels } = indicatorResults;
-
-        for (const panelId of activePanels) {
-            const panelData = panels[panelId as keyof typeof panels];
-            if (!panelData) continue;
-
-            const seriesMap = panelSeriesRef.current.get(panelId);
+        for (const inst of indicators) {
+            if (!inst.visible) continue;
+            const result = (indicatorResults as any)[inst.id];
+            if (!result) continue;
+            const seriesMap = indicatorSeriesRef.current.get(inst.id);
             if (!seriesMap) continue;
 
-            switch (panelId) {
-                case 'rsi':
-                case 'atr':
-                case 'bbWidth':
-                case 'obv': {
-                    const mainSeries = seriesMap.get('main');
-                    if (mainSeries && Array.isArray(panelData.data)) {
-                        mainSeries.setData(panelData.data.map((d: IndicatorDataPoint) => ({
-                            time: d.time as UTCTimestamp,
-                            value: d.value,
-                        })));
+            const { type, data: rData } = result as any;
+            try {
+                if (type === 'sma' || type === 'ema' || type === 'vwap' || type === 'rsi' || type === 'atr' || type === 'obv') {
+                    const main = seriesMap.get('main');
+                    if (main && Array.isArray(rData)) {
+                        main.setData(rData.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
                     }
-                    break;
-                }
-                case 'macd': {
-                    const macdData = panelData.data as MACDData;
-                    if (macdData) {
-                        const histSeries = seriesMap.get('histogram');
-                        const macdLine = seriesMap.get('macd');
-                        const sigLine = seriesMap.get('signal');
-                        if (histSeries && macdData.histogram) {
-                            histSeries.setData(macdData.histogram.map(d => ({
-                                time: d.time as UTCTimestamp,
-                                value: d.value,
-                                color: d.color || (d.value >= 0 ? INDICATOR_COLORS.macdHistogramUp : INDICATOR_COLORS.macdHistogramDown),
-                            })));
-                        }
-                        if (macdLine && macdData.macd) {
-                            macdLine.setData(macdData.macd.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-                        }
-                        if (sigLine && macdData.signal) {
-                            sigLine.setData(macdData.signal.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-                        }
+                } else if (type === 'bb' || type === 'keltner') {
+                    if (rData?.upper) seriesMap.get('upper')?.setData(rData.upper.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                    if (rData?.middle) seriesMap.get('middle')?.setData(rData.middle.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                    if (rData?.lower) seriesMap.get('lower')?.setData(rData.lower.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                } else if (type === 'macd') {
+                    if (rData?.histogram) seriesMap.get('histogram')?.setData(rData.histogram.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value, color: d.color || (d.value >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)') })));
+                    if (rData?.macd) seriesMap.get('macd')?.setData(rData.macd.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                    if (rData?.signal) seriesMap.get('signal')?.setData(rData.signal.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                } else if (type === 'stoch') {
+                    if (rData?.k) seriesMap.get('k')?.setData(rData.k.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                    if (rData?.d) seriesMap.get('d')?.setData(rData.d.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                } else if (type === 'adx') {
+                    if (rData?.adx) seriesMap.get('adx')?.setData(rData.adx.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                    if (rData?.pdi) seriesMap.get('pdi')?.setData(rData.pdi.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                    if (rData?.mdi) seriesMap.get('mdi')?.setData(rData.mdi.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value })));
+                } else if (type === 'squeeze' || type === 'rvol') {
+                    const main = seriesMap.get('main');
+                    if (main && Array.isArray(rData)) {
+                        main.setData(rData.map((d: any) => ({ time: d.time as UTCTimestamp, value: d.value, color: d.color })));
                     }
-                    break;
                 }
-                case 'stoch': {
-                    const stochData = panelData.data as StochData;
-                    if (stochData) {
-                        const kSeries = seriesMap.get('k');
-                        const dSeries = seriesMap.get('d');
-                        if (kSeries && stochData.k) kSeries.setData(stochData.k.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-                        if (dSeries && stochData.d) dSeries.setData(stochData.d.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-                    }
-                    break;
-                }
-                case 'adx': {
-                    const adxData = panelData.data as ADXData;
-                    if (adxData) {
-                        const adxS = seriesMap.get('adx');
-                        const pdiS = seriesMap.get('pdi');
-                        const mdiS = seriesMap.get('mdi');
-                        if (adxS && adxData.adx) adxS.setData(adxData.adx.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-                        if (pdiS && adxData.pdi) pdiS.setData(adxData.pdi.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-                        if (mdiS && adxData.mdi) mdiS.setData(adxData.mdi.map(d => ({ time: d.time as UTCTimestamp, value: d.value })));
-                    }
-                    break;
-                }
-                case 'squeeze': {
-                    const sqSeries = seriesMap.get('main');
-                    if (sqSeries && Array.isArray(panelData.data)) {
-                        const squeezeArr = panelData.data as unknown as SqueezeData[];
-                        sqSeries.setData(squeezeArr.map(d => ({
-                            time: d.time as UTCTimestamp,
-                            value: d.value,
-                            color: d.color || (d.squeezeOn ? INDICATOR_COLORS.squeezeOn : INDICATOR_COLORS.squeezeOff),
-                        })));
-                    }
-                    break;
-                }
-                case 'rvol': {
-                    const rvolSeries = seriesMap.get('main');
-                    if (rvolSeries && Array.isArray(panelData.data)) {
-                        rvolSeries.setData(panelData.data.map((d: IndicatorDataPoint) => ({
-                            time: d.time as UTCTimestamp,
-                            value: d.value,
-                            color: d.color,
-                        })));
-                    }
-                    break;
-                }
+            } catch (err) {
+                console.warn('[TradingChart] Error setting data for', inst.id, err);
             }
         }
-    }, [indicatorResults, activePanels]);
+    }, [indicatorResults, indicators]);
 
     // ============================================================================
     // Ticker change handlers
@@ -2747,7 +2619,7 @@ function TradingChartComponent({
     const isPositive = priceChange >= 0;
 
     // Active indicator count for badge
-    const activeIndicatorCount = (showMA ? 1 : 0) + (showEMA ? 1 : 0) + activeOverlays.length + activePanels.length + (showVolume ? 1 : 0) + (showNewsMarkers ? 1 : 0) + (showEarningsMarkers ? 1 : 0);
+    const activeIndicatorCount = indicators.filter(i => i.visible).length + (showVolume ? 1 : 0) + (showNewsMarkers ? 1 : 0) + (showEarningsMarkers ? 1 : 0);
 
     // ============================================================================
     // RENDER
@@ -2776,54 +2648,25 @@ function TradingChartComponent({
                     </div>
                 </div>
             ) : (
-                /* ===== TradingView-style Header ===== */
-                <div className="flex items-center gap-1 px-1.5 py-[3px] border-b border-slate-200 bg-slate-50/80 text-[11px]" style={{ fontFamily }}>
-                    {/* Ticker — only inline if not portaled to window header */}
-                    {!headerPortalTarget && (
-                        <>
-                            <form onSubmit={handleTickerChange} className="flex items-center">
-                                <TickerSearch
-                                    ref={tickerSearchRef}
-                                    value={inputValue}
-                                    onChange={setInputValue}
-                                    onSelect={handleTickerSelect}
-                                    placeholder="Ticker"
-                                    className="w-16"
-                                    autoFocus={false}
-                                />
-                            </form>
-                            <div className="w-px h-4 bg-slate-200" />
-                        </>
-                    )}
+                /* ===== TradingView-style Toolbar ===== */
+                <div className="flex items-center gap-0.5 px-1 py-[2px] border-b border-slate-200 bg-white text-[11px]" style={{ fontFamily }}>
 
-                    {/* Intervals */}
-                    {['1m', '5m', '15m', '1H', '1D'].map((label) => {
-                        const int = INTERVALS.find(i => i.shortLabel === label);
-                        if (!int) return null;
-                        return (
-                            <button
-                                key={int.interval}
-                                onClick={() => setSelectedInterval(int.interval)}
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-medium transition-all ${selectedInterval === int.interval
-                                    ? 'bg-blue-600 text-white'
-                                    : 'text-slate-500 hover:bg-slate-100'
-                                    }`}
-                            >
-                                {label}
-                            </button>
-                        );
-                    })}
+                    {/* Timeframe selector */}
                     <div className="relative">
-                        <button onClick={() => setShowIntervalDropdown(!showIntervalDropdown)} className="px-0.5 py-0.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100">
-                            <ChevronDown className="w-3 h-3" />
+                        <button
+                            onClick={() => setShowIntervalDropdown(!showIntervalDropdown)}
+                            className="flex items-center gap-0.5 px-1.5 py-1 rounded hover:bg-slate-100 text-slate-700 font-medium text-[12px]"
+                        >
+                            {INTERVALS.find(i => i.interval === selectedInterval)?.shortLabel || '1D'}
+                            <ChevronDown className="w-3 h-3 text-slate-400" />
                         </button>
                         {showIntervalDropdown && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowIntervalDropdown(false)} />
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded shadow-lg z-50 min-w-[80px]">
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 min-w-[120px] py-1">
                                     {INTERVALS.map((int) => (
                                         <button key={int.interval} onClick={() => { setSelectedInterval(int.interval); setShowIntervalDropdown(false); }}
-                                            className={`w-full px-2 py-1 text-left text-[10px] hover:bg-slate-50 ${selectedInterval === int.interval ? 'bg-blue-50 text-blue-600 font-medium' : 'text-slate-600'}`}>
+                                            className={`w-full px-3 py-1.5 text-left text-[11px] hover:bg-slate-50 ${selectedInterval === int.interval ? 'bg-blue-50 text-blue-600 font-medium' : 'text-slate-600'}`}>
                                             {int.label}
                                         </button>
                                     ))}
@@ -2834,112 +2677,94 @@ function TradingChartComponent({
 
                     <div className="w-px h-4 bg-slate-200" />
 
-                    {/* Drawing tool shortcuts */}
+                    {/* Candle type */}
+                    <button className="p-1 rounded hover:bg-slate-100 text-slate-500" title="Candle Type">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M9 4v4M9 14v6M15 4v6M15 18v2" />
+                            <rect x="7" y="8" width="4" height="6" rx="0.5" fill="currentColor" stroke="none" />
+                            <rect x="13" y="10" width="4" height="8" rx="0.5" stroke="currentColor" fill="none" />
+                        </svg>
+                    </button>
+
+                    <div className="w-px h-4 bg-slate-200" />
+
+                    {/* Drawing tools */}
                     <HeaderDrawingTools activeTool={activeTool} setActiveTool={setActiveTool} />
 
                     <div className="w-px h-4 bg-slate-200" />
 
-                    {/* Indicators button (opens dropdown) */}
-                    <div className="relative">
+                    {/* Indicators button */}
+                    <div className="relative" ref={indicatorDropdownRef}>
                         <button
                             onClick={() => setShowIndicatorDropdown(!showIndicatorDropdown)}
-                            className={`w-[22px] h-[22px] flex items-center justify-center rounded-[3px] transition-colors relative ${showIndicatorDropdown ? 'bg-blue-50 text-blue-600' : activeIndicatorCount > 0 ? 'text-blue-600 hover:bg-blue-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
-                            title={`Indicators${activeIndicatorCount > 0 ? ` (${activeIndicatorCount} active)` : ''}`}
+                            className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-slate-100 text-[12px] font-medium ${showIndicatorDropdown || activeIndicatorCount > 0 ? 'text-blue-600' : 'text-slate-500'}`}
+                            title="Indicators"
                         >
-                            <IndicatorsIcon className="w-[13px] h-[13px]" />
+                            <IndicatorsIcon className="w-[14px] h-[14px]" />
+                            <span>Indicadores</span>
                             {activeIndicatorCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 text-[7px] bg-blue-600 text-white rounded-full w-3 h-3 flex items-center justify-center leading-none">{activeIndicatorCount}</span>
+                                <span className="text-[8px] bg-blue-600 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">{activeIndicatorCount}</span>
                             )}
+                            <ChevronDown className="w-3 h-3 text-slate-400" />
                         </button>
 
                         {showIndicatorDropdown && (
                             <>
                                 <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorDropdown(false)} />
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 min-w-[180px] max-h-[420px] overflow-y-auto">
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl z-50 min-w-[200px] max-h-[420px] overflow-y-auto py-1">
 
-                                    <div className="px-2 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100 sticky top-0">Overlays</div>
-
-                                    <button onClick={() => setShowMA(!showMA)} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${showMA ? 'text-amber-600' : 'text-slate-600'}`}>
-                                        <span className="w-2.5 h-0.5 rounded flex-shrink-0" style={{ background: CHART_COLORS.ma20 }}></span>
-                                        <span className="flex-1 text-left">SMA 20 / 50</span>
-                                        {showMA && <span className="text-emerald-500 text-[9px]">✓</span>}
-                                    </button>
-                                    <button onClick={() => toggleOverlay('sma200')} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${activeOverlays.includes('sma200') ? 'text-red-600' : 'text-slate-600'}`}>
-                                        <span className="w-2.5 h-0.5 rounded flex-shrink-0 bg-red-500"></span>
-                                        <span className="flex-1 text-left">SMA 200</span>
-                                        {activeOverlays.includes('sma200') && <span className="text-emerald-500 text-[9px]">✓</span>}
-                                    </button>
-                                    <button onClick={() => setShowEMA(!showEMA)} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${showEMA ? 'text-pink-600' : 'text-slate-600'}`}>
-                                        <span className="w-2.5 h-0.5 rounded flex-shrink-0" style={{ background: CHART_COLORS.ema12 }}></span>
-                                        <span className="flex-1 text-left">EMA 12 / 26</span>
-                                        {showEMA && <span className="text-emerald-500 text-[9px]">✓</span>}
-                                    </button>
-                                    <button onClick={() => toggleOverlay('bb')} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${activeOverlays.includes('bb') ? 'text-blue-600' : 'text-slate-600'}`}>
-                                        <span className="w-2.5 h-0.5 rounded flex-shrink-0 bg-blue-500"></span>
-                                        <span className="flex-1 text-left">Bollinger Bands</span>
-                                        {activeOverlays.includes('bb') && <span className="text-emerald-500 text-[9px]">✓</span>}
-                                    </button>
-                                    <button onClick={() => toggleOverlay('keltner')} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${activeOverlays.includes('keltner') ? 'text-teal-600' : 'text-slate-600'}`}>
-                                        <span className="w-2.5 h-0.5 rounded flex-shrink-0 bg-teal-500"></span>
-                                        <span className="flex-1 text-left">Keltner Channels</span>
-                                        {activeOverlays.includes('keltner') && <span className="text-emerald-500 text-[9px]">✓</span>}
-                                    </button>
-                                    <button onClick={() => toggleOverlay('vwap')} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${activeOverlays.includes('vwap') ? 'text-orange-600' : 'text-slate-600'}`}>
-                                        <span className="w-2.5 h-0.5 rounded flex-shrink-0 bg-orange-500"></span>
-                                        <span className="flex-1 text-left">VWAP</span>
-                                        {activeOverlays.includes('vwap') && <span className="text-emerald-500 text-[9px]">✓</span>}
-                                    </button>
-
-                                    <div className="px-2 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-y border-slate-100">Oscillators</div>
-
+                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100 sticky top-0">Overlays</div>
                                     {[
-                                        { id: 'rsi', label: 'RSI (14)', color: 'bg-violet-500' },
-                                        { id: 'macd', label: 'MACD', color: 'bg-blue-500' },
-                                        { id: 'stoch', label: 'Stochastic', color: 'bg-blue-400' },
-                                        { id: 'adx', label: 'ADX / DMI', color: 'bg-violet-400' },
+                                        { type: 'sma', label: 'SMA' },
+                                        { type: 'ema', label: 'EMA' },
+                                        { type: 'bb', label: 'Bollinger Bands' },
+                                        { type: 'keltner', label: 'Keltner Channels' },
+                                        { type: 'vwap', label: 'VWAP' },
                                     ].map(p => (
-                                        <button key={p.id} onClick={() => togglePanel(p.id)} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${activePanels.includes(p.id) ? 'text-blue-600' : 'text-slate-600'}`}>
-                                            <span className={`w-2.5 h-0.5 rounded flex-shrink-0 ${p.color}`}></span>
+                                        <button key={p.type} onClick={() => { addIndicator(p.type); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 text-slate-600">
                                             <span className="flex-1 text-left">{p.label}</span>
-                                            {activePanels.includes(p.id) && <span className="text-emerald-500 text-[9px]">✓</span>}
                                         </button>
                                     ))}
 
-                                    <div className="px-2 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-y border-slate-100">Volatility & Volume</div>
-
+                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-y border-slate-100">Oscillators</div>
                                     {[
-                                        { id: 'atr', label: 'ATR (14)', color: 'bg-indigo-500', toggle: () => togglePanel('atr'), active: activePanels.includes('atr') },
-                                        { id: 'squeeze', label: 'TTM Squeeze', color: 'bg-red-500', toggle: () => togglePanel('squeeze'), active: activePanels.includes('squeeze') },
-                                        { id: 'volume', label: 'Volume', color: 'bg-emerald-500', toggle: () => setShowVolume(!showVolume), active: showVolume },
-                                        { id: 'obv', label: 'OBV', color: 'bg-blue-500', toggle: () => togglePanel('obv'), active: activePanels.includes('obv') },
-                                        { id: 'rvol', label: 'RVOL', color: 'bg-emerald-400', toggle: () => togglePanel('rvol'), active: activePanels.includes('rvol') },
+                                        { type: 'rsi', label: 'RSI' },
+                                        { type: 'macd', label: 'MACD' },
+                                        { type: 'stoch', label: 'Stochastic' },
+                                        { type: 'adx', label: 'ADX / DMI' },
                                     ].map(p => (
-                                        <button key={p.id} onClick={p.toggle} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${p.active ? 'text-blue-600' : 'text-slate-600'}`}>
-                                            <span className={`w-2.5 h-0.5 rounded flex-shrink-0 ${p.color}`}></span>
+                                        <button key={p.type} onClick={() => { addIndicator(p.type); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 text-slate-600">
                                             <span className="flex-1 text-left">{p.label}</span>
-                                            {p.active && <span className="text-emerald-500 text-[9px]">✓</span>}
                                         </button>
                                     ))}
 
-                                    <div className="border-t border-slate-100" />
-                                    <button onClick={() => setShowNewsMarkers(!showNewsMarkers)} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${showNewsMarkers ? 'text-amber-600' : 'text-slate-600'}`}>
-                                        <Newspaper className="w-3 h-3 flex-shrink-0" />
+                                    <div className="px-3 py-1.5 text-[9px] font-semibold text-slate-400 uppercase tracking-wider bg-slate-50 border-y border-slate-100">Volatility & Volume</div>
+                                    {[
+                                        { type: 'atr', label: 'ATR' },
+                                        { type: 'squeeze', label: 'TTM Squeeze' },
+                                        { type: 'obv', label: 'OBV' },
+                                        { type: 'rvol', label: 'RVOL' },
+                                    ].map(p => (
+                                        <button key={p.type} onClick={() => { addIndicator(p.type); }} className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 text-slate-600">
+                                            <span className="flex-1 text-left">{p.label}</span>
+                                        </button>
+                                    ))}
+                                    <button onClick={() => setShowVolume(!showVolume)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 ${showVolume ? 'text-blue-600 font-medium' : 'text-slate-600'}`}>
+                                        <span className="flex-1 text-left">Volume</span>
+                                        {showVolume && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
+                                    </button>
+
+                                    <div className="border-t border-slate-100 mt-1" />
+                                    <button onClick={() => setShowNewsMarkers(!showNewsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 ${showNewsMarkers ? 'text-amber-600' : 'text-slate-600'}`}>
+                                        <Newspaper className="w-3.5 h-3.5 flex-shrink-0" />
                                         <span className="flex-1 text-left">News Markers</span>
-                                        {tickerNews.length > 0 && <span className="text-[8px] text-slate-400">{tickerNews.length}</span>}
-                                        {showNewsMarkers && <span className="text-emerald-500 text-[9px]">✓</span>}
+                                        {showNewsMarkers && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
                                     </button>
-                                    <button onClick={() => setShowEarningsMarkers(!showEarningsMarkers)} className={`w-full flex items-center gap-2 px-2 py-1.5 text-[10px] hover:bg-slate-50 ${showEarningsMarkers ? 'text-blue-600' : 'text-slate-600'}`}>
-                                        <span className="w-3 h-3 flex-shrink-0 text-center font-bold text-[9px] leading-3 border border-current rounded-full">E</span>
+                                    <button onClick={() => setShowEarningsMarkers(!showEarningsMarkers)} className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] hover:bg-slate-50 ${showEarningsMarkers ? 'text-blue-600' : 'text-slate-600'}`}>
+                                        <span className="w-3.5 h-3.5 flex-shrink-0 text-center font-bold text-[9px] leading-3 border border-current rounded-full">E</span>
                                         <span className="flex-1 text-left">Earnings</span>
-                                        {earningsDates.length > 0 && <span className="text-[8px] text-slate-400">{earningsDates.length}</span>}
+                                        {showEarningsMarkers && <span className="text-emerald-500 text-[9px]">&#10003;</span>}
                                     </button>
-
-                                    {indicatorsLoading && (
-                                        <div className="px-2 py-1.5 text-[9px] text-blue-500 bg-blue-50/50 border-t border-slate-100 flex items-center gap-1">
-                                            <RefreshCw className="w-2.5 h-2.5 animate-spin" />
-                                            Calculating...
-                                        </div>
-                                    )}
                                 </div>
                             </>
                         )}
@@ -2947,34 +2772,67 @@ function TradingChartComponent({
 
                     <div className="w-px h-4 bg-slate-200" />
 
-                    {/* Range buttons */}
-                    {['1M', '3M', '1Y', 'ALL'].map((r) => {
-                        const range = TIME_RANGES.find(tr => tr.id === r);
-                        if (!range) return null;
-                        return (
-                            <button key={range.id} onClick={() => handleRangeChange(range.id)}
-                                className={`px-1 py-0.5 rounded text-[9px] font-medium ${selectedRange === range.id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}>
-                                {range.label}
-                            </button>
-                        );
-                    })}
+                    {/* Layout */}
+                    <button className="p-1 rounded hover:bg-slate-100 text-slate-500" title="Layout">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <rect x="3" y="3" width="8" height="8" rx="1" />
+                            <rect x="13" y="3" width="8" height="8" rx="1" />
+                            <rect x="3" y="13" width="8" height="8" rx="1" />
+                            <rect x="13" y="13" width="8" height="8" rx="1" />
+                        </svg>
+                    </button>
+
+                    <div className="w-px h-4 bg-slate-200" />
+
+                    {/* Alert */}
+                    <button className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-slate-100 text-slate-500 text-[12px]" title="Alert">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 8v4l2 2" />
+                            <path d="M20 4l1.5-1.5M4 4L2.5 2.5" />
+                        </svg>
+                        <span>Alerta</span>
+                    </button>
+
+                    {/* Replay */}
+                    <button className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-slate-100 text-slate-500 text-[12px]" title="Replay">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <polygon points="11,5 3,10 11,15" />
+                            <polygon points="20,5 12,10 20,15" />
+                        </svg>
+                        <span>Replay</span>
+                        <ChevronDown className="w-3 h-3 text-slate-400" />
+                    </button>
+
+                    <div className="w-px h-4 bg-slate-200" />
 
                     {/* Spacer */}
                     <div className="flex-1" />
 
-                    {/* Actions */}
-                    <button onClick={refetch} disabled={loading} className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 disabled:opacity-50" title="Refresh">
-                        <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                    {/* Undo / Redo */}
+                    <button className="p-1 rounded hover:bg-slate-100 text-slate-400" title="Undo">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M3 10h13a4 4 0 0 1 0 8H11" />
+                            <path d="M7 6l-4 4 4 4" />
+                        </svg>
                     </button>
-                    <button onClick={toggleFullscreen} className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100" title="Fullscreen">
-                        {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                    <button className="p-1 rounded hover:bg-slate-100 text-slate-400" title="Redo">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M21 10H8a4 4 0 0 0 0 8h5" />
+                            <path d="M17 6l4 4-4 4" />
+                        </svg>
+                    </button>
+
+                    {/* Fullscreen */}
+                    <button onClick={toggleFullscreen} className="p-1 rounded hover:bg-slate-100 text-slate-400" title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+                        {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                     </button>
                 </div>
             )}
 
-            {/* ===== Main area: Left Toolbar + Chart ===== */}
-            <div className="flex-1 min-h-0 flex bg-white">
-                {/* Left Toolbar */}
+            {/* Chart + Toolbar row */}
+            <div className="flex flex-1 overflow-hidden">
+                {/* Left Drawing Toolbar */}
                 {!minimal && (
                     <ChartToolbar
                         activeTool={activeTool}
@@ -2988,18 +2846,17 @@ function TradingChartComponent({
                     />
                 )}
 
-                {/* Chart area — takes ALL remaining space */}
-                <div className="flex-1 min-w-0 min-h-0 overflow-hidden relative">
-                    {/* TradingView-style chart legend (top-left overlay) */}
+                {/* Chart area wrapper */}
+                <div className="relative flex-1 overflow-hidden">
+                    {/* Logo + Company + Exchange + OHLC */}
                     {!minimal && (
-                        <div className="absolute top-1 left-2 z-10 text-[10px]" style={{ fontFamily, maxWidth: '85%' }}>
-                            {/* Line 1: Logo + Company + Exchange + OHLC */}
-                            <div className="flex items-center gap-1 flex-wrap pointer-events-none">
+                        <div className="absolute top-1 left-2 z-10 text-[10px] pointer-events-none" style={{ fontFamily, maxWidth: '85%' }}>
+                            <div className="flex items-center gap-1 flex-wrap">
                                 {tickerMeta?.icon_url ? (
                                     <img
                                         src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/proxy/logo?url=${encodeURIComponent(tickerMeta.icon_url)}`}
                                         alt=""
-                                        className="w-4 h-4 rounded-sm object-contain"
+                                        className="w-4 h-4 rounded-sm object-contain pointer-events-auto"
                                         onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                                     />
                                 ) : (
@@ -3007,123 +2864,61 @@ function TradingChartComponent({
                                         {currentTicker?.[0] || '?'}
                                     </div>
                                 )}
-                                <span className="font-medium text-slate-700">{tickerMeta?.company_name || currentTicker}</span>
+                                <span className="font-semibold text-slate-700">{tickerMeta?.company_name || currentTicker}</span>
                                 {tickerMeta?.exchange && (
-                                    <span className="text-slate-400">{`\u00b7 ${tickerMeta.exchange}`}</span>
+                                    <span className="text-slate-400 text-[9px]">{tickerMeta.exchange}</span>
                                 )}
                                 {displayBar && (
                                     <>
-                                        <span className="text-slate-400 ml-1">O<span className="text-slate-600">{formatPrice(displayBar.open)}</span></span>
-                                        <span className="text-slate-400">H<span className="text-emerald-600">{formatPrice(displayBar.high)}</span></span>
-                                        <span className="text-slate-400">L<span className="text-red-500">{formatPrice(displayBar.low)}</span></span>
-                                        <span className="text-slate-400">C<span className="text-slate-600">{formatPrice(displayBar.close)}</span></span>
+                                        <span className="text-slate-400 ml-1">O<span className="text-slate-600 font-medium">{formatPrice(displayBar.open)}</span></span>
+                                        <span className="text-slate-400">H<span className="text-emerald-600 font-medium">{formatPrice(displayBar.high)}</span></span>
+                                        <span className="text-slate-400">L<span className="text-red-500 font-medium">{formatPrice(displayBar.low)}</span></span>
+                                        <span className="text-slate-400">C<span className="text-slate-600 font-medium">{formatPrice(displayBar.close)}</span></span>
                                         {prevBar && (
-                                            <span className={isPositive ? 'text-emerald-600' : 'text-red-500'}>
+                                            <span className={`font-medium ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
                                                 {isPositive ? '+' : ''}{priceChange.toFixed(2)} ({isPositive ? '+' : ''}{priceChangePercent.toFixed(2)}%)
                                             </span>
                                         )}
                                     </>
                                 )}
                             </div>
-                            {/* Line 2: Collapsible active indicators */}
-                            {(showMA || showEMA || activeOverlays.length > 0 || activePanels.length > 0) && (
-                                <div className="mt-0.5">
-                                    <button
-                                        onClick={() => setLegendExpanded(!legendExpanded)}
-                                        className="pointer-events-auto text-slate-400 hover:text-slate-600 text-[9px] flex items-center gap-0.5"
-                                    >
-                                        <span>{legendExpanded ? '\u25be' : '\u25b8'}</span>
-                                        <span>{(showMA ? 2 : 0) + (showEMA ? 2 : 0) + activeOverlays.length + activePanels.length}</span>
-                                    </button>
-                                    {legendExpanded && (
-                                        <div className="flex flex-col gap-0 mt-0.5">
-                                            {showMA && (<>
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ma20 }}></span>
-                                                    <span className="text-slate-500">MA 20</span>
-                                                    {indicatorResults?.overlays?.sma20?.length ? <span style={{ color: CHART_COLORS.ma20 }}>{indicatorResults.overlays.sma20[indicatorResults.overlays.sma20.length - 1].value.toFixed(2)}</span> : null}
-                                                    <button onClick={() => setShowMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                        </div>
+                    )}
+
+                    {/* Legend Overlay */}
+                    {indicators.filter(i => i.visible).length > 0 && (
+                        <div className="absolute top-5 left-2 z-10 pointer-events-none">
+                            <div className="pointer-events-auto flex items-center gap-1 mb-0.5">
+                                <button
+                                    onClick={() => setLegendExpanded(!legendExpanded)}
+                                    className="text-[10px] text-slate-500 hover:text-slate-700 font-medium flex items-center gap-0.5"
+                                >
+                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                        {legendExpanded ? <path d="M19 9l-7 7-7-7"/> : <path d="M9 5l7 7-7 7"/>}
+                                    </svg>
+                                    <span>{indicators.filter(i => i.visible).length}</span>
+                                </button>
+                            </div>
+                            {legendExpanded && (
+                                <div className="flex flex-col gap-0.5 mt-0.5">
+                                    {indicators.filter(i => i.visible).map(inst => {
+                                        const label = getInstanceLabel(inst);
+                                        const mainColor = (inst.styles.color || inst.styles.upperColor || inst.styles.macdColor || inst.styles.kColor || inst.styles.adxColor || inst.styles.onColor || '#888') as string;
+                                        return (
+                                            <div key={inst.id} className={`flex items-center gap-1.5 pointer-events-auto group px-1 rounded cursor-pointer ${selectedIndicator === inst.id ? 'bg-blue-50 ring-1 ring-blue-400' : 'hover:bg-slate-50'}`} onClick={() => setSelectedIndicator(inst.id)}>
+                                                <span className="w-3 h-[2px] rounded" style={{ background: mainColor }}></span>
+                                                <span className="text-[11px] text-slate-700 font-medium cursor-pointer" onDoubleClick={(e) => openIndicatorSettings(inst.id, e)}>{label}</span>
+                                                <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+                                                    <button onClick={(e) => { e.stopPropagation(); openIndicatorSettings(inst.id, e); }} className="text-slate-400 hover:text-slate-600" title="Settings"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); removeIndicator(inst.id); }} className="text-slate-400 hover:text-red-500" title="Remove"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M8 6V4h8v2M5 6v14a2 2 0 002 2h10a2 2 0 002-2V6M10 11v6M14 11v6"/></svg></button>
                                                 </div>
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ma50 }}></span>
-                                                    <span className="text-slate-500">MA 50</span>
-                                                    {indicatorResults?.overlays?.sma50?.length ? <span style={{ color: CHART_COLORS.ma50 }}>{indicatorResults.overlays.sma50[indicatorResults.overlays.sma50.length - 1].value.toFixed(2)}</span> : null}
-                                                    <button onClick={() => setShowMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                </div>
-                                            </>)}
-                                            {showEMA && (<>
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ema12 }}></span>
-                                                    <span className="text-slate-500">EMA 12</span>
-                                                    {indicatorResults?.overlays?.ema12?.length ? <span style={{ color: CHART_COLORS.ema12 }}>{indicatorResults.overlays.ema12[indicatorResults.overlays.ema12.length - 1].value.toFixed(2)}</span> : null}
-                                                    <button onClick={() => setShowEMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                </div>
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded" style={{ background: CHART_COLORS.ema26 }}></span>
-                                                    <span className="text-slate-500">EMA 26</span>
-                                                    {indicatorResults?.overlays?.ema26?.length ? <span style={{ color: CHART_COLORS.ema26 }}>{indicatorResults.overlays.ema26[indicatorResults.overlays.ema26.length - 1].value.toFixed(2)}</span> : null}
-                                                    <button onClick={() => setShowEMA(false)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                </div>
-                                            </>)}
-                                            {activeOverlays.includes('sma200') && (
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded bg-red-500"></span>
-                                                    <span className="text-slate-500">SMA 200</span>
-                                                    {indicatorResults?.overlays?.sma200?.length ? <span className="text-red-500">{indicatorResults.overlays.sma200[indicatorResults.overlays.sma200.length - 1].value.toFixed(2)}</span> : null}
-                                                    <button onClick={() => toggleOverlay('sma200')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                </div>
-                                            )}
-                                            {activeOverlays.includes('bb') && (
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded bg-blue-500"></span>
-                                                    <span className="text-slate-500">BB</span>
-                                                    <button onClick={() => toggleOverlay('bb')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                </div>
-                                            )}
-                                            {activeOverlays.includes('keltner') && (
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded bg-teal-500"></span>
-                                                    <span className="text-slate-500">Keltner</span>
-                                                    <button onClick={() => toggleOverlay('keltner')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                </div>
-                                            )}
-                                            {activeOverlays.includes('vwap') && (
-                                                <div className="flex items-center gap-1 pointer-events-auto group">
-                                                    <span className="w-3 h-[2px] rounded bg-orange-500"></span>
-                                                    <span className="text-slate-500">VWAP</span>
-                                                    {indicatorResults?.overlays?.vwap?.length ? <span className="text-orange-500">{indicatorResults.overlays.vwap[indicatorResults.overlays.vwap.length - 1].value.toFixed(2)}</span> : null}
-                                                    <button onClick={() => toggleOverlay('vwap')} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                </div>
-                                            )}
-                                            {activePanels.map(p => {
-                                                const cfg: Record<string, { label: string; color: string }> = {
-                                                    rsi: { label: 'RSI 14', color: '#8b5cf6' },
-                                                    macd: { label: 'MACD', color: '#3b82f6' },
-                                                    stoch: { label: 'Stoch', color: '#3b82f6' },
-                                                    adx: { label: 'ADX', color: '#8b5cf6' },
-                                                    atr: { label: 'ATR', color: '#6366f1' },
-                                                    bbWidth: { label: 'BB Width', color: '#14b8a6' },
-                                                    squeeze: { label: 'Squeeze', color: '#ef4444' },
-                                                    obv: { label: 'OBV', color: '#3b82f6' },
-                                                    rvol: { label: 'RVOL', color: '#f97316' },
-                                                };
-                                                const c = cfg[p];
-                                                if (!c) return null;
-                                                return (
-                                                    <div key={p} className="flex items-center gap-1 pointer-events-auto group">
-                                                        <span className="w-3 h-[2px] rounded" style={{ background: c.color }}></span>
-                                                        <span className="text-slate-500">{c.label}</span>
-                                                        <button onClick={() => togglePanel(p)} className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-600 ml-auto" title="Hide"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
                     )}
-
                     {/* Price + countdown overlay (TradingView-style, positioned over price axis) */}
                     <div
                         ref={priceOverlayRef}
@@ -3262,10 +3057,7 @@ function TradingChartComponent({
                             data={data}
                             indicatorResults={indicatorResults}
                             drawings={drawings}
-                            activeOverlays={activeOverlays}
-                            activePanels={activePanels}
-                            showMA={showMA}
-                            showEMA={showEMA}
+                            activeIndicators={indicators.filter(i => i.visible)}
                             chartApi={chartRef.current}
                             onClose={() => setCtxMenu(prev => ({ ...prev, visible: false }))}
                         />
@@ -3283,6 +3075,17 @@ function TradingChartComponent({
                         {hasMore && !loadingMore && <span>← more</span>}
                     </div>
                 </div>
+            )}
+
+            {/* Indicator Settings Dialog */}
+            {indicatorSettingsOpen && (
+                <IndicatorSettingsDialog
+                    indicatorId={indicatorSettingsOpen}
+                    instanceData={indicators.find(i => i.id === indicatorSettingsOpen)}
+                    onClose={() => setIndicatorSettingsOpen(null)}
+                    onApply={onApplyIndicatorSettings}
+                    position={indicatorSettingsPos}
+                />
             )}
         </div>
     );

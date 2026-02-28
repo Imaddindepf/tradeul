@@ -1,7 +1,10 @@
 /**
  * IncrementalIndicatorEngine — O(1) real-time indicator updates.
  *
- * Maintains running state for each active indicator. On each tick:
+ * DYNAMIC INSTANCES: Supports arbitrary indicator instances with custom params.
+ * Each instance has a unique ID and its own state.
+ *
+ * On each tick:
  *   - isNewBar=true  → advance windows, push new values
  *   - isNewBar=false → undo last contribution, redo with updated bar
  *
@@ -11,24 +14,22 @@
 
 import type { ChartBar } from './constants';
 
-// ─── Result types ─────────────────────────────────────────────────────────────
+// ─── Result value types ───────────────────────────────────────────────────────
 
-export interface IncrementalResults {
-  sma20?: number;
-  sma50?: number;
-  sma200?: number;
-  ema12?: number;
-  ema26?: number;
-  rsi?: number;
-  macd?: { macd: number; signal: number; histogram: number };
-  bb?: { upper: number; middle: number; lower: number };
-  keltner?: { upper: number; middle: number; lower: number };
-  vwap?: number;
-  atr?: number;
-  obv?: number;
-  stoch?: { k: number; d: number };
-  adx?: { adx: number; pdi: number; mdi: number };
-  squeeze?: { value: number; isOn: boolean };
+export type IndicatorValue =
+  | number
+  | { upper: number; middle: number; lower: number }
+  | { macd: number; signal: number; histogram: number }
+  | { k: number; d: number }
+  | { adx: number; pdi: number; mdi: number }
+  | { value: number; isOn: boolean };
+
+// ─── Dynamic config ───────────────────────────────────────────────────────────
+
+export interface DynamicIndicatorConfig {
+  id: string;
+  type: string;
+  params: Record<string, number | string>;
 }
 
 // ─── Circular buffer ──────────────────────────────────────────────────────────
@@ -65,13 +66,11 @@ class CircularBuffer {
   get count(): number { return this._count; }
   get full(): boolean { return this._count === this.capacity; }
 
-  // Get element by index (0 = oldest)
   at(i: number): number {
     const start = this._count < this.capacity ? 0 : this.head;
     return this.buf[(start + i) % this.capacity];
   }
 
-  // Get all values in order (oldest to newest)
   toArray(): number[] {
     const arr: number[] = [];
     for (let i = 0; i < this._count; i++) arr.push(this.at(i));
@@ -137,7 +136,6 @@ interface EMAState {
   count: number;
   sum: number;
   ready: boolean;
-  // For same-bar undo
   prevEma: number;
 }
 
@@ -164,7 +162,6 @@ function updateEMA(s: EMAState, close: number, isNewBar: boolean): number | unde
     s.prevEma = s.ema;
     s.ema = close * s.k + s.ema * (1 - s.k);
   } else {
-    // Undo last, redo
     s.ema = close * s.k + s.prevEma * (1 - s.k);
   }
   return s.ema;
@@ -181,7 +178,6 @@ interface RSIState {
   ready: boolean;
   gains: number[];
   losses: number[];
-  // Same-bar undo
   prevAvgGain: number;
   prevAvgLoss: number;
 }
@@ -233,8 +229,6 @@ function updateRSI(s: RSIState, close: number, isNewBar: boolean): number | unde
     s.avgLoss = (s.avgLoss * (s.period - 1) + loss) / s.period;
     s.prevClose = close;
   } else {
-    // Undo: restore previous averages, redo with current close vs prevClose
-    // Note: for same-bar, prevClose doesn't change — the change is recalculated
     const c = close - s.prevClose;
     const g = c > 0 ? c : 0;
     const l = c < 0 ? -c : 0;
@@ -249,24 +243,24 @@ function updateRSI(s: RSIState, close: number, isNewBar: boolean): number | unde
 // ─── MACD state ───────────────────────────────────────────────────────────────
 
 interface MACDState {
-  ema12: EMAState;
-  ema26: EMAState;
+  fastEma: EMAState;
+  slowEma: EMAState;
   signal: EMAState;
   ready: boolean;
 }
 
-function createMACD(): MACDState {
+function createMACD(fast = 12, slow = 26, sig = 9): MACDState {
   return {
-    ema12: createEMA(12),
-    ema26: createEMA(26),
-    signal: createEMA(9),
+    fastEma: createEMA(fast),
+    slowEma: createEMA(slow),
+    signal: createEMA(sig),
     ready: false,
   };
 }
 
 function updateMACD(s: MACDState, close: number, isNewBar: boolean): { macd: number; signal: number; histogram: number } | undefined {
-  const e12 = updateEMA(s.ema12, close, isNewBar);
-  const e26 = updateEMA(s.ema26, close, isNewBar);
+  const e12 = updateEMA(s.fastEma, close, isNewBar);
+  const e26 = updateEMA(s.slowEma, close, isNewBar);
 
   if (e12 === undefined || e26 === undefined) return undefined;
 
@@ -302,7 +296,6 @@ function updateBB(s: BBState, close: number, isNewBar: boolean): { upper: number
 
   if (mid === undefined || !s.buffer.full) return undefined;
 
-  // Compute stddev
   let sumSq = 0;
   for (let i = 0; i < s.buffer.count; i++) {
     const diff = s.buffer.at(i) - mid;
@@ -323,7 +316,6 @@ interface VWAPState {
   cumTPV: number;
   cumVol: number;
   lastDayStart: number;
-  // Same-bar undo
   prevTPV: number;
   prevVol: number;
 }
@@ -335,7 +327,6 @@ function createVWAP(): VWAPState {
 function isDifferentDay(t1: number, t2: number): boolean {
   const d1 = new Date(t1 * 1000);
   const d2 = new Date(t2 * 1000);
-  // Compare in ET (market time) — approximate with UTC for simplicity
   return d1.getUTCDate() !== d2.getUTCDate() ||
          d1.getUTCMonth() !== d2.getUTCMonth() ||
          d1.getUTCFullYear() !== d2.getUTCFullYear();
@@ -347,7 +338,6 @@ function updateVWAP(s: VWAPState, bar: { time: number; high: number; low: number
   const tp = (bar.high + bar.low + bar.close) / 3;
 
   if (isNewBar) {
-    // Check for day reset
     if (s.lastDayStart > 0 && isDifferentDay(bar.time, s.lastDayStart)) {
       s.cumTPV = 0;
       s.cumVol = 0;
@@ -358,7 +348,6 @@ function updateVWAP(s: VWAPState, bar: { time: number; high: number; low: number
     s.cumTPV += tp * bar.volume;
     s.cumVol += bar.volume;
   } else {
-    // Undo last bar, redo
     s.cumTPV = s.prevTPV + tp * bar.volume;
     s.cumVol = s.prevVol + bar.volume;
   }
@@ -375,7 +364,6 @@ interface ATRState {
   count: number;
   ready: boolean;
   trSum: number;
-  // Same-bar undo
   prevATR: number;
 }
 
@@ -428,7 +416,6 @@ interface OBVState {
   obv: number;
   prevClose: number;
   initialized: boolean;
-  // Same-bar
   prevOBV: number;
 }
 
@@ -451,7 +438,6 @@ function updateOBV(s: OBVState, close: number, volume: number, isNewBar: boolean
     else if (close < s.prevClose) s.obv -= volume;
     s.prevClose = close;
   } else {
-    // Undo and redo with current values
     s.obv = s.prevOBV;
     if (close > s.prevClose) s.obv += volume;
     else if (close < s.prevClose) s.obv -= volume;
@@ -508,7 +494,6 @@ function updateStoch(s: StochState, bar: { high: number; low: number; close: num
 
   if (!s.kBuf.full) return undefined;
 
-  // %D = SMA of %K values
   let kSum = 0;
   for (let i = 0; i < s.kBuf.count; i++) kSum += s.kBuf.at(i);
   const d = kSum / s.kBuf.count;
@@ -530,7 +515,6 @@ interface ADXState {
   dxSum: number;
   ready: boolean;
   adxReady: boolean;
-  // Same-bar undo
   prevSmoothedPDI: number;
   prevSmoothedMDI: number;
   prevSmoothedTR: number;
@@ -654,19 +638,18 @@ function updateKeltner(s: KeltnerState, bar: { high: number; low: number; close:
 interface SqueezeState {
   bb: BBState;
   keltner: KeltnerState;
-  // Momentum: close - midline of (highest high + lowest low)/2 + SMA(close, period))/2
   highBuf: CircularBuffer;
   lowBuf: CircularBuffer;
   momSMA: SMAState;
 }
 
-function createSqueeze(period = 20): SqueezeState {
+function createSqueeze(bbPeriod = 20, bbMult = 2, kcPeriod = 20, kcMult = 1.5): SqueezeState {
   return {
-    bb: createBB(period, 2),
-    keltner: createKeltner(period, period, 1.5),
-    highBuf: new CircularBuffer(period),
-    lowBuf: new CircularBuffer(period),
-    momSMA: createSMA(period),
+    bb: createBB(bbPeriod, bbMult),
+    keltner: createKeltner(kcPeriod, kcPeriod, kcMult),
+    highBuf: new CircularBuffer(bbPeriod),
+    lowBuf: new CircularBuffer(bbPeriod),
+    momSMA: createSMA(bbPeriod),
   };
 }
 
@@ -686,7 +669,6 @@ function updateSqueeze(s: SqueezeState, bar: { high: number; low: number; close:
 
   const isOn = bb.lower > kc.lower && bb.upper < kc.upper;
 
-  // Momentum = close - average of (mid-range donchian + SMA)
   const highestHigh = s.highBuf.max();
   const lowestLow = s.lowBuf.min();
   const midDonchian = (highestHigh + lowestLow) / 2;
@@ -697,101 +679,138 @@ function updateSqueeze(s: SqueezeState, bar: { high: number; low: number; close:
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Main Engine
+// Main Engine — Dynamic Map-based instances
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export class IncrementalIndicatorEngine {
-  private active = new Set<string>();
+interface InstanceEntry {
+  type: string;
+  state: any;
+  params: Record<string, any>;
+}
 
-  // State objects
-  private sma20: SMAState | null = null;
-  private sma50: SMAState | null = null;
-  private sma200: SMAState | null = null;
-  private ema12: EMAState | null = null;
-  private ema26: EMAState | null = null;
-  private rsi: RSIState | null = null;
-  private macd: MACDState | null = null;
-  private bb: BBState | null = null;
-  private vwap: VWAPState | null = null;
-  private atrState: ATRState | null = null;
-  private obv: OBVState | null = null;
-  private stoch: StochState | null = null;
-  private adxState: ADXState | null = null;
-  private keltner: KeltnerState | null = null;
-  private squeeze: SqueezeState | null = null;
+export class IncrementalIndicatorEngine {
+  private instances = new Map<string, InstanceEntry>();
 
   /**
-   * Initialize from historical bars. Iterates through all bars to build state.
-   * Only initializes indicators in the activeIndicators list.
+   * Initialize from historical bars with dynamic configs.
+   * Each config has { id, type, params }.
    */
-  initialize(bars: ChartBar[], activeIndicators: string[]): void {
-    this.active = new Set(activeIndicators.map(s => s.toLowerCase()));
+  initialize(bars: ChartBar[], configs: DynamicIndicatorConfig[]): void {
+    this.instances.clear();
 
-    // Create state objects for active indicators
-    this.sma20 = this.active.has('sma20') ? createSMA(20) : null;
-    this.sma50 = this.active.has('sma50') ? createSMA(50) : null;
-    this.sma200 = this.active.has('sma200') ? createSMA(200) : null;
-    this.ema12 = this.active.has('ema12') ? createEMA(12) : null;
-    this.ema26 = this.active.has('ema26') ? createEMA(26) : null;
-    this.rsi = this.active.has('rsi') ? createRSI(14) : null;
-    this.macd = this.active.has('macd') ? createMACD() : null;
-    this.bb = this.active.has('bb') ? createBB(20, 2) : null;
-    this.vwap = this.active.has('vwap') ? createVWAP() : null;
-    this.atrState = this.active.has('atr') ? createATR(14) : null;
-    this.obv = this.active.has('obv') ? createOBV() : null;
-    this.stoch = this.active.has('stoch') ? createStoch(14, 1, 3) : null;
-    this.adxState = this.active.has('adx') ? createADX(14) : null;
-    this.keltner = this.active.has('keltner') ? createKeltner(20, 10, 1.5) : null;
-    this.squeeze = this.active.has('squeeze') ? createSqueeze(20) : null;
+    for (const cfg of configs) {
+      const state = this.createState(cfg.type, cfg.params);
+      if (state !== null) {
+        this.instances.set(cfg.id, { type: cfg.type, state, params: cfg.params });
+      }
+    }
 
-    // Feed all historical bars (all are "new bars")
+    // Feed all historical bars
     for (const bar of bars) {
-      this._compute(bar, true);
+      this.computeAll(bar, true);
     }
   }
 
   /**
-   * Update with a new tick. Returns computed values for all active indicators.
+   * Update with a new tick. Returns computed values for all active instances.
    */
-  update(bar: ChartBar, isNewBar: boolean): IncrementalResults {
-    return this._compute(bar, isNewBar);
+  update(bar: ChartBar, isNewBar: boolean): Map<string, IndicatorValue> {
+    return this.computeAll(bar, isNewBar);
   }
 
   reset(): void {
-    this.active.clear();
-    this.sma20 = this.sma50 = this.sma200 = null;
-    this.ema12 = this.ema26 = null;
-    this.rsi = null;
-    this.macd = null;
-    this.bb = null;
-    this.vwap = null;
-    this.atrState = null;
-    this.obv = null;
-    this.stoch = null;
-    this.adxState = null;
-    this.keltner = null;
-    this.squeeze = null;
+    this.instances.clear();
   }
 
-  private _compute(bar: ChartBar, isNewBar: boolean): IncrementalResults {
-    const r: IncrementalResults = {};
+  private createState(type: string, params: Record<string, any>): any {
+    switch (type) {
+      case 'sma':
+        return createSMA(Number(params.length) || 20);
+      case 'ema':
+        return createEMA(Number(params.length) || 12);
+      case 'rsi':
+        return createRSI(Number(params.length) || 14);
+      case 'macd':
+        return createMACD(
+          Number(params.fastLength) || 12,
+          Number(params.slowLength) || 26,
+          Number(params.signalLength) || 9
+        );
+      case 'bb':
+        return createBB(Number(params.length) || 20, Number(params.mult) || 2);
+      case 'keltner':
+        return createKeltner(
+          Number(params.length) || 20,
+          Number(params.length) || 20, // atrPeriod = same as emaPeriod
+          Number(params.mult) || 1.5
+        );
+      case 'vwap':
+        return createVWAP();
+      case 'atr':
+        return createATR(Number(params.length) || 14);
+      case 'obv':
+        return createOBV();
+      case 'stoch':
+        return createStoch(
+          Number(params.kLength) || 14,
+          Number(params.kSmooth) || 1,
+          Number(params.dSmooth) || 3
+        );
+      case 'adx':
+        return createADX(Number(params.length) || 14);
+      case 'squeeze':
+        return createSqueeze(
+          Number(params.bbLength) || 20,
+          Number(params.bbMult) || 2,
+          Number(params.kcLength) || 20,
+          Number(params.kcMult) || 1.5
+        );
+      default:
+        return null;
+    }
+  }
 
-    if (this.sma20) r.sma20 = updateSMA(this.sma20, bar.close, isNewBar);
-    if (this.sma50) r.sma50 = updateSMA(this.sma50, bar.close, isNewBar);
-    if (this.sma200) r.sma200 = updateSMA(this.sma200, bar.close, isNewBar);
-    if (this.ema12) r.ema12 = updateEMA(this.ema12, bar.close, isNewBar);
-    if (this.ema26) r.ema26 = updateEMA(this.ema26, bar.close, isNewBar);
-    if (this.rsi) r.rsi = updateRSI(this.rsi, bar.close, isNewBar);
-    if (this.macd) r.macd = updateMACD(this.macd, bar.close, isNewBar);
-    if (this.bb) r.bb = updateBB(this.bb, bar.close, isNewBar);
-    if (this.vwap) r.vwap = updateVWAP(this.vwap, bar, isNewBar);
-    if (this.atrState) r.atr = updateATR(this.atrState, bar, isNewBar);
-    if (this.obv) r.obv = updateOBV(this.obv, bar.close, bar.volume, isNewBar);
-    if (this.stoch) r.stoch = updateStoch(this.stoch, bar, isNewBar);
-    if (this.adxState) r.adx = updateADX(this.adxState, bar, isNewBar);
-    if (this.keltner) r.keltner = updateKeltner(this.keltner, bar, isNewBar);
-    if (this.squeeze) r.squeeze = updateSqueeze(this.squeeze, bar, isNewBar);
+  private computeAll(bar: ChartBar, isNewBar: boolean): Map<string, IndicatorValue> {
+    const results = new Map<string, IndicatorValue>();
 
-    return r;
+    for (const [id, entry] of this.instances) {
+      const val = this.computeOne(entry, bar, isNewBar);
+      if (val !== undefined) {
+        results.set(id, val);
+      }
+    }
+
+    return results;
+  }
+
+  private computeOne(entry: InstanceEntry, bar: ChartBar, isNewBar: boolean): IndicatorValue | undefined {
+    switch (entry.type) {
+      case 'sma':
+        return updateSMA(entry.state, bar.close, isNewBar);
+      case 'ema':
+        return updateEMA(entry.state, bar.close, isNewBar);
+      case 'rsi':
+        return updateRSI(entry.state, bar.close, isNewBar);
+      case 'macd':
+        return updateMACD(entry.state, bar.close, isNewBar);
+      case 'bb':
+        return updateBB(entry.state, bar.close, isNewBar);
+      case 'keltner':
+        return updateKeltner(entry.state, bar, isNewBar);
+      case 'vwap':
+        return updateVWAP(entry.state, bar, isNewBar);
+      case 'atr':
+        return updateATR(entry.state, bar, isNewBar);
+      case 'obv':
+        return updateOBV(entry.state, bar.close, bar.volume, isNewBar);
+      case 'stoch':
+        return updateStoch(entry.state, bar, isNewBar);
+      case 'adx':
+        return updateADX(entry.state, bar, isNewBar);
+      case 'squeeze':
+        return updateSqueeze(entry.state, bar, isNewBar);
+      default:
+        return undefined;
+    }
   }
 }

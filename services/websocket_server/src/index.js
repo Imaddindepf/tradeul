@@ -175,9 +175,13 @@ pgPool.query("SELECT 1").then(() => {
  *
  * @param {Object} sub - The subscription object (from buildEventSubscription)
  * @param {number} limit - Max events to return (default 200)
- * @returns {Promise<Array>} Array of event objects (oldest first)
+ * @param {Object} [opts] - Optional pagination/session params
+ * @param {string} [opts.before_ts] - ISO timestamp cursor: only return events with ts < this value
+ * @param {string} [opts.session_start] - ISO timestamp for session lower bound (replaces NOW()-16h)
+ * @param {string} [opts.session_end] - ISO timestamp for session upper bound
+ * @returns {Promise<Array>} Array of event objects (oldest→newest, capped by limit+1 to detect has_more)
  */
-async function queryHistoricalEvents(sub, limit = 200) {
+async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
   if (!pgAvailable) return [];
 
   const conditions = [];
@@ -267,10 +271,25 @@ async function queryHistoricalEvents(sub, limit = 200) {
   if (sub.sector) conditions.push(`sector = ${addParam(sub.sector)}`);
   if (sub.industry) conditions.push(`(context->>'industry') = ${addParam(sub.industry)}`);
 
-  // ── Time range: only today's session (avoid scanning all 60 days) ──
-  conditions.push(`ts >= NOW() - INTERVAL '16 hours'`);
+  // ── Time range: use explicit session bounds when available ──
+  if (opts.session_start) {
+    conditions.push(`ts >= ${addParam(opts.session_start)}`);
+  } else {
+    conditions.push(`ts >= NOW() - INTERVAL '16 hours'`);
+  }
+  if (opts.session_end) {
+    conditions.push(`ts <= ${addParam(opts.session_end)}`);
+  }
+
+  // ── Pagination cursor: only events older than before_ts ──
+  if (opts.before_ts) {
+    conditions.push(`ts < ${addParam(opts.before_ts)}`);
+  }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // Fetch limit+1 so the caller can detect if there are more rows
+  const fetchLimit = limit + 1;
 
   const query = `
     SELECT id, ts, symbol, event_type, rule_id, price,
@@ -286,14 +305,17 @@ async function queryHistoricalEvents(sub, limit = 200) {
     FROM market_events
     ${whereClause}
     ORDER BY ts DESC
-    LIMIT ${addParam(limit)}
+    LIMIT ${addParam(fetchLimit)}
   `;
 
   try {
     const result = await pgPool.query(query, params);
 
+    const has_more = result.rows.length > limit;
+    const trimmedRows = has_more ? result.rows.slice(0, limit) : result.rows;
+
     // Transform rows to match the Redis event format (camelCase → snake_case)
-    return result.rows.map(row => {
+    const events = trimmedRows.map(row => {
       const evt = {
         id: row.id,
         event_type: row.event_type,
@@ -345,9 +367,11 @@ async function queryHistoricalEvents(sub, limit = 200) {
       return evt;
     }).reverse(); // oldest first, newest last (same as Redis snapshot)
 
+    return { events, has_more };
+
   } catch (err) {
     logger.error({ err: err.message, query: query.substring(0, 200) }, "❌ Historical events query failed");
-    return [];
+    return { events: [], has_more: false };
   }
 }
 
@@ -3630,11 +3654,25 @@ wss.on("connection", async (ws, req) => {
         try {
           let matched = [];
           let source = "none";
+          let snapshotHasMore = false;
+
+          // Read session bounds from Redis for precise time filtering
+          let sessionOpts = {};
+          try {
+            const sessRaw = await redis.get("market:session:status");
+            if (sessRaw) {
+              const sess = JSON.parse(sessRaw);
+              if (sess.pre_market_start) sessionOpts.session_start = sess.pre_market_start;
+              if (sess.post_market_end) sessionOpts.session_end = sess.post_market_end;
+            }
+          } catch (_) { /* use fallback 16h window */ }
 
           // === Strategy 1: TimescaleDB (preferred — full session history) ===
           if (pgAvailable) {
             try {
-              matched = await queryHistoricalEvents(sub, 200);
+              const result = await queryHistoricalEvents(sub, 200, sessionOpts);
+              matched = result.events;
+              snapshotHasMore = result.has_more;
               source = "timescale";
             } catch (dbErr) {
               logger.warn({ connectionId, subId, err: dbErr.message }, "TimescaleDB query failed, falling back to Redis");
@@ -3693,9 +3731,10 @@ wss.on("connection", async (ws, req) => {
             sub_id: subId,
             events: matched,
             count: matched.length,
+            has_more: snapshotHasMore,
             source,
           });
-          logger.info({ connectionId, subId, count: matched.length, source }, "📸 Historical snapshot sent");
+          logger.info({ connectionId, subId, count: matched.length, has_more: snapshotHasMore, source }, "📸 Historical snapshot sent");
 
         } catch (err) {
           logger.error({ connectionId, subId, error: err.message }, "❌ Error sending events snapshot");
@@ -3730,6 +3769,55 @@ wss.on("connection", async (ws, req) => {
 
           logger.info({ connectionId, subId, allTypes: sub.allTypes, eventTypesCount: sub.eventTypes.size }, "🎯 Updated event filters");
           sendMessage(connectionId, { type: "filters_updated", channel: "MARKET_EVENTS", sub_id: subId });
+        }
+      }
+
+      // =============================================
+      // LOAD OLDER EVENTS (pagination for infinite scroll)
+      // Client sends: { action: "load_older_events", sub_id, before_ts, limit? }
+      // Server responds: { type: "older_events", sub_id, events, has_more }
+      // =============================================
+      else if (action === "load_older_events") {
+        const subId = data.sub_id || "_default";
+        const beforeTs = data.before_ts;
+        const pageLimit = Math.min(data.limit || 200, 500);
+
+        if (!beforeTs) {
+          sendMessage(connectionId, { type: "error", message: "load_older_events requires 'before_ts'" });
+        } else {
+          const connSubs = marketEventSubscriptions.get(connectionId);
+          const sub = connSubs && connSubs.get(subId);
+
+          if (!sub) {
+            sendMessage(connectionId, { type: "error", message: `No subscription found for sub_id '${subId}'` });
+          } else if (!pgAvailable) {
+            sendMessage(connectionId, { type: "older_events", sub_id: subId, events: [], has_more: false });
+          } else {
+            try {
+              let sessionOpts = { before_ts: beforeTs };
+              try {
+                const sessRaw = await redis.get("market:session:status");
+                if (sessRaw) {
+                  const sess = JSON.parse(sessRaw);
+                  if (sess.pre_market_start) sessionOpts.session_start = sess.pre_market_start;
+                  if (sess.post_market_end) sessionOpts.session_end = sess.post_market_end;
+                }
+              } catch (_) { /* fallback 16h */ }
+
+              const result = await queryHistoricalEvents(sub, pageLimit, sessionOpts);
+              sendMessage(connectionId, {
+                type: "older_events",
+                sub_id: subId,
+                events: result.events,
+                count: result.events.length,
+                has_more: result.has_more,
+              });
+              logger.debug({ connectionId, subId, count: result.events.length, has_more: result.has_more, beforeTs }, "📜 Older events page sent");
+            } catch (err) {
+              logger.error({ connectionId, subId, error: err.message }, "❌ Error loading older events");
+              sendMessage(connectionId, { type: "older_events", sub_id: subId, events: [], has_more: false });
+            }
+          }
         }
       }
 

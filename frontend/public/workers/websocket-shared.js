@@ -541,6 +541,28 @@ function handlePortMessage(port, data) {
         ws.send(JSON.stringify({ action: 'unsubscribe_sec' }));
       }
       break;
+
+    case 'disconnect':
+      // Clean up this port's subscriptions
+      sub.lists.clear();
+      sub.subscribedNews = false;
+      sub.subscribedSEC = false;
+      if (sub.eventSubIds) sub.eventSubIds.clear();
+
+      // Remove port from tracking
+      ports.delete(port);
+      subscriptions.delete(port);
+
+      // If no more ports connected, close the WebSocket
+      if (ports.size === 0) {
+        stopHeartbeat();
+        if (ws) {
+          try { ws.close(); } catch(e) {}
+          ws = null;
+        }
+        connectionInfo.isConnected = false;
+      }
+      break;
   }
 }
 

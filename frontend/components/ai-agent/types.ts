@@ -125,6 +125,7 @@ export interface MarketContext {
 export interface ChartSnapshot {
   recentBars: { time: number; open: number; high: number; low: number; close: number; volume: number }[];
   indicators: {
+    [key: string]: number | number[] | undefined;
     rsi?: number;
     rsi_trajectory?: number[];
     macd_line?: number;

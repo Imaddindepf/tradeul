@@ -110,6 +110,19 @@ export function AuthWebSocketProvider({ children }: AuthWebSocketProviderProps) 
     }, [isLoaded, isSignedIn, getToken]);
 
     // =========================================================================
+    // RESET ON SIGN-OUT: Allow re-initialization when a new user signs in
+    // Without this, hasInitializedRef stays true and the init block never
+    // re-runs, leaving the WS connection with the previous user's token.
+    // =========================================================================
+    useEffect(() => {
+        if (isLoaded && !isSignedIn) {
+            hasInitializedRef.current = false;
+            setIsAuthenticated(false);
+            tokenRef.current = null;
+        }
+    }, [isLoaded, isSignedIn]);
+
+    // =========================================================================
     // REFRESH PERIÓDICO DEL TOKEN (cada 50 segundos)
     // NO depende de ws.isConnected — debe refrescar SIEMPRE para que
     // cuando el SharedWorker pida reconectar, tenga un token fresco disponible

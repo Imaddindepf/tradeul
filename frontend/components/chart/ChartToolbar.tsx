@@ -361,12 +361,12 @@ function ChartToolbarComponent({
 
   // Button style helper
   const btnBase = 'w-[32px] h-[32px] flex items-center justify-center rounded-[4px] transition-all duration-100 relative';
-  const btnIdle = 'text-slate-400 hover:text-slate-700 hover:bg-slate-100';
+  const btnIdle = 'text-slate-500 hover:text-slate-800 hover:bg-slate-100';
   const btnActive = 'text-blue-600 bg-blue-50/80';
   const btnDisabled = 'text-slate-300 cursor-default';
 
   return (
-    <div className="w-[38px] flex-shrink-0 bg-white border-r border-slate-200 flex flex-col items-center pt-1.5 pb-1 select-none z-10">
+    <div className="w-[38px] flex-shrink-0 bg-slate-50 border-r border-slate-200 flex flex-col items-center pt-1.5 pb-1 select-none z-10">
 
       {SIDEBAR_CATEGORIES.map((cat, idx) => {
         const isActive = activeCatId === cat.id;
@@ -380,7 +380,7 @@ function ChartToolbarComponent({
           <div key={cat.id}>
             {/* Separator */}
             {idx > 0 && idx !== 9 && (
-              <div className="w-5 h-px bg-slate-150 mx-auto my-[3px]" style={{ backgroundColor: '#e8ecf1' }} />
+              <div className="w-5 h-px bg-slate-150 mx-auto my-[3px]" style={{ backgroundColor: '#cbd5e1' }} />
             )}
 
             {isZoom ? (
@@ -449,7 +449,7 @@ function ChartToolbarComponent({
 
       {/* Bottom utilities */}
       <div className="flex flex-col items-center">
-        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: '#e8ecf1' }} />
+        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: '#cbd5e1' }} />
 
         {/* Lock */}
         <button
@@ -480,7 +480,7 @@ function ChartToolbarComponent({
           </button>
         )}
 
-        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: '#e8ecf1' }} />
+        <div className="w-5 h-px mx-auto my-[3px]" style={{ backgroundColor: '#cbd5e1' }} />
 
         {/* Favorites */}
         <button className={`${btnBase} ${btnDisabled}`} title="Favorites (coming soon)">
@@ -524,7 +524,7 @@ function HeaderDrawingToolsComponent({ activeTool, setActiveTool }: HeaderDrawin
                 ? 'text-slate-300 cursor-default'
                 : isActive
                   ? 'bg-blue-50 text-blue-600'
-                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
             }`}
             title={`${label}${shortcut ? ` (${shortcut})` : ''}${!enabled ? ' — coming soon' : ''}`}
           >

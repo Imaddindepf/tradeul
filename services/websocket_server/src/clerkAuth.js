@@ -4,10 +4,15 @@
  * Verifica tokens JWT de Clerk usando JWKS (JSON Web Key Set)
  * - JWKS se cachea por 1 hora
  * - Verificación local (~1ms)
+ * - Validates azp (authorized parties) and sts (session status)
  */
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
+
+// Authorized parties (origins allowed to use tokens)
+// Clerk includes 'azp' claim - validate to prevent CSRF via subdomain cookie leaking
+const AUTHORIZED_PARTIES = ['https://tradeul.com'];
 
 // Obtener dominio de Clerk desde CLERK_PUBLISHABLE_KEY
 function getClerkDomain() {
@@ -99,12 +104,23 @@ async function verifyClerkToken(token) {
       {
         algorithms: ['RS256'],
         issuer: `https://${clerkDomain}`,
-        clockTolerance: 10, // Accept tokens expired up to 10s ago (reconnection grace period)
+        clockTolerance: 5, // 5s clock skew (matches Clerk default clockSkewInMs)
       },
       (err, decoded) => {
         if (err) {
           return reject(err);
         }
+        
+        // Validate authorized party (azp) - prevents CSRF via subdomain cookie leaking
+        if (decoded.azp && !AUTHORIZED_PARTIES.includes(decoded.azp)) {
+          return reject(new Error(`Unauthorized party: ${decoded.azp}`));
+        }
+        
+        // Validate session status (v2 tokens) - reject revoked/expired sessions
+        if (decoded.sts && decoded.sts !== 'active') {
+          return reject(new Error(`Session not active: ${decoded.sts}`));
+        }
+        
         resolve(decoded);
       }
     );
@@ -140,4 +156,3 @@ module.exports = {
   isAuthEnabled,
   getClerkDomain,
 };
-

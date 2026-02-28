@@ -554,6 +554,11 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [newEventIds, setNewEventIds] = useState<Set<string>>(new Set());
 
+  // Infinite scroll pagination state
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const oldestEventTsRef = useRef<string | null>(null);
+
   const animationTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   const [sorting, setSorting] = useState<SortingState>([
@@ -819,7 +824,7 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
 
         setEvents((prev) => {
           if (prev.some(e => e.id === event.id)) return prev;
-          return [event, ...prev].slice(0, 500);
+          return [event, ...prev];
         });
 
         // Flash animation
@@ -836,7 +841,6 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       }
 
       if (msg.type === 'events_snapshot') {
-        // Only process snapshot for OUR subscription
         if (msg.sub_id && msg.sub_id !== subId) return;
 
         const seen = new Set<string>();
@@ -845,9 +849,55 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           .filter((e: MarketEvent) => {
             if (seen.has(e.id)) return false;
             seen.add(e.id);
-            return true; // Server already filtered — no need to re-filter
+            return true;
           });
-        setEvents(snapshot.slice(0, 500));
+        setEvents(snapshot);
+        setHasMore(!!msg.has_more);
+
+        // Track oldest event timestamp for pagination cursor
+        if (snapshot.length > 0) {
+          const oldest = snapshot[0]; // events come oldest-first from server
+          oldestEventTsRef.current = typeof oldest.timestamp === 'number'
+            ? new Date(oldest.timestamp).toISOString()
+            : String(oldest.timestamp);
+        }
+      }
+
+      if (msg.type === 'older_events') {
+        if (msg.sub_id && msg.sub_id !== subId) return;
+
+        const seen = new Set<string>();
+        const olderBatch: MarketEvent[] = (msg.events || [])
+          .map((e: any) => parseEvent(e))
+          .filter((e: MarketEvent) => {
+            if (seen.has(e.id)) return false;
+            seen.add(e.id);
+            return true;
+          });
+
+        setHasMore(!!msg.has_more);
+        setLoadingMore(false);
+
+        if (olderBatch.length > 0) {
+          // Update cursor to the oldest event in this batch
+          const oldest = olderBatch[0];
+          oldestEventTsRef.current = typeof oldest.timestamp === 'number'
+            ? new Date(oldest.timestamp).toISOString()
+            : String(oldest.timestamp);
+
+          // Append older events at the end (events are sorted newest→oldest in the table)
+          setEvents((prev) => {
+            const existingIds = new Set(prev.map(e => e.id));
+            const unique = olderBatch.filter(e => !existingIds.has(e.id));
+            return [...prev, ...unique];
+          });
+        }
+      }
+
+      if (msg.type === 'trading_day_changed') {
+        setEvents([]);
+        setHasMore(false);
+        oldestEventTsRef.current = null;
       }
     });
 
@@ -998,6 +1048,23 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
       }
     };
   }, [eventFiltersKey, ws.isConnected, isSubscribed, ws.send]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ========================================================================
+  // INFINITE SCROLL — request older events from server
+  // ========================================================================
+
+  const loadOlderEvents = useCallback(() => {
+    if (!ws.isConnected || !isSubscribed || loadingMore || !hasMore) return;
+    if (!oldestEventTsRef.current) return;
+
+    setLoadingMore(true);
+    ws.send({
+      action: 'load_older_events',
+      sub_id: subIdRef.current,
+      before_ts: oldestEventTsRef.current,
+      limit: 200,
+    });
+  }, [ws.isConnected, ws.send, isSubscribed, loadingMore, hasMore]);
 
   // ========================================================================
   // TABLE CONFIGURATION
@@ -2647,6 +2714,9 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           estimateSize={16}
           overscan={10}
           enableVirtualization={true}
+          onEndReached={loadOlderEvents}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
           getRowClassName={(row: Row<MarketEvent>) => {
             const event = row.original;
             if (newEventIds.has(event.id)) {

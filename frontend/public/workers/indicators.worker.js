@@ -1,348 +1,283 @@
 /**
- * Dedicated Worker para cálculo de indicadores técnicos
- * 
- * ARQUITECTURA 2025:
- * - NO bloquea el main thread
- * - Soporta cálculo incremental (lazy loading de barras)
- * - Cache inteligente por ticker
- * - Todos los indicadores del Screener disponibles
- * 
- * INDICADORES SOPORTADOS:
- * - Overlays: SMA (20/50/200), EMA (12/26), Bollinger Bands, Keltner Channels
- * - Oscillators: RSI, MACD, Stochastic, ADX/DMI
- * - Volatility: ATR, BB Width, Squeeze
- * - Volume: OBV, VWAP (intraday)
+ * Dedicated Worker for technical indicator calculations
+ *
+ * DYNAMIC INSTANCES:
+ * - Accepts { id, type, params } configs instead of fixed indicator names
+ * - Returns results keyed by instance ID
+ * - Each instance can have custom periods/parameters
  */
 
 /* global self, importScripts */
 
-// Polyfill requerido por technicalindicators (async/await support)
 importScripts('/workers/regenerator-runtime.js');
-
-// SHIM: La librería technicalindicators se exporta a this.window que no existe en Workers
-// Creamos el objeto window para que la librería pueda exportarse ahí
 self.window = self.window || {};
-
-// Importar librería de indicadores técnicos (local para evitar CORS/CSP issues)
 importScripts('/workers/technicalindicators.js');
-
-// La librería ahora está disponible en self.window
 var technicalindicators = self.window;
 
-// DEBUG: Verificar que la librería se cargó
-console.log('[Worker] technicalindicators loaded:', typeof technicalindicators.SMA, Object.keys(technicalindicators).slice(0, 10));
+console.log('[Worker] technicalindicators loaded:', typeof technicalindicators.SMA);
 
-// ============================================================================
-// CONFIGURACIONES DE INDICADORES
-// ============================================================================
-
-const INDICATOR_CONFIGS = {
-  // === OVERLAYS (sobre el precio) ===
-  sma20: { type: 'overlay', period: 20 },
-  sma50: { type: 'overlay', period: 50 },
-  sma200: { type: 'overlay', period: 200 },
-  ema12: { type: 'overlay', period: 12 },
-  ema26: { type: 'overlay', period: 26 },
-  bb: { type: 'overlay', period: 20, stdDev: 2 },
-  keltner: { type: 'overlay', period: 20, atrPeriod: 10, multiplier: 1.5 },
-  vwap: { type: 'overlay' }, // Solo intraday
-  
-  // === OSCILLATORS (panel separado) ===
-  rsi: { type: 'oscillator', period: 14, panel: 'rsi', range: [0, 100] },
-  macd: { type: 'oscillator', fast: 12, slow: 26, signal: 9, panel: 'macd' },
-  stoch: { type: 'oscillator', period: 14, signalPeriod: 3, panel: 'stoch', range: [0, 100] },
-  adx: { type: 'oscillator', period: 14, panel: 'adx', range: [0, 100] },
-  
-  // === VOLATILITY (panel o overlay) ===
-  atr: { type: 'panel', period: 14, panel: 'atr' },
-  bbWidth: { type: 'panel', period: 20, stdDev: 2, panel: 'bbwidth' },
-  squeeze: { type: 'panel', panel: 'squeeze' }, // TTM Squeeze
-  
-  // === VOLUME (panel separado) ===
-  obv: { type: 'panel', panel: 'obv' },
-  rvol: { type: 'panel', panel: 'rvol', lookbackDays: 5 }, // RVOL por slots (solo intraday < 1H)
-};
-
-// Cache de resultados por ticker para evitar recálculos
+// Cache
 const cache = new Map();
-const MAX_WORKER_CACHE = 100; // Max tickers cached
+const MAX_WORKER_CACHE = 100;
 
 // ============================================================================
 // MESSAGE HANDLER
 // ============================================================================
 
 self.onmessage = function(event) {
-  const { type, requestId, ticker, bars, indicators, interval, incremental, lastBarCount } = event.data;
-  
+  const { type, requestId, ticker, bars, indicators, interval } = event.data;
+
   switch (type) {
     case 'calculate':
-      handleCalculate(requestId, ticker, bars, indicators, interval, incremental, lastBarCount);
+      handleCalculate(requestId, ticker, bars, indicators, interval);
       break;
-      
+
     case 'calculate_single':
-      // Para updates en tiempo real - solo última barra
-      handleIncrementalUpdate(requestId, ticker, bars, indicators);
+      handleCalculate(requestId, ticker, bars, indicators, null);
       break;
-      
+
     case 'clear_cache':
       cache.delete(ticker);
       self.postMessage({ type: 'cache_cleared', ticker });
-      break;
-      
-    case 'get_config':
-      self.postMessage({ type: 'config', data: INDICATOR_CONFIGS });
       break;
   }
 };
 
 // ============================================================================
-// CÁLCULO PRINCIPAL
+// MAIN CALCULATION
 // ============================================================================
 
-function handleCalculate(requestId, ticker, bars, requestedIndicators, interval, incremental, lastBarCount) {
+function handleCalculate(requestId, ticker, bars, requestedIndicators, interval) {
   const startTime = performance.now();
-  
-  console.log('[Worker] handleCalculate called:', { ticker, barsCount: bars?.length, indicators: requestedIndicators, interval });
-  
+
   try {
-    // Verificar si tenemos cache y solo necesitamos actualizar
-    const cacheKey = `${ticker}`;
-    const cachedData = cache.get(cacheKey);
-    
-    // Extraer arrays de precios
-    const closes = bars.map(b => b.close);
-    const highs = bars.map(b => b.high);
-    const lows = bars.map(b => b.low);
-    const volumes = bars.map(b => b.volume);
-    const times = bars.map(b => b.time);
-    
-    console.log('[Worker] Data extracted:', { closesLen: closes.length, first: closes[0], last: closes[closes.length-1] });
-    
-    const results = {
-      overlays: {},
-      panels: {},
-    };
-    
-    // Calcular cada indicador solicitado
-    for (const indicator of requestedIndicators) {
-      const config = INDICATOR_CONFIGS[indicator];
-      console.log('[Worker] Calculating:', indicator, config);
-      if (!config) {
-        console.warn('[Worker] No config for:', indicator);
-        continue;
+    const closes = bars.map(function(b) { return b.close; });
+    const highs = bars.map(function(b) { return b.high; });
+    const lows = bars.map(function(b) { return b.low; });
+    const volumes = bars.map(function(b) { return b.volume; });
+    const times = bars.map(function(b) { return b.time; });
+
+    // Results keyed by instance ID
+    var results = {};
+
+    for (var i = 0; i < requestedIndicators.length; i++) {
+      var indicator = requestedIndicators[i];
+
+      // Support both old format (string) and new format ({ id, type, params })
+      var id, indicatorType, params;
+      if (typeof indicator === 'string') {
+        // Legacy format
+        id = indicator;
+        indicatorType = mapLegacyType(indicator);
+        params = getLegacyParams(indicator);
+      } else {
+        id = indicator.id;
+        indicatorType = indicator.type;
+        params = indicator.params || {};
       }
-      
+
       try {
-        const indicatorResult = calculateIndicator(
-          indicator, 
-          config, 
-          { closes, highs, lows, volumes, times, bars, interval }
+        var result = calculateByType(
+          indicatorType,
+          params,
+          { closes: closes, highs: highs, lows: lows, volumes: volumes, times: times, bars: bars, interval: interval }
         );
-        
-        console.log('[Worker] Result for', indicator, ':', indicatorResult ? (Array.isArray(indicatorResult) ? indicatorResult.length : Object.keys(indicatorResult)) : 'null');
-        
-        if (config.type === 'overlay') {
-          results.overlays[indicator] = indicatorResult;
-        } else {
-          results.panels[indicator] = {
-            data: indicatorResult,
-            config: config,
+
+        if (result) {
+          results[id] = {
+            type: indicatorType,
+            data: result,
           };
         }
       } catch (err) {
-        console.error(`[Worker] Error calculating ${indicator}:`, err.message, err.stack);
+        console.error('[Worker] Error calculating ' + id + ':', err.message);
       }
     }
-    
-    console.log('[Worker] Final results:', { overlays: Object.keys(results.overlays), panels: Object.keys(results.panels) });
-    
-    // Guardar en cache
-    cache.set(cacheKey, {
-      barCount: bars.length,
-      results,
-      timestamp: Date.now(),
-    });
-    // FIFO eviction when cache exceeds limit
+
+    var duration = performance.now() - startTime;
+
+    // Cache
+    cache.set(ticker, { barCount: bars.length, results: results, timestamp: Date.now() });
     if (cache.size > MAX_WORKER_CACHE) {
-      const keys = [...cache.keys()];
-      for (let i = 0; i < 20; i++) cache.delete(keys[i]);
+      var keys = Array.from(cache.keys());
+      for (var j = 0; j < 20; j++) cache.delete(keys[j]);
     }
-    
-    const duration = performance.now() - startTime;
-    
-    // Enviar resultados
+
     self.postMessage({
       type: 'result',
-      requestId,
-      ticker,
+      requestId: requestId,
+      ticker: ticker,
       data: results,
       barCount: bars.length,
       duration: Math.round(duration),
     });
-    
+
   } catch (error) {
     self.postMessage({
       type: 'error',
-      requestId,
-      ticker,
+      requestId: requestId,
+      ticker: ticker,
       error: error.message,
     });
   }
 }
 
 // ============================================================================
-// CÁLCULO INCREMENTAL (para tiempo real)
+// LEGACY SUPPORT: Map old fixed names to types
 // ============================================================================
 
-function handleIncrementalUpdate(requestId, ticker, bars, indicators) {
-  // Para actualizaciones en tiempo real, recalculamos solo los últimos N valores
-  // necesarios para cada indicador
-  handleCalculate(requestId, ticker, bars, indicators, true, bars.length);
+function mapLegacyType(name) {
+  if (name === 'sma20' || name === 'sma50' || name === 'sma200') return 'sma';
+  if (name === 'ema12' || name === 'ema26') return 'ema';
+  return name;
 }
 
-// ============================================================================
-// CALCULADORES DE INDICADORES
-// ============================================================================
-
-function calculateIndicator(name, config, data) {
-  const { closes, highs, lows, volumes, times, bars, interval } = data;
-  
+function getLegacyParams(name) {
   switch (name) {
-    // === SMAs ===
-    case 'sma20':
-    case 'sma50':
-    case 'sma200':
-      return calculateSMA(closes, times, config.period);
-      
-    // === EMAs ===
-    case 'ema12':
-    case 'ema26':
-      return calculateEMA(closes, times, config.period);
-      
-    // === Bollinger Bands ===
-    case 'bb':
-      return calculateBollingerBands(closes, times, config.period, config.stdDev);
-      
-    // === Keltner Channels ===
-    case 'keltner':
-      return calculateKeltner(highs, lows, closes, times, config);
-      
-    // === RSI ===
-    case 'rsi':
-      return calculateRSI(closes, times, config.period);
-      
-    // === MACD ===
-    case 'macd':
-      return calculateMACD(closes, times, config);
-      
-    // === Stochastic ===
-    case 'stoch':
-      return calculateStochastic(highs, lows, closes, times, config);
-      
-    // === ADX/DMI ===
-    case 'adx':
-      return calculateADX(highs, lows, closes, times, config.period);
-      
-    // === ATR ===
-    case 'atr':
-      return calculateATR(highs, lows, closes, times, config.period);
-      
-    // === Bollinger Band Width ===
-    case 'bbWidth':
-      return calculateBBWidth(closes, times, config.period, config.stdDev);
-      
-    // === TTM Squeeze ===
-    case 'squeeze':
-      return calculateSqueeze(highs, lows, closes, times);
-      
-    // === OBV ===
-    case 'obv':
-      return calculateOBV(closes, volumes, times);
-      
-    // === VWAP ===
-    case 'vwap':
-      return calculateVWAP(bars, times);
-    
-    // === RVOL (Relative Volume por slots - con volumen ACUMULATIVO como TradingView) ===
-    case 'rvol':
-      return calculateRVOL(bars, times, config.lookbackDays || 5, interval);
-      
-    default:
-      throw new Error(`Unknown indicator: ${name}`);
+    case 'sma20': return { length: 20 };
+    case 'sma50': return { length: 50 };
+    case 'sma200': return { length: 200 };
+    case 'ema12': return { length: 12 };
+    case 'ema26': return { length: 26 };
+    case 'bb': return { length: 20, mult: 2 };
+    case 'keltner': return { length: 20, mult: 1.5 };
+    case 'rsi': return { length: 14 };
+    case 'macd': return { fastLength: 12, slowLength: 26, signalLength: 9 };
+    case 'stoch': return { kLength: 14, kSmooth: 1, dSmooth: 3 };
+    case 'adx': return { length: 14 };
+    case 'atr': return { length: 14 };
+    case 'squeeze': return { bbLength: 20, bbMult: 2, kcLength: 20, kcMult: 1.5 };
+    default: return {};
   }
 }
 
 // ============================================================================
-// IMPLEMENTACIONES DE INDICADORES
+// CALCULATE BY TYPE (dynamic params)
+// ============================================================================
+
+function calculateByType(type, params, data) {
+  var closes = data.closes, highs = data.highs, lows = data.lows;
+  var volumes = data.volumes, times = data.times, bars = data.bars, interval = data.interval;
+
+  switch (type) {
+    case 'sma':
+      return calculateSMA(closes, times, Number(params.length) || 20);
+
+    case 'ema':
+      return calculateEMA(closes, times, Number(params.length) || 12);
+
+    case 'bb':
+      return calculateBollingerBands(closes, times, Number(params.length) || 20, Number(params.mult) || 2);
+
+    case 'keltner':
+      return calculateKeltner(highs, lows, closes, times, {
+        period: Number(params.length) || 20,
+        atrPeriod: Number(params.length) || 20,
+        multiplier: Number(params.mult) || 1.5
+      });
+
+    case 'rsi':
+      return calculateRSI(closes, times, Number(params.length) || 14);
+
+    case 'macd':
+      return calculateMACD(closes, times, {
+        fast: Number(params.fastLength) || 12,
+        slow: Number(params.slowLength) || 26,
+        signal: Number(params.signalLength) || 9
+      });
+
+    case 'stoch':
+      return calculateStochastic(highs, lows, closes, times, {
+        period: Number(params.kLength) || 14,
+        signalPeriod: Number(params.dSmooth) || 3
+      });
+
+    case 'adx':
+      return calculateADX(highs, lows, closes, times, Number(params.length) || 14);
+
+    case 'atr':
+      return calculateATR(highs, lows, closes, times, Number(params.length) || 14);
+
+    case 'squeeze':
+      return calculateSqueeze(highs, lows, closes, times, params);
+
+    case 'obv':
+      return calculateOBV(closes, volumes, times);
+
+    case 'vwap':
+      return calculateVWAP(bars, times);
+
+    case 'rvol':
+      return calculateRVOL(bars, times, Number(params.lookbackDays) || 5, interval);
+
+    default:
+      console.warn('[Worker] Unknown indicator type:', type);
+      return null;
+  }
+}
+
+// ============================================================================
+// IMPLEMENTATIONS
 // ============================================================================
 
 function calculateSMA(closes, times, period) {
-  const values = technicalindicators.SMA.calculate({ values: closes, period });
-  const offset = closes.length - values.length;
-  return values.map((value, i) => ({ time: times[i + offset], value }));
+  var values = technicalindicators.SMA.calculate({ values: closes, period: period });
+  var offset = closes.length - values.length;
+  return values.map(function(value, i) { return { time: times[i + offset], value: value }; });
 }
 
 function calculateEMA(closes, times, period) {
-  const values = technicalindicators.EMA.calculate({ values: closes, period });
-  const offset = closes.length - values.length;
-  return values.map((value, i) => ({ time: times[i + offset], value }));
+  var values = technicalindicators.EMA.calculate({ values: closes, period: period });
+  var offset = closes.length - values.length;
+  return values.map(function(value, i) { return { time: times[i + offset], value: value }; });
 }
 
 function calculateBollingerBands(closes, times, period, stdDev) {
-  const values = technicalindicators.BollingerBands.calculate({ values: closes, period, stdDev });
-  const offset = closes.length - values.length;
+  var values = technicalindicators.BollingerBands.calculate({ values: closes, period: period, stdDev: stdDev });
+  var offset = closes.length - values.length;
   return {
-    upper: values.map((v, i) => ({ time: times[i + offset], value: v.upper })),
-    middle: values.map((v, i) => ({ time: times[i + offset], value: v.middle })),
-    lower: values.map((v, i) => ({ time: times[i + offset], value: v.lower })),
+    upper: values.map(function(v, i) { return { time: times[i + offset], value: v.upper }; }),
+    middle: values.map(function(v, i) { return { time: times[i + offset], value: v.middle }; }),
+    lower: values.map(function(v, i) { return { time: times[i + offset], value: v.lower }; }),
   };
 }
 
 function calculateKeltner(highs, lows, closes, times, config) {
-  // Keltner = EMA ± ATR * multiplier
-  const ema = technicalindicators.EMA.calculate({ values: closes, period: config.period });
-  const atr = technicalindicators.ATR.calculate({ 
-    high: highs, low: lows, close: closes, period: config.atrPeriod 
-  });
-  
-  // Alinear arrays
-  const minLen = Math.min(ema.length, atr.length);
-  const emaOffset = closes.length - ema.length;
-  const atrOffset = closes.length - atr.length;
-  const startOffset = Math.max(emaOffset, atrOffset);
-  
-  const result = {
-    upper: [],
-    middle: [],
-    lower: [],
-  };
-  
-  for (let i = 0; i < minLen; i++) {
-    const emaIdx = i + (ema.length - minLen);
-    const atrIdx = i + (atr.length - minLen);
-    const timeIdx = startOffset + i;
-    
+  var ema = technicalindicators.EMA.calculate({ values: closes, period: config.period });
+  var atr = technicalindicators.ATR.calculate({ high: highs, low: lows, close: closes, period: config.atrPeriod });
+
+  var minLen = Math.min(ema.length, atr.length);
+  var emaOffset = closes.length - ema.length;
+  var atrOffset = closes.length - atr.length;
+  var startOffset = Math.max(emaOffset, atrOffset);
+
+  var result = { upper: [], middle: [], lower: [] };
+
+  for (var i = 0; i < minLen; i++) {
+    var emaIdx = i + (ema.length - minLen);
+    var atrIdx = i + (atr.length - minLen);
+    var timeIdx = startOffset + i;
+
     if (timeIdx < times.length) {
-      const mid = ema[emaIdx];
-      const band = atr[atrIdx] * config.multiplier;
-      
+      var mid = ema[emaIdx];
+      var band = atr[atrIdx] * config.multiplier;
       result.upper.push({ time: times[timeIdx], value: mid + band });
       result.middle.push({ time: times[timeIdx], value: mid });
       result.lower.push({ time: times[timeIdx], value: mid - band });
     }
   }
-  
+
   return result;
 }
 
 function calculateRSI(closes, times, period) {
-  const values = technicalindicators.RSI.calculate({ values: closes, period });
-  const offset = closes.length - values.length;
-  return values.map((value, i) => ({ time: times[i + offset], value }));
+  var values = technicalindicators.RSI.calculate({ values: closes, period: period });
+  var offset = closes.length - values.length;
+  return values.map(function(value, i) { return { time: times[i + offset], value: value }; });
 }
 
 function calculateMACD(closes, times, config) {
-  const values = technicalindicators.MACD.calculate({
+  var values = technicalindicators.MACD.calculate({
     values: closes,
     fastPeriod: config.fast,
     slowPeriod: config.slow,
@@ -350,323 +285,221 @@ function calculateMACD(closes, times, config) {
     SimpleMAOscillator: false,
     SimpleMASignal: false,
   });
-  
-  const offset = closes.length - values.length;
-  
+
+  var offset = closes.length - values.length;
+
   return {
-    macd: values.map((v, i) => ({ time: times[i + offset], value: v.MACD || 0 })),
-    signal: values.map((v, i) => ({ time: times[i + offset], value: v.signal || 0 })),
-    histogram: values.map((v, i) => ({ 
-      time: times[i + offset], 
-      value: v.histogram || 0,
-      color: (v.histogram || 0) >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'
-    })),
+    macd: values.map(function(v, i) { return { time: times[i + offset], value: v.MACD || 0 }; }),
+    signal: values.map(function(v, i) { return { time: times[i + offset], value: v.signal || 0 }; }),
+    histogram: values.map(function(v, i) {
+      return {
+        time: times[i + offset],
+        value: v.histogram || 0,
+        color: (v.histogram || 0) >= 0 ? 'rgba(16, 185, 129, 0.6)' : 'rgba(239, 68, 68, 0.6)'
+      };
+    }),
   };
 }
 
 function calculateStochastic(highs, lows, closes, times, config) {
-  const values = technicalindicators.Stochastic.calculate({
-    high: highs,
-    low: lows,
-    close: closes,
+  var values = technicalindicators.Stochastic.calculate({
+    high: highs, low: lows, close: closes,
     period: config.period,
     signalPeriod: config.signalPeriod,
   });
-  
-  const offset = closes.length - values.length;
-  
+
+  var offset = closes.length - values.length;
   return {
-    k: values.map((v, i) => ({ time: times[i + offset], value: v.k })),
-    d: values.map((v, i) => ({ time: times[i + offset], value: v.d })),
+    k: values.map(function(v, i) { return { time: times[i + offset], value: v.k }; }),
+    d: values.map(function(v, i) { return { time: times[i + offset], value: v.d }; }),
   };
 }
 
 function calculateADX(highs, lows, closes, times, period) {
-  const values = technicalindicators.ADX.calculate({
-    high: highs,
-    low: lows,
-    close: closes,
-    period,
+  var values = technicalindicators.ADX.calculate({
+    high: highs, low: lows, close: closes, period: period,
   });
-  
-  const offset = closes.length - values.length;
-  
+
+  var offset = closes.length - values.length;
   return {
-    adx: values.map((v, i) => ({ time: times[i + offset], value: v.adx })),
-    pdi: values.map((v, i) => ({ time: times[i + offset], value: v.pdi })),
-    mdi: values.map((v, i) => ({ time: times[i + offset], value: v.mdi })),
+    adx: values.map(function(v, i) { return { time: times[i + offset], value: v.adx }; }),
+    pdi: values.map(function(v, i) { return { time: times[i + offset], value: v.pdi }; }),
+    mdi: values.map(function(v, i) { return { time: times[i + offset], value: v.mdi }; }),
   };
 }
 
 function calculateATR(highs, lows, closes, times, period) {
-  const values = technicalindicators.ATR.calculate({
-    high: highs,
-    low: lows,
-    close: closes,
-    period,
+  var values = technicalindicators.ATR.calculate({
+    high: highs, low: lows, close: closes, period: period,
   });
-  
-  const offset = closes.length - values.length;
-  return values.map((value, i) => ({ time: times[i + offset], value }));
+  var offset = closes.length - values.length;
+  return values.map(function(value, i) { return { time: times[i + offset], value: value }; });
 }
 
-function calculateBBWidth(closes, times, period, stdDev) {
-  const bb = technicalindicators.BollingerBands.calculate({ values: closes, period, stdDev });
-  const offset = closes.length - bb.length;
-  
-  return bb.map((v, i) => ({
-    time: times[i + offset],
-    value: ((v.upper - v.lower) / v.middle) * 100, // Width as percentage
-  }));
-}
+function calculateSqueeze(highs, lows, closes, times, params) {
+  var bbPeriod = Number(params.bbLength) || 20;
+  var bbStdDev = Number(params.bbMult) || 2;
+  var keltnerPeriod = Number(params.kcLength) || 20;
+  var atrPeriod = keltnerPeriod;
+  var keltnerMult = Number(params.kcMult) || 1.5;
 
-function calculateSqueeze(highs, lows, closes, times) {
-  // TTM Squeeze: BB inside Keltner = squeeze ON
-  const bbPeriod = 20, bbStdDev = 2;
-  const keltnerPeriod = 20, atrPeriod = 10, keltnerMult = 1.5;
-  
-  const bb = technicalindicators.BollingerBands.calculate({ 
-    values: closes, period: bbPeriod, stdDev: bbStdDev 
-  });
-  
-  const ema = technicalindicators.EMA.calculate({ values: closes, period: keltnerPeriod });
-  const atr = technicalindicators.ATR.calculate({ 
-    high: highs, low: lows, close: closes, period: atrPeriod 
-  });
-  
-  // Alinear arrays al más corto
-  const minLen = Math.min(bb.length, ema.length, atr.length);
-  const baseOffset = closes.length - minLen;
-  
-  const result = [];
-  
-  for (let i = 0; i < minLen; i++) {
-    const bbIdx = i + (bb.length - minLen);
-    const emaIdx = i + (ema.length - minLen);
-    const atrIdx = i + (atr.length - minLen);
-    
-    const bbUpper = bb[bbIdx].upper;
-    const bbLower = bb[bbIdx].lower;
-    const keltnerUpper = ema[emaIdx] + atr[atrIdx] * keltnerMult;
-    const keltnerLower = ema[emaIdx] - atr[atrIdx] * keltnerMult;
-    
-    // Squeeze ON when BB inside Keltner
-    const squeezeOn = bbLower > keltnerLower && bbUpper < keltnerUpper;
-    
-    // Momentum (simplified - using linear regression would be better)
-    const momentum = closes[baseOffset + i] - ema[emaIdx];
-    
+  var bb = technicalindicators.BollingerBands.calculate({ values: closes, period: bbPeriod, stdDev: bbStdDev });
+  var ema = technicalindicators.EMA.calculate({ values: closes, period: keltnerPeriod });
+  var atr = technicalindicators.ATR.calculate({ high: highs, low: lows, close: closes, period: atrPeriod });
+
+  var minLen = Math.min(bb.length, ema.length, atr.length);
+  var baseOffset = closes.length - minLen;
+
+  var result = [];
+
+  for (var i = 0; i < minLen; i++) {
+    var bbIdx = i + (bb.length - minLen);
+    var emaIdx = i + (ema.length - minLen);
+    var atrIdx = i + (atr.length - minLen);
+
+    var bbUpper = bb[bbIdx].upper;
+    var bbLower = bb[bbIdx].lower;
+    var keltnerUpper = ema[emaIdx] + atr[atrIdx] * keltnerMult;
+    var keltnerLower = ema[emaIdx] - atr[atrIdx] * keltnerMult;
+
+    var squeezeOn = bbLower > keltnerLower && bbUpper < keltnerUpper;
+    var momentum = closes[baseOffset + i] - ema[emaIdx];
+
     result.push({
       time: times[baseOffset + i],
       value: momentum,
-      squeezeOn,
-      color: squeezeOn 
-        ? 'rgba(239, 68, 68, 0.8)'  // Red dot = squeeze ON
-        : 'rgba(16, 185, 129, 0.8)', // Green dot = squeeze OFF
+      squeezeOn: squeezeOn,
+      color: squeezeOn ? 'rgba(239, 68, 68, 0.8)' : 'rgba(16, 185, 129, 0.8)',
     });
   }
-  
+
   return result;
 }
 
 function calculateOBV(closes, volumes, times) {
-  const values = technicalindicators.OBV.calculate({ close: closes, volume: volumes });
-  const offset = closes.length - values.length;
-  return values.map((value, i) => ({ time: times[i + offset], value }));
+  var values = technicalindicators.OBV.calculate({ close: closes, volume: volumes });
+  var offset = closes.length - values.length;
+  return values.map(function(value, i) { return { time: times[i + offset], value: value }; });
 }
 
 function calculateVWAP(bars, times) {
-  // VWAP = Cumulative(TP * Volume) / Cumulative(Volume)
-  // TP = (High + Low + Close) / 3
-  // Reset cada día para intraday
-  
-  const result = [];
-  let cumulativeTPV = 0;
-  let cumulativeVolume = 0;
-  let currentDay = null;
-  
-  for (let i = 0; i < bars.length; i++) {
-    const bar = bars[i];
-    const barDate = new Date(bar.time * 1000).toDateString();
-    
-    // Reset al cambiar de día
+  var result = [];
+  var cumulativeTPV = 0;
+  var cumulativeVolume = 0;
+  var currentDay = null;
+
+  for (var i = 0; i < bars.length; i++) {
+    var bar = bars[i];
+    var barDate = new Date(bar.time * 1000).toDateString();
+
     if (currentDay !== barDate) {
       cumulativeTPV = 0;
       cumulativeVolume = 0;
       currentDay = barDate;
     }
-    
-    const tp = (bar.high + bar.low + bar.close) / 3;
+
+    var tp = (bar.high + bar.low + bar.close) / 3;
     cumulativeTPV += tp * bar.volume;
     cumulativeVolume += bar.volume;
-    
-    const vwap = cumulativeVolume > 0 ? cumulativeTPV / cumulativeVolume : tp;
-    
+
+    var vwap = cumulativeVolume > 0 ? cumulativeTPV / cumulativeVolume : tp;
     result.push({ time: times[i], value: vwap });
   }
-  
+
   return result;
 }
-
-// ============================================================================
-// RVOL - Relative Volume por Slots CON VOLUMEN ACUMULATIVO (como TradingView)
-// ============================================================================
 
 function calculateRVOL(bars, times, lookbackDays, interval) {
-  /**
-   * Calcula RVOL usando VOLUMEN ACUMULATIVO como TradingView.
-   * 
-   * Para cada barra:
-   * - Calcula el volumen acumulado desde el inicio del día hasta esa barra
-   * - Compara con el promedio del volumen acumulado del MISMO SLOT en días anteriores
-   * 
-   * RVOL = volumen_acumulado_hoy / promedio_volumen_acumulado_mismo_slot_dias_anteriores
-   * 
-   * Si RVOL = 1.0: volumen acumulado igual al promedio histórico para este momento del día
-   * Si RVOL = 2.0: volumen acumulado es el doble del promedio
-   * Si RVOL = 0.5: volumen acumulado es la mitad del promedio
-   */
-  
-  if (bars.length < 10) {
-    console.warn('[RVOL] Not enough bars for calculation');
-    return [];
-  }
-  
-  // Mapear intervalo de string a minutos
-  const intervalToMinutes = {
-    '1min': 1,
-    '5min': 5,
-    '15min': 15,
-    '30min': 30,
-    '1hour': 60,
-    '4hour': 240,
-    '1day': 1440,
+  if (bars.length < 10) return [];
+
+  var intervalToMinutes = {
+    '1min': 1, '5min': 5, '15min': 15, '30min': 30,
+    '1hour': 60, '4hour': 240, '1day': 1440,
   };
-  
-  const intervalMinutes = intervalToMinutes[interval] || 0;
-  
-  // Solo calcular RVOL para intervalos < 60 minutos (intradía)
-  if (!intervalMinutes || intervalMinutes >= 60) {
-    console.log('[RVOL] Interval', interval, '(', intervalMinutes, 'min) >= 1H, skipping RVOL');
-    return [];
+
+  var intervalMinutes = intervalToMinutes[interval] || 0;
+  if (!intervalMinutes || intervalMinutes >= 60) return [];
+
+  var dayBars = new Map();
+
+  for (var i = 0; i < bars.length; i++) {
+    var bar = bars[i];
+    var date = new Date(bar.time * 1000);
+    var dateStr = date.toISOString().split('T')[0];
+    var slotKey = String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+
+    if (!dayBars.has(dateStr)) dayBars.set(dateStr, []);
+    dayBars.get(dateStr).push({ time: bar.time, volume: bar.volume, slotKey: slotKey, originalIndex: i });
   }
-  
-  console.log('[RVOL] Using interval from parameter:', interval, '=', intervalMinutes, 'minutes');
-  
-  // PASO 1: Agrupar barras por día y calcular volumen acumulativo
-  const dayBars = new Map(); // key: YYYY-MM-DD, value: [{ time, volume, cumVolume, slotKey }]
-  
-  for (let i = 0; i < bars.length; i++) {
-    const bar = bars[i];
-    const date = new Date(bar.time * 1000);
-    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
-    const slotKey = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    
-    if (!dayBars.has(dateStr)) {
-      dayBars.set(dateStr, []);
+
+  var daysCumulative = new Map();
+
+  for (var entry of dayBars.entries()) {
+    var dateStr2 = entry[0];
+    var dayData = entry[1];
+    dayData.sort(function(a, b) { return a.time - b.time; });
+
+    var cumVolume = 0;
+    var slotCumVolumes = new Map();
+
+    for (var j = 0; j < dayData.length; j++) {
+      cumVolume += dayData[j].volume;
+      dayData[j].cumVolume = cumVolume;
+      slotCumVolumes.set(dayData[j].slotKey, cumVolume);
     }
-    
-    dayBars.get(dateStr).push({
-      time: bar.time,
-      volume: bar.volume,
-      slotKey: slotKey,
-      originalIndex: i,
-    });
+
+    daysCumulative.set(dateStr2, slotCumVolumes);
   }
-  
-  // PASO 2: Calcular volumen acumulativo por día
-  const daysCumulative = new Map(); // key: YYYY-MM-DD, value: Map<slotKey, cumVolume>
-  
-  for (const [dateStr, dayData] of dayBars.entries()) {
-    // Ordenar barras del día por tiempo
-    dayData.sort((a, b) => a.time - b.time);
-    
-    let cumVolume = 0;
-    const slotCumVolumes = new Map();
-    
-    for (const barData of dayData) {
-      cumVolume += barData.volume;
-      barData.cumVolume = cumVolume;
-      slotCumVolumes.set(barData.slotKey, cumVolume);
-    }
-    
-    daysCumulative.set(dateStr, slotCumVolumes);
-  }
-  
-  const sortedDays = Array.from(dayBars.keys()).sort();
-  
-  // IMPORTANTE: Debug info
-  self.postMessage({ 
-    type: 'debug', 
-    message: `[RVOL] ${sortedDays.length} days found: ${sortedDays.slice(-5).join(', ')}. Interval: ${interval}. Total bars: ${bars.length}` 
-  });
-  
-  // PASO 3: Para cada barra, calcular RVOL usando volumen acumulativo
-  const result = [];
-  
-  for (let i = 0; i < bars.length; i++) {
-    const bar = bars[i];
-    const date = new Date(bar.time * 1000);
-    const dateStr = date.toISOString().split('T')[0];
-    const slotKey = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    
-    // Obtener volumen acumulativo de esta barra
-    const dayData = dayBars.get(dateStr);
-    const currentBarData = dayData?.find(d => d.originalIndex === i);
-    const currentCumVolume = currentBarData?.cumVolume || 0;
-    
-    // Buscar volúmenes acumulativos históricos del mismo slot
-    const historicalCumVolumes = [];
-    
-    for (let d = 0; d < sortedDays.length; d++) {
-      const historicalDate = sortedDays[d];
-      if (historicalDate >= dateStr) continue; // Solo días anteriores
-      
-      const historicalDayCum = daysCumulative.get(historicalDate);
-      if (historicalDayCum && historicalDayCum.has(slotKey)) {
-        historicalCumVolumes.push(historicalDayCum.get(slotKey));
+
+  var sortedDays = Array.from(dayBars.keys()).sort();
+  var result = [];
+
+  for (var i2 = 0; i2 < bars.length; i2++) {
+    var bar2 = bars[i2];
+    var date2 = new Date(bar2.time * 1000);
+    var dateStr3 = date2.toISOString().split('T')[0];
+    var slotKey2 = String(date2.getHours()).padStart(2, '0') + ':' + String(date2.getMinutes()).padStart(2, '0');
+
+    var dayData2 = dayBars.get(dateStr3);
+    var currentBarData = null;
+    if (dayData2) {
+      for (var k = 0; k < dayData2.length; k++) {
+        if (dayData2[k].originalIndex === i2) { currentBarData = dayData2[k]; break; }
       }
     }
-    
-    // Usar los últimos N días
-    const recentCumVolumes = historicalCumVolumes.slice(-lookbackDays);
-    
-    let rvol = 1.0;
-    
+    var currentCumVolume = currentBarData ? currentBarData.cumVolume : 0;
+
+    var historicalCumVolumes = [];
+    for (var d = 0; d < sortedDays.length; d++) {
+      var hDate = sortedDays[d];
+      if (hDate >= dateStr3) continue;
+      var hDayCum = daysCumulative.get(hDate);
+      if (hDayCum && hDayCum.has(slotKey2)) {
+        historicalCumVolumes.push(hDayCum.get(slotKey2));
+      }
+    }
+
+    var recentCumVolumes = historicalCumVolumes.slice(-lookbackDays);
+    var rvol = 1.0;
+
     if (recentCumVolumes.length >= 1 && currentCumVolume > 0) {
-      const avgCumVolume = recentCumVolumes.reduce((sum, v) => sum + v, 0) / recentCumVolumes.length;
-      if (avgCumVolume > 0) {
-        rvol = currentCumVolume / avgCumVolume;
-      }
+      var avgCumVolume = recentCumVolumes.reduce(function(s, v) { return s + v; }, 0) / recentCumVolumes.length;
+      if (avgCumVolume > 0) rvol = currentCumVolume / avgCumVolume;
     }
-    
-    // Colorear según RVOL (como TradingView - verde/rojo por dirección de vela)
-    let color;
-    const isGreen = bar.close >= bar.open;
-    
-    // Intensidad basada en RVOL
-    const intensity = Math.min(Math.max(rvol * 130, 130), 255);
-    
+
+    var isGreen = bar2.close >= bar2.open;
+    var intensity = Math.min(Math.max(rvol * 130, 130), 255);
+    var color;
     if (isGreen) {
-      color = `rgba(0, ${Math.round(intensity)}, 0, ${Math.min(0.4 + rvol * 0.2, 1.0)})`;
+      color = 'rgba(0, ' + Math.round(intensity) + ', 0, ' + Math.min(0.4 + rvol * 0.2, 1.0) + ')';
     } else {
-      color = `rgba(${Math.round(intensity)}, 0, 0, ${Math.min(0.4 + rvol * 0.2, 1.0)})`;
+      color = 'rgba(' + Math.round(intensity) + ', 0, 0, ' + Math.min(0.4 + rvol * 0.2, 1.0) + ')';
     }
-    
-    result.push({
-      time: times[i],
-      value: Math.round(rvol * 100) / 100,
-      color: color
-    });
+
+    result.push({ time: times[i2], value: Math.round(rvol * 100) / 100, color: color });
   }
-  
-  // Log muestra de los últimos valores
-  const lastValues = result.slice(-5).map(r => r.value);
-  console.log('[RVOL] Last 5 cumulative values:', lastValues, 'Total bars:', result.length);
-  
+
   return result;
 }
 
-// Log de inicialización
-console.log('[IndicatorWorker] Initialized with indicators:', Object.keys(INDICATOR_CONFIGS));
-
+console.log('[IndicatorWorker] Initialized - dynamic instance support enabled');

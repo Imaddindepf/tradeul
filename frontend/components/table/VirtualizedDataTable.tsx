@@ -10,7 +10,7 @@
 
 'use client';
 
-import { ReactNode, useRef, useState, useEffect, CSSProperties } from 'react';
+import { ReactNode, useRef, useState, useEffect, useCallback, CSSProperties } from 'react';
 import type { Table as TanStackTable, Row } from '@tanstack/react-table';
 import { flexRender } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -49,6 +49,12 @@ interface VirtualizedDataTableProps<T> {
   estimateSize?: number; // Altura estimada de cada fila
   overscan?: number; // Número de filas fuera del viewport a pre-renderizar
   enableVirtualization?: boolean; // Toggle virtualización (útil para debugging)
+
+  // Infinite scroll (lazy loading older data)
+  onEndReached?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  endReachedThreshold?: number; // px from bottom to trigger (default 150)
 }
 
 // ============================================================================
@@ -125,6 +131,10 @@ export function VirtualizedDataTable<T>({
   estimateSize = 40, // 40px por fila (ajustar según tu diseño)
   overscan = 10, // Renderizar 10 filas extra arriba/abajo
   enableVirtualization = true,
+  onEndReached,
+  hasMore = false,
+  loadingMore = false,
+  endReachedThreshold = 150,
 }: VirtualizedDataTableProps<T>) {
   // Refs
   const containerRef = useRef<HTMLDivElement>(null);
@@ -185,6 +195,39 @@ export function VirtualizedDataTable<T>({
   const totalSize = enableVirtualization && rows.length > 20
     ? rowVirtualizer.getTotalSize()
     : rows.length * estimateSize;
+
+  // ============================================================
+  // INFINITE SCROLL — detect when user scrolls near the bottom
+  // ============================================================
+  const endReachedCalledRef = useRef(false);
+
+  const handleScroll = useCallback(() => {
+    if (!onEndReached || !hasMore || loadingMore) return;
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < endReachedThreshold) {
+      if (!endReachedCalledRef.current) {
+        endReachedCalledRef.current = true;
+        onEndReached();
+      }
+    } else {
+      endReachedCalledRef.current = false;
+    }
+  }, [onEndReached, hasMore, loadingMore, endReachedThreshold]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || !onEndReached) return;
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [handleScroll, onEndReached]);
+
+  // Reset the guard when new data arrives (loadingMore goes false → true → false)
+  useEffect(() => {
+    if (!loadingMore) endReachedCalledRef.current = false;
+  }, [loadingMore]);
 
   // ============================================================
   // RESIZE LOGIC (same as ResizableTable)
@@ -381,7 +424,7 @@ export function VirtualizedDataTable<T>({
               <p className="text-slate-700 font-medium">No data available</p>
             </div>
           )
-        ) : (
+        ) : (<>
           <table className="w-full border-collapse table-fixed">
             {/* Header */}
             <thead
@@ -535,6 +578,20 @@ export function VirtualizedDataTable<T>({
               })}
             </tbody>
           </table>
+
+          {/* Infinite scroll: loading indicator at bottom */}
+          {loadingMore && (
+            <div className="flex items-center justify-center py-2 text-xs text-slate-400">
+              <div className="animate-spin rounded-full h-3 w-3 border-b border-blue-500 mr-2" />
+              Loading earlier events...
+            </div>
+          )}
+          {!hasMore && rows.length > 0 && !loadingMore && rows.length >= 200 && (
+            <div className="text-center py-1.5 text-[10px] text-slate-300">
+              All session events loaded
+            </div>
+          )}
+          </>
         )}
       </div>
 
