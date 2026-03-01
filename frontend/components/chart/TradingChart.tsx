@@ -587,6 +587,14 @@ function TradingChartComponent({
     const prevDataLengthRef = useRef(0);
     const prevTickerRef = useRef(currentTicker);
 
+    // Stable refs for scroll handler (avoids re-subscribing on every data change)
+    const hasMoreRef = useRef(hasMore);
+    const loadMoreRef = useRef(loadMore);
+    const dataLengthRef = useRef(data.length);
+    useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+    useEffect(() => { loadMoreRef.current = loadMore; }, [loadMore]);
+    useEffect(() => { dataLengthRef.current = data.length; }, [data.length]);
+
     // Fetch market session and subscribe to updates
     useEffect(() => {
         getMarketSession().then(setMarketSession).catch(() => { });
@@ -1165,35 +1173,44 @@ function TradingChartComponent({
         };
     }, [currentTicker, fontFamily, selectedInterval]);
 
-    // Auto-load more data when scrolling left + detect if scrolled away from realtime
+    // Auto-load more data when scrolling left + detect if scrolled away from realtime.
+    // Subscribed once per chart instance — accesses mutable state via refs to avoid
+    // re-subscribing on every data/loadMore change (which caused infinite load loops).
     useEffect(() => {
         if (!chartRef.current) return;
         const chart = chartRef.current;
         const timeScale = chart.timeScale();
 
+        let throttleTimer: ReturnType<typeof setTimeout> | null = null;
+        const THROTTLE_MS = 100;
+
         const handleVisibleRangeChange = () => {
-            const logicalRange = timeScale.getVisibleLogicalRange();
-            if (!logicalRange) return;
+            if (throttleTimer) return;
+            throttleTimer = setTimeout(() => {
+                throttleTimer = null;
 
-            // Lazy-load older data using barsInLogicalRange (official v5 pattern)
-            if (!loadingMore && hasMore && candleSeriesRef.current) {
-                const barsInfo = candleSeriesRef.current.barsInLogicalRange(logicalRange);
-                if (barsInfo !== null && barsInfo.barsBefore < 50) {
-                    loadMore();
+                const logicalRange = timeScale.getVisibleLogicalRange();
+                if (!logicalRange) return;
+
+                if (hasMoreRef.current && candleSeriesRef.current) {
+                    const barsInfo = candleSeriesRef.current.barsInLogicalRange(logicalRange);
+                    if (barsInfo !== null && barsInfo.barsBefore < 10) {
+                        loadMoreRef.current();
+                    }
                 }
-            }
 
-            // Detect if user scrolled away from the right edge (latest bars)
-            const totalBars = data.length;
-            const isNearRealtime = logicalRange.to >= totalBars - 3;
-            setIsScrolledAway(!isNearRealtime && totalBars > 0);
+                const totalBars = dataLengthRef.current;
+                const isNearRealtime = logicalRange.to >= totalBars - 3;
+                setIsScrolledAway(!isNearRealtime && totalBars > 0);
+            }, THROTTLE_MS);
         };
 
         timeScale.subscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
         return () => {
+            if (throttleTimer) clearTimeout(throttleTimer);
             timeScale.unsubscribeVisibleLogicalRangeChange(handleVisibleRangeChange);
         };
-    }, [hasMore, loadingMore, loadMore, data.length]);
+    }, [currentTicker, selectedInterval]);
 
     // Update watermark when ticker changes (v5 – recreate watermark)
     useEffect(() => {

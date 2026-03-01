@@ -82,6 +82,9 @@ export function useLiveChartData(
   const intervalRef = useRef(interval);
   const dataRef = useRef<ChartBar[]>([]);
   const subscribedRef = useRef(false);
+  const isLoadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(false);
+  const oldestTimeRef = useRef<number | null>(null);
 
   // Handler registrado por el chart para updates imperativos
   const updateHandlerRef = useRef<RealtimeUpdateHandler | null>(null);
@@ -102,6 +105,9 @@ export function useLiveChartData(
       lastBarRef.current = data[data.length - 1];
     }
   }, [data]);
+
+  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { oldestTimeRef.current = oldestTime; }, [oldestTime]);
 
   // ============================================================================
   // Registrar handler para updates (llamado por TradingChart)
@@ -153,15 +159,21 @@ export function useLiveChartData(
     }
   }, [ticker, interval]);
 
-  // Cargar más datos históricos (lazy loading)
-  const loadMore = useCallback(async (): Promise<boolean> => {
-    if (!ticker || !oldestTime || !hasMore || loadingMore) return false;
+  const scheduleIdleCallback =
+    (typeof window !== 'undefined' && window.requestIdleCallback) ||
+    ((cb: IdleRequestCallback) => setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline), 1));
 
+  // Cargar más datos históricos (lazy loading)
+  // Uses ref-based lock to avoid re-render-driven loops.
+  const loadMore = useCallback(async (): Promise<boolean> => {
+    if (!tickerRef.current || !oldestTimeRef.current || !hasMoreRef.current || isLoadingMoreRef.current) return false;
+
+    isLoadingMoreRef.current = true;
     setLoadingMore(true);
 
     try {
       const response = await fetch(
-        `${API_URL}/api/v1/chart/${ticker}?interval=${interval}&before=${oldestTime}`
+        `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&before=${oldestTimeRef.current}`
       );
 
       if (!response.ok) {
@@ -172,12 +184,18 @@ export function useLiveChartData(
       const newBars: ChartBar[] = result.data || [];
 
       if (newBars.length > 0) {
-        // Merge y ordenar
-        setData(prev => {
-          const timeMap = new Map<number, ChartBar>();
-          [...newBars, ...prev].forEach(bar => timeMap.set(bar.time, bar));
-          return Array.from(timeMap.values()).sort((a, b) => a.time - b.time);
+        newBars.sort((a, b) => a.time - b.time);
+
+        // Defer merge to avoid blocking the UI thread
+        scheduleIdleCallback(() => {
+          setData(prev => {
+            if (prev.length === 0) return newBars;
+            const firstExistingTime = prev[0].time;
+            const olderBars = newBars.filter(b => b.time < firstExistingTime);
+            return olderBars.length > 0 ? [...olderBars, ...prev] : prev;
+          });
         });
+
         setOldestTime(result.oldest_time || null);
         setHasMore(result.has_more || false);
         return true;
@@ -189,9 +207,10 @@ export function useLiveChartData(
       console.error('[LiveChart] Load more error:', err);
       return false;
     } finally {
+      isLoadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [ticker, interval, oldestTime, hasMore, loadingMore]);
+  }, []);
 
   // Fetch only the bars missing since `sinceTime` and push them
   // to the chart imperatively (no full re-render).
