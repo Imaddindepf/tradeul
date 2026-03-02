@@ -1151,41 +1151,40 @@ async def manage_luld_subscription():
     - Notificaciones de resume
     - Limit state entries/exits
     
-    Esta tarea:
-    1. Espera a que el WebSocket esté autenticado
-    2. Se suscribe a LULD.*
-    3. Maneja reconexiones (re-suscribe automáticamente)
+    Uses was_authenticated pattern to detect reconnections reliably,
+    even when the reconnect completes faster than our sleep interval.
     """
     global luld_subscribed
     
     logger.info("luld_subscription_manager_started")
+    was_authenticated = False
     
     while True:
         try:
-            # Esperar a que estemos autenticados
-            if ws_client and ws_client.is_authenticated:
-                # Si no estamos suscritos, suscribirse
-                if not luld_subscribed:
-                    logger.info("subscribing_to_luld_all_market")
-                    success = await ws_client.subscribe_luld_all()
-                    
-                    if success:
-                        luld_subscribed = True
-                        logger.info(
-                            "luld_subscription_active",
-                            stream="LULD.*",
-                            description="Receiving halts, resumes, and price bands for entire market"
-                        )
-                    else:
-                        logger.warning("luld_subscription_failed_will_retry")
+            is_auth = ws_client and ws_client.is_authenticated
             
-            else:
-                # No estamos autenticados, resetear el flag
+            if is_auth and not was_authenticated:
+                # Transition False→True: fresh connection, must (re-)subscribe
+                luld_subscribed = False
+                logger.info("subscribing_to_luld_all_market")
+                success = await ws_client.subscribe_luld_all()
+                
+                if success:
+                    luld_subscribed = True
+                    logger.info(
+                        "luld_subscription_active",
+                        stream="LULD.*",
+                        description="Receiving halts, resumes, and price bands for entire market"
+                    )
+                else:
+                    logger.warning("luld_subscription_failed_will_retry")
+            
+            elif not is_auth:
                 if luld_subscribed:
                     logger.info("luld_subscription_lost_due_to_disconnect")
                     luld_subscribed = False
             
-            # Check cada 2 segundos
+            was_authenticated = is_auth
             await asyncio.sleep(2)
             
         except asyncio.CancelledError:
@@ -1199,6 +1198,7 @@ async def manage_luld_subscription():
                 error_type=type(e).__name__
             )
             luld_subscribed = False
+            was_authenticated = False
             await asyncio.sleep(5)
 
 
@@ -1215,36 +1215,41 @@ async def manage_minute_agg_subscription():
     - ~8-10K mensajes por minuto durante market hours
     - Se usa para calcular indicadores (RSI, MACD, etc.) con cobertura 100%
     
-    Esta tarea:
-    1. Espera a que el WebSocket esté autenticado
-    2. Se suscribe a AM.*
-    3. Maneja reconexiones (re-suscribe automáticamente)
+    Uses was_authenticated pattern to detect reconnections reliably,
+    even when the reconnect completes faster than our sleep interval.
+    A simple flag check misses fast reconnects (300ms) during a 2s sleep.
     """
     global minute_agg_subscribed
     
     logger.info("minute_agg_subscription_manager_started")
+    was_authenticated = False
     
     while True:
         try:
-            if ws_client and ws_client.is_authenticated:
-                if not minute_agg_subscribed:
-                    logger.info("subscribing_to_am_all_market")
-                    success = await ws_client.subscribe_minute_aggs_all()
-                    
-                    if success:
-                        minute_agg_subscribed = True
-                        logger.info(
-                            "am_subscription_active",
-                            stream="AM.*",
-                            description="Receiving 1-minute OHLCV bars for entire market"
-                        )
-                    else:
-                        logger.warning("am_subscription_failed_will_retry")
-            else:
+            is_auth = ws_client and ws_client.is_authenticated
+            
+            if is_auth and not was_authenticated:
+                # Transition False→True: fresh connection, must (re-)subscribe
+                minute_agg_subscribed = False
+                logger.info("subscribing_to_am_all_market", reason="new_connection")
+                success = await ws_client.subscribe_minute_aggs_all()
+                
+                if success:
+                    minute_agg_subscribed = True
+                    logger.info(
+                        "am_subscription_active",
+                        stream="AM.*",
+                        description="Receiving 1-minute OHLCV bars for entire market"
+                    )
+                else:
+                    logger.warning("am_subscription_failed_will_retry")
+            
+            elif not is_auth:
                 if minute_agg_subscribed:
                     logger.info("am_subscription_lost_due_to_disconnect")
                     minute_agg_subscribed = False
             
+            was_authenticated = is_auth
             await asyncio.sleep(2)
             
         except asyncio.CancelledError:
@@ -1258,6 +1263,7 @@ async def manage_minute_agg_subscription():
                 error_type=type(e).__name__
             )
             minute_agg_subscribed = False
+            was_authenticated = False
             await asyncio.sleep(5)
 
 

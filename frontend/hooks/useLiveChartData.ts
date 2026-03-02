@@ -23,7 +23,7 @@ export interface ChartBar {
   volume: number;
 }
 
-export type ChartInterval = '1min' | '5min' | '15min' | '30min' | '1hour' | '4hour' | '1day';
+export type ChartInterval = '1min' | '2min' | '5min' | '15min' | '30min' | '1hour' | '4hour' | '12hour' | '1day' | '1week' | '1month' | '3month' | '1year';
 
 // Handler que el chart registra para recibir updates sin re-render
 export type RealtimeUpdateHandler = (bar: ChartBar, isNewBar: boolean) => void;
@@ -36,18 +36,24 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const INTERVAL_SECONDS: Record<ChartInterval, number> = {
   '1min': 60,
+  '2min': 120,
   '5min': 300,
   '15min': 900,
   '30min': 1800,
   '1hour': 3600,
   '4hour': 14400,
+  '12hour': 43200,
   '1day': 86400,
+  '1week': 604800,
+  '1month': 2592000,
+  '3month': 7776000,
+  '1year': 31536000,
 };
 
 // Recovery thresholds
 const GAP_IGNORE_MS = 5_000;       // < 5s away → do nothing
 const GAP_PARTIAL_MAX_MS = 300_000; // < 5min → partial fetch
-                                     // > 5min → full refetch
+// > 5min → full refetch
 
 // ============================================================================
 // WebSocket Manager Access
@@ -61,7 +67,8 @@ import { useRxWebSocket } from './useRxWebSocket';
 
 export function useLiveChartData(
   ticker: string,
-  interval: ChartInterval
+  interval: ChartInterval,
+  replayTo?: number | null,
 ) {
   // State (solo para carga inicial, NO para updates en tiempo real)
   const [data, setData] = useState<ChartBar[]>([]);
@@ -93,7 +100,6 @@ export function useLiveChartData(
   const hiddenAtRef = useRef<number | null>(null);
   const isFrozenRef = useRef(false);
 
-  // Actualizar refs cuando cambien
   useEffect(() => {
     tickerRef.current = ticker;
     intervalRef.current = interval;
@@ -128,9 +134,10 @@ export function useLiveChartData(
     setError(null);
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/v1/chart/${ticker}?interval=${interval}`
-      );
+      let url = `${API_URL}/api/v1/chart/${ticker}?interval=${interval}`;
+      if (replayTo) url += `&to=${replayTo}`;
+
+      const response = await fetch(url);
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -139,7 +146,6 @@ export function useLiveChartData(
       const result = await response.json();
       const bars: ChartBar[] = result.data || [];
 
-      // Ordenar por tiempo ascendente
       bars.sort((a, b) => a.time - b.time);
 
       setData(bars);
@@ -157,14 +163,8 @@ export function useLiveChartData(
     } finally {
       setLoading(false);
     }
-  }, [ticker, interval]);
+  }, [ticker, interval, replayTo]);
 
-  const scheduleIdleCallback =
-    (typeof window !== 'undefined' && window.requestIdleCallback) ||
-    ((cb: IdleRequestCallback) => setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline), 1));
-
-  // Cargar más datos históricos (lazy loading)
-  // Uses ref-based lock to avoid re-render-driven loops.
   const loadMore = useCallback(async (): Promise<boolean> => {
     if (!tickerRef.current || !oldestTimeRef.current || !hasMoreRef.current || isLoadingMoreRef.current) return false;
 
@@ -176,9 +176,7 @@ export function useLiveChartData(
         `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&before=${oldestTimeRef.current}`
       );
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
       const result = await response.json();
       const newBars: ChartBar[] = result.data || [];
@@ -186,14 +184,11 @@ export function useLiveChartData(
       if (newBars.length > 0) {
         newBars.sort((a, b) => a.time - b.time);
 
-        // Defer merge to avoid blocking the UI thread
-        scheduleIdleCallback(() => {
-          setData(prev => {
-            if (prev.length === 0) return newBars;
-            const firstExistingTime = prev[0].time;
-            const olderBars = newBars.filter(b => b.time < firstExistingTime);
-            return olderBars.length > 0 ? [...olderBars, ...prev] : prev;
-          });
+        setData(prev => {
+          if (prev.length === 0) return newBars;
+          const firstExistingTime = prev[0].time;
+          const olderBars = newBars.filter(b => b.time < firstExistingTime);
+          return olderBars.length > 0 ? [...olderBars, ...prev] : prev;
         });
 
         setOldestTime(result.oldest_time || null);
@@ -267,8 +262,7 @@ export function useLiveChartData(
   // ============================================================================
 
   useEffect(() => {
-    // Solo activar para intervalos cortos
-    const shouldSubscribe = ['1min', '5min', '15min'].includes(intervalRef.current);
+    const shouldSubscribe = !replayTo && ['1min', '2min', '5min', '15min'].includes(intervalRef.current);
 
     if (!shouldSubscribe || loading || data.length === 0 || !ticker || !isConnected) {
       setIsLive(false);

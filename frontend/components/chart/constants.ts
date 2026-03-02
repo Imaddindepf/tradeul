@@ -67,17 +67,24 @@ export interface ChartWindowState {
 
 export const INTERVALS: IntervalConfig[] = [
     { label: '1 Minute', shortLabel: '1m', interval: '1min' },
+    { label: '2 Minutes', shortLabel: '2m', interval: '2min' },
     { label: '5 Minutes', shortLabel: '5m', interval: '5min' },
     { label: '15 Minutes', shortLabel: '15m', interval: '15min' },
     { label: '30 Minutes', shortLabel: '30m', interval: '30min' },
     { label: '1 Hour', shortLabel: '1H', interval: '1hour' },
     { label: '4 Hours', shortLabel: '4H', interval: '4hour' },
+    { label: '12 Hours', shortLabel: '12H', interval: '12hour' },
     { label: '1 Day', shortLabel: '1D', interval: '1day' },
+    { label: '1 Week', shortLabel: '1W', interval: '1week' },
+    { label: '1 Month', shortLabel: '1M', interval: '1month' },
+    { label: '3 Months', shortLabel: '3M', interval: '3month' },
+    { label: '1 Year', shortLabel: '1Y', interval: '1year' },
 ];
 
 export const INTERVAL_GROUPS = {
     intraday: [
         { label: '1m', interval: '1min' as Interval },
+        { label: '2m', interval: '2min' as Interval },
         { label: '5m', interval: '5min' as Interval },
         { label: '15m', interval: '15min' as Interval },
         { label: '30m', interval: '30min' as Interval },
@@ -85,20 +92,31 @@ export const INTERVAL_GROUPS = {
     hourly: [
         { label: '1H', interval: '1hour' as Interval },
         { label: '4H', interval: '4hour' as Interval },
+        { label: '12H', interval: '12hour' as Interval },
     ],
     daily: [
         { label: '1D', interval: '1day' as Interval },
+        { label: '1W', interval: '1week' as Interval },
+        { label: '1M', interval: '1month' as Interval },
+        { label: '3M', interval: '3month' as Interval },
+        { label: '1Y', interval: '1year' as Interval },
     ],
 };
 
 export const INTERVAL_SECONDS: Record<Interval, number> = {
     '1min': 60,
+    '2min': 120,
     '5min': 300,
     '15min': 900,
     '30min': 1800,
     '1hour': 3600,
     '4hour': 14400,
+    '12hour': 43200,
     '1day': 86400,
+    '1week': 604800,
+    '1month': 2592000,
+    '3month': 7776000,
+    '1year': 31536000,
 };
 
 export const TIME_RANGES: { id: TimeRange; label: string; days: number }[] = [
@@ -110,6 +128,26 @@ export const TIME_RANGES: { id: TimeRange; label: string; days: number }[] = [
     { id: '5Y', label: '5Y', days: 1825 },
     { id: 'ALL', label: 'ALL', days: 0 },
 ];
+
+/** Bars of empty space shown to the right of the last whitespace bar. */
+export const RIGHT_OFFSET_BARS = 15;
+
+/** Number of whitespace bars to generate per interval (future dates on the time axis). */
+export const WHITESPACE_BAR_COUNT: Record<Interval, number> = {
+    '1min': 480,   // 8 hours
+    '2min': 240,   // 8 hours
+    '5min': 120,   // 10 hours
+    '15min': 48,   // 12 hours
+    '30min': 32,   // 16 hours
+    '1hour': 24,   // 1 day
+    '4hour': 30,   // 5 days
+    '12hour': 20,  // 10 days
+    '1day': 60,    // 2 months
+    '1week': 26,   // 6 months
+    '1month': 12,  // 1 year
+    '3month': 8,   // 2 years
+    '1year': 5,    // 5 years
+};
 
 export const CHART_COLORS = {
     background: '#ffffff',

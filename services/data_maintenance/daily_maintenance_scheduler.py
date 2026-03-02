@@ -120,6 +120,7 @@ class DailyMaintenanceScheduler:
         self.last_earnings_calendar_date: Optional[date] = None  # Último earnings calendar collect
         self.last_earnings_bmo_date: Optional[date] = None  # Último earnings BMO collect
         self.last_earnings_amc_date: Optional[date] = None  # Último earnings AMC collect
+        self.last_ticker_chain_date: Optional[date] = None  # Último ticker chain build (semanal)
         self._holidays_cache: Dict[str, bool] = {}
         self._holidays_cache_date: Optional[date] = None  # Fecha del cache para invalidación diaria
     
@@ -330,6 +331,10 @@ class DailyMaintenanceScheduler:
         if is_metadata_refresh_time and self.last_metadata_refresh_date != current_date:
             # Ejecutar refresh de metadata
             await self._execute_metadata_refresh(current_date)
+            
+            # Ticker chain build: weekly on Sundays at 1:00 AM ET
+            if current_date.weekday() == 6 and self.last_ticker_chain_date != current_date:
+                await self._execute_ticker_chain_build(current_date)
         
         # =============================================
         # 1. CARGA DE DATOS HISTÓRICOS (3:00 AM ET)
@@ -1088,6 +1093,28 @@ class DailyMaintenanceScheduler:
         except Exception as e:
             return {"success": False, "error": str(e), "target_date": str(target_date)}
     
+    async def _execute_ticker_chain_build(self, current_date: date):
+        """Build ticker chain map (weekly)"""
+        try:
+            logger.info("ticker_chain_build_starting")
+            
+            from tasks.build_ticker_chain import BuildTickerChainTask
+            task = BuildTickerChainTask(self.redis, self.db)
+            result = await task.execute(current_date)
+            
+            if result.get("success"):
+                self.last_ticker_chain_date = current_date
+                logger.info(
+                    "ticker_chain_build_completed",
+                    chains_built=result.get("chains_built", 0),
+                    tickers_scanned=result.get("tickers_scanned", 0)
+                )
+            else:
+                logger.error("ticker_chain_build_failed", result=result)
+                
+        except Exception as e:
+            logger.error("ticker_chain_build_error", error=str(e))
+
     def stop(self):
         """Detener el scheduler"""
         self.is_running = False

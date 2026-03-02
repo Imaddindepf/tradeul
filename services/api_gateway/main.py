@@ -55,6 +55,7 @@ from routers.watchlist_router import router as watchlist_router
 from routers.notes_router import router as notes_router
 from http_clients import http_clients, HTTPClientManager
 from auth import clerk_jwt_verifier, PassiveAuthMiddleware, get_current_user, AuthenticatedUser
+from ticker_chain import get_ticker_chain, fetch_chained_polygon_data
 
 # Configurar logger
 configure_logging(service_name="api_gateway")
@@ -3143,13 +3144,19 @@ async def get_insider_clusters(
 #
 
 CHART_INTERVALS = {
-    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 30, "bars_per_page": 1500},   # 30s cache - ~3 trading days
-    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 120, "bars_per_page": 2000},  # 2 min cache - ~21 trading days
-    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 300, "bars_per_page": 1500}, # 5 min cache - ~47 trading days
-    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 600, "bars_per_page": 1000}, # 10 min cache - ~63 trading days
-    "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 1800, "bars_per_page": 750},   # 30 min cache - ~94 trading days
-    "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 3600, "bars_per_page": 500},   # 1h cache (unchanged)
-    "1day": {"source": "fmp", "cache_ttl": 14400, "bars_per_page": 1000},  # 4h cache - FMP para daily (unchanged)
+    "1min": {"polygon_timespan": "minute", "polygon_multiplier": 1, "cache_ttl": 30, "bars_per_page": 1500},
+    "2min": {"polygon_timespan": "minute", "polygon_multiplier": 2, "cache_ttl": 60, "bars_per_page": 2000},
+    "5min": {"polygon_timespan": "minute", "polygon_multiplier": 5, "cache_ttl": 120, "bars_per_page": 2000},
+    "15min": {"polygon_timespan": "minute", "polygon_multiplier": 15, "cache_ttl": 300, "bars_per_page": 1500},
+    "30min": {"polygon_timespan": "minute", "polygon_multiplier": 30, "cache_ttl": 600, "bars_per_page": 1000},
+    "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 1800, "bars_per_page": 750},
+    "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 3600, "bars_per_page": 500},
+    "12hour": {"polygon_timespan": "hour", "polygon_multiplier": 12, "cache_ttl": 7200, "bars_per_page": 500},
+    "1day": {"source": "fmp", "cache_ttl": 14400, "bars_per_page": 1000},
+    "1week": {"polygon_timespan": "week", "polygon_multiplier": 1, "cache_ttl": 14400, "bars_per_page": 500},
+    "1month": {"polygon_timespan": "month", "polygon_multiplier": 1, "cache_ttl": 14400, "bars_per_page": 500},
+    "3month": {"polygon_timespan": "month", "polygon_multiplier": 3, "cache_ttl": 14400, "bars_per_page": 300},
+    "1year": {"polygon_timespan": "year", "polygon_multiplier": 1, "cache_ttl": 14400, "bars_per_page": 200},
 }
 
 POLYGON_AGGS_URL = "https://api.polygon.io/v2/aggs/ticker"
@@ -3179,19 +3186,32 @@ async def fetch_polygon_chunk(
     except:
         to_dt = dt.now()
     
-    # Smart from_date based on desired bars and timeframe
-    # ~7 trading hours per day, ~21 trading days per month
+    # Convert desired bars to calendar days, accounting for
+    # weekends (~5/7 trading ratio) and holidays.
     if timespan == "minute":
-        # Minutes: need more days for same number of bars
-        bars_per_day = 390 // multiplier  # 390 min trading day
-        # When loading more (before_timestamp set), need to go further back
-        days_needed = max(10, (limit // bars_per_day) + 10)
+        bars_per_trading_day = 390 // multiplier
+        trading_days = max(1, limit // bars_per_trading_day)
+        days_needed = max(10, int(trading_days * 7 / 5) + 10)
+    elif timespan == "hour":
+        bars_per_trading_day = max(1, 16 // multiplier)
+        trading_days = max(1, limit // bars_per_trading_day)
+        days_needed = max(30, int(trading_days * 7 / 5) + 15)
+    elif timespan == "week":
+        days_needed = max(90, limit * 7 + 30)
+    elif timespan == "month" and multiplier >= 3:
+        days_needed = max(730, limit * 92 + 60)
+    elif timespan == "month":
+        days_needed = max(365, limit * 31 + 60)
+    elif timespan == "year":
+        days_needed = max(730, limit * 366 + 60)
     else:
-        # Hours: use 16 bars/day (extended hours) to avoid truncation
-        bars_per_day = 16 // multiplier
-        days_needed = max(30, (limit // max(1, bars_per_day)) + 10)
+        days_needed = max(30, int(limit * 7 / 5) + 15)
     
-    from_date = (to_dt - timedelta(days=days_needed)).strftime("%Y-%m-%d")
+    from_dt_calc = to_dt - timedelta(days=days_needed)
+    min_date = dt(2000, 1, 1)
+    if from_dt_calc < min_date:
+        from_dt_calc = min_date
+    from_date = from_dt_calc.strftime("%Y-%m-%d")
     
     # Retry on transient HTTP/2 failures (stale connection, server disconnect)
     last_err = None
@@ -3241,12 +3261,15 @@ async def fetch_polygon_chunk(
     if len(all_bars) > limit:
         all_bars = all_bars[-limit:]
     
-    # Determine if there's more data available (for lazy loading)
+    # Determine if there's more data available (for lazy loading).
+    # Always return oldest_time when we have bars so the frontend can
+    # request the next chunk. Polygon has ~2 years of intraday history;
+    # the frontend will stop when a loadMore returns 0 bars.
     oldest_time = all_bars[0]["time"] if all_bars else None
-    has_more = full_count >= limit or data.get("next_url") is not None
+    has_more = len(all_bars) > 0
     
     logger.info("polygon_chunk_fetched", symbol=symbol, bars=len(all_bars), total_available=full_count, oldest=oldest_time, before=before_timestamp)
-    return all_bars, oldest_time if has_more else None
+    return all_bars, oldest_time
 
 
 async def fetch_fmp_chunk(
@@ -3368,6 +3391,7 @@ async def get_chart_data(
     interval: str = Query(default="1day", description="Chart interval: 1min, 5min, 15min, 30min, 1hour, 4hour, 1day"),
     before: Optional[int] = Query(default=None, description="Load bars before this Unix timestamp (for lazy loading)"),
     after: Optional[int] = Query(default=None, description="Load bars after this Unix timestamp (for gap recovery)"),
+    to: Optional[int] = Query(default=None, description="Upper bound Unix timestamp — return bars up to this time (for replay)"),
     limit: Optional[int] = Query(default=None, description="Number of bars to load (default: 500 for intraday, 1000 for daily)"),
     force_refresh: bool = Query(default=False, description="Force refresh from API")
 ):
@@ -3375,9 +3399,10 @@ async def get_chart_data(
     Get OHLCV chart data - TradingView Style with Lazy Loading.
     
     Strategy:
-    - First call (no 'before'/'after'): Returns most recent ~500 bars
+    - First call (no 'before'/'after'/'to'): Returns most recent ~500 bars
     - with 'before': Returns older bars for infinite scroll
     - with 'after': Returns bars newer than timestamp (gap recovery on tab resume)
+    - with 'to': Returns bars ending at this timestamp (for replay mode)
     
     Sources:
     - Intraday (1min-4hour): Polygon API
@@ -3387,6 +3412,7 @@ async def get_chart_data(
     1. Initial: GET /chart/AAPL?interval=1hour
     2. Load more: GET /chart/AAPL?interval=1hour&before=<oldest_time>
     3. Gap recovery: GET /chart/AAPL?interval=1min&after=<last_bar_time>
+    4. Replay:    GET /chart/AAPL?interval=5min&to=<replay_timestamp>
     """
     global redis_client
     
@@ -3403,15 +3429,15 @@ async def get_chart_data(
     config = CHART_INTERVALS[interval]
     bars_limit = limit or config["bars_per_page"]
     
-    # Calculate to_date from 'before' parameter or use today
+    from datetime import datetime as dt
     if before:
-        from datetime import datetime as dt
         to_date = dt.fromtimestamp(before - 1).strftime("%Y-%m-%d")
+    elif to:
+        to_date = dt.fromtimestamp(to).strftime("%Y-%m-%d")
     else:
         to_date = datetime.now().strftime("%Y-%m-%d")
     
-    # Cache key includes the 'before'/'after' for proper chunked caching
-    range_key = f"after:{after}" if after else (before or 'latest')
+    range_key = f"after:{after}" if after else (f"to:{to}" if to else (before or 'latest'))
     cache_key = f"chart:v3:{symbol}:{interval}:{range_key}:{bars_limit}"
     
     try:
@@ -3449,19 +3475,28 @@ async def get_chart_data(
                 )
                 source = "polygon"
         else:
-            chart_data, oldest_time = await fetch_polygon_chunk(
-                symbol,
-                config["polygon_multiplier"],
-                config["polygon_timespan"],
-                to_date,
-                bars_limit,
-                before_timestamp=before
-            )
+            # Ticker chaining: check if symbol has historical ticker changes
+            chain = await get_ticker_chain(symbol, redis_client)
+            if chain:
+                chart_data, oldest_time = await fetch_chained_polygon_data(
+                    symbol, config["polygon_multiplier"], config["polygon_timespan"],
+                    to_date, bars_limit, before, chain, fetch_polygon_chunk
+                )
+            else:
+                chart_data, oldest_time = await fetch_polygon_chunk(
+                    symbol,
+                    config["polygon_multiplier"],
+                    config["polygon_timespan"],
+                    to_date,
+                    bars_limit,
+                    before_timestamp=before
+                )
             source = "polygon"
         
-        # Gap recovery: keep only bars strictly after the given timestamp
         if after and chart_data:
             chart_data = [b for b in chart_data if b["time"] > after]
+        if to and chart_data:
+            chart_data = [b for b in chart_data if b["time"] <= to]
         
         has_more = oldest_time is not None
         
