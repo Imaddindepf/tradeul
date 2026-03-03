@@ -3495,8 +3495,10 @@ async def get_chart_data(
         
         if after and chart_data:
             chart_data = [b for b in chart_data if b["time"] > after]
-        if to and chart_data:
-            chart_data = [b for b in chart_data if b["time"] <= to]
+        # Note: we intentionally do NOT filter chart_data by `to` here.
+        # The `to` param sets the Polygon to_date so data is centred around
+        # that date, but the frontend needs bars AFTER the replay point so
+        # the replay can advance.  Positioning is handled client-side.
         
         has_more = oldest_time is not None
         

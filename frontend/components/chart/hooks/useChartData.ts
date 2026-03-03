@@ -109,13 +109,14 @@ export function useChartData(
         const timeScale = chart.timeScale();
 
         const handleVisibleRangeChange = () => {
-            if (replayControlsDataRef?.current) return;
             const logicalRange = timeScale.getVisibleLogicalRange();
             if (!logicalRange) return;
 
-            const totalBars = dataLengthRef.current;
-            const isNearRealtime = logicalRange.to >= totalBars - 3;
-            setIsScrolledAway(!isNearRealtime && totalBars > 0);
+            if (!replayControlsDataRef?.current) {
+                const totalBars = dataLengthRef.current;
+                const isNearRealtime = logicalRange.to >= totalBars - 3;
+                setIsScrolledAway(!isNearRealtime && totalBars > 0);
+            }
 
             if (!hasMoreRef.current || loadMorePendingRef.current || !candleSeriesRef.current) return;
 

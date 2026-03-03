@@ -90,6 +90,7 @@ export function useLiveChartData(
   const dataRef = useRef<ChartBar[]>([]);
   const subscribedRef = useRef(false);
   const isLoadingMoreRef = useRef(false);
+  const isLoadingForwardRef = useRef(false);
   const hasMoreRef = useRef(false);
   const oldestTimeRef = useRef<number | null>(null);
 
@@ -204,6 +205,43 @@ export function useLiveChartData(
     } finally {
       isLoadingMoreRef.current = false;
       setLoadingMore(false);
+    }
+  }, []);
+
+  const loadForward = useCallback(async (): Promise<boolean> => {
+    const d = dataRef.current;
+    if (!tickerRef.current || d.length === 0 || isLoadingForwardRef.current) return false;
+
+    const newestTime = d[d.length - 1].time;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (newestTime >= nowSec - 60) return false;
+
+    isLoadingForwardRef.current = true;
+    try {
+      const response = await fetch(
+        `${API_URL}/api/v1/chart/${tickerRef.current}?interval=${intervalRef.current}&after=${newestTime}`
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const result = await response.json();
+      const newBars: ChartBar[] = result.data || [];
+
+      if (newBars.length > 0) {
+        newBars.sort((a, b) => a.time - b.time);
+        setData(prev => {
+          if (prev.length === 0) return newBars;
+          const lastExistingTime = prev[prev.length - 1].time;
+          const newerBars = newBars.filter(b => b.time > lastExistingTime);
+          return newerBars.length > 0 ? [...prev, ...newerBars] : prev;
+        });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[LiveChart] Load forward error:', err);
+      return false;
+    } finally {
+      isLoadingForwardRef.current = false;
     }
   }, []);
 
@@ -461,6 +499,7 @@ export function useLiveChartData(
     isConnected,
     refetch: fetchHistorical,
     loadMore,
+    loadForward,
     registerUpdateHandler,
   };
 }

@@ -47,6 +47,7 @@ export function useBarReplay(
     chartVersion: number,
     setReplayTimestamp: (ts: number | null) => void,
     replayTimeRef: MutableRefObject<number | null>,
+    loadForward: () => Promise<boolean>,
 ) {
     const [mode, setMode] = useState<ReplayMode>('idle');
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -265,6 +266,14 @@ export function useBarReplay(
 
     // ── Playback timer ───────────────────────────────────────────────────
 
+    const appendBarRef = useRef(appendBar);
+    appendBarRef.current = appendBar;
+    const syncIndicatorsRef = useRef(syncIndicators);
+    syncIndicatorsRef.current = syncIndicators;
+    const loadForwardRef = useRef(loadForward);
+    loadForwardRef.current = loadForward;
+    const isLoadingForwardRef = useRef(false);
+
     useEffect(() => {
         clearTimer();
         if (mode !== 'playing') return;
@@ -272,19 +281,33 @@ export function useBarReplay(
         timerRef.current = setInterval(() => {
             const d = dataRef.current;
             const cur = currentIndexRef.current;
+
             if (cur >= d.length - 1) {
-                clearTimer();
-                setMode('paused'); modeRef.current = 'paused';
+                if (isLoadingForwardRef.current) return;
+                isLoadingForwardRef.current = true;
+                loadForwardRef.current().then(loaded => {
+                    isLoadingForwardRef.current = false;
+                    if (!loaded) {
+                        clearTimer();
+                        setMode('paused'); modeRef.current = 'paused';
+                    }
+                });
                 return;
             }
+
+            if (!isLoadingForwardRef.current && d.length - 1 - cur < 200) {
+                isLoadingForwardRef.current = true;
+                loadForwardRef.current().finally(() => { isLoadingForwardRef.current = false; });
+            }
+
             const next = cur + 1;
-            appendBar(next, d);
-            if (d[next]) syncIndicators(d[next].time);
+            appendBarRef.current(next, d);
+            if (d[next]) syncIndicatorsRef.current(d[next].time);
             currentIndexRef.current = next;
             setCurrentIndex(next);
         }, ms);
         return clearTimer;
-    }, [mode, speed, clearTimer, appendBar, syncIndicators]);
+    }, [mode, speed, clearTimer]);
 
     // ── Pause on interval change ────────────────────────────────────────
     const prevIntervalRef = useRef(selectedInterval);
@@ -299,12 +322,10 @@ export function useBarReplay(
 
     // ── Position replay when data changes ──────────────────────────────
     //
-    // Two cases:
-    // 1. loadMore prepended older bars → same last bar, shift indices
-    // 2. Fresh data (interval change) → position at end, rebuild series
-    //
-    // We use chartVersion to detect chart recreation (interval change).
-    // When chartVersion changes, we know it's fresh data, not a prepend.
+    // Three cases:
+    // 1. loadMore prepended older bars → shift indices forward
+    // 2. loadForward appended newer bars → no-op (indices stay)
+    // 3. Fresh data (interval change) → find replay target, rebuild
 
     const prevDataRef = useRef(data);
     const prevChartVersionRef = useRef(chartVersion);
@@ -330,21 +351,34 @@ export function useBarReplay(
 
         if (!candleSeriesRef.current || !volumeSeriesRef.current) return;
 
-        // loadMore prepended older bars: same chart, first bar of prev
-        // still exists in data, and data grew at the front.
         if (!awaitingFreshDataRef.current && isNewData
-            && prev.length > 0 && data.length > prev.length
-            && prev[0].time === data[data.length - prev.length]?.time) {
-            const prepended = data.length - prev.length;
-            const newStart = startIndexRef.current + prepended;
-            const newCurrent = currentIndexRef.current + prepended;
-            setStartIndex(newStart); startIndexRef.current = newStart;
-            setCurrentIndex(newCurrent); currentIndexRef.current = newCurrent;
-            return;
+            && prev.length > 0 && data.length > prev.length) {
+            const delta = data.length - prev.length;
+
+            // loadMore prepended older bars at the front
+            if (prev[0].time === data[delta]?.time) {
+                const newStart = startIndexRef.current + delta;
+                const newCurrent = currentIndexRef.current + delta;
+                setStartIndex(newStart); startIndexRef.current = newStart;
+                setCurrentIndex(newCurrent); currentIndexRef.current = newCurrent;
+                rebuildSeriesUpTo(newCurrent, data);
+                return;
+            }
+
+            // loadForward appended newer bars at the end — indices stay the same
+            const lastPrev = prev[prev.length - 1];
+            if (lastPrev && data[prev.length - 1]?.time === lastPrev.time) {
+                return;
+            }
         }
 
+        // Fresh data (interval change) — find the bar closest to the
+        // replay target so playback resumes from the same point in time.
         awaitingFreshDataRef.current = false;
-        const targetIdx = data.length - 1;
+        const replayTarget = replayTimeRef.current;
+        const targetIdx = replayTarget
+            ? findClosestBarIndex(data, replayTarget)
+            : data.length - 1;
         replayControlsDataRef.current = true;
         setStartIndex(0); startIndexRef.current = 0;
         setCurrentIndex(targetIdx); currentIndexRef.current = targetIdx;

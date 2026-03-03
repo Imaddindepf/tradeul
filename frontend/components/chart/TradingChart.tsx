@@ -100,7 +100,7 @@ function TradingChartComponent({
     const { chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef, whitespaceSeriesRef, lastPriceInfoRef, beforeDestroyCallbackRef, chartVersion, hoveredBar } = chartCore;
 
     // ── Live Data ────────────────────────────────────────────────────────
-    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval, replayTimestamp);
+    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, loadForward, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval, replayTimestamp);
 
     // ── Indicators ───────────────────────────────────────────────────────
     const ind = useChartIndicators(chartRef, data, currentTicker, selectedInterval, selectedRange, windowState);
@@ -152,7 +152,7 @@ function TradingChartComponent({
         chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef, whitespaceSeriesRef,
         indicatorSeriesRef, lastPriceInfoRef, data, selectedInterval,
         indicators, indicatorResults, replayControlsDataRef, chartVersion,
-        setReplayTimestamp, replayTimeRef,
+        setReplayTimestamp, replayTimeRef, loadForward,
     );
 
     // ── Realtime Updates ─────────────────────────────────────────────────
