@@ -134,19 +134,19 @@ export const RIGHT_OFFSET_BARS = 15;
 
 /** Number of whitespace bars to generate per interval (future dates on the time axis). */
 export const WHITESPACE_BAR_COUNT: Record<Interval, number> = {
-    '1min': 480,   // 8 hours
-    '2min': 240,   // 8 hours
-    '5min': 120,   // 10 hours
-    '15min': 48,   // 12 hours
-    '30min': 32,   // 16 hours
-    '1hour': 24,   // 1 day
-    '4hour': 30,   // 5 days
-    '12hour': 20,  // 10 days
-    '1day': 60,    // 2 months
-    '1week': 26,   // 6 months
-    '1month': 12,  // 1 year
-    '3month': 8,   // 2 years
-    '1year': 5,    // 5 years
+    '1min': 1200,   // ~3 trading days
+    '2min': 600,    // ~3 trading days
+    '5min': 360,    // ~5 trading days
+    '15min': 160,   // ~5 trading days
+    '30min': 100,   // ~6 trading days
+    '1hour': 80,    // ~10 trading days
+    '4hour': 60,    // ~30 trading days
+    '12hour': 40,   // ~20 days
+    '1day': 120,    // ~6 months
+    '1week': 52,    // ~1 year
+    '1month': 24,   // ~2 years
+    '3month': 12,   // ~3 years
+    '1year': 10,    // ~10 years
 };
 
 export const CHART_COLORS = {

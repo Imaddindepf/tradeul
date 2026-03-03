@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MutableRefObject } from 'react';
 import type { IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
-import { CHART_COLORS, type ChartBar, type Interval, type IndicatorInstance } from '../constants';
+import { CHART_COLORS, INTERVAL_SECONDS, WHITESPACE_BAR_COUNT, type ChartBar, type Interval, type IndicatorInstance } from '../constants';
 import { getSessionColor } from './useSessionBackground';
 
 export type ReplayMode = 'idle' | 'selecting' | 'playing' | 'paused';
@@ -60,6 +60,8 @@ export function useBarReplay(
     const modeRef = useRef<ReplayMode>('idle');
     const dataRef = useRef(data);
     dataRef.current = data;
+    const intervalRef = useRef(selectedInterval);
+    intervalRef.current = selectedInterval;
 
     const clearTimer = useCallback(() => {
         if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -89,7 +91,23 @@ export function useBarReplay(
                 time: b.time as UTCTimestamp, value: 1, color: getSessionColor(b.time),
             } as any)));
         }
-        if (whitespaceSeriesRef.current) whitespaceSeriesRef.current.setData([]);
+        if (whitespaceSeriesRef.current) {
+            const futureWs: { time: UTCTimestamp }[] = [];
+            // Use real timestamps from bars we haven't revealed yet
+            for (let i = idx + 1; i < chartData.length; i++) {
+                futureWs.push({ time: chartData[i].time as UTCTimestamp });
+            }
+            // Extend beyond dataset with synthetic timestamps
+            const gap = INTERVAL_SECONDS[intervalRef.current] || 60;
+            const extraCount = WHITESPACE_BAR_COUNT[intervalRef.current] || 120;
+            const lastWsTime = futureWs.length > 0
+                ? futureWs[futureWs.length - 1].time as number
+                : slice[slice.length - 1]?.time ?? 0;
+            for (let i = 1; i <= extraCount; i++) {
+                futureWs.push({ time: (lastWsTime + gap * i) as UTCTimestamp });
+            }
+            whitespaceSeriesRef.current.setData(futureWs);
+        }
 
         const last = slice[slice.length - 1];
         if (last) lastPriceInfoRef.current = { close: last.close, open: last.open };
