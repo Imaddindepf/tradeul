@@ -50,6 +50,32 @@ const INTERVAL_SECONDS: Record<ChartInterval, number> = {
   '1year': 31536000,
 };
 
+function getETMinuteOfDay(unixSecs: number): number {
+  const d = new Date(unixSecs * 1000);
+  const parts = d.toLocaleString('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', minute: 'numeric', hour12: false,
+  });
+  const [h, m] = parts.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function getDailyBarTime(unixSecs: number, lastBarTime: number): number {
+  const d = new Date(unixSecs * 1000);
+  const lastD = new Date(lastBarTime * 1000);
+  const etOpts: Intl.DateTimeFormatOptions = {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  };
+  if (d.toLocaleDateString('en-US', etOpts) === lastD.toLocaleDateString('en-US', etOpts)) {
+    return lastBarTime;
+  }
+  return lastBarTime + 86400;
+}
+
+function isRegularHours(unixSecs: number): boolean {
+  const min = getETMinuteOfDay(unixSecs);
+  return min >= 570 && min < 960; // 9:30 to 16:00 ET
+}
+
 // Recovery thresholds
 const GAP_IGNORE_MS = 5_000;       // < 5s away → do nothing
 const GAP_PARTIAL_MAX_MS = 300_000; // < 5min → partial fetch
@@ -300,36 +326,39 @@ export function useLiveChartData(
   // ============================================================================
 
   useEffect(() => {
-    const shouldSubscribe = !replayTo && ['1min', '2min', '5min', '15min'].includes(intervalRef.current);
+    const shouldSubscribe = !replayTo && !['1week', '1month', '3month', '1year'].includes(intervalRef.current);
 
     if (!shouldSubscribe || loading || data.length === 0 || !ticker || !isConnected) {
       setIsLive(false);
       return;
     }
 
-    const intervalSecs = INTERVAL_SECONDS[intervalRef.current];
+    const interval = intervalRef.current;
+    const intervalSecs = INTERVAL_SECONDS[interval];
+    const isDailyOrAbove = interval === '1day';
 
-    // Suscribirse al chart
     if (!subscribedRef.current) {
       send({ action: 'subscribe_chart', symbol: tickerRef.current });
       subscribedRef.current = true;
     }
 
-    // Suscribirse al observable de mensajes
     const subscription = messages$.subscribe({
       next: (message: any) => {
         if (message?.type !== 'chart_aggregate') return;
         if (message.symbol !== tickerRef.current) return;
 
         const aggData = message.data;
-
-        // Convertir timestamp de ms a segundos y redondear al intervalo
         const timeSecs = Math.floor(aggData.t / 1000);
-        const barTime = Math.floor(timeSecs / intervalSecs) * intervalSecs;
+
+        // Daily candles only reflect regular session (9:30-16:00 ET)
+        if (isDailyOrAbove && !isRegularHours(timeSecs)) return;
 
         const lastBar = lastBarRef.current;
-
         if (!lastBar) return;
+
+        const barTime = isDailyOrAbove
+          ? getDailyBarTime(timeSecs, lastBar.time)
+          : Math.floor(timeSecs / intervalSecs) * intervalSecs;
 
         // Construir nueva barra desde aggregate
         // v = volumen del aggregate (ese segundo), NO av (acumulado del día)
@@ -422,7 +451,7 @@ export function useLiveChartData(
       subscription.unsubscribe();
       setIsLive(false);
     };
-  }, [loading, data.length, ticker, isConnected, messages$, send]);
+  }, [loading, data.length, ticker, isConnected, messages$, send, replayTo]);
 
   // ============================================================================
   // Page Lifecycle: visibility + freeze/resume recovery

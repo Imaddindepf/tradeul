@@ -3152,7 +3152,7 @@ CHART_INTERVALS = {
     "1hour": {"polygon_timespan": "hour", "polygon_multiplier": 1, "cache_ttl": 1800, "bars_per_page": 750},
     "4hour": {"polygon_timespan": "hour", "polygon_multiplier": 4, "cache_ttl": 3600, "bars_per_page": 500},
     "12hour": {"polygon_timespan": "hour", "polygon_multiplier": 12, "cache_ttl": 7200, "bars_per_page": 500},
-    "1day": {"source": "fmp", "cache_ttl": 14400, "bars_per_page": 1000},
+    "1day": {"polygon_timespan": "day", "polygon_multiplier": 1, "cache_ttl": 14400, "bars_per_page": 1000},
     "1week": {"polygon_timespan": "week", "polygon_multiplier": 1, "cache_ttl": 14400, "bars_per_page": 500},
     "1month": {"polygon_timespan": "month", "polygon_multiplier": 1, "cache_ttl": 14400, "bars_per_page": 500},
     "3month": {"polygon_timespan": "month", "polygon_multiplier": 3, "cache_ttl": 14400, "bars_per_page": 300},
@@ -3462,36 +3462,23 @@ async def get_chart_data(
         oldest_time = None
         source = "unknown"
         
-        if interval == "1day":
-            chart_data, oldest_time = await fetch_fmp_chunk(
-                symbol, to_date, bars_limit
+        # Unified Polygon path for all intervals (with ticker chaining)
+        chain = await get_ticker_chain(symbol, redis_client)
+        if chain:
+            chart_data, oldest_time = await fetch_chained_polygon_data(
+                symbol, config["polygon_multiplier"], config["polygon_timespan"],
+                to_date, bars_limit, before, chain, fetch_polygon_chunk
             )
-            source = "fmp"
-            
-            if not chart_data:
-                logger.info("fmp_no_data_fallback_polygon", symbol=symbol)
-                chart_data, oldest_time = await fetch_polygon_daily_chunk(
-                    symbol, to_date, bars_limit
-                )
-                source = "polygon"
         else:
-            # Ticker chaining: check if symbol has historical ticker changes
-            chain = await get_ticker_chain(symbol, redis_client)
-            if chain:
-                chart_data, oldest_time = await fetch_chained_polygon_data(
-                    symbol, config["polygon_multiplier"], config["polygon_timespan"],
-                    to_date, bars_limit, before, chain, fetch_polygon_chunk
-                )
-            else:
-                chart_data, oldest_time = await fetch_polygon_chunk(
-                    symbol,
-                    config["polygon_multiplier"],
-                    config["polygon_timespan"],
-                    to_date,
-                    bars_limit,
-                    before_timestamp=before
-                )
-            source = "polygon"
+            chart_data, oldest_time = await fetch_polygon_chunk(
+                symbol,
+                config["polygon_multiplier"],
+                config["polygon_timespan"],
+                to_date,
+                bars_limit,
+                before_timestamp=before
+            )
+        source = "polygon"
         
         if after and chart_data:
             chart_data = [b for b in chart_data if b["time"] > after]
