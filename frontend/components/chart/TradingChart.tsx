@@ -43,6 +43,7 @@ import {
     useEarningsMarkers,
     useTickerManagement,
     useBarReplay,
+    useExtendedHoursPrice,
 } from './hooks';
 import type { ReplaySpeed } from './hooks';
 
@@ -100,7 +101,7 @@ function TradingChartComponent({
     const { chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef, whitespaceSeriesRef, lastPriceInfoRef, beforeDestroyCallbackRef, chartVersion, hoveredBar } = chartCore;
 
     // ── Live Data ────────────────────────────────────────────────────────
-    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, loadForward, registerUpdateHandler } = useLiveChartData(currentTicker, selectedInterval, replayTimestamp);
+    const { data, loading, loadingMore, error, hasMore, isLive, refetch, loadMore, loadForward, registerUpdateHandler, registerExtendedHoursHandler } = useLiveChartData(currentTicker, selectedInterval, replayTimestamp);
 
     // ── Indicators ───────────────────────────────────────────────────────
     const ind = useChartIndicators(chartRef, data, currentTicker, selectedInterval, selectedRange, windowState);
@@ -162,8 +163,19 @@ function TradingChartComponent({
         replay.replayState.mode !== 'idle',
     );
 
-    // ── Zoom / Time Range ────────────────────────────────────────────────
+    // ── Extended Hours Price (pre/post market label on daily+) ──────────
     const isReplayActive = replay.replayState.mode !== 'idle';
+    useExtendedHoursPrice({
+        candleSeriesRef,
+        priceOverlayRef,
+        selectedInterval,
+        currentSession: ticker.marketSession?.current_session ?? null,
+        ticker: currentTicker,
+        isReplayActive,
+        registerExtendedHoursHandler,
+    });
+
+    // ── Zoom / Time Range ────────────────────────────────────────────────
     const { zoomIn, zoomOut, handleRangeChange } = useChartZoom(
         chartRef, data, currentTicker, selectedInterval, selectedRange,
         handleIntervalChange, setSelectedRange, isReplayActive,

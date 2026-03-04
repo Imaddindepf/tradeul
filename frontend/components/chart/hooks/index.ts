@@ -11,3 +11,4 @@ export { useTickerManagement } from './useTickerManagement';
 export type { TickerMeta } from './useTickerManagement';
 export { useBarReplay } from './useBarReplay';
 export type { ReplayMode, ReplayState, ReplaySpeed } from './useBarReplay';
+export { useExtendedHoursPrice } from './useExtendedHoursPrice';

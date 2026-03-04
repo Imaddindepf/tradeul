@@ -123,6 +123,12 @@ export function useLiveChartData(
   // Handler registrado por el chart para updates imperativos
   const updateHandlerRef = useRef<RealtimeUpdateHandler | null>(null);
 
+  // Extended hours price callback (for daily+ charts, pre/post market)
+  const extendedHoursPriceRef = useRef<((price: number) => void) | null>(null);
+  const registerExtendedHoursHandler = useCallback((handler: ((price: number) => void) | null) => {
+    extendedHoursPriceRef.current = handler;
+  }, []);
+
   // Page Lifecycle: track when the tab went hidden
   const hiddenAtRef = useRef<number | null>(null);
   const isFrozenRef = useRef(false);
@@ -351,7 +357,12 @@ export function useLiveChartData(
         const timeSecs = Math.floor(aggData.t / 1000);
 
         // Daily candles only reflect regular session (9:30-16:00 ET)
-        if (isDailyOrAbove && !isRegularHours(timeSecs)) return;
+        if (isDailyOrAbove && !isRegularHours(timeSecs)) {
+          if (extendedHoursPriceRef.current) {
+            extendedHoursPriceRef.current(aggData.c);
+          }
+          return;
+        }
 
         const lastBar = lastBarRef.current;
         if (!lastBar) return;
@@ -530,6 +541,7 @@ export function useLiveChartData(
     loadMore,
     loadForward,
     registerUpdateHandler,
+    registerExtendedHoursHandler,
   };
 }
 
