@@ -450,8 +450,23 @@ class EventEngine:
             if current is None:
                 return
 
-            # Get previous state
+            # Get previous state — if first time, synthesize a neutral baseline
+            # so threshold-based detectors see a natural crossing from zero.
             previous = self.state_cache.get(symbol)
+            is_initial = previous is None
+            if is_initial:
+                previous = TickerState(
+                    symbol=symbol,
+                    price=current.price,
+                    volume=0,
+                    timestamp=current.timestamp,
+                    rvol=0.0,
+                    change_percent=0.0,
+                    trades_z_score=0.0,
+                    chg_10min=0.0,
+                    chg_5min=0.0,
+                    chg_15min=0.0,
+                )
 
             # Run ALL detectors
             all_events: List[EventRecord] = []
@@ -461,6 +476,13 @@ class EventEngine:
                     all_events.extend(events)
                 except Exception as e:
                     logger.error(f"Detector {detector.__class__.__name__} error for {symbol}: {e}")
+
+            if is_initial and all_events:
+                for ev in all_events:
+                    if ev.details is None:
+                        ev.details = {}
+                    if isinstance(ev.details, dict):
+                        ev.details["initial_state"] = True
 
             # Store current state for next comparison
             self.state_cache.set(symbol, current)
@@ -959,8 +981,14 @@ class EventEngine:
 
                     prev = self._snapshot_prev.get(sym)
                     if prev is None:
-                        # First time seeing this ticker - store and skip
                         self._snapshot_prev[sym] = current
+                        # Evaluate absolute thresholds on first appearance
+                        initial_events = self._evaluate_initial_snapshot_state(
+                            sym, current, now, COOLDOWN_SECONDS,
+                        )
+                        for event in initial_events:
+                            await self._publish_event(event, enriched_override=current)
+                            cycle_events += 1
                         continue
 
                     tickers_evaluated += 1
@@ -989,6 +1017,156 @@ class EventEngine:
                 logger.error(f"Snapshot evaluation error: {e}")
 
             await asyncio.sleep(LOOP_INTERVAL)
+
+    def _evaluate_initial_snapshot_state(
+        self,
+        symbol: str,
+        current: Dict,
+        now: float,
+        cooldown: float,
+    ) -> List[EventRecord]:
+        """
+        Evaluate absolute thresholds for a ticker appearing in the snapshot
+        for the first time.  Transition-based detection (prev vs current)
+        cannot fire when the ticker already exceeds thresholds on arrival —
+        e.g. a penny stock that crosses the $0.50 data-ingest filter after
+        an explosive move and enters the snapshot with RVOL 2800x / +194%.
+        """
+        events: List[EventRecord] = []
+        price = current.get("current_price")
+        if not price or price <= 0:
+            return events
+
+        volume = current.get("current_volume") or 0
+
+        def _fire(event_type: EventType, prev_val, new_val, details=None):
+            key = f"{symbol}:{event_type.value}"
+            last_fire = self._snapshot_cooldowns.get(key, 0)
+            if now - last_fire < cooldown:
+                return
+            self._snapshot_cooldowns[key] = now
+
+            delta = new_val - prev_val if prev_val is not None and new_val is not None else None
+            delta_pct = (delta / abs(prev_val)) * 100 if delta is not None and prev_val else None
+
+            open_price = (current.get("day") or {}).get("o")
+            prev_close = (current.get("prevDay") or {}).get("c")
+            gap_percent = current.get("gap_percent")
+            if gap_percent is None and open_price and prev_close and prev_close > 0:
+                gap_percent = ((open_price - prev_close) / prev_close) * 100
+            change_from_open = current.get("change_from_open")
+            if change_from_open is None and open_price and open_price > 0:
+                change_from_open = ((price - open_price) / open_price) * 100
+
+            events.append(EventRecord(
+                event_type=event_type,
+                rule_id=f"event:system:{event_type.value}",
+                symbol=symbol,
+                timestamp=datetime.utcnow(),
+                price=price,
+                prev_value=prev_val,
+                new_value=new_val,
+                delta=delta,
+                delta_percent=delta_pct,
+                change_percent=current.get("todaysChangePerc"),
+                rvol=current.get("rvol"),
+                volume=current.get("current_volume"),
+                market_cap=current.get("market_cap"),
+                gap_percent=gap_percent,
+                change_from_open=change_from_open,
+                open_price=open_price,
+                prev_close=prev_close,
+                vwap=current.get("vwap"),
+                atr_percent=current.get("atr_percent"),
+                intraday_high=current.get("intraday_high"),
+                intraday_low=current.get("intraday_low"),
+                chg_1min=current.get("chg_1min"),
+                chg_5min=current.get("chg_5min"),
+                chg_10min=current.get("chg_10min"),
+                chg_15min=current.get("chg_15min"),
+                chg_30min=current.get("chg_30min"),
+                vol_1min=current.get("vol_1min"),
+                vol_5min=current.get("vol_5min"),
+                float_shares=current.get("float_shares"),
+                rsi=current.get("rsi_14"),
+                ema_20=current.get("ema_20"),
+                ema_50=current.get("ema_50"),
+                security_type=current.get("security_type"),
+                sector=current.get("sector"),
+                details={**(details or {}), "initial_state": True},
+            ))
+
+        # ── RVOL thresholds ──
+        rvol = current.get("rvol")
+        if rvol is not None and volume >= 50_000:
+            if rvol >= 3.0:
+                _fire(EventType.RVOL_SPIKE, 0.0, rvol, {"threshold": 3.0})
+            if rvol >= 5.0 and volume >= 100_000:
+                _fire(EventType.VOLUME_SURGE, 0.0, rvol, {"threshold": 5.0})
+
+        # ── Percentage thresholds ──
+        chg = current.get("todaysChangePerc")
+        if chg is not None:
+            if chg >= 5:
+                _fire(EventType.PERCENT_UP_5, 0.0, chg)
+            if chg <= -5:
+                _fire(EventType.PERCENT_DOWN_5, 0.0, chg)
+            if chg >= 10:
+                _fire(EventType.PERCENT_UP_10, 0.0, chg)
+            if chg <= -10:
+                _fire(EventType.PERCENT_DOWN_10, 0.0, chg)
+
+        # ── Running sustained (chg_10min > 3%) ──
+        chg_10 = current.get("chg_10min")
+        if chg_10 is not None:
+            if chg_10 >= 3.0:
+                _fire(EventType.RUNNING_UP_SUSTAINED, 0.0, chg_10,
+                      {"window": "10min", "threshold": 3.0})
+            if chg_10 <= -3.0:
+                _fire(EventType.RUNNING_DOWN_SUSTAINED, 0.0, chg_10,
+                      {"window": "10min", "threshold": -3.0})
+
+        # ── Running confirmed (chg_5min > 2% AND chg_15min > 4%) ──
+        chg_5 = current.get("chg_5min")
+        chg_15 = current.get("chg_15min")
+        if chg_5 is not None and chg_15 is not None:
+            if chg_5 >= 2.0 and chg_15 >= 4.0:
+                _fire(EventType.RUNNING_UP_CONFIRMED, 0.0, chg_5,
+                      {"chg_5min": chg_5, "chg_15min": chg_15})
+            if chg_5 <= -2.0 and chg_15 <= -4.0:
+                _fire(EventType.RUNNING_DOWN_CONFIRMED, 0.0, chg_5,
+                      {"chg_5min": chg_5, "chg_15min": chg_15})
+
+        # ── Stochastic extremes ──
+        stoch_k_5m = current.get("stoch_k_5m")
+        if stoch_k_5m is not None:
+            if stoch_k_5m < 20:
+                _fire(EventType.STOCH_OVERSOLD_5M, 50.0, stoch_k_5m, {"timeframe": "5m"})
+            if stoch_k_5m > 80:
+                _fire(EventType.STOCH_OVERBOUGHT_5M, 50.0, stoch_k_5m, {"timeframe": "5m"})
+
+        # ── Volume spike 1min ──
+        vol_1 = current.get("vol_1min")
+        vol_5 = current.get("vol_5min")
+        if vol_1 and vol_5 and vol_5 > 0:
+            avg_1min = vol_5 / 5
+            if avg_1min > 100 and vol_1 > avg_1min * 3:
+                _fire(EventType.VOLUME_SPIKE_1MIN, avg_1min, vol_1,
+                      {"avg_1min_from_5min": round(avg_1min),
+                       "ratio": round(vol_1 / avg_1min, 1)})
+
+        # ── Unusual prints (trades Z-score) ──
+        trades_z = current.get("trades_z_score")
+        if trades_z is not None and trades_z > 3.0 and volume >= 10_000:
+            _fire(EventType.UNUSUAL_PRINTS, 0.0, trades_z, {"threshold": 3.0})
+
+        if events:
+            logger.info(
+                "Initial-state events for %s: %s",
+                symbol, ", ".join(e.event_type.value for e in events),
+            )
+
+        return events
 
     def _detect_snapshot_transitions(
         self,
