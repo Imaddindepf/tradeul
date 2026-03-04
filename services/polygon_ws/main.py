@@ -682,8 +682,7 @@ async def manage_subscriptions():
     # Set de tickers que DEBEN estar suscritos (persiste entre reconexiones)
     desired_subscriptions: Set[str] = set()
     
-    # Track si estábamos autenticados en la iteración anterior
-    was_authenticated = False
+    last_seen_epoch = 0
     
     # Crear consumer group si no existe
     try:
@@ -745,31 +744,24 @@ async def manage_subscriptions():
     
     while True:
         try:
-            # CRÍTICO: Detectar reconexión y re-suscribir a todos los tickers
-            if ws_client.is_authenticated and not was_authenticated:
-                # Acabamos de reconectar y autenticar
-                # SOLUCIÓN: RE-LEER el SET completo para evitar corrupción
-                # El desired_subscriptions en memoria puede estar desactualizado
-                # debido a race conditions entre unsubscribe/subscribe durante reconexiones
+            current_epoch = ws_client.reconnection_epoch if ws_client else 0
+            if ws_client and ws_client.is_authenticated and current_epoch != last_seen_epoch:
                 try:
                     active_tickers_raw = await redis_client.client.smembers('polygon_ws:active_tickers')
                     active_tickers_fresh = {t.decode() if isinstance(t, bytes) else t for t in active_tickers_raw}
-                    
-                    # Merge con desired_subscriptions existente (por si hay cambios del stream)
-                    # pero priorizar el SET como fuente de verdad
                     desired_subscriptions = active_tickers_fresh.copy()
                     
                     logger.info(
                         "re_subscribing_after_reconnection",
                         tickers_count=len(desired_subscriptions),
-                        refreshed_from_set=True
+                        refreshed_from_set=True,
+                        epoch=current_epoch,
                     )
                 except Exception as refresh_error:
                     logger.error(
                         "error_refreshing_from_set_on_reconnect",
                         error=str(refresh_error)
                     )
-                    # Fallback: usar desired_subscriptions en memoria
                     logger.warning(
                         "using_memory_state_as_fallback",
                         tickers_count=len(desired_subscriptions)
@@ -777,9 +769,7 @@ async def manage_subscriptions():
                 
                 if desired_subscriptions:
                     await ws_client.subscribe_to_tickers(desired_subscriptions, event_types)
-                was_authenticated = True
-            elif not ws_client.is_authenticated:
-                was_authenticated = False
+                last_seen_epoch = current_epoch
             
             # Leer mensajes del stream de suscripciones
             messages = await redis_client.read_stream(
@@ -851,6 +841,7 @@ async def manage_subscriptions():
                 error=str(e),
                 error_type=type(e).__name__
             )
+            last_seen_epoch = 0
             await asyncio.sleep(5)
 
 
@@ -893,22 +884,20 @@ async def manage_quote_subscriptions():
     except Exception as e:
         logger.debug("quotes_consumer_group_already_exists", error=str(e))
     
-    # Track de autenticación para re-suscribir
-    was_authenticated = False
+    last_seen_epoch = 0
     
     while True:
         try:
-            # Detectar reconexión y re-suscribir a todos los quotes
-            if ws_client.is_authenticated and not was_authenticated:
+            current_epoch = ws_client.reconnection_epoch if ws_client else 0
+            if ws_client and ws_client.is_authenticated and current_epoch != last_seen_epoch:
                 if quote_subscribed_tickers:
                     logger.info(
                         "re_subscribing_quotes_after_reconnection",
-                        count=len(quote_subscribed_tickers)
+                        count=len(quote_subscribed_tickers),
+                        epoch=current_epoch,
                     )
                     await ws_client.subscribe_to_tickers(quote_subscribed_tickers, {"Q"})
-                was_authenticated = True
-            elif not ws_client.is_authenticated:
-                was_authenticated = False
+                last_seen_epoch = current_epoch
             
             # Leer comandos de suscripción de quotes
             messages = await redis_client.read_stream(
@@ -978,6 +967,7 @@ async def manage_quote_subscriptions():
                 error=str(e),
                 error_type=type(e).__name__
             )
+            last_seen_epoch = 0
             await asyncio.sleep(5)
 
 
@@ -1022,23 +1012,21 @@ async def manage_catalyst_subscriptions():
     except Exception as e:
         logger.debug("catalyst_consumer_group_already_exists", error=str(e))
     
-    # Track de autenticación para re-suscribir
-    was_authenticated = False
+    last_seen_epoch = 0
     
     while True:
         try:
-            # Detectar reconexión y re-suscribir a todos los tickers de catalyst
-            if ws_client.is_authenticated and not was_authenticated:
+            current_epoch = ws_client.reconnection_epoch if ws_client else 0
+            if ws_client and ws_client.is_authenticated and current_epoch != last_seen_epoch:
                 if catalyst_subscribed_tickers:
                     logger.info(
                         "re_subscribing_catalyst_after_reconnection",
                         count=len(catalyst_subscribed_tickers),
-                        tickers=list(catalyst_subscribed_tickers)[:10]
+                        tickers=list(catalyst_subscribed_tickers)[:10],
+                        epoch=current_epoch,
                     )
                     await ws_client.subscribe_to_tickers(catalyst_subscribed_tickers, event_types)
-                was_authenticated = True
-            elif not ws_client.is_authenticated:
-                was_authenticated = False
+                last_seen_epoch = current_epoch
             
             # Leer comandos de suscripción de catalyst
             messages = await redis_client.read_stream(
@@ -1138,6 +1126,7 @@ async def manage_catalyst_subscriptions():
                 error=str(e),
                 error_type=type(e).__name__
             )
+            last_seen_epoch = 0
             await asyncio.sleep(2)
 
 
@@ -1145,46 +1134,39 @@ async def manage_luld_subscription():
     """
     Gestiona la suscripción a LULD.* (Limit Up-Limit Down) para TODO el mercado.
     
-    LULD es un stream muy ligero (~3-10 msg/s durante market hours) que proporciona:
-    - Price bands (upper/lower limits) de todas las acciones
-    - Detección de halts y pauses
-    - Notificaciones de resume
-    - Limit state entries/exits
-    
-    Uses was_authenticated pattern to detect reconnections reliably,
-    even when the reconnect completes faster than our sleep interval.
+    Uses reconnection_epoch from ws_client to detect reconnections reliably.
+    The epoch increments on every successful authentication, so even if a
+    reconnection completes within our sleep interval, we always detect it.
     """
     global luld_subscribed
     
     logger.info("luld_subscription_manager_started")
-    was_authenticated = False
+    last_seen_epoch = 0
     
     while True:
         try:
-            is_auth = ws_client and ws_client.is_authenticated
-            
-            if is_auth and not was_authenticated:
-                # Transition False→True: fresh connection, must (re-)subscribe
-                luld_subscribed = False
-                logger.info("subscribing_to_luld_all_market")
-                success = await ws_client.subscribe_luld_all()
-                
-                if success:
-                    luld_subscribed = True
-                    logger.info(
-                        "luld_subscription_active",
-                        stream="LULD.*",
-                        description="Receiving halts, resumes, and price bands for entire market"
-                    )
-                else:
-                    logger.warning("luld_subscription_failed_will_retry")
-            
-            elif not is_auth:
+            if ws_client and ws_client.is_authenticated:
+                current_epoch = ws_client.reconnection_epoch
+                if current_epoch != last_seen_epoch:
+                    luld_subscribed = False
+                    logger.info("subscribing_to_luld_all_market", epoch=current_epoch)
+                    success = await ws_client.subscribe_luld_all()
+                    
+                    if success:
+                        luld_subscribed = True
+                        last_seen_epoch = current_epoch
+                        logger.info(
+                            "luld_subscription_active",
+                            stream="LULD.*",
+                            epoch=current_epoch,
+                        )
+                    else:
+                        logger.warning("luld_subscription_failed_will_retry")
+            else:
                 if luld_subscribed:
                     logger.info("luld_subscription_lost_due_to_disconnect")
                     luld_subscribed = False
             
-            was_authenticated = is_auth
             await asyncio.sleep(2)
             
         except asyncio.CancelledError:
@@ -1198,7 +1180,7 @@ async def manage_luld_subscription():
                 error_type=type(e).__name__
             )
             luld_subscribed = False
-            was_authenticated = False
+            last_seen_epoch = 0
             await asyncio.sleep(5)
 
 
@@ -1210,46 +1192,39 @@ async def manage_minute_agg_subscription():
     """
     Gestiona la suscripción a AM.* (1-minute aggregates) para TODO el mercado.
     
-    AM.* es el feed principal para el BarEngine:
-    - Proporciona barras OHLCV de 1 minuto para ~11K tickers
-    - ~8-10K mensajes por minuto durante market hours
-    - Se usa para calcular indicadores (RSI, MACD, etc.) con cobertura 100%
-    
-    Uses was_authenticated pattern to detect reconnections reliably,
-    even when the reconnect completes faster than our sleep interval.
-    A simple flag check misses fast reconnects (300ms) during a 2s sleep.
+    Uses reconnection_epoch from ws_client to detect reconnections reliably.
+    The epoch increments on every successful authentication, so even if a
+    reconnection completes within our sleep interval, we always detect it.
     """
     global minute_agg_subscribed
     
     logger.info("minute_agg_subscription_manager_started")
-    was_authenticated = False
+    last_seen_epoch = 0
     
     while True:
         try:
-            is_auth = ws_client and ws_client.is_authenticated
-            
-            if is_auth and not was_authenticated:
-                # Transition False→True: fresh connection, must (re-)subscribe
-                minute_agg_subscribed = False
-                logger.info("subscribing_to_am_all_market", reason="new_connection")
-                success = await ws_client.subscribe_minute_aggs_all()
-                
-                if success:
-                    minute_agg_subscribed = True
-                    logger.info(
-                        "am_subscription_active",
-                        stream="AM.*",
-                        description="Receiving 1-minute OHLCV bars for entire market"
-                    )
-                else:
-                    logger.warning("am_subscription_failed_will_retry")
-            
-            elif not is_auth:
+            if ws_client and ws_client.is_authenticated:
+                current_epoch = ws_client.reconnection_epoch
+                if current_epoch != last_seen_epoch:
+                    minute_agg_subscribed = False
+                    logger.info("subscribing_to_am_all_market", reason="new_connection", epoch=current_epoch)
+                    success = await ws_client.subscribe_minute_aggs_all()
+                    
+                    if success:
+                        minute_agg_subscribed = True
+                        last_seen_epoch = current_epoch
+                        logger.info(
+                            "am_subscription_active",
+                            stream="AM.*",
+                            epoch=current_epoch,
+                        )
+                    else:
+                        logger.warning("am_subscription_failed_will_retry")
+            else:
                 if minute_agg_subscribed:
                     logger.info("am_subscription_lost_due_to_disconnect")
                     minute_agg_subscribed = False
             
-            was_authenticated = is_auth
             await asyncio.sleep(2)
             
         except asyncio.CancelledError:
@@ -1263,7 +1238,7 @@ async def manage_minute_agg_subscription():
                 error_type=type(e).__name__
             )
             minute_agg_subscribed = False
-            was_authenticated = False
+            last_seen_epoch = 0
             await asyncio.sleep(5)
 
 
@@ -1302,21 +1277,20 @@ async def manage_trade_subscriptions():
     except Exception as e:
         logger.debug("trades_consumer_group_already_exists", error=str(e))
     
-    was_authenticated = False
+    last_seen_epoch = 0
     
     while True:
         try:
-            # Re-suscribir tras reconexión
-            if ws_client.is_authenticated and not was_authenticated:
+            current_epoch = ws_client.reconnection_epoch if ws_client else 0
+            if ws_client and ws_client.is_authenticated and current_epoch != last_seen_epoch:
                 if trade_subscribed_tickers:
                     logger.info(
                         "re_subscribing_trades_after_reconnection",
-                        count=len(trade_subscribed_tickers)
+                        count=len(trade_subscribed_tickers),
+                        epoch=current_epoch,
                     )
                     await ws_client.subscribe_to_tickers(trade_subscribed_tickers, {"T"})
-                was_authenticated = True
-            elif not ws_client.is_authenticated:
-                was_authenticated = False
+                last_seen_epoch = current_epoch
             
             # Leer comandos de suscripción
             messages = await redis_client.read_stream(
@@ -1386,6 +1360,7 @@ async def manage_trade_subscriptions():
                 error=str(e),
                 error_type=type(e).__name__
             )
+            last_seen_epoch = 0
             await asyncio.sleep(5)
 
 

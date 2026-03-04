@@ -70,6 +70,7 @@ class PolygonWebSocketClient:
         self.is_connected = False
         self.is_authenticated = False
         self._closing = False
+        self.reconnection_epoch: int = 0
 
         # Subscriptions
         self.subscribed_tickers: Set[str] = set()
@@ -188,7 +189,8 @@ class PolygonWebSocketClient:
 
         if response_data[0].get("status") in ["auth_success", "connected", "success"]:
             self.is_authenticated = True
-            logger.info("authenticated_successfully", response=response_data[0])
+            self.reconnection_epoch += 1
+            logger.info("authenticated_successfully", response=response_data[0], epoch=self.reconnection_epoch)
         else:
             logger.error("authentication_failed", response=response_data)
             raise Exception("Failed to authenticate with Polygon WebSocket")
