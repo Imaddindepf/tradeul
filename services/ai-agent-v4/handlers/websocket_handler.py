@@ -120,6 +120,7 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 "trigger_context": None,
                 "node_config": None,
                 "final_response": "",
+                "structured_response": None,
                 "execution_metadata": {},
                 "chart_context": chart_context,
                 "clarification": None,
@@ -223,8 +224,10 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                 # Check for structured outputs (backtest results, etc.)
                 structured_outputs = []
                 agent_results = {}
+                structured_response = None
                 if hasattr(final_state, "values"):
                     agent_results = final_state.values.get("agent_results", {})
+                    structured_response = final_state.values.get("structured_response")
 
                 bt_result = agent_results.get("backtest", {})
                 if isinstance(bt_result, dict) and bt_result.get("status") == "success":
@@ -244,6 +247,9 @@ async def handle_websocket(websocket: WebSocket, client_id: str) -> None:
                         "language": language,
                     },
                 }
+
+                if structured_response:
+                    response_payload["structured_response"] = structured_response
 
                 if structured_outputs:
                     response_payload["outputs"] = structured_outputs

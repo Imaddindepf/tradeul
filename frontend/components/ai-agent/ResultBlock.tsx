@@ -13,6 +13,8 @@ import { DataTable } from './DataTable';
 import { SectorPerformanceTable } from './SectorPerformanceTable';
 import { Chart } from './Chart';
 import { TradingChart } from '@/components/chart/TradingChart';
+import { StructuredResponseRenderer } from './StructuredResponseRenderer';
+import type { StructuredResponse } from './StructuredResponseRenderer';
 import type { ResultBlockData, OutputBlock } from './types';
 
 const LazyAutoChart = dynamic(() => import('./AutoChart').then(m => m.AutoBarChart), {
@@ -497,7 +499,13 @@ export const ResultBlock = memo(function ResultBlock({ block, onToggleCode }: Re
         const citations = researchOutput.citations || [];
         const rawContent = researchOutput.content || '';
 
-        // V4: standard markdown without citations
+        // V5: structured JSON response from Gemini 2.5 Flash
+        const structuredData = researchOutput.structured_response as StructuredResponse | undefined;
+        if (structuredData && structuredData.sections && structuredData.sections.length > 0) {
+          return <StructuredResponseRenderer key={index} data={structuredData} />;
+        }
+
+        // V4 fallback: standard markdown without citations
         if (citations.length === 0 && rawContent) {
           return <V4ResponseRenderer key={index} content={rawContent} />;
         }

@@ -282,15 +282,16 @@ export function useAIAgent(options: UseAIAgentOptions = {}) {
             const blockId = `${msgId}-response`;
             const userQuery = pendingRequestRef.current?.content || '';
             const structuredOutputs = data.outputs as Array<{type: string; [k: string]: unknown}> | undefined;
+            const structuredResponse = data.structured_response as Record<string, unknown> | undefined;
             const outputs: Array<{type: string; title: string; [k: string]: unknown}> = [];
 
             if (structuredOutputs && structuredOutputs.length > 0) {
               for (const so of structuredOutputs) { outputs.push(so as any); }
               if (response.trim()) {
-                outputs.push({ type: 'research' as const, title: 'AI Analysis', content: response });
+                outputs.push({ type: 'research' as const, title: 'AI Analysis', content: response, structured_response: structuredResponse });
               }
             } else {
-              outputs.push({ type: 'research' as const, title: 'AI Analysis', content: response });
+              outputs.push({ type: 'research' as const, title: 'AI Analysis', content: response, structured_response: structuredResponse });
             }
 
             setResultBlocks(prev => [...prev.slice(-(MAX_RESULT_BLOCKS - 1)), {

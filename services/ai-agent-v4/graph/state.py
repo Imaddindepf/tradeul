@@ -55,7 +55,8 @@ class AgentState(TypedDict):
     node_config: Optional[dict]          # Per-node configuration overrides
 
     # ── Output ──
-    final_response: str                  # Synthesized response for the user
+    final_response: str                  # Synthesized response for the user (markdown fallback)
+    structured_response: Optional[dict]  # Structured JSON response from synthesizer (primary)
     execution_metadata: Annotated[dict, merge_dicts]  # Timing, tokens used, agents activated
 
     # ── Thematic ──
