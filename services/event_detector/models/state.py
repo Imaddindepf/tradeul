@@ -57,6 +57,8 @@ class TickerState:
     chg_30min: Optional[float] = None       # Price change % last 30 min
     vol_1min: Optional[int] = None          # Volume last 1 min
     vol_5min: Optional[int] = None          # Volume last 5 min
+    vol_1min_pct: Optional[float] = None    # Volume 1min % of expected
+    vol_5min_pct: Optional[float] = None    # Volume 5min % of expected
     
     # ===== RELATIVE VOLUME =====
     rvol: Optional[float] = None            # Relative volume
@@ -132,6 +134,8 @@ class TickerState:
             "chg_30min": self.chg_30min,
             "vol_1min": self.vol_1min,
             "vol_5min": self.vol_5min,
+            "vol_1min_pct": self.vol_1min_pct,
+            "vol_5min_pct": self.vol_5min_pct,
             "rvol": self.rvol,
             "atr": self.atr,
             "atr_percent": self.atr_percent,

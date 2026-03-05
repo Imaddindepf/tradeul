@@ -181,6 +181,31 @@ pgPool.query("SELECT 1").then(() => {
  * @param {string} [opts.session_end] - ISO timestamp for session upper bound
  * @returns {Promise<Array>} Array of event objects (oldest→newest, capped by limit+1 to detect has_more)
  */
+// Build session_start / session_end as full ISO timestamps from market:session:status.
+// The session status stores times as bare "HH:MM:SS" strings (e.g. "04:00:00")
+// which are not valid SQL timestamps. We combine them with trading_date and extract
+// the UTC offset from the session's own timestamp field (handles EST/EDT automatically).
+function buildSessionOpts(sess) {
+  const opts = {};
+  const date = sess.trading_date; // "2026-03-05"
+  if (!date) return opts;
+
+  // Extract UTC offset from the session timestamp (e.g. "2026-03-05T04:00:23.731961-05:00")
+  let offset = "-05:00"; // default EST
+  if (sess.timestamp) {
+    const m = sess.timestamp.match(/([+-]\d{2}:\d{2})$/);
+    if (m) offset = m[1];
+  }
+
+  if (sess.pre_market_start) {
+    opts.session_start = `${date}T${sess.pre_market_start}${offset}`;
+  }
+  if (sess.post_market_end) {
+    opts.session_end = `${date}T${sess.post_market_end}${offset}`;
+  }
+  return opts;
+}
+
 async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
   if (!pgAvailable) return [];
 
@@ -230,6 +255,11 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['chg30minMin',       'chg30minMax',       'chg_30min',       null],
     ['vol1minMin',        'vol1minMax',        'vol_1min',        null],
     ['vol5minMin',        'vol5minMax',        'vol_5min',        null],
+    ['vol1minPctMin',     'vol1minPctMax',     null, 'vol_1min_pct'],
+    ['vol5minPctMin',     'vol5minPctMax',     null, 'vol_5min_pct'],
+    ['vol10minPctMin',    'vol10minPctMax',    null, 'vol_10min_pct'],
+    ['vol15minPctMin',    'vol15minPctMax',    null, 'vol_15min_pct'],
+    ['vol30minPctMin',    'vol30minPctMax',    null, 'vol_30min_pct'],
     // JSONB context only (enriched fields not in native columns)
     ['sma5Min',           'sma5Max',           null, 'sma_5'],
     ['sma8Min',           'sma8Max',           null, 'sma_8'],
@@ -252,17 +282,18 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
   ];
 
   for (const [minKey, maxKey, nativeCol, ctxKey] of FILTER_MAP) {
-    const minVal = sub[minKey];
-    const maxVal = sub[maxKey];
+    const lo = sub[minKey];
+    const hi = sub[maxKey];
+    if (lo == null && hi == null) continue;
 
-    if (nativeCol) {
-      // Native column — direct SQL
-      if (minVal != null) conditions.push(`${nativeCol} >= ${addParam(minVal)}`);
-      if (maxVal != null) conditions.push(`${nativeCol} <= ${addParam(maxVal)}`);
-    } else if (ctxKey) {
-      // JSONB context — use ->> operator with cast
-      if (minVal != null) conditions.push(`(context->>'${ctxKey}')::double precision >= ${addParam(minVal)}`);
-      if (maxVal != null) conditions.push(`(context->>'${ctxKey}')::double precision <= ${addParam(maxVal)}`);
+    const col = nativeCol || `(context->>'${ctxKey}')::double precision`;
+    const inverted = lo != null && hi != null && lo > hi;
+
+    if (inverted) {
+      conditions.push(`(${col} >= ${addParam(lo)} OR ${col} <= ${addParam(hi)})`);
+    } else {
+      if (lo != null) conditions.push(`${col} >= ${addParam(lo)}`);
+      if (hi != null) conditions.push(`${col} <= ${addParam(hi)}`);
     }
   }
 
@@ -364,6 +395,7 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
 
       if (row.details) evt.details = row.details;
 
+      enrichEventFromCache(evt);
       return evt;
     }).reverse(); // oldest first, newest last (same as Redis snapshot)
 
@@ -503,6 +535,101 @@ setInterval(refreshEnrichedCache, ENRICHED_CACHE_INTERVAL_MS);
 // Initial load
 refreshEnrichedCache();
 
+// ── Enrich an event payload with current enriched data for display columns ──
+// Event payload fields (point-in-time) take priority; enriched fills gaps only.
+// This ensures event tables show the same rich data as scanner tables.
+const ENRICHED_FLOAT_FIELDS = [
+  // Quote data
+  "bid", "ask", "spread",
+  // Time-window changes (gaps in EventRecord)
+  "chg_60min",
+  // Intraday SMA
+  "sma_5", "sma_8", "sma_20", "sma_50", "sma_200",
+  // MACD / Stochastic / ADX / Bollinger
+  "macd_line", "macd_hist", "stoch_k", "stoch_d", "adx_14",
+  "bb_upper", "bb_lower",
+  // Daily indicators
+  "daily_sma_20", "daily_sma_50", "daily_sma_200",
+  "daily_rsi", "daily_adx_14", "daily_atr_percent", "daily_bb_position",
+  // 52-week
+  "high_52w", "low_52w", "from_52w_high", "from_52w_low",
+  // Derived / computed
+  "dollar_volume", "todays_range", "todays_range_pct",
+  "bid_ask_ratio", "float_turnover",
+  "pos_in_range", "below_high", "above_low", "pos_of_open",
+  // Distances
+  "dist_from_vwap",
+  "dist_sma_5", "dist_sma_8", "dist_sma_20", "dist_sma_50", "dist_sma_200",
+  "dist_daily_sma_20", "dist_daily_sma_50",
+  // Multi-day changes
+  "change_1d", "change_3d", "change_5d", "change_10d", "change_20d",
+  // ATR absolute
+  "atr",
+  // VWAP (fallback)
+  "vwap",
+  // Fundamentals
+  "atr_percent", "market_cap", "float_shares",
+  // EMA (fallback)
+  "ema_20", "ema_50",
+  // RSI (fallback)
+  "rsi_14",
+  // Misc
+  "trades_z_score",
+  "price_from_intraday_high",
+  "distance_from_nbbo",
+  "volume_yesterday_pct",
+  "vol_1min_pct", "vol_5min_pct", "vol_10min_pct", "vol_15min_pct", "vol_30min_pct",
+];
+const ENRICHED_INT_FIELDS = [
+  "bid_size", "ask_size",
+  "shares_outstanding",
+  "vol_10min", "vol_15min", "vol_30min",
+  "prev_day_volume",
+  "trades_today",
+  "avg_volume_5d", "avg_volume_10d", "avg_volume_20d",
+];
+const ENRICHED_STRING_FIELDS = [
+  "security_type", "sector", "industry",
+];
+// Fields where enriched key differs from event payload key
+const ENRICHED_KEY_REMAP = {
+  rsi_14: "rsi",
+  price_from_intraday_high: "price_from_high",
+  volume_yesterday_pct: "volume_today_pct",
+  distance_from_nbbo: "distance_from_nbbo",
+};
+
+function enrichEventFromCache(evt) {
+  const enriched = enrichedCache.get(evt.symbol);
+  if (!enriched) return;
+
+  for (const key of ENRICHED_FLOAT_FIELDS) {
+    const evtKey = ENRICHED_KEY_REMAP[key] || key;
+    if (evt[evtKey] == null && enriched[key] != null) {
+      const n = typeof enriched[key] === "number" ? enriched[key] : parseFloat(enriched[key]);
+      if (!isNaN(n)) evt[evtKey] = n;
+    }
+  }
+  for (const key of ENRICHED_INT_FIELDS) {
+    const evtKey = ENRICHED_KEY_REMAP[key] || key;
+    if (evt[evtKey] == null && enriched[key] != null) {
+      const n = typeof enriched[key] === "number" ? enriched[key] : parseInt(enriched[key]);
+      if (!isNaN(n)) evt[evtKey] = n;
+    }
+  }
+  for (const key of ENRICHED_STRING_FIELDS) {
+    const evtKey = ENRICHED_KEY_REMAP[key] || key;
+    if ((evt[evtKey] == null || evt[evtKey] === "") && enriched[key] != null && enriched[key] !== "") {
+      evt[evtKey] = String(enriched[key]);
+    }
+  }
+
+  // Computed: spread = ask - bid (not stored directly in enriched)
+  if (evt.spread == null && evt.ask != null && evt.bid != null) {
+    evt.spread = +(evt.ask - evt.bid).toFixed(4);
+  }
+}
+
 // ── Helper: Parse a filter field from client data ──
 function pf(data, key) {
   const v = data[key];
@@ -559,6 +686,17 @@ const NUMERIC_FILTER_DEFS = [
   ['vol15minMax', 'vol_15min_max', pi],
   ['vol30minMin', 'vol_30min_min', pi],
   ['vol30minMax', 'vol_30min_max', pi],
+  // Volume window %
+  ['vol1minPctMin', 'vol_1min_pct_min', pf],
+  ['vol1minPctMax', 'vol_1min_pct_max', pf],
+  ['vol5minPctMin', 'vol_5min_pct_min', pf],
+  ['vol5minPctMax', 'vol_5min_pct_max', pf],
+  ['vol10minPctMin', 'vol_10min_pct_min', pf],
+  ['vol10minPctMax', 'vol_10min_pct_max', pf],
+  ['vol15minPctMin', 'vol_15min_pct_min', pf],
+  ['vol15minPctMax', 'vol_15min_pct_max', pf],
+  ['vol30minPctMin', 'vol_30min_pct_min', pf],
+  ['vol30minPctMax', 'vol_30min_pct_max', pf],
   // Change windows
   ['chg1minMin', 'chg_1min_min', pf],
   ['chg1minMax', 'chg_1min_max', pf],
@@ -895,10 +1033,14 @@ function eventPassesSubscription(evt, sub) {
   }
 
   // ── Apply all numeric filters ──
-  // Event-payload filters (use evt directly)
+  // Supports inverted ranges (min > max) for OR/outside-range logic (Trade Ideas style).
   function chkEvt(v, minKey, maxKey) {
-    if (sub[minKey] !== null && (v == null || v < sub[minKey])) return false;
-    if (sub[maxKey] !== null && (v == null || v > sub[maxKey])) return false;
+    const lo = sub[minKey], hi = sub[maxKey];
+    if (lo === null && hi === null) return true;
+    if (v == null) return false;
+    if (lo !== null && hi !== null && lo > hi) return v >= lo || v <= hi;
+    if (lo !== null && v < lo) return false;
+    if (hi !== null && v > hi) return false;
     return true;
   }
 
@@ -923,6 +1065,13 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.vol_10min, 'vol10minMin', 'vol10minMax')) return false;
   if (!chkEvt(enriched.vol_15min, 'vol15minMin', 'vol15minMax')) return false;
   if (!chkEvt(enriched.vol_30min, 'vol30minMin', 'vol30minMax')) return false;
+
+  // Volume window %
+  if (!chkEvt(enriched.vol_1min_pct, 'vol1minPctMin', 'vol1minPctMax')) return false;
+  if (!chkEvt(enriched.vol_5min_pct, 'vol5minPctMin', 'vol5minPctMax')) return false;
+  if (!chkEvt(enriched.vol_10min_pct, 'vol10minPctMin', 'vol10minPctMax')) return false;
+  if (!chkEvt(enriched.vol_15min_pct, 'vol15minPctMin', 'vol15minPctMax')) return false;
+  if (!chkEvt(enriched.vol_30min_pct, 'vol30minPctMin', 'vol30minPctMax')) return false;
 
   // Change windows
   if (!chkEvt(val('chg_1min', 'chg_1min'), 'chg1minMin', 'chg1minMax')) return false;
@@ -3004,6 +3153,9 @@ function broadcastMarketEvent(eventData) {
     eventPayload[key] = isNaN(n) ? null : n;
   }
 
+  // Enrich with current snapshot data (fills display columns not in EventRecord)
+  enrichEventFromCache(eventPayload);
+
   let sent = 0;
   let filtered = 0;
   let backpressured = 0;
@@ -3662,8 +3814,7 @@ wss.on("connection", async (ws, req) => {
             const sessRaw = await redis.get("market:session:status");
             if (sessRaw) {
               const sess = JSON.parse(sessRaw);
-              if (sess.pre_market_start) sessionOpts.session_start = sess.pre_market_start;
-              if (sess.post_market_end) sessionOpts.session_end = sess.post_market_end;
+              sessionOpts = buildSessionOpts(sess);
             }
           } catch (_) { /* use fallback 16h window */ }
 
@@ -3711,6 +3862,7 @@ wss.on("connection", async (ws, req) => {
                   const n = parseFloat(raw); evt[key] = isNaN(n) ? null : n;
                 }
                 if (eventPassesSubscription(evt, sub)) {
+                  enrichEventFromCache(evt);
                   matched.push(evt);
                   if (matched.length >= SNAPSHOT_TARGET) break;
                 }
@@ -3799,8 +3951,9 @@ wss.on("connection", async (ws, req) => {
                 const sessRaw = await redis.get("market:session:status");
                 if (sessRaw) {
                   const sess = JSON.parse(sessRaw);
-                  if (sess.pre_market_start) sessionOpts.session_start = sess.pre_market_start;
-                  if (sess.post_market_end) sessionOpts.session_end = sess.post_market_end;
+                  const bounds = buildSessionOpts(sess);
+                  if (bounds.session_start) sessionOpts.session_start = bounds.session_start;
+                  if (bounds.session_end) sessionOpts.session_end = bounds.session_end;
                 }
               } catch (_) { /* fallback 16h */ }
 

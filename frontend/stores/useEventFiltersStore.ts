@@ -82,6 +82,18 @@ export interface EventFilterParameters {
   min_vol_30min?: number;
   max_vol_30min?: number;
 
+  // Volume window % (Trade Ideas style)
+  min_vol_1min_pct?: number;
+  max_vol_1min_pct?: number;
+  min_vol_5min_pct?: number;
+  max_vol_5min_pct?: number;
+  min_vol_10min_pct?: number;
+  max_vol_10min_pct?: number;
+  min_vol_15min_pct?: number;
+  max_vol_15min_pct?: number;
+  min_vol_30min_pct?: number;
+  max_vol_30min_pct?: number;
+
   // Change 60 min
   min_chg_60min?: number;
   max_chg_60min?: number;

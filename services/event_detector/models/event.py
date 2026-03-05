@@ -231,6 +231,8 @@ class EventRecord:
     chg_30min: Optional[float] = None
     vol_1min: Optional[int] = None
     vol_5min: Optional[int] = None
+    vol_1min_pct: Optional[float] = None
+    vol_5min_pct: Optional[float] = None
     
     # Technical indicators (from BarEngine via enriched)
     float_shares: Optional[float] = None
@@ -298,6 +300,10 @@ class EventRecord:
             result["vol_1min"] = self.vol_1min
         if self.vol_5min is not None:
             result["vol_5min"] = self.vol_5min
+        if self.vol_1min_pct is not None:
+            result["vol_1min_pct"] = self.vol_1min_pct
+        if self.vol_5min_pct is not None:
+            result["vol_5min_pct"] = self.vol_5min_pct
         # String optional fields
         if self.security_type is not None:
             result["security_type"] = self.security_type
@@ -352,6 +358,8 @@ class EventRecord:
             chg_30min=_float("chg_30min"),
             vol_1min=_int("vol_1min"),
             vol_5min=_int("vol_5min"),
+            vol_1min_pct=_float("vol_1min_pct"),
+            vol_5min_pct=_float("vol_5min_pct"),
             # Technical indicators
             float_shares=_float("float_shares"),
             rsi=_float("rsi"),

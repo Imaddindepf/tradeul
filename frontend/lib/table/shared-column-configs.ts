@@ -173,6 +173,55 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // VOLUMEN VENTANA % (Trade Ideas style)
+  // ═══════════════════════════════════════════════════════════════
+  vol_1min_pct: {
+    header: 'V1m%',
+    size: 70,
+    minSize: 55,
+    maxSize: 90,
+    enableHiding: true,
+    format: 'percent',
+    suffix: '%',
+  },
+  vol_5min_pct: {
+    header: 'V5m%',
+    size: 70,
+    minSize: 55,
+    maxSize: 90,
+    enableHiding: true,
+    format: 'percent',
+    suffix: '%',
+  },
+  vol_10min_pct: {
+    header: 'V10m%',
+    size: 75,
+    minSize: 60,
+    maxSize: 95,
+    enableHiding: true,
+    format: 'percent',
+    suffix: '%',
+  },
+  vol_15min_pct: {
+    header: 'V15m%',
+    size: 75,
+    minSize: 60,
+    maxSize: 95,
+    enableHiding: true,
+    format: 'percent',
+    suffix: '%',
+  },
+  vol_30min_pct: {
+    header: 'V30m%',
+    size: 75,
+    minSize: 60,
+    maxSize: 95,
+    enableHiding: true,
+    format: 'percent',
+    suffix: '%',
+  },
+
+  // ═══════════════════════════════════════════════════════════════
   // CAMBIOS POR VENTANA DE TIEMPO
   // ═══════════════════════════════════════════════════════════════
   chg_1min: {

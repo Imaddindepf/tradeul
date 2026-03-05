@@ -79,6 +79,13 @@ class ScannerTicker(BaseModel):
     vol_15min: Optional[int] = Field(None, description="Volume traded in last 15 minutes")
     vol_30min: Optional[int] = Field(None, description="Volume traded in last 30 minutes")
     
+    # Volume window % metrics (vs avg_volume_10d, Trade Ideas style)
+    vol_1min_pct: Optional[float] = Field(None, description="Volume 1min as % of expected (100=normal)")
+    vol_5min_pct: Optional[float] = Field(None, description="Volume 5min as % of expected (100=normal)")
+    vol_10min_pct: Optional[float] = Field(None, description="Volume 10min as % of expected (100=normal)")
+    vol_15min_pct: Optional[float] = Field(None, description="Volume 15min as % of expected (100=normal)")
+    vol_30min_pct: Optional[float] = Field(None, description="Volume 30min as % of expected (100=normal)")
+    
     # Price change window metrics (% change in last N minutes - per-second precision)
     chg_1min: Optional[float] = Field(None, description="Price change % in last 1 minute")
     chg_5min: Optional[float] = Field(None, description="Price change % in last 5 minutes")
@@ -364,6 +371,18 @@ class FilterParameters(BaseModel):
     max_vol_15min: Optional[int] = Field(None, ge=0, description="Max volume in last 15 minutes")
     min_vol_30min: Optional[int] = Field(None, ge=0, description="Min volume in last 30 minutes")
     max_vol_30min: Optional[int] = Field(None, ge=0, description="Max volume in last 30 minutes")
+    
+    # Volume window % filters (vs avg_volume_10d, Trade Ideas style)
+    min_vol_1min_pct: Optional[float] = Field(None, ge=0, description="Min volume 1min %")
+    max_vol_1min_pct: Optional[float] = Field(None, ge=0, description="Max volume 1min %")
+    min_vol_5min_pct: Optional[float] = Field(None, ge=0, description="Min volume 5min %")
+    max_vol_5min_pct: Optional[float] = Field(None, ge=0, description="Max volume 5min %")
+    min_vol_10min_pct: Optional[float] = Field(None, ge=0, description="Min volume 10min %")
+    max_vol_10min_pct: Optional[float] = Field(None, ge=0, description="Max volume 10min %")
+    min_vol_15min_pct: Optional[float] = Field(None, ge=0, description="Min volume 15min %")
+    max_vol_15min_pct: Optional[float] = Field(None, ge=0, description="Max volume 15min %")
+    min_vol_30min_pct: Optional[float] = Field(None, ge=0, description="Min volume 30min %")
+    max_vol_30min_pct: Optional[float] = Field(None, ge=0, description="Max volume 30min %")
     
     # Price change window filters (% change in last N minutes)
     min_chg_1min: Optional[float] = Field(None, description="Min % change in last 1 minute")

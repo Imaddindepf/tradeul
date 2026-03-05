@@ -96,6 +96,11 @@ export interface MarketEvent {
   vol_10min?: number;
   vol_15min?: number;
   vol_30min?: number;
+  vol_1min_pct?: number;
+  vol_5min_pct?: number;
+  vol_10min_pct?: number;
+  vol_15min_pct?: number;
+  vol_30min_pct?: number;
   // Quote data
   bid?: number;
   ask?: number;
@@ -291,6 +296,11 @@ const DEFAULT_EVENT_COLUMN_VISIBILITY: VisibilityState = {
   vol_10min: false,
   vol_15min: false,
   vol_30min: false,
+  vol_1min_pct: false,
+  vol_5min_pct: false,
+  vol_10min_pct: false,
+  vol_15min_pct: false,
+  vol_30min_pct: false,
   // Quote data
   bid: false,
   ask: false,
@@ -417,39 +427,116 @@ interface EventTableContentProps {
 // ============================================================================
 
 function parseEvent(d: any): MarketEvent {
+  const p = (k: string) => d[k] ?? undefined;
   return {
     id: d.id || `${d.symbol}_${d.event_type}_${d.timestamp}`,
     symbol: d.symbol,
     event_type: d.event_type,
     timestamp: d.timestamp,
     price: d.price,
-    prev_value: d.prev_value ?? undefined,
-    new_value: d.new_value ?? undefined,
-    delta: d.delta ?? undefined,
-    delta_percent: d.delta_percent ?? undefined,
-    change_percent: d.change_percent ?? undefined,
-    volume: d.volume ?? undefined,
-    rvol: d.rvol ?? undefined,
-    market_cap: d.market_cap ?? undefined,
-    gap_percent: d.gap_percent ?? undefined,
-    change_from_open: d.change_from_open ?? undefined,
-    open_price: d.open_price ?? undefined,
-    prev_close: d.prev_close ?? undefined,
-    vwap: d.vwap ?? undefined,
-    atr_percent: d.atr_percent ?? undefined,
-    intraday_high: d.intraday_high ?? undefined,
-    intraday_low: d.intraday_low ?? undefined,
-    chg_1min: d.chg_1min ?? undefined,
-    chg_5min: d.chg_5min ?? undefined,
-    chg_10min: d.chg_10min ?? undefined,
-    chg_15min: d.chg_15min ?? undefined,
-    chg_30min: d.chg_30min ?? undefined,
-    vol_1min: d.vol_1min ?? undefined,
-    vol_5min: d.vol_5min ?? undefined,
-    float_shares: d.float_shares ?? undefined,
-    rsi: d.rsi ?? undefined,
-    ema_20: d.ema_20 ?? undefined,
-    ema_50: d.ema_50 ?? undefined,
+    prev_value: p('prev_value'),
+    new_value: p('new_value'),
+    delta: p('delta'),
+    delta_percent: p('delta_percent'),
+    change_percent: p('change_percent'),
+    volume: p('volume'),
+    rvol: p('rvol'),
+    market_cap: p('market_cap'),
+    gap_percent: p('gap_percent'),
+    change_from_open: p('change_from_open'),
+    open_price: p('open_price'),
+    prev_close: p('prev_close'),
+    vwap: p('vwap'),
+    atr_percent: p('atr_percent'),
+    atr: p('atr'),
+    intraday_high: p('intraday_high'),
+    intraday_low: p('intraday_low'),
+    chg_1min: p('chg_1min'),
+    chg_5min: p('chg_5min'),
+    chg_10min: p('chg_10min'),
+    chg_15min: p('chg_15min'),
+    chg_30min: p('chg_30min'),
+    chg_60min: p('chg_60min'),
+    vol_1min: p('vol_1min'),
+    vol_5min: p('vol_5min'),
+    vol_10min: p('vol_10min'),
+    vol_15min: p('vol_15min'),
+    vol_30min: p('vol_30min'),
+    vol_1min_pct: p('vol_1min_pct'),
+    vol_5min_pct: p('vol_5min_pct'),
+    vol_10min_pct: p('vol_10min_pct'),
+    vol_15min_pct: p('vol_15min_pct'),
+    vol_30min_pct: p('vol_30min_pct'),
+    bid: p('bid'),
+    ask: p('ask'),
+    bid_size: p('bid_size'),
+    ask_size: p('ask_size'),
+    spread: p('spread'),
+    float_shares: p('float_shares'),
+    shares_outstanding: p('shares_outstanding'),
+    rsi: p('rsi'),
+    ema_20: p('ema_20'),
+    ema_50: p('ema_50'),
+    sma_5: p('sma_5'),
+    sma_8: p('sma_8'),
+    sma_20: p('sma_20'),
+    sma_50: p('sma_50'),
+    sma_200: p('sma_200'),
+    macd_line: p('macd_line'),
+    macd_hist: p('macd_hist'),
+    stoch_k: p('stoch_k'),
+    stoch_d: p('stoch_d'),
+    adx_14: p('adx_14'),
+    bb_upper: p('bb_upper'),
+    bb_lower: p('bb_lower'),
+    daily_sma_20: p('daily_sma_20'),
+    daily_sma_50: p('daily_sma_50'),
+    daily_sma_200: p('daily_sma_200'),
+    daily_rsi: p('daily_rsi'),
+    daily_adx_14: p('daily_adx_14'),
+    daily_atr_percent: p('daily_atr_percent'),
+    daily_bb_position: p('daily_bb_position'),
+    high_52w: p('high_52w'),
+    low_52w: p('low_52w'),
+    from_52w_high: p('from_52w_high'),
+    from_52w_low: p('from_52w_low'),
+    dollar_volume: p('dollar_volume'),
+    todays_range: p('todays_range'),
+    todays_range_pct: p('todays_range_pct'),
+    bid_ask_ratio: p('bid_ask_ratio'),
+    float_turnover: p('float_turnover'),
+    pos_in_range: p('pos_in_range'),
+    below_high: p('below_high'),
+    above_low: p('above_low'),
+    pos_of_open: p('pos_of_open'),
+    prev_day_volume: p('prev_day_volume'),
+    dist_from_vwap: p('dist_from_vwap'),
+    dist_sma_5: p('dist_sma_5'),
+    dist_sma_8: p('dist_sma_8'),
+    dist_sma_20: p('dist_sma_20'),
+    dist_sma_50: p('dist_sma_50'),
+    dist_sma_200: p('dist_sma_200'),
+    dist_daily_sma_20: p('dist_daily_sma_20'),
+    dist_daily_sma_50: p('dist_daily_sma_50'),
+    change_1d: p('change_1d'),
+    change_3d: p('change_3d'),
+    change_5d: p('change_5d'),
+    change_10d: p('change_10d'),
+    change_20d: p('change_20d'),
+    avg_volume_5d: p('avg_volume_5d'),
+    avg_volume_10d: p('avg_volume_10d'),
+    avg_volume_20d: p('avg_volume_20d'),
+    avg_volume_3m: p('avg_volume_3m'),
+    security_type: p('security_type'),
+    sector: p('sector'),
+    industry: p('industry'),
+    volume_today_pct: p('volume_today_pct'),
+    price_from_high: p('price_from_high'),
+    distance_from_nbbo: p('distance_from_nbbo'),
+    premarket_change_percent: p('premarket_change_percent'),
+    postmarket_change_percent: p('postmarket_change_percent'),
+    trades_today: p('trades_today'),
+    trades_z_score: p('trades_z_score'),
     metadata: d.details || d.metadata,
   };
 }
@@ -459,10 +546,12 @@ function parseEvent(d: any): MarketEvent {
  * Centralised to avoid duplication between market_event and events_snapshot.
  */
 function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore').ActiveEventFilters): boolean {
-  // Helper: min/max numeric check (undefined field → exclude when filter active)
   const chk = (val: number | undefined, min: number | undefined, max: number | undefined): boolean => {
-    if (min !== undefined && (val === undefined || val < min)) return false;
-    if (max !== undefined && (val === undefined || val > max)) return false;
+    if (min === undefined && max === undefined) return true;
+    if (val === undefined) return false;
+    if (min !== undefined && max !== undefined && min > max) return val >= min || val <= max;
+    if (min !== undefined && val < min) return false;
+    if (max !== undefined && val > max) return false;
     return true;
   };
   if (!chk(e.price, f.min_price, f.max_price)) return false;
@@ -483,6 +572,12 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   // Time-window volumes
   if (!chk(e.vol_1min, f.min_vol_1min, f.max_vol_1min)) return false;
   if (!chk(e.vol_5min, f.min_vol_5min, f.max_vol_5min)) return false;
+  // Volume window %
+  if (!chk(e.vol_1min_pct, f.min_vol_1min_pct, f.max_vol_1min_pct)) return false;
+  if (!chk(e.vol_5min_pct, f.min_vol_5min_pct, f.max_vol_5min_pct)) return false;
+  if (!chk(e.vol_10min_pct, f.min_vol_10min_pct, f.max_vol_10min_pct)) return false;
+  if (!chk(e.vol_15min_pct, f.min_vol_15min_pct, f.max_vol_15min_pct)) return false;
+  if (!chk(e.vol_30min_pct, f.min_vol_30min_pct, f.max_vol_30min_pct)) return false;
   // Fundamentals & indicators
   if (!chk(e.float_shares, f.min_float_shares, f.max_float_shares)) return false;
   if (!chk(e.rsi, f.min_rsi, f.max_rsi)) return false;
@@ -612,40 +707,12 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
   // Apply client-side filters (complement server-side filtering)
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
-      // Event type filter (only for "All Events" category where user can narrow down)
       if (categoryId === 'evt_all' && eventFilters.event_types && eventFilters.event_types.length > 0) {
         if (!eventFilters.event_types.includes(event.event_type)) {
           return false;
         }
       }
-
-      // Price filter (also applied server-side, this is a safety net)
-      if (eventFilters.min_price !== undefined && event.price < eventFilters.min_price) return false;
-      if (eventFilters.max_price !== undefined && event.price > eventFilters.max_price) return false;
-
-      // Change percent filter
-      if (eventFilters.min_change_percent !== undefined && (event.change_percent === undefined || event.change_percent < eventFilters.min_change_percent)) return false;
-      if (eventFilters.max_change_percent !== undefined && (event.change_percent === undefined || event.change_percent > eventFilters.max_change_percent)) return false;
-
-      // RVOL filter
-      if (eventFilters.min_rvol !== undefined && (event.rvol === undefined || event.rvol < eventFilters.min_rvol)) return false;
-      if (eventFilters.max_rvol !== undefined && (event.rvol === undefined || event.rvol > eventFilters.max_rvol)) return false;
-
-      // Volume filter
-      if (eventFilters.min_volume !== undefined && (event.volume === undefined || event.volume < eventFilters.min_volume)) return false;
-      if (eventFilters.max_volume !== undefined && (event.volume === undefined || event.volume > eventFilters.max_volume)) return false;
-
-      // Symbol include filter
-      if (eventFilters.symbols_include && eventFilters.symbols_include.length > 0) {
-        if (!eventFilters.symbols_include.includes(event.symbol)) return false;
-      }
-
-      // Symbol exclude filter
-      if (eventFilters.symbols_exclude && eventFilters.symbols_exclude.length > 0) {
-        if (eventFilters.symbols_exclude.includes(event.symbol)) return false;
-      }
-
-      return true;
+      return passesFilters(event, eventFilters);
     });
   }, [events, eventFilters, categoryId]);
 
@@ -717,6 +784,12 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('vol_10min_min', filters.min_vol_10min); setF('vol_10min_max', filters.max_vol_10min);
     setF('vol_15min_min', filters.min_vol_15min); setF('vol_15min_max', filters.max_vol_15min);
     setF('vol_30min_min', filters.min_vol_30min); setF('vol_30min_max', filters.max_vol_30min);
+    // Volume window %
+    setF('vol_1min_pct_min', filters.min_vol_1min_pct); setF('vol_1min_pct_max', filters.max_vol_1min_pct);
+    setF('vol_5min_pct_min', filters.min_vol_5min_pct); setF('vol_5min_pct_max', filters.max_vol_5min_pct);
+    setF('vol_10min_pct_min', filters.min_vol_10min_pct); setF('vol_10min_pct_max', filters.max_vol_10min_pct);
+    setF('vol_15min_pct_min', filters.min_vol_15min_pct); setF('vol_15min_pct_max', filters.max_vol_15min_pct);
+    setF('vol_30min_pct_min', filters.min_vol_30min_pct); setF('vol_30min_pct_max', filters.max_vol_30min_pct);
     // Change windows
     setF('chg_1min_min', filters.min_chg_1min); setF('chg_1min_max', filters.max_chg_1min);
     setF('chg_5min_min', filters.min_chg_5min); setF('chg_5min_max', filters.max_chg_5min);
@@ -959,6 +1032,11 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['vol_10min_min', f.min_vol_10min], ['vol_10min_max', f.max_vol_10min],
         ['vol_15min_min', f.min_vol_15min], ['vol_15min_max', f.max_vol_15min],
         ['vol_30min_min', f.min_vol_30min], ['vol_30min_max', f.max_vol_30min],
+        ['vol_1min_pct_min', f.min_vol_1min_pct], ['vol_1min_pct_max', f.max_vol_1min_pct],
+        ['vol_5min_pct_min', f.min_vol_5min_pct], ['vol_5min_pct_max', f.max_vol_5min_pct],
+        ['vol_10min_pct_min', f.min_vol_10min_pct], ['vol_10min_pct_max', f.max_vol_10min_pct],
+        ['vol_15min_pct_min', f.min_vol_15min_pct], ['vol_15min_pct_max', f.max_vol_15min_pct],
+        ['vol_30min_pct_min', f.min_vol_30min_pct], ['vol_30min_pct_max', f.max_vol_30min_pct],
         ['chg_1min_min', f.min_chg_1min], ['chg_1min_max', f.max_chg_1min],
         ['chg_5min_min', f.min_chg_5min], ['chg_5min_max', f.max_chg_5min],
         ['chg_10min_min', f.min_chg_10min], ['chg_10min_max', f.max_chg_10min],
@@ -1677,6 +1755,71 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           const config = getColumnConfig('vol_30min');
           const formatted = formatValue(value, config.format, config.suffix);
           const cellClass = config.cellClass ? config.cellClass(value) : 'text-slate-600';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_1min_pct', {
+        ...getColumnConfig('vol_1min_pct'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_1min_pct');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_5min_pct', {
+        ...getColumnConfig('vol_5min_pct'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_5min_pct');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_10min_pct', {
+        ...getColumnConfig('vol_10min_pct'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_10min_pct');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_15min_pct', {
+        ...getColumnConfig('vol_15min_pct'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_15min_pct');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+        },
+      }),
+
+      columnHelper.accessor('vol_30min_pct', {
+        ...getColumnConfig('vol_30min_pct'),
+        enableSorting: true,
+        cell: (info) => {
+          const value = info.getValue();
+          if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+          const config = getColumnConfig('vol_30min_pct');
+          const formatted = formatValue(value, config.format, config.suffix);
+          const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
           return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
         },
       }),

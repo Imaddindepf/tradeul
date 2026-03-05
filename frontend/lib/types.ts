@@ -69,6 +69,13 @@ export interface Ticker {
   vol_15min?: number;
   vol_30min?: number;
 
+  // Volume window % (Trade Ideas style, vs avg_volume_10d)
+  vol_1min_pct?: number;
+  vol_5min_pct?: number;
+  vol_10min_pct?: number;
+  vol_15min_pct?: number;
+  vol_30min_pct?: number;
+
   // Price change window metrics (% change in last N minutes - per-second precision)
   chg_1min?: number;
   chg_5min?: number;

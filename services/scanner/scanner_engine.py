@@ -695,6 +695,12 @@ class ScannerEngine:
             vol_15min = atr_data.get('vol_15min') if atr_data else None
             vol_30min = atr_data.get('vol_30min') if atr_data else None
             
+            vol_1min_pct = atr_data.get('vol_1min_pct') if atr_data else None
+            vol_5min_pct = atr_data.get('vol_5min_pct') if atr_data else None
+            vol_10min_pct = atr_data.get('vol_10min_pct') if atr_data else None
+            vol_15min_pct = atr_data.get('vol_15min_pct') if atr_data else None
+            vol_30min_pct = atr_data.get('vol_30min_pct') if atr_data else None
+            
             # Extract price change window metrics (from enriched snapshot - PriceWindowTracker)
             chg_1min = atr_data.get('chg_1min') if atr_data else None
             chg_5min = atr_data.get('chg_5min') if atr_data else None
@@ -769,6 +775,11 @@ class ScannerEngine:
                 vol_10min=vol_10min,
                 vol_15min=vol_15min,
                 vol_30min=vol_30min,
+                vol_1min_pct=vol_1min_pct,
+                vol_5min_pct=vol_5min_pct,
+                vol_10min_pct=vol_10min_pct,
+                vol_15min_pct=vol_15min_pct,
+                vol_30min_pct=vol_30min_pct,
                 # Price change window metrics (per-second precision)
                 chg_1min=chg_1min,
                 chg_5min=chg_5min,
@@ -1003,6 +1014,11 @@ class ScannerEngine:
                 vol_10min=enriched.vol_10min,
                 vol_15min=enriched.vol_15min,
                 vol_30min=enriched.vol_30min,
+                vol_1min_pct=enriched.vol_1min_pct,
+                vol_5min_pct=enriched.vol_5min_pct,
+                vol_10min_pct=enriched.vol_10min_pct,
+                vol_15min_pct=enriched.vol_15min_pct,
+                vol_30min_pct=enriched.vol_30min_pct,
                 chg_1min=enriched.chg_1min,
                 chg_5min=enriched.chg_5min,
                 chg_10min=enriched.chg_10min,

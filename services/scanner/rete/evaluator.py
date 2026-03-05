@@ -57,7 +57,11 @@ def evaluate_condition(ticker_value: Any, condition: Condition) -> bool:
     if op == Operator.BETWEEN:
         min_val, max_val = cond_value
         return min_val <= ticker_value <= max_val
-    
+
+    if op == Operator.OUTSIDE:
+        min_val, max_val = cond_value
+        return ticker_value >= min_val or ticker_value <= max_val
+
     if op == Operator.IN:
         return ticker_value in cond_value
     

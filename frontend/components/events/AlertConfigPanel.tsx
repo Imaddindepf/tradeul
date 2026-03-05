@@ -286,6 +286,21 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
           <FilterInput label="Vol 30m" minValue={currentFilters.min_vol_30min} maxValue={currentFilters.max_vol_30min}
             onMinChange={v => update('min_vol_30min', v)} onMaxChange={v => update('max_vol_30min', v)}
             unitOpts={['', 'K', 'M']} defaultUnit="K" phMin="20" phMax="1000" />
+          <FilterInput label="Vol 1m %" minValue={currentFilters.min_vol_1min_pct} maxValue={currentFilters.max_vol_1min_pct}
+            onMinChange={v => update('min_vol_1min_pct', v)} onMaxChange={v => update('max_vol_1min_pct', v)}
+            suffix="%" phMin="100" phMax="500" />
+          <FilterInput label="Vol 5m %" minValue={currentFilters.min_vol_5min_pct} maxValue={currentFilters.max_vol_5min_pct}
+            onMinChange={v => update('min_vol_5min_pct', v)} onMaxChange={v => update('max_vol_5min_pct', v)}
+            suffix="%" phMin="100" phMax="500" />
+          <FilterInput label="Vol 10m %" minValue={currentFilters.min_vol_10min_pct} maxValue={currentFilters.max_vol_10min_pct}
+            onMinChange={v => update('min_vol_10min_pct', v)} onMaxChange={v => update('max_vol_10min_pct', v)}
+            suffix="%" phMin="100" phMax="500" />
+          <FilterInput label="Vol 15m %" minValue={currentFilters.min_vol_15min_pct} maxValue={currentFilters.max_vol_15min_pct}
+            onMinChange={v => update('min_vol_15min_pct', v)} onMaxChange={v => update('max_vol_15min_pct', v)}
+            suffix="%" phMin="100" phMax="500" />
+          <FilterInput label="Vol 30m %" minValue={currentFilters.min_vol_30min_pct} maxValue={currentFilters.max_vol_30min_pct}
+            onMinChange={v => update('min_vol_30min_pct', v)} onMaxChange={v => update('max_vol_30min_pct', v)}
+            suffix="%" phMin="100" phMax="500" />
         </div>
         <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Fundamentals</div>

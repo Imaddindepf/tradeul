@@ -51,6 +51,7 @@ COLUMNS = [
     # Time-window changes
     "chg_1min", "chg_5min", "chg_10min", "chg_15min", "chg_30min",
     "vol_1min", "vol_5min",
+    "vol_1min_pct", "vol_5min_pct",
     # Technical indicators
     "rsi", "ema_20", "ema_50",
     # Details + full enriched context
@@ -282,6 +283,8 @@ class EventWriter:
             _f("chg_30min"),
             _i("vol_1min"),
             _i("vol_5min"),
+            _f("vol_1min_pct"),
+            _f("vol_5min_pct"),
             # Technical
             _f("rsi"),
             _f("ema_20"),
@@ -373,6 +376,8 @@ class EventWriter:
                 chg_30min       DOUBLE PRECISION,
                 vol_1min        BIGINT,
                 vol_5min        BIGINT,
+                vol_1min_pct    DOUBLE PRECISION,
+                vol_5min_pct    DOUBLE PRECISION,
 
                 -- Technical indicators
                 rsi             DOUBLE PRECISION,

@@ -37,6 +37,21 @@ class FilteredResponse(BaseModel):
     filtered: int
 
 
+def _passes_range(value, lo, hi) -> bool:
+    """Check value against min/max. Inverted range (lo > hi) uses OR/outside logic."""
+    if lo is None and hi is None:
+        return True
+    if value is None:
+        return False
+    if lo is not None and hi is not None and lo > hi:
+        return value >= lo or value <= hi
+    if lo is not None and value < lo:
+        return False
+    if hi is not None and value > hi:
+        return False
+    return True
+
+
 @router.get("/filtered", response_model=FilteredResponse)
 async def get_filtered_tickers(
     # Price filters
@@ -93,7 +108,6 @@ async def get_filtered_tickers(
                 continue
         total = len(all_tickers)
         
-        # Aplicar filtros
         filtered = []
         for ticker in all_tickers:
             # Price filter (current_price o lastTrade.p)
@@ -102,37 +116,27 @@ async def get_filtered_tickers(
                 last_trade = ticker.get("lastTrade", {})
                 price = last_trade.get("p") if isinstance(last_trade, dict) else None
             
-            if price_min is not None and (price is None or price < price_min):
-                continue
-            if price_max is not None and (price is None or price > price_max):
+            if not _passes_range(price, price_min, price_max):
                 continue
             
             # Change percent filter (todaysChangePerc)
             change = ticker.get("todaysChangePerc") or ticker.get("change_percent")
-            if change_percent_min is not None and (change is None or change < change_percent_min):
-                continue
-            if change_percent_max is not None and (change is None or change > change_percent_max):
+            if not _passes_range(change, change_percent_min, change_percent_max):
                 continue
             
             # Gap percent filter
             gap = ticker.get("gap_percent") or ticker.get("gap_pct")
-            if gap_percent_min is not None and (gap is None or gap < gap_percent_min):
-                continue
-            if gap_percent_max is not None and (gap is None or gap > gap_percent_max):
+            if not _passes_range(gap, gap_percent_min, gap_percent_max):
                 continue
             
             # Volume filter (current_volume)
             vol = ticker.get("current_volume") or ticker.get("volume")
-            if volume_min is not None and (vol is None or vol < volume_min):
-                continue
-            if volume_max is not None and (vol is None or vol > volume_max):
+            if not _passes_range(vol, volume_min, volume_max):
                 continue
             
             # RVOL filter
             rvol = ticker.get("rvol") or ticker.get("relative_volume")
-            if rvol_min is not None and (rvol is None or rvol < rvol_min):
-                continue
-            if rvol_max is not None and (rvol is None or rvol > rvol_max):
+            if not _passes_range(rvol, rvol_min, rvol_max):
                 continue
             
             # Market cap filter (fmv.marketCap)
@@ -140,9 +144,7 @@ async def get_filtered_tickers(
             if mcap is None:
                 fmv = ticker.get("fmv", {})
                 mcap = fmv.get("marketCap") if isinstance(fmv, dict) else None
-            if market_cap_min is not None and (mcap is None or mcap < market_cap_min):
-                continue
-            if market_cap_max is not None and (mcap is None or mcap > market_cap_max):
+            if not _passes_range(mcap, market_cap_min, market_cap_max):
                 continue
             
             # Ticker passed all filters

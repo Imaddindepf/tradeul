@@ -96,7 +96,9 @@ const ALL_HIDEABLE_COLUMNS = [
   'price', 'change_percent', 'gap_percent', 'premarket_change_percent', 'volume_today', 'rvol', 'market_cap', 'free_float',
   'shares_outstanding', 'minute_volume', 'avg_volume_5d', 'avg_volume_10d', 'avg_volume_3m',
   'dollar_volume', 'volume_today_pct', 'volume_yesterday_pct', 'vol_1min', 'vol_5min',
-  'vol_10min', 'vol_15min', 'vol_30min', 'chg_1min', 'chg_5min', 'chg_10min', 'chg_15min', 'chg_30min',
+  'vol_10min', 'vol_15min', 'vol_30min',
+  'vol_1min_pct', 'vol_5min_pct', 'vol_10min_pct', 'vol_15min_pct', 'vol_30min_pct',
+  'chg_1min', 'chg_5min', 'chg_10min', 'chg_15min', 'chg_30min',
   'price_vs_vwap', 'postmarket_change_percent', 'postmarket_volume', 'spread', 'bid_size',
   'ask_size', 'bid_ask_ratio', 'distance_from_nbbo', 'atr_percent', 'atr_used',
   // Trades anomaly detection columns
@@ -898,6 +900,25 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             return <div className="text-slate-400">-</div>;
           return <div className="font-mono text-slate-600">{formatNumber(value)}</div>;
         },
+      }),
+      // Volume window % columns (Trade Ideas style)
+      ...(['vol_1min_pct', 'vol_5min_pct', 'vol_10min_pct', 'vol_15min_pct', 'vol_30min_pct'] as const).map(key => {
+        const labels: Record<string, string> = { vol_1min_pct: '1m V%', vol_5min_pct: '5m V%', vol_10min_pct: '10m V%', vol_15min_pct: '15m V%', vol_30min_pct: '30m V%' };
+        return columnHelper.accessor(key, {
+          header: labels[key],
+          size: 75,
+          minSize: 55,
+          maxSize: 95,
+          enableResizing: true,
+          enableSorting: true,
+          enableHiding: true,
+          cell: (info) => {
+            const value = info.getValue();
+            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            return <div className={`font-mono ${cls}`}>{value.toFixed(1)}%</div>;
+          },
+        });
       }),
       // Price change window columns (% change in last N minutes - per-second precision)
       columnHelper.accessor('chg_1min', {

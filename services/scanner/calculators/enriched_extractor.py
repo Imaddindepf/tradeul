@@ -32,6 +32,13 @@ class EnrichedData:
     chg_15min: Optional[float] = None
     chg_30min: Optional[float] = None
     
+    # Volume window % (Trade Ideas style, vs avg_volume_10d)
+    vol_1min_pct: Optional[float] = None
+    vol_5min_pct: Optional[float] = None
+    vol_10min_pct: Optional[float] = None
+    vol_15min_pct: Optional[float] = None
+    vol_30min_pct: Optional[float] = None
+    
     # Trades anomaly detection
     trades_today: Optional[int] = None
     avg_trades_5d: Optional[float] = None
@@ -96,6 +103,13 @@ class EnrichedDataExtractor:
         data.chg_10min = atr_data.get('chg_10min')
         data.chg_15min = atr_data.get('chg_15min')
         data.chg_30min = atr_data.get('chg_30min')
+        
+        # Volume window %
+        data.vol_1min_pct = atr_data.get('vol_1min_pct')
+        data.vol_5min_pct = atr_data.get('vol_5min_pct')
+        data.vol_10min_pct = atr_data.get('vol_10min_pct')
+        data.vol_15min_pct = atr_data.get('vol_15min_pct')
+        data.vol_30min_pct = atr_data.get('vol_30min_pct')
         
         # Trades anomaly
         data.trades_today = atr_data.get('trades_today')

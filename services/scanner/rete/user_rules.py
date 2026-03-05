@@ -47,6 +47,13 @@ FILTER_FIELD_MAPPING = [
     ("min_vol_15min", "max_vol_15min", "vol_15min"),
     ("min_vol_30min", "max_vol_30min", "vol_30min"),
     #
+    # === Volume Window % (Trade Ideas style) ===
+    ("min_vol_1min_pct", "max_vol_1min_pct", "vol_1min_pct"),
+    ("min_vol_5min_pct", "max_vol_5min_pct", "vol_5min_pct"),
+    ("min_vol_10min_pct", "max_vol_10min_pct", "vol_10min_pct"),
+    ("min_vol_15min_pct", "max_vol_15min_pct", "vol_15min_pct"),
+    ("min_vol_30min_pct", "max_vol_30min_pct", "vol_30min_pct"),
+    #
     # === Time Window Changes ===
     ("min_chg_1min", "max_chg_1min", "chg_1min"),
     ("min_chg_5min", "max_chg_5min", "chg_5min"),
@@ -151,12 +158,12 @@ def filter_params_to_conditions(params: Dict[str, Any]) -> List[Condition]:
         min_val = params.get(min_param)
         max_val = params.get(max_param) if max_param else None
         
-        # Si ambos estan definidos, usar BETWEEN
         if min_val is not None and max_val is not None:
+            op = Operator.OUTSIDE if min_val > max_val else Operator.BETWEEN
             conditions.append(Condition(
                 field=field,
-                operator=Operator.BETWEEN,
-                value=[min_val, max_val]
+                operator=op,
+                value=[min_val, max_val],
             ))
         elif min_val is not None:
             conditions.append(Condition(

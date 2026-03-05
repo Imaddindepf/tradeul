@@ -579,6 +579,18 @@ class EnrichmentPipeline:
         else:
             ticker_data.setdefault('volume_yesterday_pct', None)
 
+        # Volume N-minute % = ((vol_Nmin / avg_volume_10d) * periods_per_day) * 100
+        # periods_per_day = 390 / N  (390 = minutes in a 6.5h trading day)
+        _WINDOW_PERIODS = {1: 390, 5: 78, 10: 39, 15: 26, 30: 13}
+        for _win, _periods in _WINDOW_PERIODS.items():
+            _vol_key = f'vol_{_win}min'
+            _pct_key = f'vol_{_win}min_pct'
+            _vol_win = ticker_data.get(_vol_key)
+            if _vol_win and _avg_vol_10d and _avg_vol_10d > 0:
+                ticker_data[_pct_key] = round((_vol_win / _avg_vol_10d) * _periods * 100, 1)
+            else:
+                ticker_data.setdefault(_pct_key, None)
+
         # Price from day high (%) = ((price - day.h) / day.h) * 100
         _day_high = _day_data.get('h')
         if price and _day_high and _day_high > 0:

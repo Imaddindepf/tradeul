@@ -75,10 +75,19 @@ class FilterParser:
         # Handle different operators
         if operator == "between":
             if isinstance(value, (list, tuple)) and len(value) == 2:
-                return f"({sql_field} BETWEEN {self._escape(value[0])} AND {self._escape(value[1])})"
+                lo, hi = value[0], value[1]
+                if lo > hi:
+                    return f"({sql_field} >= {self._escape(lo)} OR {sql_field} <= {self._escape(hi)})"
+                return f"({sql_field} BETWEEN {self._escape(lo)} AND {self._escape(hi)})"
             logger.warning("invalid_between_value", value=value)
             return None
-        
+
+        elif operator == "outside":
+            if isinstance(value, (list, tuple)) and len(value) == 2:
+                return f"({sql_field} >= {self._escape(value[0])} OR {sql_field} <= {self._escape(value[1])})"
+            logger.warning("invalid_outside_value", value=value)
+            return None
+
         elif operator in ("cross_above", "cross_below"):
             # Cross requires comparing with previous value
             # This is handled specially in the query builder

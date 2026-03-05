@@ -15,6 +15,7 @@ class Operator(str, Enum):
     EQ = "eq"
     NEQ = "neq"
     BETWEEN = "between"
+    OUTSIDE = "outside"
     IN = "in"
     NOT_IN = "not_in"
     IS_NONE = "is_none"
