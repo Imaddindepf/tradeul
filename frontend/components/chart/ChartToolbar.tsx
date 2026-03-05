@@ -288,6 +288,8 @@ const ENABLED_TOOLS = new Set<string>([
 // ChartToolbar — Left Sidebar
 // ============================================================================
 
+type MagnetMode = 'off' | 'weak' | 'strong';
+
 interface ChartToolbarProps {
   activeTool: DrawingTool;
   setActiveTool: (tool: DrawingTool) => void;
@@ -297,6 +299,8 @@ interface ChartToolbarProps {
   zoomOut: () => void;
   drawingsVisible: boolean;
   toggleDrawingsVisibility: () => void;
+  magnetMode: MagnetMode;
+  onCycleMagnet: () => void;
 }
 
 function ChartToolbarComponent({
@@ -308,6 +312,8 @@ function ChartToolbarComponent({
   zoomOut,
   drawingsVisible,
   toggleDrawingsVisibility,
+  magnetMode,
+  onCycleMagnet,
 }: ChartToolbarProps) {
   const [openFlyout, setOpenFlyout] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -383,8 +389,17 @@ function ChartToolbarComponent({
               <div className="w-5 h-px bg-slate-150 mx-auto my-[3px]" style={{ backgroundColor: '#cbd5e1' }} />
             )}
 
-            {isZoom ? (
-              // Zoom: two direct buttons
+            {cat.id === 'magnet' ? (
+              <button
+                onClick={onCycleMagnet}
+                className={`${btnBase} ${magnetMode !== 'off' ? 'text-blue-600 bg-blue-50/80' : btnIdle}`}
+                title={`Magnet: ${magnetMode === 'off' ? 'Off' : magnetMode === 'weak' ? 'Weak' : 'Strong'} (Ctrl to toggle temporarily)`}
+              >
+                <MagnetIcon className="w-[18px] h-[18px]" />
+                {magnetMode !== 'off' && <div className="absolute left-0 top-[6px] bottom-[6px] w-[2px] rounded-r bg-blue-600" />}
+                {magnetMode === 'strong' && <div className="absolute right-[3px] top-[3px] w-[5px] h-[5px] rounded-full bg-blue-600" />}
+              </button>
+            ) : isZoom ? (
               <div className="flex flex-col items-center">
                 <button onClick={zoomIn} className={`${btnBase} ${btnIdle}`} title="Zoom In">
                   <ZoomInIcon className="w-[18px] h-[18px]" />

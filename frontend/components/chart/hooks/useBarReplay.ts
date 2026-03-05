@@ -199,10 +199,11 @@ export function useBarReplay(
         if (idx < 0) return;
         replayControlsDataRef.current = true;
         replayTimeRef.current = data[idx].time;
-        setStartIndex(idx); startIndexRef.current = idx;
-        setCurrentIndex(idx); currentIndexRef.current = idx;
-        rebuildSeriesUpTo(idx, data, true);
-        if (data[idx]) syncIndicators(data[idx].time);
+        const visibleIdx = Math.max(idx - 1, 0);
+        setStartIndex(visibleIdx); startIndexRef.current = visibleIdx;
+        setCurrentIndex(visibleIdx); currentIndexRef.current = visibleIdx;
+        rebuildSeriesUpTo(visibleIdx, data, true);
+        if (data[visibleIdx]) syncIndicators(data[visibleIdx].time);
         setMode('paused'); modeRef.current = 'paused';
     }, [data, rebuildSeriesUpTo, syncIndicators]);
 
@@ -394,9 +395,10 @@ export function useBarReplay(
         // replay target so playback resumes from the same point in time.
         awaitingFreshDataRef.current = false;
         const replayTarget = replayTimeRef.current;
-        const targetIdx = replayTarget
+        const rawIdx = replayTarget
             ? findClosestBarIndex(data, replayTarget)
             : data.length - 1;
+        const targetIdx = Math.max(rawIdx - 1, 0);
         replayControlsDataRef.current = true;
         setStartIndex(0); startIndexRef.current = 0;
         setCurrentIndex(targetIdx); currentIndexRef.current = targetIdx;

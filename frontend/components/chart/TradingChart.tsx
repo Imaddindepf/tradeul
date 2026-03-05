@@ -76,6 +76,13 @@ function TradingChartComponent({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showIntervalDropdown, setShowIntervalDropdown] = useState(false);
 
+    // ── Magnet mode (snap to OHLC) ───────────────────────────────────────
+    type MagnetMode = 'off' | 'weak' | 'strong';
+    const [magnetMode, setMagnetMode] = useState<MagnetMode>('off');
+    const magnetModeRef = useRef<MagnetMode>('off');
+    magnetModeRef.current = magnetMode;
+    const ctrlPressedRef = useRef(false);
+
     // ── Portal for TickerSearch in floating window header ────────────────
     const [headerPortalTarget, setHeaderPortalTarget] = useState<HTMLElement | null>(null);
     useEffect(() => {
@@ -120,15 +127,6 @@ function TradingChartComponent({
         workerReady, calculate, clearCache,
     } = ind;
 
-    // ── Indicator Series on Chart ────────────────────────────────────────
-    useIndicatorSeries(
-        chartRef, indicatorSeriesRef, panelPaneIndexRef,
-        indicators, indicatorResults, data, currentTicker,
-        selectedInterval, selectedRange, workerReady,
-        calculate, clearCache, volumeSeriesRef, showVolume,
-        chartVersion,
-    );
-
     // ── Replay gate ref (shared between useChartData and useBarReplay) ──
     const replayControlsDataRef = useRef(false);
 
@@ -156,15 +154,24 @@ function TradingChartComponent({
         setReplayTimestamp, replayTimeRef, loadForward,
     );
 
+    // ── Indicator Series on Chart ────────────────────────────────────────
+    const isReplayActive = replay.replayState.mode !== 'idle';
+    useIndicatorSeries(
+        chartRef, indicatorSeriesRef, panelPaneIndexRef,
+        indicators, indicatorResults, data, currentTicker,
+        selectedInterval, selectedRange, workerReady,
+        calculate, clearCache, volumeSeriesRef, showVolume,
+        chartVersion, isReplayActive,
+    );
+
     // ── Realtime Updates ─────────────────────────────────────────────────
     useChartRealtime(
         chartRef, candleSeriesRef, volumeSeriesRef, sessionBgSeriesRef, whitespaceSeriesRef,
         indicatorSeriesRef, lastPriceInfoRef, data, selectedInterval, indicators, registerUpdateHandler,
-        replay.replayState.mode !== 'idle',
+        isReplayActive,
     );
 
     // ── Extended Hours Price (pre/post market label on daily+) ──────────
-    const isReplayActive = replay.replayState.mode !== 'idle';
     useExtendedHoursPrice({
         candleSeriesRef,
         priceOverlayRef,
@@ -242,6 +249,8 @@ function TradingChartComponent({
     const dataTimes = useMemo(() => data.map(d => d.time), [data]);
     const dataTimesRef = useRef(dataTimes);
     dataTimesRef.current = dataTimes;
+    const dataRef = useRef(data);
+    dataRef.current = data;
 
     // Stable refs for event handlers
     const activeToolRef = useRef(activeTool); activeToolRef.current = activeTool;
@@ -253,6 +262,71 @@ function TradingChartComponent({
     const findDrawingNearPriceRef = useRef(findDrawingNearPrice); findDrawingNearPriceRef.current = findDrawingNearPrice;
     const replayModeRef = useRef(replay.replayState.mode); replayModeRef.current = replay.replayState.mode;
     const selectStartPointRef = useRef(replay.selectStartPoint); selectStartPointRef.current = replay.selectStartPoint;
+
+    // ── Ctrl key tracking for magnet snap ─────────────────────────────────
+    useEffect(() => {
+        const down = (e: KeyboardEvent) => { if (e.key === 'Control' || e.key === 'Meta') ctrlPressedRef.current = true; };
+        const up = (e: KeyboardEvent) => { if (e.key === 'Control' || e.key === 'Meta') ctrlPressedRef.current = false; };
+        const blur = () => { ctrlPressedRef.current = false; };
+        window.addEventListener('keydown', down);
+        window.addEventListener('keyup', up);
+        window.addEventListener('blur', blur);
+        return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
+    }, []);
+
+    /**
+     * Snap a raw price to the nearest OHLC value of the bar at screen X.
+     * Returns the original price if magnet is not active or no bar is found.
+     *
+     * Magnet activates when:
+     *  - Ctrl/Cmd is held (temporary toggle), OR
+     *  - magnetMode is 'weak' or 'strong' (permanent, Ctrl disables temporarily)
+     *
+     * Weak: only snaps when cursor is within 40% of bar range from an OHLC value.
+     * Strong: always snaps to nearest OHLC.
+     */
+    const snapPriceToOHLC = useCallback((rawPrice: number, screenX: number): number => {
+        const ctrl = ctrlPressedRef.current;
+        const mode = magnetModeRef.current;
+        const hasToolActive = activeToolRef.current !== 'none';
+
+        // Magnet only works when a drawing tool is active
+        if (!hasToolActive) return rawPrice;
+
+        // Determine if snap should be active:
+        // Ctrl toggles: if magnet off → Ctrl enables; if magnet on → Ctrl disables
+        const shouldSnap = mode === 'off' ? ctrl : !ctrl;
+        if (!shouldSnap) return rawPrice;
+
+        const chart = chartRef.current;
+        const series = candleSeriesRef.current;
+        if (!chart || !series) return rawPrice;
+
+        const ts = chart.timeScale();
+        const time = ts.coordinateToTime(screenX);
+        if (time == null) return rawPrice;
+
+        const bar = dataRef.current.find(d => d.time === (time as number));
+        if (!bar) return rawPrice;
+
+        const ohlc = [bar.open, bar.high, bar.low, bar.close];
+        let closest = ohlc[0];
+        let minDist = Math.abs(rawPrice - ohlc[0]);
+        for (let i = 1; i < ohlc.length; i++) {
+            const dist = Math.abs(rawPrice - ohlc[i]);
+            if (dist < minDist) { minDist = dist; closest = ohlc[i]; }
+        }
+
+        if (mode === 'weak' && !ctrl) {
+            const barRange = bar.high - bar.low;
+            const threshold = barRange > 0 ? barRange * 0.4 : Math.abs(bar.close) * 0.005;
+            if (minDist > threshold) return rawPrice;
+        }
+
+        return closest;
+    }, []);
+    const snapPriceRef = useRef(snapPriceToOHLC);
+    snapPriceRef.current = snapPriceToOHLC;
 
     // ── Pre-destroy cleanup: detach all primitives before chart.remove() ──
     beforeDestroyCallbackRef.current = () => {
@@ -438,8 +512,9 @@ function TradingChartComponent({
             const rect = container.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
-            const price = candleSeriesRef.current.coordinateToPrice(y);
-            if (price === null) return;
+            const rawPrice = candleSeriesRef.current.coordinateToPrice(y);
+            if (rawPrice === null) return;
+            const price = snapPriceRef.current(rawPrice, x);
             const ts = chartRef.current.timeScale();
             const time = ts.coordinateToTime(x);
             const resolved = time != null ? { time: time as number } : getTimeAtX(x);
@@ -478,12 +553,73 @@ function TradingChartComponent({
         const chart = chartRef.current;
         const handleMove = (param: any) => {
             if (!param.point || !pendingDrawingRef.current || !candleSeriesRef.current) return;
-            const price = candleSeriesRef.current.coordinateToPrice(param.point.y);
-            if (price === null) return;
+            const rawPrice = candleSeriesRef.current.coordinateToPrice(param.point.y);
+            if (rawPrice === null) return;
+            const price = snapPriceRef.current(rawPrice, param.point.x);
             updateTentativeEndpointRef.current(param.point.x, param.point.y, price);
         };
         chart.subscribeCrosshairMove(handleMove);
         return () => { chart.unsubscribeCrosshairMove(handleMove); };
+    }, [chartVersion]);
+
+    // ── Magnet: snap crosshair to nearest OHLC on mouse move ─────────────
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            const chart = chartRef.current;
+            const series = candleSeriesRef.current;
+            if (!chart || !series) return;
+
+            const ctrl = ctrlPressedRef.current;
+            const mode = magnetModeRef.current;
+            const hasToolActive = activeToolRef.current !== 'none';
+            if (!hasToolActive) return;
+            const shouldSnap = mode === 'off' ? ctrl : !ctrl;
+            if (!shouldSnap) return;
+
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            const ts = chart.timeScale();
+            const time = ts.coordinateToTime(x);
+            if (time == null) return;
+
+            const rawPrice = series.coordinateToPrice(y);
+            if (rawPrice === null) return;
+
+            const bar = dataRef.current.find(d => d.time === (time as number));
+            if (!bar) return;
+
+            const ohlc = [bar.open, bar.high, bar.low, bar.close];
+            let closest = ohlc[0];
+            let minDist = Math.abs(rawPrice - ohlc[0]);
+            for (let i = 1; i < ohlc.length; i++) {
+                const dist = Math.abs(rawPrice - ohlc[i]);
+                if (dist < minDist) { minDist = dist; closest = ohlc[i]; }
+            }
+
+            if (mode === 'weak' && !ctrl) {
+                const barRange = bar.high - bar.low;
+                const threshold = barRange > 0 ? barRange * 0.4 : Math.abs(bar.close) * 0.005;
+                if (minDist > threshold) return;
+            }
+
+            chart.setCrosshairPosition(closest, time, series);
+        };
+
+        const handleMouseLeave = () => {
+            chartRef.current?.clearCrosshairPosition();
+        };
+
+        container.addEventListener('mousemove', handleMouseMove);
+        container.addEventListener('mouseleave', handleMouseLeave);
+        return () => {
+            container.removeEventListener('mousemove', handleMouseMove);
+            container.removeEventListener('mouseleave', handleMouseLeave);
+        };
     }, [chartVersion]);
 
     // ── Drag handlers ────────────────────────────────────────────────────
@@ -544,9 +680,14 @@ function TradingChartComponent({
         const dx = mouseX - dragState.startScreenX;
         const dy = mouseY - dragState.startScreenY;
         const series = candleSeriesRef.current;
+        const isAnchor = dragState.dragMode.startsWith('anchor');
+        const sp = (raw: number | null, sx: number) => {
+            if (raw == null) return raw;
+            return isAnchor ? snapPriceRef.current(raw, sx) : raw;
+        };
 
         if (dragState.drawingType === 'horizontal_line') {
-            const newPrice = series.coordinateToPrice(dragState.p1ScreenY + dy);
+            const newPrice = sp(series.coordinateToPrice(dragState.p1ScreenY + dy), mouseX);
             if (newPrice !== null && newPrice > 0) updateHorizontalLinePrice(dragState.drawingId, newPrice);
         } else if (dragState.drawingType === 'vertical_line') {
             const resolved = getTimeAtX(dragState.p1ScreenX + dx);
@@ -554,22 +695,22 @@ function TradingChartComponent({
         } else if (dragState.drawingType === 'parallel_channel') {
             if (dragState.dragMode === 'anchor2') {
                 const resolved = getTimeAtX(mouseX);
-                const newPrice = series.coordinateToPrice(mouseY);
+                const newPrice = sp(series.coordinateToPrice(mouseY), mouseX);
                 if (resolved && newPrice != null) updateDrawingPoints(dragState.drawingId, { point2: { time: resolved.time, price: newPrice, logical: resolved.logical } });
             } else if (dragState.dragMode === 'anchor1') {
                 const resolved = getTimeAtX(mouseX);
-                const newAPrice = series.coordinateToPrice(mouseY);
+                const newAPrice = sp(series.coordinateToPrice(mouseY), mouseX);
                 const newCPrice = series.coordinateToPrice(dragState.p3ScreenY + (mouseY - dragState.p1ScreenY));
                 if (resolved && newAPrice != null && newCPrice != null) updateDrawingPoints(dragState.drawingId, { point1: { time: resolved.time, price: newAPrice, logical: resolved.logical }, point3: { time: resolved.time, price: newCPrice } });
             } else if (dragState.dragMode === 'anchor3') {
                 const resolved = getTimeAtX(mouseX);
-                const newCPrice = series.coordinateToPrice(mouseY);
+                const newCPrice = sp(series.coordinateToPrice(mouseY), mouseX);
                 const newAPrice = series.coordinateToPrice(dragState.p1ScreenY + (mouseY - dragState.p3ScreenY));
                 if (resolved && newCPrice != null && newAPrice != null) updateDrawingPoints(dragState.drawingId, { point1: { time: resolved.time, price: newAPrice }, point3: { time: resolved.time, price: newCPrice, logical: resolved.logical } });
             } else if (dragState.dragMode === 'anchor4') {
                 const bNewScreenY = dragState.p1ScreenY + (mouseY - dragState.p3ScreenY);
                 const resolvedB = getTimeAtX(mouseX);
-                const bPrice = series.coordinateToPrice(bNewScreenY);
+                const bPrice = sp(series.coordinateToPrice(bNewScreenY), mouseX);
                 if (resolvedB && bPrice != null) updateDrawingPoints(dragState.drawingId, { point2: { time: resolvedB.time, price: bPrice, logical: resolvedB.logical } });
             } else if (dragState.dragMode === 'mid1') {
                 const newAPrice = series.coordinateToPrice(dragState.p1ScreenY + dy);
@@ -586,13 +727,13 @@ function TradingChartComponent({
                 if (r1 && r2 && r3 && np1 != null && np2 != null && np3 != null) updateDrawingPoints(dragState.drawingId, { point1: { time: r1.time, price: np1, logical: r1.logical }, point2: { time: r2.time, price: np2, logical: r2.logical }, point3: { time: r3.time, price: np3, logical: r3.logical } });
             }
         } else if (dragState.dragMode === 'anchor1') {
-            const resolved = getTimeAtX(mouseX); const newPrice = series.coordinateToPrice(mouseY);
+            const resolved = getTimeAtX(mouseX); const newPrice = sp(series.coordinateToPrice(mouseY), mouseX);
             if (resolved && newPrice != null) updateDrawingPoints(dragState.drawingId, { point1: { time: resolved.time, price: newPrice, logical: resolved.logical } });
         } else if (dragState.dragMode === 'anchor2') {
-            const resolved = getTimeAtX(mouseX); const newPrice = series.coordinateToPrice(mouseY);
+            const resolved = getTimeAtX(mouseX); const newPrice = sp(series.coordinateToPrice(mouseY), mouseX);
             if (resolved && newPrice != null) updateDrawingPoints(dragState.drawingId, { point2: { time: resolved.time, price: newPrice, logical: resolved.logical } });
         } else if (dragState.dragMode === 'anchor3') {
-            const resolved = getTimeAtX(mouseX); const newPrice = series.coordinateToPrice(mouseY);
+            const resolved = getTimeAtX(mouseX); const newPrice = sp(series.coordinateToPrice(mouseY), mouseX);
             if (resolved && newPrice != null) updateDrawingPoints(dragState.drawingId, { point3: { time: resolved.time, price: newPrice, logical: resolved.logical } });
         } else {
             const r1 = getTimeAtX(dragState.p1ScreenX + dx); const r2 = getTimeAtX(dragState.p2ScreenX + dx);
@@ -853,7 +994,7 @@ function TradingChartComponent({
 
             <div className="flex flex-1 overflow-hidden">
                 {!minimal && (
-                    <ChartToolbar activeTool={activeTool} setActiveTool={setActiveTool} drawingCount={drawings.length} clearAllDrawings={clearAllDrawings} zoomIn={zoomIn} zoomOut={zoomOut} drawingsVisible={drawingsVisible} toggleDrawingsVisibility={toggleDrawingsVisibility} />
+                    <ChartToolbar activeTool={activeTool} setActiveTool={setActiveTool} drawingCount={drawings.length} clearAllDrawings={clearAllDrawings} zoomIn={zoomIn} zoomOut={zoomOut} drawingsVisible={drawingsVisible} toggleDrawingsVisibility={toggleDrawingsVisibility} magnetMode={magnetMode} onCycleMagnet={() => setMagnetMode(m => m === 'off' ? 'weak' : m === 'weak' ? 'strong' : 'off')} />
                 )}
 
                 <div className="relative flex-1 overflow-hidden" data-chart-container>

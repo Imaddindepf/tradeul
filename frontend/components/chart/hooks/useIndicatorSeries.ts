@@ -31,6 +31,7 @@ export function useIndicatorSeries(
     volumeSeriesRef: MutableRefObject<ISeriesApi<any> | null>,
     showVolume: boolean,
     chartVersion: number,
+    isReplayActive: boolean,
 ) {
     // Dynamic indicator series creation/destruction
     useEffect(() => {
@@ -169,8 +170,9 @@ export function useIndicatorSeries(
     }, [workerReady, data, data.length, workerConfigs, currentTicker, selectedInterval, selectedRange, calculate, clearCache]);
 
     // Update indicator series from worker results
+    // During replay, syncIndicators in useBarReplay handles filtered data — skip here.
     useEffect(() => {
-        if (!indicatorResults || !chartRef.current) return;
+        if (!indicatorResults || !chartRef.current || isReplayActive) return;
         for (const inst of indicators) {
             if (!inst.visible) continue;
             const result = (indicatorResults as any)[inst.id];
@@ -205,6 +207,6 @@ export function useIndicatorSeries(
                 console.warn('[TradingChart] Error setting data for', inst.id, err);
             }
         }
-    }, [indicatorResults, indicators]);
+    }, [indicatorResults, indicators, isReplayActive]);
 
 }
