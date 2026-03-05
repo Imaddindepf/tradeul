@@ -105,6 +105,8 @@ export interface UserPreferences {
   // ============================================================================
   workspaces: Workspace[];
   activeWorkspaceId: string;
+  /** Timestamp (ms) of last local workspace mutation — used for conflict resolution */
+  workspacesModifiedAt: number;
   
   // Columnas visibles por lista
   columnVisibility: Record<string, Record<string, boolean>>;
@@ -206,6 +208,7 @@ const DEFAULT_PREFERENCES: UserPreferences & { isSyncing: boolean; lastSyncedAt:
   layoutInitialized: false,
   workspaces: [DEFAULT_MAIN_WORKSPACE],
   activeWorkspaceId: 'main',
+  workspacesModifiedAt: 0,
   // Sync state (not persisted)
   isSyncing: false,
   lastSyncedAt: null,
@@ -318,28 +321,29 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
       // Workspaces Actions
       // ========================================
       createWorkspace: (name) => {
-        const id = `workspace-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const now = Date.now();
+        const id = `workspace-${now}-${Math.random().toString(36).substr(2, 9)}`;
         const newWorkspace: Workspace = {
           id,
           name,
           windowLayouts: [],
-          createdAt: Date.now(),
+          createdAt: now,
           isMain: false,
         };
         set((state) => ({
           workspaces: [...state.workspaces, newWorkspace],
+          workspacesModifiedAt: now,
         }));
         return id;
       },
 
       deleteWorkspace: (workspaceId) => {
+        const now = Date.now();
         set((state) => {
           const workspace = state.workspaces.find(w => w.id === workspaceId);
-          // No permitir eliminar Main
           if (workspace?.isMain) return state;
           
           const newWorkspaces = state.workspaces.filter(w => w.id !== workspaceId);
-          // Si eliminamos el workspace activo, cambiar a Main
           const newActiveId = state.activeWorkspaceId === workspaceId 
             ? 'main' 
             : state.activeWorkspaceId;
@@ -347,6 +351,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           return {
             workspaces: newWorkspaces,
             activeWorkspaceId: newActiveId,
+            workspacesModifiedAt: now,
           };
         });
       },
@@ -356,6 +361,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           workspaces: state.workspaces.map(w =>
             w.id === workspaceId ? { ...w, name: newName } : w
           ),
+          workspacesModifiedAt: Date.now(),
         }));
       },
 
@@ -369,6 +375,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
             w.id === workspaceId ? { ...w, windowLayouts: layouts } : w
           ),
           layoutInitialized: true,
+          workspacesModifiedAt: Date.now(),
         }));
       },
 
@@ -449,7 +456,6 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
         try {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
           
-          // Obtener token de autenticación
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
           };
@@ -473,8 +479,30 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
           
           const data = await response.json();
           
-          // Solo cargar si hay workspaces del backend
           if (data.workspaces && data.workspaces.length > 0) {
+            const local = get();
+            const localModifiedAt = local.workspacesModifiedAt || 0;
+            const remoteModifiedAt = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
+
+            if (localModifiedAt > remoteModifiedAt) {
+              // Local is newer — push to backend to converge
+              set({ lastSyncedAt: Date.now() });
+              const state = get();
+              const pushHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+              if (getToken) {
+                const t = await getToken();
+                if (t) pushHeaders['Authorization'] = `Bearer ${t}`;
+              }
+              fetch(`${apiUrl}/api/v1/user/preferences/workspaces`, {
+                method: 'PATCH',
+                headers: pushHeaders,
+                credentials: 'include',
+                body: JSON.stringify({ workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId }),
+              }).catch(() => {});
+              return true;
+            }
+
+            // Backend is newer or equal — use it
             set({
               workspaces: data.workspaces,
               activeWorkspaceId: data.activeWorkspaceId || 'main',
@@ -482,6 +510,7 @@ export const useUserPreferencesStore = create<UserPreferencesState>()(
               theme: data.theme || DEFAULT_THEME,
               columnVisibility: data.columnVisibility || {},
               columnOrder: data.columnOrder || {},
+              workspacesModifiedAt: remoteModifiedAt,
               lastSyncedAt: Date.now(),
             });
             

@@ -1,27 +1,24 @@
 'use client';
 
 /**
- * useWorkspaceSync - Hook para sincronización inicial de workspaces con backend
+ * useWorkspaceSync - Hook para sincronización de workspaces con backend
  * 
- * Se usa una vez al inicio de la aplicación para:
- * 1. Cargar preferencias del backend si el usuario está autenticado
- * 2. Sincronizar periódicamente (opcional)
+ * Estrategia: "sync on mutate" — cada cambio estructural se sincroniza
+ * inmediatamente. beforeunload usa un token pre-cacheado como fallback.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { useAuth } from '@clerk/nextjs';
 
 export interface UseWorkspaceSyncOptions {
-  /** Habilitar carga inicial desde backend */
   enableInitialLoad?: boolean;
-  /** Habilitar sync periódico (ms) - 0 para deshabilitar */
   periodicSyncInterval?: number;
 }
 
 const DEFAULT_OPTIONS: UseWorkspaceSyncOptions = {
   enableInitialLoad: true,
-  periodicSyncInterval: 0, // Disabled by default, sync on changes instead
+  periodicSyncInterval: 0,
 };
 
 export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTIONS) {
@@ -32,8 +29,24 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
   
   const hasLoadedRef = useRef(false);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const cachedTokenRef = useRef<string | null>(null);
 
-  // Carga inicial desde backend cuando hay sesión
+  const refreshToken = useCallback(async () => {
+    if (!getToken) return;
+    try {
+      cachedTokenRef.current = await getToken();
+    } catch { /* token refresh failed, keep old */ }
+  }, [getToken]);
+
+  // Keep a fresh token cached for sendBeacon
+  useEffect(() => {
+    if (!isSignedIn) return;
+    refreshToken();
+    const interval = setInterval(refreshToken, 45_000);
+    return () => clearInterval(interval);
+  }, [isSignedIn, refreshToken]);
+
+  // Initial load from backend
   useEffect(() => {
     if (
       options.enableInitialLoad &&
@@ -42,17 +55,11 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
       !hasLoadedRef.current
     ) {
       hasLoadedRef.current = true;
-      
-      // Intentar cargar desde backend con token
-      loadFromBackend(getToken).then((loaded) => {
-        if (loaded) {
-        } else {
-        }
-      });
+      loadFromBackend(getToken);
     }
   }, [isLoaded, isSignedIn, options.enableInitialLoad, loadFromBackend, getToken]);
 
-  // Sync periódico (opcional)
+  // Periodic sync (optional)
   useEffect(() => {
     if (options.periodicSyncInterval && options.periodicSyncInterval > 0 && isSignedIn) {
       syncIntervalRef.current = setInterval(() => {
@@ -67,19 +74,20 @@ export function useWorkspaceSync(options: UseWorkspaceSyncOptions = DEFAULT_OPTI
     }
   }, [options.periodicSyncInterval, isSignedIn, syncWorkspacesToBackend, getToken]);
 
-  // Sync al cerrar ventana/pestaña
+  // Fallback: sendBeacon on tab close with pre-cached token
   useEffect(() => {
     const handleBeforeUnload = () => {
-      // Sync síncrono usando sendBeacon si está disponible
-      if (isSignedIn && navigator.sendBeacon) {
-        const state = useUserPreferencesStore.getState();
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const data = JSON.stringify({
-          workspaces: state.workspaces,
-          activeWorkspaceId: state.activeWorkspaceId,
-        });
-        navigator.sendBeacon(`${apiUrl}/api/v1/user/preferences/workspaces`, data);
-      }
+      if (!isSignedIn || !navigator.sendBeacon) return;
+
+      const state = useUserPreferencesStore.getState();
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const payload = JSON.stringify({
+        workspaces: state.workspaces,
+        activeWorkspaceId: state.activeWorkspaceId,
+        _token: cachedTokenRef.current,
+      });
+      const blob = new Blob([payload], { type: 'application/json' });
+      navigator.sendBeacon(`${apiUrl}/api/v1/user/preferences/workspaces`, blob);
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);

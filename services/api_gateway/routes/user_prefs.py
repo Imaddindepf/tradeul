@@ -8,9 +8,9 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi import APIRouter, HTTPException, Header, Depends, Request
 import structlog
-from auth import get_current_user, AuthenticatedUser
+from auth import get_current_user, get_current_user_optional, AuthenticatedUser
 
 logger = structlog.get_logger(__name__)
 
@@ -468,14 +468,31 @@ class WorkspacesUpdateRequest(BaseModel):
 
 @router.patch("/preferences/workspaces")
 async def update_workspaces(
-    data: WorkspacesUpdateRequest,
-    user: AuthenticatedUser = Depends(get_current_user),
+    request: Request,
+    user: Optional[AuthenticatedUser] = Depends(get_current_user_optional),
     db=Depends(get_timescale)
 ):
     """
-    Actualiza solo los workspaces del usuario.
-    Optimizado para sync frecuente desde el frontend.
+    Actualiza los workspaces del usuario.
+    Supports normal auth (header) and sendBeacon fallback (_token in body).
     """
+    body = await request.json()
+
+    if not user and body.get('_token'):
+        from auth.clerk_jwt import clerk_jwt_verifier
+        try:
+            user = await clerk_jwt_verifier.verify_token(body['_token'])
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid beacon token")
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    data = WorkspacesUpdateRequest(
+        workspaces=[Workspace(**w) for w in body.get('workspaces', [])],
+        activeWorkspaceId=body.get('activeWorkspaceId', 'main'),
+    )
+
     try:
         user_id = user.id
         workspaces_json = json.dumps([w.model_dump() for w in data.workspaces])

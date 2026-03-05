@@ -73,15 +73,16 @@ export function useWorkspaces(): UseWorkspacesReturn {
    * Debounced sync to backend
    * Se llama después de cualquier cambio en workspaces
    */
-  const scheduleSyncToBackend = useCallback(() => {
-    // Solo sincronizar si el usuario está autenticado
+  const scheduleSyncToBackend = useCallback((immediate = false) => {
     if (!isSignedIn) return;
     
-    // Cancelar sync pendiente
     if (syncTimeoutRef.current) {
       clearTimeout(syncTimeoutRef.current);
     }
-    // Programar nuevo sync con token
+    if (immediate) {
+      syncWorkspacesToBackend(getToken);
+      return;
+    }
     syncTimeoutRef.current = setTimeout(() => {
       syncWorkspacesToBackend(getToken);
     }, SYNC_DEBOUNCE_MS);
@@ -135,11 +136,9 @@ export function useWorkspaces(): UseWorkspacesReturn {
    * Crear nuevo workspace
    */
   const createWorkspace = useCallback((name: string): string => {
-    // Guardar layout actual antes de crear nuevo
     saveCurrentLayout();
     const id = storeCreateWorkspace(name);
-    // Sync to backend
-    scheduleSyncToBackend();
+    scheduleSyncToBackend(true);
     return id;
   }, [saveCurrentLayout, storeCreateWorkspace, scheduleSyncToBackend]);
 
@@ -148,8 +147,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
    */
   const deleteWorkspace = useCallback((workspaceId: string) => {
     storeDeleteWorkspace(workspaceId);
-    // Sync to backend
-    scheduleSyncToBackend();
+    scheduleSyncToBackend(true);
   }, [storeDeleteWorkspace, scheduleSyncToBackend]);
 
   /**
@@ -157,8 +155,7 @@ export function useWorkspaces(): UseWorkspacesReturn {
    */
   const renameWorkspace = useCallback((workspaceId: string, newName: string) => {
     storeRenameWorkspace(workspaceId, newName);
-    // Sync to backend
-    scheduleSyncToBackend();
+    scheduleSyncToBackend(true);
   }, [storeRenameWorkspace, scheduleSyncToBackend]);
 
   /**
