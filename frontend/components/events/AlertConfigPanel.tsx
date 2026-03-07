@@ -301,6 +301,42 @@ function FiltersTab({ currentFilters, onFiltersChange, locale }: {
           <FilterInput label="Vol 30m %" minValue={currentFilters.min_vol_30min_pct} maxValue={currentFilters.max_vol_30min_pct}
             onMinChange={v => update('min_vol_30min_pct', v)} onMaxChange={v => update('max_vol_30min_pct', v)}
             suffix="%" phMin="100" phMax="500" />
+          <FilterInput label="Range 2m $" minValue={currentFilters.min_range_2min} maxValue={currentFilters.max_range_2min}
+            onMinChange={v => update('min_range_2min', v)} onMaxChange={v => update('max_range_2min', v)}
+            suffix="$" phMin="0.10" phMax="2" />
+          <FilterInput label="Range 5m $" minValue={currentFilters.min_range_5min} maxValue={currentFilters.max_range_5min}
+            onMinChange={v => update('min_range_5min', v)} onMaxChange={v => update('max_range_5min', v)}
+            suffix="$" phMin="0.20" phMax="5" />
+          <FilterInput label="Range 15m $" minValue={currentFilters.min_range_15min} maxValue={currentFilters.max_range_15min}
+            onMinChange={v => update('min_range_15min', v)} onMaxChange={v => update('max_range_15min', v)}
+            suffix="$" phMin="0.50" phMax="10" />
+          <FilterInput label="Range 30m $" minValue={currentFilters.min_range_30min} maxValue={currentFilters.max_range_30min}
+            onMinChange={v => update('min_range_30min', v)} onMaxChange={v => update('max_range_30min', v)}
+            suffix="$" phMin="1" phMax="15" />
+          <FilterInput label="Range 60m $" minValue={currentFilters.min_range_60min} maxValue={currentFilters.max_range_60min}
+            onMinChange={v => update('min_range_60min', v)} onMaxChange={v => update('max_range_60min', v)}
+            suffix="$" phMin="1" phMax="20" />
+          <FilterInput label="Range 120m $" minValue={currentFilters.min_range_120min} maxValue={currentFilters.max_range_120min}
+            onMinChange={v => update('min_range_120min', v)} onMaxChange={v => update('max_range_120min', v)}
+            suffix="$" phMin="2" phMax="30" />
+          <FilterInput label="Range 2m %" minValue={currentFilters.min_range_2min_pct} maxValue={currentFilters.max_range_2min_pct}
+            onMinChange={v => update('min_range_2min_pct', v)} onMaxChange={v => update('max_range_2min_pct', v)}
+            suffix="%" phMin="50" phMax="300" />
+          <FilterInput label="Range 5m %" minValue={currentFilters.min_range_5min_pct} maxValue={currentFilters.max_range_5min_pct}
+            onMinChange={v => update('min_range_5min_pct', v)} onMaxChange={v => update('max_range_5min_pct', v)}
+            suffix="%" phMin="50" phMax="300" />
+          <FilterInput label="Range 15m %" minValue={currentFilters.min_range_15min_pct} maxValue={currentFilters.max_range_15min_pct}
+            onMinChange={v => update('min_range_15min_pct', v)} onMaxChange={v => update('max_range_15min_pct', v)}
+            suffix="%" phMin="50" phMax="300" />
+          <FilterInput label="Range 30m %" minValue={currentFilters.min_range_30min_pct} maxValue={currentFilters.max_range_30min_pct}
+            onMinChange={v => update('min_range_30min_pct', v)} onMaxChange={v => update('max_range_30min_pct', v)}
+            suffix="%" phMin="50" phMax="300" />
+          <FilterInput label="Range 60m %" minValue={currentFilters.min_range_60min_pct} maxValue={currentFilters.max_range_60min_pct}
+            onMinChange={v => update('min_range_60min_pct', v)} onMaxChange={v => update('max_range_60min_pct', v)}
+            suffix="%" phMin="50" phMax="300" />
+          <FilterInput label="Range 120m %" minValue={currentFilters.min_range_120min_pct} maxValue={currentFilters.max_range_120min_pct}
+            onMinChange={v => update('min_range_120min_pct', v)} onMaxChange={v => update('max_range_120min_pct', v)}
+            suffix="%" phMin="50" phMax="300" />
         </div>
         <div>
           <div className="px-3 py-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Fundamentals</div>

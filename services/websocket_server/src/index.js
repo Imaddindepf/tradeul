@@ -260,6 +260,18 @@ async function queryHistoricalEvents(sub, limit = 200, opts = {}) {
     ['vol10minPctMin',    'vol10minPctMax',    null, 'vol_10min_pct'],
     ['vol15minPctMin',    'vol15minPctMax',    null, 'vol_15min_pct'],
     ['vol30minPctMin',    'vol30minPctMax',    null, 'vol_30min_pct'],
+    ['range2minMin',      'range2minMax',      null, 'range_2min'],
+    ['range5minMin',      'range5minMax',      null, 'range_5min'],
+    ['range15minMin',     'range15minMax',     null, 'range_15min'],
+    ['range30minMin',     'range30minMax',     null, 'range_30min'],
+    ['range60minMin',     'range60minMax',     null, 'range_60min'],
+    ['range120minMin',    'range120minMax',    null, 'range_120min'],
+    ['range2minPctMin',   'range2minPctMax',   null, 'range_2min_pct'],
+    ['range5minPctMin',   'range5minPctMax',   null, 'range_5min_pct'],
+    ['range15minPctMin',  'range15minPctMax',  null, 'range_15min_pct'],
+    ['range30minPctMin',  'range30minPctMax',  null, 'range_30min_pct'],
+    ['range60minPctMin',  'range60minPctMax',  null, 'range_60min_pct'],
+    ['range120minPctMin', 'range120minPctMax', null, 'range_120min_pct'],
     // JSONB context only (enriched fields not in native columns)
     ['sma5Min',           'sma5Max',           null, 'sma_5'],
     ['sma8Min',           'sma8Max',           null, 'sma_8'],
@@ -579,6 +591,8 @@ const ENRICHED_FLOAT_FIELDS = [
   "distance_from_nbbo",
   "volume_yesterday_pct",
   "vol_1min_pct", "vol_5min_pct", "vol_10min_pct", "vol_15min_pct", "vol_30min_pct",
+  "range_2min", "range_5min", "range_15min", "range_30min", "range_60min", "range_120min",
+  "range_2min_pct", "range_5min_pct", "range_15min_pct", "range_30min_pct", "range_60min_pct", "range_120min_pct",
 ];
 const ENRICHED_INT_FIELDS = [
   "bid_size", "ask_size",
@@ -697,6 +711,32 @@ const NUMERIC_FILTER_DEFS = [
   ['vol15minPctMax', 'vol_15min_pct_max', pf],
   ['vol30minPctMin', 'vol_30min_pct_min', pf],
   ['vol30minPctMax', 'vol_30min_pct_max', pf],
+  // Range windows ($)
+  ['range2minMin', 'range_2min_min', pf],
+  ['range2minMax', 'range_2min_max', pf],
+  ['range5minMin', 'range_5min_min', pf],
+  ['range5minMax', 'range_5min_max', pf],
+  ['range15minMin', 'range_15min_min', pf],
+  ['range15minMax', 'range_15min_max', pf],
+  ['range30minMin', 'range_30min_min', pf],
+  ['range30minMax', 'range_30min_max', pf],
+  ['range60minMin', 'range_60min_min', pf],
+  ['range60minMax', 'range_60min_max', pf],
+  ['range120minMin', 'range_120min_min', pf],
+  ['range120minMax', 'range_120min_max', pf],
+  // Range windows (% of ATR)
+  ['range2minPctMin', 'range_2min_pct_min', pf],
+  ['range2minPctMax', 'range_2min_pct_max', pf],
+  ['range5minPctMin', 'range_5min_pct_min', pf],
+  ['range5minPctMax', 'range_5min_pct_max', pf],
+  ['range15minPctMin', 'range_15min_pct_min', pf],
+  ['range15minPctMax', 'range_15min_pct_max', pf],
+  ['range30minPctMin', 'range_30min_pct_min', pf],
+  ['range30minPctMax', 'range_30min_pct_max', pf],
+  ['range60minPctMin', 'range_60min_pct_min', pf],
+  ['range60minPctMax', 'range_60min_pct_max', pf],
+  ['range120minPctMin', 'range_120min_pct_min', pf],
+  ['range120minPctMax', 'range_120min_pct_max', pf],
   // Change windows
   ['chg1minMin', 'chg_1min_min', pf],
   ['chg1minMax', 'chg_1min_max', pf],
@@ -894,6 +934,19 @@ const ENRICHED_FIELD_MAP = {
   vol10minMin: 'vol_10min', vol10minMax: 'vol_10min',
   vol15minMin: 'vol_15min', vol15minMax: 'vol_15min',
   vol30minMin: 'vol_30min', vol30minMax: 'vol_30min',
+  // Range windows
+  range2minMin: 'range_2min', range2minMax: 'range_2min',
+  range5minMin: 'range_5min', range5minMax: 'range_5min',
+  range15minMin: 'range_15min', range15minMax: 'range_15min',
+  range30minMin: 'range_30min', range30minMax: 'range_30min',
+  range60minMin: 'range_60min', range60minMax: 'range_60min',
+  range120minMin: 'range_120min', range120minMax: 'range_120min',
+  range2minPctMin: 'range_2min_pct', range2minPctMax: 'range_2min_pct',
+  range5minPctMin: 'range_5min_pct', range5minPctMax: 'range_5min_pct',
+  range15minPctMin: 'range_15min_pct', range15minPctMax: 'range_15min_pct',
+  range30minPctMin: 'range_30min_pct', range30minPctMax: 'range_30min_pct',
+  range60minPctMin: 'range_60min_pct', range60minPctMax: 'range_60min_pct',
+  range120minPctMin: 'range_120min_pct', range120minPctMax: 'range_120min_pct',
   // Change 60 min
   chg60minMin: 'chg_60min', chg60minMax: 'chg_60min',
   // Quote
@@ -1072,6 +1125,20 @@ function eventPassesSubscription(evt, sub) {
   if (!chkEvt(enriched.vol_10min_pct, 'vol10minPctMin', 'vol10minPctMax')) return false;
   if (!chkEvt(enriched.vol_15min_pct, 'vol15minPctMin', 'vol15minPctMax')) return false;
   if (!chkEvt(enriched.vol_30min_pct, 'vol30minPctMin', 'vol30minPctMax')) return false;
+
+  // Range windows
+  if (!chkEvt(enriched.range_2min, 'range2minMin', 'range2minMax')) return false;
+  if (!chkEvt(enriched.range_5min, 'range5minMin', 'range5minMax')) return false;
+  if (!chkEvt(enriched.range_15min, 'range15minMin', 'range15minMax')) return false;
+  if (!chkEvt(enriched.range_30min, 'range30minMin', 'range30minMax')) return false;
+  if (!chkEvt(enriched.range_60min, 'range60minMin', 'range60minMax')) return false;
+  if (!chkEvt(enriched.range_120min, 'range120minMin', 'range120minMax')) return false;
+  if (!chkEvt(enriched.range_2min_pct, 'range2minPctMin', 'range2minPctMax')) return false;
+  if (!chkEvt(enriched.range_5min_pct, 'range5minPctMin', 'range5minPctMax')) return false;
+  if (!chkEvt(enriched.range_15min_pct, 'range15minPctMin', 'range15minPctMax')) return false;
+  if (!chkEvt(enriched.range_30min_pct, 'range30minPctMin', 'range30minPctMax')) return false;
+  if (!chkEvt(enriched.range_60min_pct, 'range60minPctMin', 'range60minPctMax')) return false;
+  if (!chkEvt(enriched.range_120min_pct, 'range120minPctMin', 'range120minPctMax')) return false;
 
   // Change windows
   if (!chkEvt(val('chg_1min', 'chg_1min'), 'chg1minMin', 'chg1minMax')) return false;

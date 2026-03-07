@@ -12,17 +12,15 @@ PRECISION: 1 dato por SEGUNDO (no por minuto)
 
 Features:
 - O(1) updates and queries
-- Memory: ~275 MB for 10000 symbols × 1800 seconds (float64 for prices)
+- Memory: ~550 MB for 10000 symbols x 7201 seconds (float64 for prices)
 - Cache-friendly contiguous memory layout
 - Thread-safe for asyncio
 - Automatic cleanup (circular buffer)
 
 Provides:
-- chg_1min: Price change % in last 60 seconds
-- chg_5min: Price change % in last 300 seconds
-- chg_10min: Price change % in last 600 seconds
-- chg_15min: Price change % in last 900 seconds
-- chg_30min: Price change % in last 1800 seconds
+- chg_1min..chg_30min: Price change % in last N seconds
+- range_2min..range_120min: High-Low range ($) in last N minutes
+- range_2min_pct..range_120min_pct: Range as % of ATR
 - price_5min_ago: Price exactly 5 minutes ago (for MOMENTUM criteria)
 
 Author: Tradeul Team
@@ -48,15 +46,28 @@ class PriceChangeResult(NamedTuple):
     chg_10min: Optional[float]
     chg_15min: Optional[float]
     chg_30min: Optional[float]
-    price_5min_ago: Optional[float]  # Raw price 5min ago for reference
+    price_5min_ago: Optional[float]
+
+
+class PriceRangeResult(NamedTuple):
+    """High-Low range ($) for each time window (Trade Ideas style)"""
+    range_2min: Optional[float]
+    range_5min: Optional[float]
+    range_15min: Optional[float]
+    range_30min: Optional[float]
+    range_60min: Optional[float]
+    range_120min: Optional[float]
+
+
+RANGE_WINDOWS_SEC = {2: 120, 5: 300, 15: 900, 30: 1800, 60: 3600, 120: 7200}
 
 
 @dataclass(frozen=True)
 class PriceTrackerConfig:
     """Configuration for PriceWindowTracker"""
-    max_symbols: int = 10000      # Maximum symbols to track
-    window_size: int = 1801       # Seconds of history (1801 to support 30 min = 1800 sec lookback)
-    min_data_points: int = 2      # Minimum points needed for calculation
+    max_symbols: int = 10000
+    window_size: int = 7201       # 2h + 1s to support 120-min range lookback
+    min_data_points: int = 2
 
 
 class PriceWindowTracker:
@@ -396,6 +407,64 @@ class PriceWindowTracker:
             price_5min_ago=prices_past[5]
         )
     
+    def get_range_windows(self, symbol: str) -> PriceRangeResult:
+        """
+        Get high-low range ($) for each time window.
+
+        Scans the circular buffer backwards, tracking running max/min
+        for each window cutoff (2, 5, 15, 30, 60, 120 min).
+        """
+        empty = PriceRangeResult(None, None, None, None, None, None)
+        if symbol not in self.symbol_index:
+            return empty
+
+        idx = self.symbol_index[symbol]
+        count = int(self.counts[idx])
+        if count < self.config.min_data_points:
+            return empty
+
+        head = int(self.heads[idx])
+        ts_now = int(self.timestamps[idx, head])
+        if ts_now == 0:
+            return empty
+
+        cutoffs = sorted(RANGE_WINDOWS_SEC.items())  # [(2,120), (5,300), ...]
+        results: Dict[int, Optional[float]] = {m: None for m, _ in cutoffs}
+
+        hi = float(self.prices[idx, head])
+        lo = hi
+        cutoff_idx = 0
+
+        for i in range(1, count):
+            if cutoff_idx >= len(cutoffs):
+                break
+            past = (head - i) % self.config.window_size
+            ts_past = int(self.timestamps[idx, past])
+            if ts_past == 0:
+                break
+            p = float(self.prices[idx, past])
+            if p <= 0:
+                continue
+            if p > hi:
+                hi = p
+            if p < lo:
+                lo = p
+
+            elapsed = ts_now - ts_past
+            while cutoff_idx < len(cutoffs) and elapsed >= cutoffs[cutoff_idx][1]:
+                mins = cutoffs[cutoff_idx][0]
+                results[mins] = round(hi - lo, 4)
+                cutoff_idx += 1
+
+        return PriceRangeResult(
+            range_2min=results[2],
+            range_5min=results[5],
+            range_15min=results[15],
+            range_30min=results[30],
+            range_60min=results[60],
+            range_120min=results[120],
+        )
+
     def get_current_price(self, symbol: str) -> Optional[float]:
         """
         Get the most recent price for a symbol.

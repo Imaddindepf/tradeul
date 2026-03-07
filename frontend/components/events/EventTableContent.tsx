@@ -101,6 +101,18 @@ export interface MarketEvent {
   vol_10min_pct?: number;
   vol_15min_pct?: number;
   vol_30min_pct?: number;
+  range_2min?: number;
+  range_5min?: number;
+  range_15min?: number;
+  range_30min?: number;
+  range_60min?: number;
+  range_120min?: number;
+  range_2min_pct?: number;
+  range_5min_pct?: number;
+  range_15min_pct?: number;
+  range_30min_pct?: number;
+  range_60min_pct?: number;
+  range_120min_pct?: number;
   // Quote data
   bid?: number;
   ask?: number;
@@ -301,6 +313,18 @@ const DEFAULT_EVENT_COLUMN_VISIBILITY: VisibilityState = {
   vol_10min_pct: false,
   vol_15min_pct: false,
   vol_30min_pct: false,
+  range_2min: false,
+  range_5min: false,
+  range_15min: false,
+  range_30min: false,
+  range_60min: false,
+  range_120min: false,
+  range_2min_pct: false,
+  range_5min_pct: false,
+  range_15min_pct: false,
+  range_30min_pct: false,
+  range_60min_pct: false,
+  range_120min_pct: false,
   // Quote data
   bid: false,
   ask: false,
@@ -467,6 +491,18 @@ function parseEvent(d: any): MarketEvent {
     vol_10min_pct: p('vol_10min_pct'),
     vol_15min_pct: p('vol_15min_pct'),
     vol_30min_pct: p('vol_30min_pct'),
+    range_2min: p('range_2min'),
+    range_5min: p('range_5min'),
+    range_15min: p('range_15min'),
+    range_30min: p('range_30min'),
+    range_60min: p('range_60min'),
+    range_120min: p('range_120min'),
+    range_2min_pct: p('range_2min_pct'),
+    range_5min_pct: p('range_5min_pct'),
+    range_15min_pct: p('range_15min_pct'),
+    range_30min_pct: p('range_30min_pct'),
+    range_60min_pct: p('range_60min_pct'),
+    range_120min_pct: p('range_120min_pct'),
     bid: p('bid'),
     ask: p('ask'),
     bid_size: p('bid_size'),
@@ -578,6 +614,19 @@ function passesFilters(e: MarketEvent, f: import('@/stores/useEventFiltersStore'
   if (!chk(e.vol_10min_pct, f.min_vol_10min_pct, f.max_vol_10min_pct)) return false;
   if (!chk(e.vol_15min_pct, f.min_vol_15min_pct, f.max_vol_15min_pct)) return false;
   if (!chk(e.vol_30min_pct, f.min_vol_30min_pct, f.max_vol_30min_pct)) return false;
+  // Range windows
+  if (!chk(e.range_2min, f.min_range_2min, f.max_range_2min)) return false;
+  if (!chk(e.range_5min, f.min_range_5min, f.max_range_5min)) return false;
+  if (!chk(e.range_15min, f.min_range_15min, f.max_range_15min)) return false;
+  if (!chk(e.range_30min, f.min_range_30min, f.max_range_30min)) return false;
+  if (!chk(e.range_60min, f.min_range_60min, f.max_range_60min)) return false;
+  if (!chk(e.range_120min, f.min_range_120min, f.max_range_120min)) return false;
+  if (!chk(e.range_2min_pct, f.min_range_2min_pct, f.max_range_2min_pct)) return false;
+  if (!chk(e.range_5min_pct, f.min_range_5min_pct, f.max_range_5min_pct)) return false;
+  if (!chk(e.range_15min_pct, f.min_range_15min_pct, f.max_range_15min_pct)) return false;
+  if (!chk(e.range_30min_pct, f.min_range_30min_pct, f.max_range_30min_pct)) return false;
+  if (!chk(e.range_60min_pct, f.min_range_60min_pct, f.max_range_60min_pct)) return false;
+  if (!chk(e.range_120min_pct, f.min_range_120min_pct, f.max_range_120min_pct)) return false;
   // Fundamentals & indicators
   if (!chk(e.float_shares, f.min_float_shares, f.max_float_shares)) return false;
   if (!chk(e.rsi, f.min_rsi, f.max_rsi)) return false;
@@ -790,6 +839,19 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
     setF('vol_10min_pct_min', filters.min_vol_10min_pct); setF('vol_10min_pct_max', filters.max_vol_10min_pct);
     setF('vol_15min_pct_min', filters.min_vol_15min_pct); setF('vol_15min_pct_max', filters.max_vol_15min_pct);
     setF('vol_30min_pct_min', filters.min_vol_30min_pct); setF('vol_30min_pct_max', filters.max_vol_30min_pct);
+    // Range windows
+    setF('range_2min_min', filters.min_range_2min); setF('range_2min_max', filters.max_range_2min);
+    setF('range_5min_min', filters.min_range_5min); setF('range_5min_max', filters.max_range_5min);
+    setF('range_15min_min', filters.min_range_15min); setF('range_15min_max', filters.max_range_15min);
+    setF('range_30min_min', filters.min_range_30min); setF('range_30min_max', filters.max_range_30min);
+    setF('range_60min_min', filters.min_range_60min); setF('range_60min_max', filters.max_range_60min);
+    setF('range_120min_min', filters.min_range_120min); setF('range_120min_max', filters.max_range_120min);
+    setF('range_2min_pct_min', filters.min_range_2min_pct); setF('range_2min_pct_max', filters.max_range_2min_pct);
+    setF('range_5min_pct_min', filters.min_range_5min_pct); setF('range_5min_pct_max', filters.max_range_5min_pct);
+    setF('range_15min_pct_min', filters.min_range_15min_pct); setF('range_15min_pct_max', filters.max_range_15min_pct);
+    setF('range_30min_pct_min', filters.min_range_30min_pct); setF('range_30min_pct_max', filters.max_range_30min_pct);
+    setF('range_60min_pct_min', filters.min_range_60min_pct); setF('range_60min_pct_max', filters.max_range_60min_pct);
+    setF('range_120min_pct_min', filters.min_range_120min_pct); setF('range_120min_pct_max', filters.max_range_120min_pct);
     // Change windows
     setF('chg_1min_min', filters.min_chg_1min); setF('chg_1min_max', filters.max_chg_1min);
     setF('chg_5min_min', filters.min_chg_5min); setF('chg_5min_max', filters.max_chg_5min);
@@ -1037,6 +1099,18 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
         ['vol_10min_pct_min', f.min_vol_10min_pct], ['vol_10min_pct_max', f.max_vol_10min_pct],
         ['vol_15min_pct_min', f.min_vol_15min_pct], ['vol_15min_pct_max', f.max_vol_15min_pct],
         ['vol_30min_pct_min', f.min_vol_30min_pct], ['vol_30min_pct_max', f.max_vol_30min_pct],
+        ['range_2min_min', f.min_range_2min], ['range_2min_max', f.max_range_2min],
+        ['range_5min_min', f.min_range_5min], ['range_5min_max', f.max_range_5min],
+        ['range_15min_min', f.min_range_15min], ['range_15min_max', f.max_range_15min],
+        ['range_30min_min', f.min_range_30min], ['range_30min_max', f.max_range_30min],
+        ['range_60min_min', f.min_range_60min], ['range_60min_max', f.max_range_60min],
+        ['range_120min_min', f.min_range_120min], ['range_120min_max', f.max_range_120min],
+        ['range_2min_pct_min', f.min_range_2min_pct], ['range_2min_pct_max', f.max_range_2min_pct],
+        ['range_5min_pct_min', f.min_range_5min_pct], ['range_5min_pct_max', f.max_range_5min_pct],
+        ['range_15min_pct_min', f.min_range_15min_pct], ['range_15min_pct_max', f.max_range_15min_pct],
+        ['range_30min_pct_min', f.min_range_30min_pct], ['range_30min_pct_max', f.max_range_30min_pct],
+        ['range_60min_pct_min', f.min_range_60min_pct], ['range_60min_pct_max', f.max_range_60min_pct],
+        ['range_120min_pct_min', f.min_range_120min_pct], ['range_120min_pct_max', f.max_range_120min_pct],
         ['chg_1min_min', f.min_chg_1min], ['chg_1min_max', f.max_chg_1min],
         ['chg_5min_min', f.min_chg_5min], ['chg_5min_max', f.max_chg_5min],
         ['chg_10min_min', f.min_chg_10min], ['chg_10min_max', f.max_chg_10min],
@@ -1820,9 +1894,37 @@ export function EventTableContent({ categoryId, categoryName, eventTypes: initia
           const config = getColumnConfig('vol_30min_pct');
           const formatted = formatValue(value, config.format, config.suffix);
           const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
-          return <div className={`font-mono text-xs ${cellClass}`}>{formatted}</div>;
+          return <div className={'font-mono text-xs ' + cellClass}>{formatted}</div>;
         },
       }),
+
+      ...(['range_2min', 'range_5min', 'range_15min', 'range_30min', 'range_60min', 'range_120min'] as const).map(key => (
+        columnHelper.accessor(key, {
+          ...getColumnConfig(key),
+          enableSorting: true,
+          cell: (info) => {
+            const value = info.getValue();
+            if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+            const config = getColumnConfig(key);
+            const formatted = formatValue(value, config.format, config.suffix);
+            return <div className="font-mono text-xs text-slate-600">{formatted}</div>;
+          },
+        })
+      )),
+      ...(['range_2min_pct', 'range_5min_pct', 'range_15min_pct', 'range_30min_pct', 'range_60min_pct', 'range_120min_pct'] as const).map(key => (
+        columnHelper.accessor(key, {
+          ...getColumnConfig(key),
+          enableSorting: true,
+          cell: (info) => {
+            const value = info.getValue();
+            if (value === undefined || value === null) return <div className="text-slate-400 text-xs">-</div>;
+            const config = getColumnConfig(key);
+            const formatted = formatValue(value, config.format, config.suffix);
+            const cellClass = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            return <div className={'font-mono text-xs ' + cellClass}>{formatted}</div>;
+          },
+        })
+      )),
 
       columnHelper.accessor('bid', {
         ...getColumnConfig('bid'),

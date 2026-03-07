@@ -39,6 +39,20 @@ class EnrichedData:
     vol_15min_pct: Optional[float] = None
     vol_30min_pct: Optional[float] = None
     
+    # Price range windows (Trade Ideas: Range2..Range120)
+    range_2min: Optional[float] = None
+    range_5min: Optional[float] = None
+    range_15min: Optional[float] = None
+    range_30min: Optional[float] = None
+    range_60min: Optional[float] = None
+    range_120min: Optional[float] = None
+    range_2min_pct: Optional[float] = None
+    range_5min_pct: Optional[float] = None
+    range_15min_pct: Optional[float] = None
+    range_30min_pct: Optional[float] = None
+    range_60min_pct: Optional[float] = None
+    range_120min_pct: Optional[float] = None
+    
     # Trades anomaly detection
     trades_today: Optional[int] = None
     avg_trades_5d: Optional[float] = None
@@ -58,6 +72,14 @@ class EnrichedData:
     postmarket_volume: Optional[int] = None
 
 
+_RANGE_KEYS = (
+    'range_2min', 'range_5min', 'range_15min',
+    'range_30min', 'range_60min', 'range_120min',
+    'range_2min_pct', 'range_5min_pct', 'range_15min_pct',
+    'range_30min_pct', 'range_60min_pct', 'range_120min_pct',
+)
+
+
 class EnrichedDataExtractor:
     """
     Extrae datos del diccionario de datos enriquecidos (atr_data).
@@ -68,15 +90,6 @@ class EnrichedDataExtractor:
     
     @staticmethod
     def extract(atr_data: Optional[Dict[str, Any]]) -> EnrichedData:
-        """
-        Extrae todos los datos del snapshot enriquecido.
-        
-        Args:
-            atr_data: Diccionario con datos enriquecidos de Analytics
-            
-        Returns:
-            EnrichedData con todos los valores extraídos
-        """
         data = EnrichedData()
         
         if not atr_data:
@@ -110,6 +123,10 @@ class EnrichedDataExtractor:
         data.vol_10min_pct = atr_data.get('vol_10min_pct')
         data.vol_15min_pct = atr_data.get('vol_15min_pct')
         data.vol_30min_pct = atr_data.get('vol_30min_pct')
+        
+        # Price range windows ($) and (% of ATR)
+        for k in _RANGE_KEYS:
+            setattr(data, k, atr_data.get(k))
         
         # Trades anomaly
         data.trades_today = atr_data.get('trades_today')

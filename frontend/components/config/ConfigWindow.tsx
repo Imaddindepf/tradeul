@@ -91,6 +91,8 @@ function fmtFilter(key: string, val: number): string {
   if (key.includes('rsi')) return String(val);
   if (key.includes('percent') || key.includes('gap') || key.includes('atr') || key.includes('from_open') || key.includes('chg_') || key.includes('spread') || key.includes('nbbo') || key.includes('volatility') || key.includes('short_interest') || key.includes('today_pct') || key.includes('from_high')) return `${val}%`;
   if (key.includes('volume') || key.includes('vol_')) return fmtLarge(val);
+  if (key.includes('range') && !key.includes('_pct')) return `$${val}`;
+  if (key.includes('range') && key.includes('_pct')) return `${val}%`;
   return String(val);
 }
 
@@ -131,6 +133,18 @@ function filtersToDisplay(filters: Record<string, any>): string[] {
     min_vol_10min_pct: 'V10m% >', max_vol_10min_pct: 'V10m% <',
     min_vol_15min_pct: 'V15m% >', max_vol_15min_pct: 'V15m% <',
     min_vol_30min_pct: 'V30m% >', max_vol_30min_pct: 'V30m% <',
+    min_range_2min: 'R2m$ >', max_range_2min: 'R2m$ <',
+    min_range_5min: 'R5m$ >', max_range_5min: 'R5m$ <',
+    min_range_15min: 'R15m$ >', max_range_15min: 'R15m$ <',
+    min_range_30min: 'R30m$ >', max_range_30min: 'R30m$ <',
+    min_range_60min: 'R60m$ >', max_range_60min: 'R60m$ <',
+    min_range_120min: 'R120m$ >', max_range_120min: 'R120m$ <',
+    min_range_2min_pct: 'R2m% >', max_range_2min_pct: 'R2m% <',
+    min_range_5min_pct: 'R5m% >', max_range_5min_pct: 'R5m% <',
+    min_range_15min_pct: 'R15m% >', max_range_15min_pct: 'R15m% <',
+    min_range_30min_pct: 'R30m% >', max_range_30min_pct: 'R30m% <',
+    min_range_60min_pct: 'R60m% >', max_range_60min_pct: 'R60m% <',
+    min_range_120min_pct: 'R120m% >', max_range_120min_pct: 'R120m% <',
     min_chg_1min: '1m >', max_chg_1min: '1m <',
     min_chg_5min: '5m >', max_chg_5min: '5m <',
     min_chg_10min: '10m >', max_chg_10min: '10m <',
@@ -1056,6 +1070,18 @@ export function ConfigWindow({
                 { label: 'Vol 10m %', minK: 'min_vol_10min_pct', maxK: 'max_vol_10min_pct', suf: '%', phMin: '100', phMax: '500' },
                 { label: 'Vol 15m %', minK: 'min_vol_15min_pct', maxK: 'max_vol_15min_pct', suf: '%', phMin: '100', phMax: '500' },
                 { label: 'Vol 30m %', minK: 'min_vol_30min_pct', maxK: 'max_vol_30min_pct', suf: '%', phMin: '100', phMax: '500' },
+                { label: 'Range 2m $', minK: 'min_range_2min', maxK: 'max_range_2min', suf: '$', phMin: '0.10', phMax: '2' },
+                { label: 'Range 5m $', minK: 'min_range_5min', maxK: 'max_range_5min', suf: '$', phMin: '0.20', phMax: '5' },
+                { label: 'Range 15m $', minK: 'min_range_15min', maxK: 'max_range_15min', suf: '$', phMin: '0.50', phMax: '10' },
+                { label: 'Range 30m $', minK: 'min_range_30min', maxK: 'max_range_30min', suf: '$', phMin: '1', phMax: '15' },
+                { label: 'Range 60m $', minK: 'min_range_60min', maxK: 'max_range_60min', suf: '$', phMin: '1', phMax: '20' },
+                { label: 'Range 120m $', minK: 'min_range_120min', maxK: 'max_range_120min', suf: '$', phMin: '2', phMax: '30' },
+                { label: 'Range 2m %', minK: 'min_range_2min_pct', maxK: 'max_range_2min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: 'Range 5m %', minK: 'min_range_5min_pct', maxK: 'max_range_5min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: 'Range 15m %', minK: 'min_range_15min_pct', maxK: 'max_range_15min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: 'Range 30m %', minK: 'min_range_30min_pct', maxK: 'max_range_30min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: 'Range 60m %', minK: 'min_range_60min_pct', maxK: 'max_range_60min_pct', suf: '%', phMin: '50', phMax: '300' },
+                { label: 'Range 120m %', minK: 'min_range_120min_pct', maxK: 'max_range_120min_pct', suf: '%', phMin: '50', phMax: '300' },
                 { label: 'Vol Today %', minK: 'min_volume_today_pct', maxK: 'max_volume_today_pct', suf: '%', phMin: '50', phMax: '500' },
               ]
             },

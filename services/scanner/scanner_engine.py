@@ -701,6 +701,20 @@ class ScannerEngine:
             vol_15min_pct = atr_data.get('vol_15min_pct') if atr_data else None
             vol_30min_pct = atr_data.get('vol_30min_pct') if atr_data else None
             
+            # Price range windows (Trade Ideas: Range2..Range120)
+            range_2min = atr_data.get('range_2min') if atr_data else None
+            range_5min = atr_data.get('range_5min') if atr_data else None
+            range_15min = atr_data.get('range_15min') if atr_data else None
+            range_30min = atr_data.get('range_30min') if atr_data else None
+            range_60min = atr_data.get('range_60min') if atr_data else None
+            range_120min = atr_data.get('range_120min') if atr_data else None
+            range_2min_pct = atr_data.get('range_2min_pct') if atr_data else None
+            range_5min_pct = atr_data.get('range_5min_pct') if atr_data else None
+            range_15min_pct = atr_data.get('range_15min_pct') if atr_data else None
+            range_30min_pct = atr_data.get('range_30min_pct') if atr_data else None
+            range_60min_pct = atr_data.get('range_60min_pct') if atr_data else None
+            range_120min_pct = atr_data.get('range_120min_pct') if atr_data else None
+            
             # Extract price change window metrics (from enriched snapshot - PriceWindowTracker)
             chg_1min = atr_data.get('chg_1min') if atr_data else None
             chg_5min = atr_data.get('chg_5min') if atr_data else None
@@ -1019,6 +1033,18 @@ class ScannerEngine:
                 vol_10min_pct=enriched.vol_10min_pct,
                 vol_15min_pct=enriched.vol_15min_pct,
                 vol_30min_pct=enriched.vol_30min_pct,
+                range_2min=enriched.range_2min,
+                range_5min=enriched.range_5min,
+                range_15min=enriched.range_15min,
+                range_30min=enriched.range_30min,
+                range_60min=enriched.range_60min,
+                range_120min=enriched.range_120min,
+                range_2min_pct=enriched.range_2min_pct,
+                range_5min_pct=enriched.range_5min_pct,
+                range_15min_pct=enriched.range_15min_pct,
+                range_30min_pct=enriched.range_30min_pct,
+                range_60min_pct=enriched.range_60min_pct,
+                range_120min_pct=enriched.range_120min_pct,
                 chg_1min=enriched.chg_1min,
                 chg_5min=enriched.chg_5min,
                 chg_10min=enriched.chg_10min,

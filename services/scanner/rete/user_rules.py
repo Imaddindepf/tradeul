@@ -54,6 +54,20 @@ FILTER_FIELD_MAPPING = [
     ("min_vol_15min_pct", "max_vol_15min_pct", "vol_15min_pct"),
     ("min_vol_30min_pct", "max_vol_30min_pct", "vol_30min_pct"),
     #
+    # === Price Range Windows ===
+    ("min_range_2min", "max_range_2min", "range_2min"),
+    ("min_range_5min", "max_range_5min", "range_5min"),
+    ("min_range_15min", "max_range_15min", "range_15min"),
+    ("min_range_30min", "max_range_30min", "range_30min"),
+    ("min_range_60min", "max_range_60min", "range_60min"),
+    ("min_range_120min", "max_range_120min", "range_120min"),
+    ("min_range_2min_pct", "max_range_2min_pct", "range_2min_pct"),
+    ("min_range_5min_pct", "max_range_5min_pct", "range_5min_pct"),
+    ("min_range_15min_pct", "max_range_15min_pct", "range_15min_pct"),
+    ("min_range_30min_pct", "max_range_30min_pct", "range_30min_pct"),
+    ("min_range_60min_pct", "max_range_60min_pct", "range_60min_pct"),
+    ("min_range_120min_pct", "max_range_120min_pct", "range_120min_pct"),
+    #
     # === Time Window Changes ===
     ("min_chg_1min", "max_chg_1min", "chg_1min"),
     ("min_chg_5min", "max_chg_5min", "chg_5min"),

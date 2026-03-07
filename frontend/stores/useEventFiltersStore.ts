@@ -94,6 +94,32 @@ export interface EventFilterParameters {
   min_vol_30min_pct?: number;
   max_vol_30min_pct?: number;
 
+  // Range window filters (Trade Ideas: Range2..Range120)
+  min_range_2min?: number;
+  max_range_2min?: number;
+  min_range_5min?: number;
+  max_range_5min?: number;
+  min_range_15min?: number;
+  max_range_15min?: number;
+  min_range_30min?: number;
+  max_range_30min?: number;
+  min_range_60min?: number;
+  max_range_60min?: number;
+  min_range_120min?: number;
+  max_range_120min?: number;
+  min_range_2min_pct?: number;
+  max_range_2min_pct?: number;
+  min_range_5min_pct?: number;
+  max_range_5min_pct?: number;
+  min_range_15min_pct?: number;
+  max_range_15min_pct?: number;
+  min_range_30min_pct?: number;
+  max_range_30min_pct?: number;
+  min_range_60min_pct?: number;
+  max_range_60min_pct?: number;
+  min_range_120min_pct?: number;
+  max_range_120min_pct?: number;
+
   // Change 60 min
   min_chg_60min?: number;
   max_chg_60min?: number;

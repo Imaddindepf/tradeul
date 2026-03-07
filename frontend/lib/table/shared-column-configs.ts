@@ -222,6 +222,22 @@ export const COLUMN_CONFIGS: Record<string, SharedColumnConfig> = {
   },
 
   // ═══════════════════════════════════════════════════════════════
+  // RANGE WINDOWS (Trade Ideas: Range2..Range120)
+  // ═══════════════════════════════════════════════════════════════
+  range_2min: { header: 'R2m$', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'currency', suffix: '$' },
+  range_5min: { header: 'R5m$', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'currency', suffix: '$' },
+  range_15min: { header: 'R15m$', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'currency', suffix: '$' },
+  range_30min: { header: 'R30m$', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'currency', suffix: '$' },
+  range_60min: { header: 'R60m$', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'currency', suffix: '$' },
+  range_120min: { header: 'R120m$', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'currency', suffix: '$' },
+  range_2min_pct: { header: 'R2m%', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'percent', suffix: '%' },
+  range_5min_pct: { header: 'R5m%', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'percent', suffix: '%' },
+  range_15min_pct: { header: 'R15m%', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'percent', suffix: '%' },
+  range_30min_pct: { header: 'R30m%', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'percent', suffix: '%' },
+  range_60min_pct: { header: 'R60m%', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'percent', suffix: '%' },
+  range_120min_pct: { header: 'R120m%', size: 75, minSize: 60, maxSize: 95, enableHiding: true, format: 'percent', suffix: '%' },
+
+  // ═══════════════════════════════════════════════════════════════
   // CAMBIOS POR VENTANA DE TIEMPO
   // ═══════════════════════════════════════════════════════════════
   chg_1min: {

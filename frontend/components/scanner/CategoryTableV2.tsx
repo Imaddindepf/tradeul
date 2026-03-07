@@ -98,6 +98,8 @@ const ALL_HIDEABLE_COLUMNS = [
   'dollar_volume', 'volume_today_pct', 'volume_yesterday_pct', 'vol_1min', 'vol_5min',
   'vol_10min', 'vol_15min', 'vol_30min',
   'vol_1min_pct', 'vol_5min_pct', 'vol_10min_pct', 'vol_15min_pct', 'vol_30min_pct',
+  'range_2min', 'range_5min', 'range_15min', 'range_30min', 'range_60min', 'range_120min',
+  'range_2min_pct', 'range_5min_pct', 'range_15min_pct', 'range_30min_pct', 'range_60min_pct', 'range_120min_pct',
   'chg_1min', 'chg_5min', 'chg_10min', 'chg_15min', 'chg_30min',
   'price_vs_vwap', 'postmarket_change_percent', 'postmarket_volume', 'spread', 'bid_size',
   'ask_size', 'bid_ask_ratio', 'distance_from_nbbo', 'atr_percent', 'atr_used',
@@ -917,6 +919,80 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
             if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
             const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
             return <div className={`font-mono ${cls}`}>{value.toFixed(1)}%</div>;
+          },
+        });
+      }),
+      // Range window $ columns (Trade Ideas: Range2..Range120 in dollars)
+      ...(['range_2min', 'range_5min', 'range_15min', 'range_30min', 'range_60min', 'range_120min'] as const).map(key => {
+        const labels: Record<string, string> = { range_2min: 'R2m$', range_5min: 'R5m$', range_15min: 'R15m$', range_30min: 'R30m$', range_60min: 'R60m$', range_120min: 'R120m$' };
+        return columnHelper.accessor(key, {
+          header: labels[key],
+          size: 75,
+          minSize: 55,
+          maxSize: 95,
+          enableResizing: true,
+          enableSorting: true,
+          enableHiding: true,
+          cell: (info) => {
+            const value = info.getValue();
+            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+            return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          },
+        });
+      }),
+      // Range window % columns (Trade Ideas style)
+      ...(['range_2min_pct', 'range_5min_pct', 'range_15min_pct', 'range_30min_pct', 'range_60min_pct', 'range_120min_pct'] as const).map(key => {
+        const labels: Record<string, string> = { range_2min_pct: 'R2m%', range_5min_pct: 'R5m%', range_15min_pct: 'R15m%', range_30min_pct: 'R30m%', range_60min_pct: 'R60m%', range_120min_pct: 'R120m%' };
+        return columnHelper.accessor(key, {
+          header: labels[key],
+          size: 75,
+          minSize: 55,
+          maxSize: 95,
+          enableResizing: true,
+          enableSorting: true,
+          enableHiding: true,
+          cell: (info) => {
+            const value = info.getValue();
+            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            return <div className={`font-mono ${cls}`}>{value.toFixed(1)}%</div>;
+          },
+        });
+      }),
+      // Range window $ columns (Trade Ideas: Range2..Range120 in dollars)
+      ...(['range_2min', 'range_5min', 'range_15min', 'range_30min', 'range_60min', 'range_120min'] as const).map(key => {
+        const labels: Record<string, string> = { range_2min: 'R2m$', range_5min: 'R5m$', range_15min: 'R15m$', range_30min: 'R30m$', range_60min: 'R60m$', range_120min: 'R120m$' };
+        return columnHelper.accessor(key, {
+          header: labels[key],
+          size: 75,
+          minSize: 55,
+          maxSize: 95,
+          enableResizing: true,
+          enableSorting: true,
+          enableHiding: true,
+          cell: (info) => {
+            const value = info.getValue();
+            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+            return <div className="font-mono text-slate-600">${value.toFixed(2)}</div>;
+          },
+        });
+      }),
+      // Range window % columns (Trade Ideas style)
+      ...(['range_2min_pct', 'range_5min_pct', 'range_15min_pct', 'range_30min_pct', 'range_60min_pct', 'range_120min_pct'] as const).map(key => {
+        const labels: Record<string, string> = { range_2min_pct: 'R2m%', range_5min_pct: 'R5m%', range_15min_pct: 'R15m%', range_30min_pct: 'R30m%', range_60min_pct: 'R60m%', range_120min_pct: 'R120m%' };
+        return columnHelper.accessor(key, {
+          header: labels[key],
+          size: 75,
+          minSize: 55,
+          maxSize: 95,
+          enableResizing: true,
+          enableSorting: true,
+          enableHiding: true,
+          cell: (info) => {
+            const value = info.getValue();
+            if (value === null || value === undefined) return <div className="text-slate-400">-</div>;
+            const cls = value >= 200 ? 'text-green-600 font-semibold' : value >= 100 ? 'text-slate-600' : 'text-red-500';
+            return <div className={'font-mono ' + cls}>{value.toFixed(1)}%</div>;
           },
         });
       }),

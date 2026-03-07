@@ -83,6 +83,20 @@ export interface Ticker {
   chg_15min?: number;
   chg_30min?: number;
 
+  // Price range windows (Trade Ideas: Range2..Range120)
+  range_2min?: number;
+  range_5min?: number;
+  range_15min?: number;
+  range_30min?: number;
+  range_60min?: number;
+  range_120min?: number;
+  range_2min_pct?: number;
+  range_5min_pct?: number;
+  range_15min_pct?: number;
+  range_30min_pct?: number;
+  range_60min_pct?: number;
+  range_120min_pct?: number;
+
   // VWAP
   vwap?: number;           // Volume Weighted Average Price (today)
   price_vs_vwap?: number;  // % distance from VWAP

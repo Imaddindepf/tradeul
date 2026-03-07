@@ -387,6 +387,29 @@ class EnrichmentPipeline:
                 ticker_data.setdefault('chg_30min', None)
         
         # ================================================================
+        # Price range windows: Range2..Range120 ($) and Range2P..Range120P (% of ATR)
+        # Trade Ideas: range_Nmin = high - low in last N minutes
+        #              range_Nmin_pct = (range_Nmin / ATR) * 100
+        # ================================================================
+        _range_windows = ('range_2min', 'range_5min', 'range_15min',
+                          'range_30min', 'range_60min', 'range_120min')
+        if self.price_window_tracker:
+            from price_window_tracker import PriceRangeResult
+            pr = self.price_window_tracker.get_range_windows(symbol)
+            _atr_for_range = ticker_data.get('atr')
+            for _rkey, _rval in zip(_range_windows, pr):
+                ticker_data[_rkey] = _rval
+                _pct_key = _rkey + '_pct'
+                if _rval is not None and _atr_for_range and _atr_for_range > 0:
+                    ticker_data[_pct_key] = round(_rval / _atr_for_range * 100, 1)
+                else:
+                    ticker_data[_pct_key] = None
+        else:
+            for _rkey in _range_windows:
+                ticker_data.setdefault(_rkey, None)
+                ticker_data.setdefault(_rkey + '_pct', None)
+
+        # ================================================================
         # Streaming indicators from BarEngine (AM.* - covers 100% of market)
         # Always set keys for consistent JSON schema (frontend expects them).
         # ================================================================
@@ -679,12 +702,14 @@ class EnrichmentPipeline:
         else:
             ticker_data['dollar_volume'] = None
         
-        # Today's range (dollars and %)
+        # Today's range: TRangeD = high - low ($), TRangeP = (range / ATR) * 100
         h = intraday_high or (day_high if day_high else None)
         l = intraday_low or (day_low if day_low else None)
+        _atr_val = ticker_data.get('atr')
         if h and l and l > 0:
-            ticker_data['todays_range'] = round(h - l, 4)
-            ticker_data['todays_range_pct'] = round((h - l) / l * 100, 2)
+            _trange = round(h - l, 4)
+            ticker_data['todays_range'] = _trange
+            ticker_data['todays_range_pct'] = round(_trange / _atr_val * 100, 1) if _atr_val and _atr_val > 0 else None
         else:
             ticker_data['todays_range'] = None
             ticker_data['todays_range_pct'] = None

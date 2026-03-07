@@ -51,6 +51,19 @@ FILTER_DEFINITIONS = [
     ('min_vol_10min_pct', 'max_vol_10min_pct', 'vol_10min_pct', False),
     ('min_vol_15min_pct', 'max_vol_15min_pct', 'vol_15min_pct', False),
     ('min_vol_30min_pct', 'max_vol_30min_pct', 'vol_30min_pct', False),
+    # Price range windows
+    ('min_range_2min', 'max_range_2min', 'range_2min', False),
+    ('min_range_5min', 'max_range_5min', 'range_5min', False),
+    ('min_range_15min', 'max_range_15min', 'range_15min', False),
+    ('min_range_30min', 'max_range_30min', 'range_30min', False),
+    ('min_range_60min', 'max_range_60min', 'range_60min', False),
+    ('min_range_120min', 'max_range_120min', 'range_120min', False),
+    ('min_range_2min_pct', 'max_range_2min_pct', 'range_2min_pct', False),
+    ('min_range_5min_pct', 'max_range_5min_pct', 'range_5min_pct', False),
+    ('min_range_15min_pct', 'max_range_15min_pct', 'range_15min_pct', False),
+    ('min_range_30min_pct', 'max_range_30min_pct', 'range_30min_pct', False),
+    ('min_range_60min_pct', 'max_range_60min_pct', 'range_60min_pct', False),
+    ('min_range_120min_pct', 'max_range_120min_pct', 'range_120min_pct', False),
 ]
 
 
