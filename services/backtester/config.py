@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     polygon_api_key: str = ""
     polygon_data_dir: Path = Path("/data/polygon")
     day_aggs_subdir: str = "day_aggs"
-    minute_aggs_subdir: str = "minute_aggs"
+    minute_aggs_dir: Path = Path("/data/backtester/minute_aggs_adjusted")
 
     # Redis (for cached splits + scanner enrichment)
     redis_url: str = "redis://redis:6379"

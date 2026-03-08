@@ -112,6 +112,11 @@ If target_candle exists, lead with the catalyst.
 
 CONVERSATIONAL (greetings, off-topic):
 1. Single section with a friendly conversational response, no market data.
+If the user asks about backtest capabilities ("qué necesitas para backtest?", "how does backtest work?"), explain:
+- Required: ticker(s) (max 3), entry strategy, exit rules
+- Optional: date range, timeframe (1d/5min/1min)
+- Example: "backtest RSI < 30 mean reversion en SPY, stop loss 5%, de 2023 a 2024"
+- Limits: max 3 tickers, intraday max 60 days
 
 Each section has:
 - title: section header
@@ -430,11 +435,37 @@ async def synthesizer_node(state: dict) -> dict:
             },
         }
 
-    if isinstance(bt_result, dict) and bt_result.get("status") == "error":
-        error_msg = bt_result.get("error", "Error desconocido")
+    bt_status = bt_result.get("status") if isinstance(bt_result, dict) else None
+    if bt_status in ("info", "needs_tickers", "too_many_tickers"):
+        msg = bt_result.get("message", "")
         elapsed_ms = int((time.time() - start_time) * 1000)
         return {
-            "final_response": f"Error en backtest: {error_msg}",
+            "final_response": msg,
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "synthesizer": {"elapsed_ms": elapsed_ms, "language": language, "backtest_validation": bt_status},
+            },
+        }
+
+    if isinstance(bt_result, dict) and bt_status == "error":
+        error_msg = bt_result.get("error", "Error desconocido")
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        if language == "es":
+            helpful_suffix = (
+                "\n\n**Consejos:**\n"
+                "- Asegúrate de especificar tickers concretos (máx 3): ej. SPY, AAPL\n"
+                "- Para intradía, usa un rango de máximo 60 días\n"
+                "- Ejemplo: \"backtest RSI < 30 en SPY de 2023 a 2024\""
+            )
+        else:
+            helpful_suffix = (
+                "\n\n**Tips:**\n"
+                "- Make sure to specify concrete tickers (max 3): e.g. SPY, AAPL\n"
+                "- For intraday, use a max 60-day range\n"
+                "- Example: \"backtest RSI < 30 on SPY from 2023 to 2024\""
+            )
+        return {
+            "final_response": f"Error en backtest: {error_msg}{helpful_suffix}",
             "execution_metadata": {
                 **(state.get("execution_metadata", {})),
                 "synthesizer": {"elapsed_ms": elapsed_ms, "language": language},

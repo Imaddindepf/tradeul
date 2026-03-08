@@ -88,6 +88,38 @@ const GAP_PARTIAL_MAX_MS = 300_000; // < 5min → partial fetch
 import { useRxWebSocket } from './useRxWebSocket';
 
 // ============================================================================
+// Module-level bar cache (survives unmount/remount)
+// ============================================================================
+
+interface BarCacheEntry {
+  bars: ChartBar[];
+  oldestTime: number | null;
+  hasMore: boolean;
+  ts: number;
+}
+
+const _barCache = new Map<string, BarCacheEntry>();
+const BAR_CACHE_TTL_MS = 5 * 60 * 1000; // 5 min stale threshold
+
+function barCacheKey(ticker: string, interval: ChartInterval, replayTo?: number | null): string {
+  return `${ticker}:${interval}${replayTo ? `:${replayTo}` : ''}`;
+}
+
+function getBarCache(key: string): BarCacheEntry | null {
+  const entry = _barCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > BAR_CACHE_TTL_MS) {
+    _barCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function setBarCache(key: string, bars: ChartBar[], oldestTime: number | null, hasMore: boolean) {
+  _barCache.set(key, { bars, oldestTime, hasMore, ts: Date.now() });
+}
+
+// ============================================================================
 // Hook
 // ============================================================================
 
@@ -96,13 +128,15 @@ export function useLiveChartData(
   interval: ChartInterval,
   replayTo?: number | null,
 ) {
-  // State (solo para carga inicial, NO para updates en tiempo real)
-  const [data, setData] = useState<ChartBar[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = barCacheKey(ticker, interval, replayTo);
+  const cached = getBarCache(cacheKey);
+
+  const [data, setData] = useState<ChartBar[]>(cached?.bars || []);
+  const [loading, setLoading] = useState(!cached);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [oldestTime, setOldestTime] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(cached?.hasMore || false);
+  const [oldestTime, setOldestTime] = useState<number | null>(cached?.oldestTime ?? null);
   const [isLive, setIsLive] = useState(false);
 
   // WebSocket connection (uses the existing singleton from useRxWebSocket)
@@ -110,10 +144,11 @@ export function useLiveChartData(
   const { isConnected, messages$, send } = useRxWebSocket(wsUrl);
 
   // Refs para acceso rápido sin re-renders
-  const lastBarRef = useRef<ChartBar | null>(null);
+  const cachedBars = cached?.bars || [];
+  const lastBarRef = useRef<ChartBar | null>(cachedBars.length > 0 ? cachedBars[cachedBars.length - 1] : null);
   const tickerRef = useRef(ticker);
   const intervalRef = useRef(interval);
-  const dataRef = useRef<ChartBar[]>([]);
+  const dataRef = useRef<ChartBar[]>(cachedBars);
   const subscribedRef = useRef(false);
   const isLoadingMoreRef = useRef(false);
   const isLoadingForwardRef = useRef(false);
@@ -184,6 +219,7 @@ export function useLiveChartData(
       setData(bars);
       setOldestTime(result.oldest_time || null);
       setHasMore(result.has_more || false);
+      setBarCache(barCacheKey(ticker, interval, replayTo), bars, result.oldest_time || null, result.has_more || false);
 
       if (bars.length > 0) {
         lastBarRef.current = bars[bars.length - 1];
@@ -322,8 +358,16 @@ export function useLiveChartData(
     }
   }, []);
 
-  // Cargar al montar o cambiar ticker/interval
+  // Cargar al montar o cambiar ticker/interval.
+  // If cache hit, skip the blocking fetch — WebSocket will bring fresh data.
+  // Still revalidate in background after a short delay.
+  const hadCacheOnMount = useRef(!!cached);
   useEffect(() => {
+    if (hadCacheOnMount.current) {
+      hadCacheOnMount.current = false;
+      const t = setTimeout(() => fetchHistorical(), 3000);
+      return () => clearTimeout(t);
+    }
     fetchHistorical();
   }, [fetchHistorical]);
 

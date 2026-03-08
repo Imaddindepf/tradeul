@@ -10,6 +10,7 @@ Flujo:
 3. load_volume_slots    - Cargar volume slots del día anterior
 4. reconcile_splits     - Reconciliar datos históricos afectados por splits recientes (DB)
 5. reconcile_parquet    - Reconciliar Parquet flat files afectados por splits (DuckDB/Screener)
+5b. adjust_minute_aggs  - Generar minute_aggs_adjusted del día + re-ajustar por splits recientes
 6. calculate_atr        - Calcular ATR para todos los tickers
 6. calculate_rvol       - Calcular RVOL historical averages
 7. sync_ticker_universe - Sincronizar universo de tickers con Polygon (nuevos/delistados/nombres)
@@ -88,6 +89,7 @@ class MaintenanceOrchestrator:
                 ("load_volume_slots", self._task_load_volume_slots),
                 ("reconcile_splits", self._task_reconcile_splits),
                 ("reconcile_parquet_splits", self._task_reconcile_parquet_splits),
+                ("adjust_minute_aggs", self._task_adjust_minute_aggs),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
                 ("calculate_trades_baselines", self._task_calculate_trades_baselines),
@@ -103,6 +105,7 @@ class MaintenanceOrchestrator:
                 ("load_volume_slots", self._task_load_volume_slots),
                 ("reconcile_splits", self._task_reconcile_splits),
                 ("reconcile_parquet_splits", self._task_reconcile_parquet_splits),
+                ("adjust_minute_aggs", self._task_adjust_minute_aggs),
                 ("calculate_atr", self._task_calculate_atr),
                 ("calculate_rvol", self._task_calculate_rvol),
                 ("calculate_trades_baselines", self._task_calculate_trades_baselines),
@@ -195,6 +198,7 @@ class MaintenanceOrchestrator:
                 "calculate_trades_baselines": TaskStatus.PENDING,
                 "reconcile_splits": TaskStatus.PENDING,
                 "reconcile_parquet_splits": TaskStatus.PENDING,
+                "adjust_minute_aggs": TaskStatus.PENDING,
                 "sync_ticker_universe": TaskStatus.PENDING,
                 # enrich_metadata ELIMINADO - ahora se hace a las 1:00 AM
                 "export_screener_metadata": TaskStatus.PENDING,
@@ -344,6 +348,23 @@ class MaintenanceOrchestrator:
             
             return result
             
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def _task_adjust_minute_aggs(self, target_date: date) -> Dict:
+        """
+        Tarea 3.7: Generar minute_aggs_adjusted para el día nuevo y re-ajustar
+        archivos históricos si hay splits recientes.
+        Se ejecuta DESPUÉS de reconcile_parquet_splits.
+        """
+        try:
+            from tasks.adjust_minute_aggs import AdjustMinuteAggsTask
+
+            task = AdjustMinuteAggsTask(self.redis, self.db)
+            result = await task.execute(target_date)
+
+            return result
+
         except Exception as e:
             return {"success": False, "error": str(e)}
 

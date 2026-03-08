@@ -33,7 +33,10 @@ class MCPGatewayConfig(BaseSettings):
 
     # Historical data paths
     day_aggs_path: str = "/data/polygon/day_aggs"
-    minute_aggs_path: str = "/data/polygon/minute_aggs"
+    # Split-adjusted minute bars (source of truth for historical)
+    minute_aggs_path: str = "/data/backtester/minute_aggs_adjusted"
+    # Today's minute bars (written by today-bars-worker with adjusted=true)
+    minute_aggs_today_path: str = "/data/polygon/minute_aggs"
 
     # TimescaleDB
     db_host: str = "timescaledb"

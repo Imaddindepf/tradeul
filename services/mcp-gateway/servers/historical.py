@@ -38,6 +38,16 @@ def _find_file(base_path: str, date_str: str) -> Optional[str]:
     return None
 
 
+def _minute_filepath(date_str: str, is_today: bool) -> Optional[str]:
+    """Resolve minute bar file: today from polygon (today.parquet), else from adjusted."""
+    if is_today:
+        today_file = os.path.join(config.minute_aggs_today_path, "today.parquet")
+        if os.path.exists(today_file):
+            return today_file
+        return _find_file(config.minute_aggs_today_path, date_str)
+    return _find_file(config.minute_aggs_path, date_str)
+
+
 def _resolve_date(date: str) -> str:
     if date == "today":
         return datetime.now().strftime("%Y-%m-%d")
@@ -122,12 +132,7 @@ async def get_minute_bars(
     Returns: timestamp, open, high, low, close, volume for each minute.
     """
     date_str = _resolve_date(date)
-    if date == "today":
-        filepath = os.path.join(config.minute_aggs_path, "today.parquet")
-        if not os.path.exists(filepath):
-            filepath = _find_file(config.minute_aggs_path, date_str)
-    else:
-        filepath = _find_file(config.minute_aggs_path, date_str)
+    filepath = _minute_filepath(date_str, date == "today")
 
     if not filepath:
         return {"error": f"No minute data found for {date_str}"}
@@ -193,7 +198,7 @@ async def get_top_movers(
         finally:
             conn.close()
 
-    filepath = _find_file(config.minute_aggs_path, date_str)
+    filepath = _minute_filepath(date_str, date == "today")
     if not filepath:
         return {"error": f"No data for {date_str}"}
 
@@ -232,7 +237,7 @@ async def get_top_movers(
 
 @mcp.tool()
 async def available_dates() -> dict:
-    """List all available dates with data files."""
+    """List all available dates with data files (minute = split-adjusted)."""
     day_dates = []
     minute_dates = []
     if os.path.exists(config.day_aggs_path):
@@ -241,7 +246,7 @@ async def available_dates() -> dict:
                 day_dates.append(f.split(".")[0])
     if os.path.exists(config.minute_aggs_path):
         for f in sorted(os.listdir(config.minute_aggs_path)):
-            if f.endswith((".parquet", ".csv.gz")) and f != "today.parquet":
+            if f.endswith(".parquet") and not f.startswith("tmp"):
                 minute_dates.append(f.split(".")[0])
     return {
         "day_aggs_dates": len(set(day_dates)),

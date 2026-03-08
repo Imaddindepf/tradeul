@@ -266,8 +266,14 @@ export default function CategoryTableV2({ title, listName, onClose }: CategoryTa
     }
   }, [columnVisibility, listName, saveColumnVisibilityToStore]);
 
-  const [isReady, setIsReady] = useState(false);
-  const isReadyRef = useRef(false);
+  // SWR pattern: if the store already has data for this list (from a previous
+  // mount), start in ready state immediately and show cached data while the
+  // WebSocket re-subscribes in the background.
+  const cachedList = getList(listName);
+  const hasCachedData = !!(cachedList && cachedList.order.length > 0);
+
+  const [isReady, setIsReady] = useState(hasCachedData);
+  const isReadyRef = useRef(hasCachedData);
   const [noDataAvailable, setNoDataAvailable] = useState(false);
   const isTradingRef = useRef(isTrading);
   isTradingRef.current = isTrading;

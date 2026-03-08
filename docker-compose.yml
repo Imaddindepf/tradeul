@@ -375,6 +375,7 @@ services:
       - "127.0.0.1:8008:8008"
     volumes:
       - polygon_data:/data/polygon # Write metadata for screener
+      - backtester_data:/data/backtester # minute_aggs_adjusted + splits
     environment:
       - TIMEZONE=America/New_York
       - MAINTENANCE_SCHEDULE=MARKET_CLOSE
@@ -778,6 +779,7 @@ services:
       - MCP_DB_NAME=${POSTGRES_DB:-tradeul}
     volumes:
       - polygon_data:/data/polygon:ro
+      - backtester_data:/data/backtester:ro
     logging:
       driver: "json-file"
       options:

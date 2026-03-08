@@ -55,6 +55,8 @@ class WebSocketManager {
   private connectionId = new BehaviorSubject<string | null>(null);
   private reconnectAttempt = 0;
   private subscribers = new Set<string>();
+  private subRefCount = new Map<string, number>();
+  private unsubTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private debug = false;
 
   // Subjects para mensajes
@@ -202,33 +204,51 @@ class WebSocketManager {
   }
 
   subscribe(listName: string) {
-    this.subscribers.add(listName);
+    const prev = this.subRefCount.get(listName) || 0;
+    this.subRefCount.set(listName, prev + 1);
 
-    if (this.workerPort) {
-      // Suscribir a través del SharedWorker
-      this.workerPort.postMessage({
-        action: 'subscribe_list',
-        list: listName
-      });
-    } else {
-      // Suscribir directamente (fallback)
-      this.send({ action: 'subscribe_list', list: listName });
+    // Cancel any pending unsubscribe grace timer
+    const pending = this.unsubTimers.get(listName);
+    if (pending) {
+      clearTimeout(pending);
+      this.unsubTimers.delete(listName);
+    }
+
+    // Only send subscribe if this is the first reference
+    if (prev === 0) {
+      this.subscribers.add(listName);
+      if (this.workerPort) {
+        this.workerPort.postMessage({ action: 'subscribe_list', list: listName });
+      } else {
+        this.send({ action: 'subscribe_list', list: listName });
+      }
     }
   }
 
   unsubscribe(listName: string) {
-    this.subscribers.delete(listName);
+    const count = this.subRefCount.get(listName) || 0;
+    const next = Math.max(0, count - 1);
+    this.subRefCount.set(listName, next);
 
-    if (this.workerPort) {
-      // Desuscribir a través del SharedWorker
-      this.workerPort.postMessage({
-        action: 'unsubscribe_list',
-        list: listName
-      });
-    } else {
-      // Desuscribir directamente (fallback)
-      this.send({ action: 'unsubscribe_list', list: listName });
-    }
+    if (next > 0) return; // Other components still need this subscription
+
+    // Grace period: wait 2s before actually unsubscribing.
+    // During workspace switches, the new workspace's components will
+    // re-subscribe within this window, keeping the subscription alive.
+    const timer = setTimeout(() => {
+      this.unsubTimers.delete(listName);
+      const current = this.subRefCount.get(listName) || 0;
+      if (current > 0) return; // Re-subscribed during grace period
+
+      this.subscribers.delete(listName);
+      this.subRefCount.delete(listName);
+      if (this.workerPort) {
+        this.workerPort.postMessage({ action: 'unsubscribe_list', list: listName });
+      } else {
+        this.send({ action: 'unsubscribe_list', list: listName });
+      }
+    }, 2000);
+    this.unsubTimers.set(listName, timer);
   }
 
   /**

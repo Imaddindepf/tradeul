@@ -181,17 +181,33 @@ pgPool.query("SELECT 1").then(() => {
  * @param {string} [opts.session_end] - ISO timestamp for session upper bound
  * @returns {Promise<Array>} Array of event objects (oldest→newest, capped by limit+1 to detect has_more)
  */
+// Walk backwards from a date string ("YYYY-MM-DD") to find the last weekday.
+// Does not check market holidays — a full holiday calendar would require an
+// external data source.  For the purpose of showing "last session's events"
+// on weekends this is sufficient (holidays are rare edge cases).
+function lastWeekday(dateStr) {
+  const d = new Date(dateStr + "T12:00:00");
+  do { d.setDate(d.getDate() - 1); } while (d.getDay() === 0 || d.getDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
+
 // Build session_start / session_end as full ISO timestamps from market:session:status.
 // The session status stores times as bare "HH:MM:SS" strings (e.g. "04:00:00")
 // which are not valid SQL timestamps. We combine them with trading_date and extract
 // the UTC offset from the session's own timestamp field (handles EST/EDT automatically).
+//
+// On non-trading days (weekends/holidays) we fall back to the last weekday so that
+// the snapshot query returns events from the most recent trading session.
 function buildSessionOpts(sess) {
   const opts = {};
-  const date = sess.trading_date; // "2026-03-05"
+  let date = sess.trading_date; // "2026-03-07"
   if (!date) return opts;
 
-  // Extract UTC offset from the session timestamp (e.g. "2026-03-05T04:00:23.731961-05:00")
-  let offset = "-05:00"; // default EST
+  if (sess.is_trading_day === false) {
+    date = lastWeekday(date);
+  }
+
+  let offset = "-05:00";
   if (sess.timestamp) {
     const m = sess.timestamp.match(/([+-]\d{2}:\d{2})$/);
     if (m) offset = m[1];

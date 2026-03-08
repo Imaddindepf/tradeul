@@ -2,7 +2,9 @@
 Hybrid Data Layer: Polygon FLATS + REST API.
 
 Two data sources, transparently unified:
-  1. FLATS (on-disk parquet/csv.gz) — fast, bulk, recent data (~14 months)
+  1. FLATS (on-disk parquet/csv.gz) — fast, bulk data
+     Day aggs: split-adjusted in-place by data_maintenance nightly.
+     Minute aggs: pre-adjusted parquet from build_adjusted_data.py pipeline.
   2. Polygon REST API — any historical period, split-adjusted, on-demand
 
 The layer automatically detects FLATS coverage and fills gaps from REST.
@@ -11,7 +13,7 @@ REST results are cached locally as parquet for subsequent requests.
 FLATS schema (8 columns):
     ticker, volume, open, close, high, low, window_start, transactions
     • window_start: nanoseconds since Unix epoch
-    • No vwap column — FLATS data requires SplitAdjuster
+    • No vwap column — proxy computed from (H+L+C)/3
 
 REST schema (Polygon v2/aggs):
     v, vw, o, c, h, l, t, n
@@ -30,8 +32,6 @@ import httpx
 import numpy as np
 import pandas as pd
 import structlog
-
-from .split_adjuster import SplitAdjuster
 
 logger = structlog.get_logger(__name__)
 
@@ -214,23 +214,22 @@ class DataLayer:
     """
     High-performance data access layer backed by DuckDB.
 
-    Reads Polygon FLATS files (parquet preferred, csv.gz fallback) directly
-    and applies split adjustment via the SplitAdjuster.
+    Reads Polygon FLATS files (parquet preferred, csv.gz fallback) directly.
+    Day aggs are pre-adjusted by the data_maintenance service (nightly).
+    REST API data arrives already split-adjusted from Polygon.
     """
 
     def __init__(
         self,
         polygon_data_dir: Path,
-        split_adjuster: SplitAdjuster | None = None,
         polygon_api_key: str = "",
         rest_cache_dir: Path | None = None,
         day_aggs_subdir: str = "day_aggs",
-        minute_aggs_subdir: str = "minute_aggs",
+        minute_aggs_dir: Path | None = None,
     ):
         self._data_dir = Path(polygon_data_dir)
         self._day_dir = self._data_dir / day_aggs_subdir
-        self._minute_dir = self._data_dir / minute_aggs_subdir
-        self._adjuster = split_adjuster
+        self._minute_dir = Path(minute_aggs_dir) if minute_aggs_dir else self._data_dir / "minute_aggs"
         self._api_key = polygon_api_key
         self._rest_cache = _RESTCache(rest_cache_dir) if rest_cache_dir else None
         self._con = duckdb.connect(":memory:")
@@ -416,14 +415,13 @@ class DataLayer:
         tickers: list[str] | None = None,
     ) -> pd.DataFrame:
         """
-        Load daily bars with split adjustment, using both data sources:
-        - FLATS (on-disk) for dates with local files, then SplitAdjuster
-        - Polygon REST API for dates outside FLATS, already adjusted
+        Load daily bars from both data sources:
+        - FLATS (on-disk, pre-adjusted by data_maintenance nightly)
+        - Polygon REST API for dates outside FLATS (already adjusted)
         """
         flats_min, flats_max = self._flats_date_range(self._day_dir)
         parts: list[pd.DataFrame] = []
 
-        # Determine which ranges need REST vs FLATS
         rest_ranges: list[tuple[date, date]] = []
         flats_start, flats_end = start, end
 
@@ -439,8 +437,6 @@ class DataLayer:
                 flats_end = flats_max
             if flats_start and flats_end and flats_start <= flats_end:
                 flats_df = self.load_day_bars(flats_start, flats_end, tickers)
-                if self._adjuster and not flats_df.empty:
-                    flats_df = await self._adjuster.adjust(flats_df, date_col="date")
                 if not flats_df.empty:
                     parts.append(flats_df)
 
@@ -472,7 +468,11 @@ class DataLayer:
         end: date,
         tickers: list[str] | None = None,
     ) -> pd.DataFrame:
-        """Load minute bars — hybrid FLATS + REST."""
+        """Load minute bars — hybrid FLATS + REST.
+
+        Minute FLATS are pre-adjusted parquet from build_adjusted_data.py.
+        REST data arrives already adjusted from Polygon.
+        """
         flats_min, flats_max = self._flats_date_range(self._minute_dir)
         parts: list[pd.DataFrame] = []
 
@@ -491,8 +491,6 @@ class DataLayer:
                 flats_end = flats_max
             if flats_start and flats_end and flats_start <= flats_end:
                 flats_df = self.load_minute_bars(flats_start, flats_end, tickers)
-                if self._adjuster and not flats_df.empty:
-                    flats_df = await self._adjuster.adjust(flats_df, date_col="timestamp")
                 if not flats_df.empty:
                     parts.append(flats_df)
 

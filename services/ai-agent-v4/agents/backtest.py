@@ -33,6 +33,7 @@ async def _progress(message: str) -> None:
 
 BACKTESTER_URL = os.getenv("BACKTESTER_URL", "http://backtester:8060")
 BACKTESTER_TIMEOUT = 300  # 5 min max for long backtests
+MAX_TICKERS = 3
 
 _llm = None
 
@@ -324,6 +325,25 @@ def _strip_backtest_prefix(query: str) -> str:
     return q
 
 
+_STRATEGY_KEYWORDS = [
+    "rsi", "sma", "ema", "macd", "vwap", "atr", "bollinger",
+    "gap", "breakout", "crossover", "cross above", "cross below",
+    "buy when", "sell when", "comprar cuando", "vender cuando",
+    "entry", "exit", "stop loss", "take profit", "trailing",
+    "mean reversion", "momentum", "scalp",
+    "overbought", "oversold", "sobrecompra", "sobreventa",
+    ">", "<", ">=", "<=",
+    "above", "below", "por encima", "por debajo",
+    "profit target", "stop", "target",
+]
+
+
+def _has_strategy_content(text: str) -> bool:
+    """Check if text contains actual trading strategy keywords."""
+    t = text.lower()
+    return sum(1 for kw in _STRATEGY_KEYWORDS if kw in t) >= 1
+
+
 def _clean_json(raw: str) -> str:
     """Strip markdown fences and common LLM artifacts from JSON.
 
@@ -373,13 +393,20 @@ def _is_valid_json(s: str) -> bool:
         return False
 
 
-async def _parse_strategy(query: str, max_retries: int = 1) -> dict:
+async def _parse_strategy(query: str, tickers: list[str] | None = None, max_retries: int = 1) -> dict:
     """Use LLM to parse natural language into StrategyConfig JSON with retry."""
     llm = _get_llm()
 
     preamble = ""
+    if tickers:
+        tickers_str = ", ".join(tickers)
+        preamble += (
+            f"MANDATORY: The user wants to backtest on these specific tickers: {tickers_str}. "
+            f"You MUST use universe method \"ticker_list\" with tickers: {json.dumps(tickers)}. "
+            f"Do NOT use \"all_us\" or \"sql_filter\" — use \"ticker_list\" with exactly these tickers.\n\n"
+        )
     if len(query) > 500:
-        preamble = (
+        preamble += (
             "IMPORTANT: The text below contains educational explanations mixed with trading rules. "
             "Extract ONLY the concrete, actionable entry/exit rules and translate them to the "
             "available indicators. Ignore all explanatory text, theory, and commentary.\n\n"
@@ -462,37 +489,64 @@ async def _call_backtester(strategy_config: dict) -> dict:
 
 # ── Code Generation Path ─────────────────────────────────────────────────
 
-_COMPLEX_MARKERS = [
-    "slope", "upsloping", "downsloping", "flat",
-    "measured move", "distance from", "1/3",
-    "time of day", "morning", "10:00", "10:45",
-    "divergence", "convergence",
-    "choppy", "horizontal",
-    "speed of", "commitment",
-    "low of the day", "high of the day",
-    "15 minutes", "avoid",
-    "inverted for short",
-    "next bar", "then the next", "and then",
-    "opening range", "first 30 minutes", "first hour",
-    "close all", "close position",
-    "max holding", "holding time",
-    "dips below", "breaks above", "breaks below",
-    "regime", "adaptive", "adx",
-    "bollinger", "keltner", "atr band",
-    "only trade between", "am est", "pm est",
-    "max.*trades per day", "max.*per day",
-    "range high", "range low",
-    "first bar", "gap and go", "per day", "per ticker",
-    "previous close", "each day",
-    "above previous", "below previous",
-]
+_MODE_CLASSIFIER_PROMPT = """\
+You are a strategy complexity classifier for a backtesting engine.
+
+The TEMPLATE engine has these EXACT capabilities — nothing more:
+- Entry signals: AND-combined comparisons on these indicators ONLY:
+  close, open, high, low, volume, rsi_14, sma_20, sma_50, sma_200,
+  ema_9, ema_21, atr_14, vwap, gap_pct, rvol, range_pct, high_20d,
+  low_20d, prev_close, avg_volume_20d
+- Operators: >, >=, <, <=, ==, crosses_above, crosses_below
+- Entry timing: open, close, or next_open (fixed for all trades)
+- Exit rules: fixed % stop_loss, fixed % target, fixed % trailing_stop,
+  time (N bars), eod (end of day), signal (indicator condition)
+- Direction: fixed long OR fixed short for ALL trades (no per-trade switching)
+- No time-of-day filtering, no "wait N minutes", no session-based logic
+- No dynamic/ATR-based stops (only fixed percentages)
+- No multi-step logic ("if X then Y then Z")
+- No computed/custom indicators beyond the list above
+
+Classify as "template" ONLY if the strategy can be FULLY expressed with the
+capabilities above. If ANY part requires logic beyond template, classify as "code".
+
+When in doubt, choose "code" — it is strictly more capable.
+
+Respond with ONLY one word: "template" or "code"
+"""
+
+_mode_classifier_llm = None
 
 
-def _is_complex_strategy(query: str) -> bool:
-    """Detect if a strategy requires code generation vs template."""
-    q = query.lower()
-    score = sum(1 for m in _COMPLEX_MARKERS if m in q)
-    return score >= 2 or len(query) > 800
+def _get_mode_classifier_llm():
+    global _mode_classifier_llm
+    if _mode_classifier_llm is None:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        _mode_classifier_llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash-lite",
+            temperature=0.0,
+            max_output_tokens=8,
+        )
+    return _mode_classifier_llm
+
+
+async def _classify_strategy_mode(query: str) -> str:
+    """Use a fast LLM call to classify strategy as 'template' or 'code'."""
+    llm = _get_mode_classifier_llm()
+    messages = [
+        {"role": "system", "content": _MODE_CLASSIFIER_PROMPT},
+        {"role": "user", "content": query[:1500]},
+    ]
+    try:
+        response = await llm_invoke_with_retry(llm, messages)
+        answer = response.content.strip().lower().rstrip(".")
+        if answer in ("template", "code"):
+            return answer
+        logger.warning("Mode classifier returned unexpected: %r, defaulting to code", answer)
+        return "code"
+    except Exception as e:
+        logger.warning("Mode classifier failed (%s), defaulting to code", e)
+        return "code"
 
 
 async def _generate_strategy_code(query: str) -> tuple[str, dict]:
@@ -648,22 +702,118 @@ async def backtest_node(state: dict) -> dict:
     """Parse NL strategy and execute backtest — auto-selects template vs code mode."""
     start_time = time.time()
     query = state.get("query", "")
+    language = state.get("language", "en")
     strategy_prompt = _strip_backtest_prefix(query)
 
     result: dict[str, Any] = {}
     mode = "unknown"
 
+    # ── Guard: no strategy content → return informational response ──
+    if not _has_strategy_content(strategy_prompt):
+        logger.info("Backtest agent: no strategy content detected, returning info")
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        if language == "es":
+            info_msg = (
+                "Para ejecutar un backtest necesito:\n\n"
+                "1. **Tickers** (obligatorio, máximo 3): ej. SPY, AAPL, MSFT\n"
+                "2. **Estrategia de entrada**: ej. \"comprar cuando RSI < 30\", \"gap up > 5%\"\n"
+                "3. **Reglas de salida**: ej. \"vender cuando RSI > 70\", \"stop loss 5%\", \"take profit 10%\"\n"
+                "4. **Rango de fechas** (opcional): ej. \"de 2023-01-01 a 2024-12-31\"\n"
+                "5. **Timeframe** (opcional): 1d (diario), 5min, 1min\n\n"
+                "**Ejemplo:**\n"
+                "\"Backtest RSI < 30 mean reversion en SPY, vender cuando RSI > 70, "
+                "stop loss 5%, de 2023 a 2024\"\n\n"
+                "**Límites:** Máximo 3 tickers por backtest. "
+                "Para intradía (1min/5min), máximo 60 días de datos."
+            )
+        else:
+            info_msg = (
+                "To run a backtest I need:\n\n"
+                "1. **Tickers** (required, max 3): e.g. SPY, AAPL, MSFT\n"
+                "2. **Entry strategy**: e.g. \"buy when RSI < 30\", \"gap up > 5%\"\n"
+                "3. **Exit rules**: e.g. \"sell when RSI > 70\", \"stop loss 5%\", \"take profit 10%\"\n"
+                "4. **Date range** (optional): e.g. \"from 2023-01-01 to 2024-12-31\"\n"
+                "5. **Timeframe** (optional): 1d (daily), 5min, 1min\n\n"
+                "**Example:**\n"
+                "\"Backtest RSI < 30 mean reversion on SPY, sell when RSI > 70, "
+                "stop loss 5%, from 2023 to 2024\"\n\n"
+                "**Limits:** Max 3 tickers per backtest. "
+                "For intraday (1min/5min), max 60 days of data."
+            )
+        return {
+            "agent_results": {
+                "backtest": {"status": "info", "message": info_msg},
+            },
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "backtest": {"elapsed_ms": elapsed_ms, "status": "info", "mode": "info"},
+            },
+        }
+
+    # ── Guard: check tickers from planner — require explicit tickers (max 3) ──
+    planner_tickers = state.get("tickers", [])
+    if not planner_tickers:
+        logger.info("Backtest agent: no tickers provided, requesting clarification")
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        if language == "es":
+            missing_msg = (
+                "Tu estrategia se ve bien, pero necesito saber **en qué ticker(s)** quieres ejecutarla "
+                f"(máximo {MAX_TICKERS}).\n\n"
+                "Por ejemplo: \"en SPY\", \"en AAPL y MSFT\", \"en QQQ, SPY, IWM\""
+            )
+        else:
+            missing_msg = (
+                "Your strategy looks good, but I need to know **which ticker(s)** to run it on "
+                f"(max {MAX_TICKERS}).\n\n"
+                "For example: \"on SPY\", \"on AAPL and MSFT\", \"on QQQ, SPY, IWM\""
+            )
+        return {
+            "agent_results": {
+                "backtest": {"status": "needs_tickers", "message": missing_msg},
+            },
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "backtest": {"elapsed_ms": elapsed_ms, "status": "needs_tickers", "mode": "validation"},
+            },
+        }
+
+    if len(planner_tickers) > MAX_TICKERS:
+        logger.info("Backtest agent: too many tickers (%d), max %d", len(planner_tickers), MAX_TICKERS)
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        if language == "es":
+            limit_msg = (
+                f"Has indicado {len(planner_tickers)} tickers, pero el máximo permitido es **{MAX_TICKERS}**.\n\n"
+                f"Tickers recibidos: {', '.join(planner_tickers)}\n\n"
+                f"Por favor, elige máximo {MAX_TICKERS} tickers para el backtest."
+            )
+        else:
+            limit_msg = (
+                f"You specified {len(planner_tickers)} tickers, but the maximum allowed is **{MAX_TICKERS}**.\n\n"
+                f"Tickers received: {', '.join(planner_tickers)}\n\n"
+                f"Please choose up to {MAX_TICKERS} tickers for the backtest."
+            )
+        return {
+            "agent_results": {
+                "backtest": {"status": "too_many_tickers", "message": limit_msg},
+            },
+            "execution_metadata": {
+                **(state.get("execution_metadata", {})),
+                "backtest": {"elapsed_ms": elapsed_ms, "status": "too_many_tickers", "mode": "validation"},
+            },
+        }
+
     try:
         await _progress("Analyzing strategy complexity...")
-        use_code = _is_complex_strategy(strategy_prompt)
-        mode = "code" if use_code else "template"
-        logger.info("Backtest agent: mode=%s, prompt=%d chars", mode, len(strategy_prompt))
+        mode = await _classify_strategy_mode(strategy_prompt)
+        use_code = mode == "code"
+        logger.info("Backtest agent: mode=%s, prompt=%d chars, tickers=%s", mode, len(strategy_prompt), planner_tickers)
 
         if use_code:
             await _progress("Complex strategy detected — generating Python code with Gemini 2.5 Pro...")
             code, metadata = await _generate_strategy_code(strategy_prompt)
 
-            tickers = metadata.get("tickers", ["SPY"])
+            metadata["tickers"] = planner_tickers
+            tickers = planner_tickers
             tf = metadata.get("timeframe", "5min")
             n_tickers = len(tickers)
             ticker_preview = ", ".join(tickers[:5])
@@ -693,7 +843,7 @@ async def backtest_node(state: dict) -> dict:
                     bt_response = await _call_code_backtester(fixed_code, metadata)
         else:
             await _progress("Simple strategy — parsing to StrategyConfig template...")
-            strategy_config = await _parse_strategy(strategy_prompt)
+            strategy_config = await _parse_strategy(strategy_prompt, tickers=planner_tickers)
             name = strategy_config.get("name", "?")
             await _progress(f"Template parsed: \"{name}\" — executing backtest...")
             bt_response = await _call_backtester(strategy_config)
@@ -705,6 +855,7 @@ async def backtest_node(state: dict) -> dict:
                 await _progress("Template produced zero trades — falling back to code generation...")
                 mode = "code_fallback"
                 code, metadata = await _generate_strategy_code(strategy_prompt)
+                metadata["tickers"] = planner_tickers
                 await _progress(f"Fallback code generated ({len(code):,} chars), executing...")
                 bt_response = await _call_code_backtester(code, metadata)
                 if bt_response.get("status") == "error":

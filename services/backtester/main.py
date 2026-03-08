@@ -17,7 +17,6 @@ from core.engine import BacktestEngine
 from core.metrics import compute_advanced_metrics
 from core.models import BacktestRequest, BacktestResponse, CodeBacktestRequest
 from core.code_executor import CodeExecutor
-from core.split_adjuster import SplitAdjuster
 from core.charts import generate_full_dashboard
 from analysis.walk_forward import WalkForwardAnalyzer
 from analysis.monte_carlo import MonteCarloAnalyzer
@@ -41,17 +40,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("backtester_starting", data_dir=str(settings.polygon_data_dir))
 
-    adjuster = SplitAdjuster(
-        polygon_api_key=settings.polygon_api_key,
-        cache_dir=settings.splits_cache_dir,
-        cache_ttl_hours=settings.splits_cache_ttl_hours,
-    )
     rest_cache = settings.splits_cache_dir.parent / "rest_cache"
     data_layer = DataLayer(
         polygon_data_dir=settings.polygon_data_dir,
-        split_adjuster=adjuster,
         polygon_api_key=settings.polygon_api_key,
         rest_cache_dir=rest_cache,
+        minute_aggs_dir=settings.minute_aggs_dir,
     )
     engine = BacktestEngine(data_layer)
 

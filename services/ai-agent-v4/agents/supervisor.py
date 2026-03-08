@@ -132,7 +132,7 @@ THEMATIC — Find stocks by investment theme, sector vertical, or industry categ
 DEEP_RESEARCH — Comprehensive analysis, business model, competitive positioning, sentiment, analyst opinions → research + financial (when tickers are present). Use for: "how does X make money?", "compare X vs Y", "what's X's competitive moat?", "diferencias entre X e Y", "modelo de negocio de X"
 COMPLETE_ANALYSIS — Full picture: "análisis completo", "deep dive", "full breakdown" → market_data + news_events + financial (add research if sentiment/opinions requested)
 CODE — Custom calculations, data transformations → code_exec
-BACKTEST — Strategy backtesting from natural language: "backtest buying when RSI < 30", "/backtest gap strategy" → backtest
+BACKTEST — Strategy backtesting from natural language: "backtest buying when RSI < 30", "/backtest gap strategy" → backtest. IMPORTANT: The query MUST contain an actual trading strategy (entry/exit rules, indicators, conditions). If the user is only ASKING about backtesting capabilities, how to use it, or what parameters are needed (e.g. "quiero hacer backtest, qué necesitas?", "how does backtest work?", "what can I backtest?"), classify as GREETING — do NOT route to the backtest agent.
 CHART_ANALYSIS — User is asking about a specific chart they are viewing (technical analysis, patterns, support/resistance, trend) → market_data (add research if "why" is asked, add news_events for context)
 
 A single query can combine MULTIPLE intents — select agents for ALL detected intents.
@@ -271,8 +271,14 @@ User: "temas con RSI oversold y momentum positivo en 5 dias"
 User: "top tema en large caps y dame los 5 mejores stocks de ese tema"
 {{"intent": "MARKET_PULSE", "tickers": [], "agents": ["market_data"], "theme_tags": [], "pulse_queries": [{{"group": "themes", "cap_size": "large", "sort_by": "weighted_change", "limit": 5, "label": "top_themes"}}], "pulse_compare": false, "pulse_metrics": null, "pulse_drilldown": {{"from_query": 0, "rank": 1, "sort_by": "change_percent", "limit": 5}}, "plan": "Tema más fuerte en large caps con drilldown a sus mejores stocks", "confidence": 1.0, "reasoning": "Market pulse with automatic drilldown into top result", "clarification": null}}
 
-User: "/backtest Buy stocks gapping up 5% with volume > 1M, sell at 10% profit or 5% stop, 2024-2025"
-{{"intent": "BACKTEST", "tickers": [], "agents": ["backtest"], "theme_tags": [], "plan": "Backtest gap-up momentum strategy with volume filter, profit target and stop loss", "confidence": 1.0, "reasoning": "Explicit backtest command with strategy description", "clarification": null}}
+User: "Quiero hacer backtest contigo! podrias decirme que necesitas?"
+{{"intent": "GREETING", "tickers": [], "agents": [], "theme_tags": [], "plan": "El usuario pregunta sobre cómo usar el backtester — responder con instrucciones", "confidence": 1.0, "reasoning": "Informational question about backtest capabilities, no actual strategy to execute", "clarification": null}}
+
+User: "how does backtest work? what do I need?"
+{{"intent": "GREETING", "tickers": [], "agents": [], "theme_tags": [], "plan": "User asking about backtest usage — respond with instructions", "confidence": 1.0, "reasoning": "Informational question about backtest, no trading strategy provided", "clarification": null}}
+
+User: "/backtest Buy stocks gapping up 5% with volume > 1M, sell at 10% profit or 5% stop on AAPL, 2024-2025"
+{{"intent": "BACKTEST", "tickers": ["AAPL"], "agents": ["backtest"], "theme_tags": [], "plan": "Backtest gap-up momentum strategy with volume filter, profit target and stop loss on AAPL", "confidence": 1.0, "reasoning": "Explicit backtest command with strategy description and ticker", "clarification": null}}
 
 User: "backtest RSI mean reversion on SPY from 2020 to 2024"
 {{"intent": "BACKTEST", "tickers": ["SPY"], "agents": ["backtest"], "theme_tags": [], "plan": "Backtest RSI mean reversion strategy on SPY", "confidence": 1.0, "reasoning": "Backtest request with specific ticker and strategy", "clarification": null}}
@@ -449,8 +455,8 @@ async def query_planner_node(state: dict) -> dict:
             "market_context": state.get("market_context", {}),
         }
 
-    # ── BACKTEST fast-path: deterministic routing when /backtest prefix is present ──
-    if query.strip().lower().startswith("/backtest") or query.strip().lower().startswith("backtest "):
+    # ── BACKTEST fast-path: only for /backtest command prefix (not bare "backtest" word) ──
+    if query.strip().lower().startswith("/backtest"):
         logger.info("Query planner: BACKTEST (fast-path) — routing directly to backtest agent")
 
         llm_tickers = []
