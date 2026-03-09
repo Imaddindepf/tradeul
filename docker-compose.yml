@@ -586,6 +586,42 @@ services:
           memory: 256M
 
   # ============================================================================
+  # OPENUL STREAM - Ultra-low-latency breaking news
+  # ============================================================================
+  openul-stream:
+    build:
+      context: ./services/openul-stream
+      dockerfile: Dockerfile
+    container_name: tradeul_openul_stream
+    env_file:
+      - .env
+    environment:
+      - X_CONSUMER_KEY=${X_CONSUMER_KEY}
+      - X_CONSUMER_SECRET=${X_CONSUMER_SECRET}
+      - MONITORED_USERS=["GermanFinGuy","tradfi","TapTradTerminal"]
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - SERVICE_PORT=8070
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    ports:
+      - "127.0.0.1:8070:8070"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # ============================================================================
   # BENZINGA EARNINGS - Real-time earnings data streaming
   # ============================================================================
   benzinga-earnings:
@@ -863,9 +899,13 @@ services:
       - BACKTESTER_POLYGON_API_KEY=${POLYGON_API_KEY}
       - BACKTESTER_POLYGON_DATA_DIR=/data/polygon
       - BACKTESTER_SPLITS_CACHE_DIR=/data/backtester/splits
+      - BACKTESTER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/6
     volumes:
       - polygon_data:/data/polygon:ro
       - backtester_data:/data/backtester
+    depends_on:
+      redis:
+        condition: service_healthy
     logging:
       driver: "json-file"
       options:
@@ -883,6 +923,34 @@ services:
           memory: 2G
         reservations:
           memory: 512M
+
+  backtester_worker:
+    build:
+      context: ./services/backtester
+      dockerfile: Dockerfile
+    container_name: tradeul_backtester_worker
+    env_file:
+      - .env
+    environment:
+      - BACKTESTER_POLYGON_API_KEY=${POLYGON_API_KEY}
+      - BACKTESTER_POLYGON_DATA_DIR=/data/polygon
+      - BACKTESTER_SPLITS_CACHE_DIR=/data/backtester/splits
+      - BACKTESTER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/6
+    volumes:
+      - polygon_data:/data/polygon:ro
+      - backtester_data:/data/backtester
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: python -m workers.backtest_worker
+    restart: unless-stopped
+    networks:
+      - tradeul_network
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
 
   # =============================================
   # TODAY BARS WORKER - Minute bars de HOY

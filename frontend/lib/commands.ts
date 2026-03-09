@@ -29,6 +29,8 @@ import {
   Grid3X3,
   Activity,
   Gauge,
+  LineChart,
+  Radio,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -74,6 +76,8 @@ export const MAIN_COMMANDS: MainCommand[] = [
   { id: 'build', label: 'BUILD', description: 'commands.build.description', icon: Zap },
   { id: 'pulse', label: 'PULSE', description: 'commands.pulse.description', icon: Gauge, isNew: true },
   { id: 'rtn', label: 'RTN', description: 'commands.rtn.description', icon: TrendingUp, isNew: true },
+  { id: 'backtest', label: 'BT', description: 'commands.backtest.description', icon: LineChart, isNew: true },
+  { id: 'opn', label: 'OPN', description: 'commands.opn.description', icon: Radio, isNew: true },
 ];
 
 /**

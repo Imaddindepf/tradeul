@@ -487,6 +487,69 @@ async def _call_backtester(strategy_config: dict) -> dict:
         return resp.json()
 
 
+async def submit_backtest_natural(
+    prompt: str,
+    tickers: list[str],
+    user_id: str | None = None,
+) -> dict:
+    """
+    Parse natural language strategy, enqueue job on backtester, return job_id.
+    For use by REST endpoint POST /api/backtest/submit-natural.
+    """
+    strategy_prompt = _strip_backtest_prefix(prompt)
+    if not _has_strategy_content(strategy_prompt):
+        raise ValueError("Prompt does not describe a trading strategy. Include entry/exit rules and indicators.")
+    if not tickers or len(tickers) > MAX_TICKERS:
+        raise ValueError(f"Provide 1–{MAX_TICKERS} tickers.")
+    mode = await _classify_strategy_mode(strategy_prompt)
+    if mode == "template":
+        strategy_config = await _parse_strategy(strategy_prompt, tickers=tickers)
+        tf = strategy_config.get("timeframe", "1d")
+        is_intraday = tf in ("1min", "5min", "15min", "30min", "1h")
+        request_body = {
+            "strategy": strategy_config,
+            "include_walk_forward": not is_intraday,
+            "walk_forward_splits": 5,
+            "include_monte_carlo": not is_intraday,
+            "monte_carlo_simulations": 500 if not is_intraday else 0,
+            "include_advanced_metrics": True,
+            "n_trials_for_dsr": 1,
+        }
+        payload = {"type": "template", "request": request_body}
+    else:
+        code, metadata = await _generate_strategy_code(strategy_prompt)
+        metadata["tickers"] = tickers
+        request_body = {
+            "code": code,
+            "tickers": metadata.get("tickers", tickers),
+            "timeframe": metadata.get("timeframe", "5min"),
+            "start_date": metadata.get("start_date"),
+            "end_date": metadata.get("end_date"),
+            "initial_capital": metadata.get("initial_capital", 100_000),
+            "slippage_bps": 10.0,
+            "commission_per_trade": 0.0,
+            "risk_free_rate": 0.05,
+            "strategy_name": metadata.get("name", "LLM Strategy"),
+            "strategy_description": metadata.get("description", ""),
+            "include_advanced_metrics": True,
+            "include_monte_carlo": True,
+            "monte_carlo_simulations": 500,
+        }
+        payload = {"type": "code", "request": request_body}
+    if user_id:
+        payload["user_id"] = user_id
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"{BACKTESTER_URL}/api/v1/jobs",
+            json=payload,
+        )
+        if resp.status_code == 429:
+            raise ValueError(resp.json().get("detail", resp.text)[:200])
+        resp.raise_for_status()
+        data = resp.json()
+    return {"job_id": data.get("job_id", "")}
+
+
 # ── Code Generation Path ─────────────────────────────────────────────────
 
 _MODE_CLASSIFIER_PROMPT = """\

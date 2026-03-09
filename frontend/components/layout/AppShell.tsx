@@ -11,6 +11,7 @@ import { CatalystAlertsPopup, CatalystDetectorProvider } from '@/components/cata
 import { DataBridge } from '@/components/scanner/DataBridge';
 import { NewsProvider } from '@/components/news/NewsProvider';
 import { InsightsProvider } from '@/components/insights';
+import { OpenULProvider } from '@/contexts/OpenULContext';
 import { useTradingDayReset } from '@/hooks/useTradingDayReset';
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
@@ -50,6 +51,7 @@ export function AppShell({ children }: AppShellProps) {
             <InsightsProvider>
               {/* CatalystDetectorProvider: detecta movimientos explosivos en noticias */}
               <CatalystDetectorProvider>
+                <OpenULProvider>
                 <div className="min-h-screen bg-slate-50 relative">
                   {/* Announcement Banner - floating toast */}
                   <AnnouncementBanner />
@@ -64,6 +66,7 @@ export function AppShell({ children }: AppShellProps) {
                   {/* Catalyst Alerts Popup - floating notifications */}
                   <CatalystAlertsPopup />
                 </div>
+              </OpenULProvider>
               </CatalystDetectorProvider>
             </InsightsProvider>
           </NewsProvider>

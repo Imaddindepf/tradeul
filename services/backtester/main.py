@@ -20,6 +20,9 @@ from core.code_executor import CodeExecutor
 from core.charts import generate_full_dashboard
 from analysis.walk_forward import WalkForwardAnalyzer
 from analysis.monte_carlo import MonteCarloAnalyzer
+from infrastructure.job_repository import RedisJobRepository
+from infrastructure.queue import RedisJobQueue
+from api.routes.jobs import router as jobs_router
 
 structlog.configure(
     processors=[
@@ -49,6 +52,16 @@ async def lifespan(app: FastAPI):
     )
     engine = BacktestEngine(data_layer)
 
+    try:
+        repo = RedisJobRepository(settings.redis_url, settings.job_result_ttl_seconds)
+        queue = RedisJobQueue(settings.redis_url, settings.jobs_queue_name)
+        app.state.job_repository = repo
+        app.state.job_queue = queue
+    except Exception as e:
+        logger.warning("jobs_not_available", error=str(e))
+        app.state.job_repository = None
+        app.state.job_queue = None
+
     logger.info("backtester_ready")
     yield
 
@@ -70,6 +83,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(jobs_router)
 
 
 @app.get("/health")
@@ -221,6 +236,21 @@ async def run_code_backtest(request: CodeBacktestRequest):
     except Exception as e:
         logger.error("code_backtest_failed", error=str(e))
         return BacktestResponse(status="error", error=f"Internal error: {str(e)}")
+
+
+@app.post("/api/v1/backtest/natural")
+async def backtest_natural_stub():
+    """Natural language backtest: use the AI Agent instead.
+    POST to Agent: /api/backtest/submit-natural with { \"prompt\", \"tickers\" } to get job_id.
+    Then poll GET /api/v1/jobs/{job_id} on this backtester."""
+    raise HTTPException(
+        501,
+        detail=(
+            "Use the AI Agent for natural language: POST /api/backtest/submit-natural "
+            "with body { \"prompt\": \"...\", \"tickers\": [\"SPY\"] }. "
+            "Agent returns job_id; poll GET /api/v1/jobs/{job_id} on this service."
+        ),
+    )
 
 
 @app.get("/api/v1/backtest/indicators")

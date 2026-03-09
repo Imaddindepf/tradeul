@@ -30,7 +30,12 @@ export interface StrategyConfig {
   universe: UniverseFilter;
   entry_signals: Signal[];
   entry_timing: 'open' | 'close' | 'next_open';
+  entry_events: string[];
+  entry_events_combine: 'or' | 'and';
   exit_rules: ExitRule[];
+  exit_events: string[];
+  entry_filters: Record<string, number | string | null>;
+  universe_filters: Record<string, number | string | null>;
   timeframe: Timeframe;
   start_date: string;
   end_date: string;
@@ -135,6 +140,35 @@ export interface MonteCarloResult {
   best_max_drawdown_pct: number;
 }
 
+export interface DailyStats {
+  date: string;
+  pnl: number;
+  trades_count: number;
+  winners: number;
+  losers: number;
+  win_rate: number;
+  avg_gain: number;
+  buying_power: number;
+  gross_equity: number;
+  net_equity: number;
+}
+
+export interface OptimizationBucket {
+  label: string;
+  profit_factor: number;
+  win_rate: number;
+  avg_gain: number;
+  total_gain: number;
+  trades: number;
+  pct_of_total: number;
+}
+
+export interface OptimizationBreakdown {
+  filter_name: string;
+  interval: number;
+  buckets: OptimizationBucket[];
+}
+
 export interface BacktestResult {
   strategy: StrategyConfig;
   core_metrics: CoreMetrics;
@@ -145,10 +179,16 @@ export interface BacktestResult {
   equity_curve: [string, number][];
   drawdown_curve: [string, number][];
   monthly_returns: Record<string, number>;
+  daily_stats?: DailyStats[] | null;
+  optimization?: Record<string, OptimizationBreakdown> | null;
   execution_time_ms: number;
   symbols_tested: number;
   bars_processed: number;
   warnings: string[];
+  most_winning_days_in_row?: number;
+  most_losing_days_in_row?: number;
+  biggest_winning_day?: { date: string; pnl: number } | null;
+  biggest_losing_day?: { date: string; pnl: number } | null;
 }
 
 export interface BacktestResponse {

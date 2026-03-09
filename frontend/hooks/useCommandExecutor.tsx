@@ -35,7 +35,9 @@ import { AnalystRatingsContent } from '@/components/analyst-ratings';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
 import { EventTableContent } from '@/components/events/EventTableContent';
-import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
+import { ConfigWindow, type AlertWindowConfig, type BacktestFromConfigData } from '@/components/config/ConfigWindow';
+import { BacktestPanelContent } from '@/components/backtest-floating/BacktestFloatingWindow';
+import { OpenULContent } from '@/components/openul';
 import { useEventFiltersStore } from '@/stores/useEventFiltersStore';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
 import { SYSTEM_EVENT_CATEGORIES } from '@/lib/commands';
@@ -297,6 +299,24 @@ export function useCommandExecutor() {
                                     });
                                     prefStore.updateWindowComponentState(winId, evtCs);
                                 }
+                            }}
+                            onBacktestStrategy={(data: BacktestFromConfigData) => {
+                                openWindow({
+                                    title: 'OddsMaker — Backtester',
+                                    content: (
+                                        <BacktestPanelContent
+                                            initialEvents={data.eventTypes}
+                                            initialFilters={data.filters}
+                                            initialName={data.name}
+                                        />
+                                    ),
+                                    width: 900,
+                                    height: 750,
+                                    x: Math.max(30, screenWidth / 2 - 450),
+                                    y: Math.max(30, screenHeight / 2 - 375),
+                                    minWidth: 700,
+                                    minHeight: 550,
+                                });
                             }}
                             onCreateScannerWindow={(savedFilter: UserFilter) => {
                                 const prefStore = useUserPreferencesStore.getState();
@@ -704,6 +724,33 @@ export function useCommandExecutor() {
                     y: Math.max(70, 90),
                     minWidth: 480,
                     minHeight: 350,
+                });
+                return null;
+
+            case 'backtest':
+            case 'bt':
+                openWindow({
+                    title: 'OddsMaker — Backtester',
+                    content: <BacktestPanelContent />,
+                    width: 900,
+                    height: 750,
+                    x: Math.max(30, screenWidth / 2 - 450),
+                    y: Math.max(30, screenHeight / 2 - 375),
+                    minWidth: 700,
+                    minHeight: 550,
+                });
+                return null;
+
+            case 'opn':
+                openWindow({
+                    title: 'Openul — Breaking News',
+                    content: <OpenULContent />,
+                    width: 480,
+                    height: 650,
+                    x: Math.max(50, screenWidth - 530),
+                    y: Math.max(70, 90),
+                    minWidth: 360,
+                    minHeight: 400,
                 });
                 return null;
 

@@ -606,9 +606,18 @@ class DataLayer:
 
     def add_indicators_sql(self, bars_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Add common technical indicators using DuckDB window functions.
-        Vectorized, no Python loops. Works for both daily (date col) and
-        intraday (timestamp col) data.
+        Add all technical indicators using DuckDB window functions + pandas.
+        Vectorized, no Python loops where possible. Works for both daily
+        (date col) and intraday (timestamp col) data.
+
+        Produces ~50 indicator columns covering:
+        - SMAs: 5, 8, 20, 50, 200
+        - EMAs: 9, 20, 21, 50
+        - RSI(14), MACD(12,26,9), Stochastic(14,3), ADX(14)
+        - Bollinger Bands(20,2): upper, middle, lower, width, %B
+        - True ATR(14), ATR%
+        - VWAP + distance from VWAP
+        - Intraday derived: change_pct, change_from_open, pos_in_range, etc.
         """
         time_col = "timestamp" if "timestamp" in bars_df.columns else "date"
 
@@ -617,20 +626,28 @@ class DataLayer:
             SELECT
                 *,
                 LAG(close) OVER w AS prev_close,
+                LAG(high) OVER w AS prev_high,
+                LAG(low) OVER w AS prev_low,
+                AVG(close) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS sma_5,
+                AVG(close) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 7 PRECEDING AND CURRENT ROW) AS sma_8,
                 AVG(close) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS sma_20,
                 AVG(close) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 49 PRECEDING AND CURRENT ROW) AS sma_50,
                 AVG(close) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 199 PRECEDING AND CURRENT ROW) AS sma_200,
+                AVG(volume) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 4 PRECEDING AND CURRENT ROW) AS avg_volume_5d,
+                AVG(volume) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 9 PRECEDING AND CURRENT ROW) AS avg_volume_10d,
                 AVG(volume) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS avg_volume_20d,
                 AVG(high - low) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 13 PRECEDING AND CURRENT ROW) AS atr_14,
                 MAX(high) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS high_20d,
                 MIN(low) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 19 PRECEDING AND CURRENT ROW) AS low_20d,
+                MAX(high) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 251 PRECEDING AND CURRENT ROW) AS high_52w,
+                MIN(low) OVER (PARTITION BY ticker ORDER BY {time_col} ROWS BETWEEN 251 PRECEDING AND CURRENT ROW) AS low_52w,
                 ROW_NUMBER() OVER w AS bar_idx
             FROM _bars
             WINDOW w AS (PARTITION BY ticker ORDER BY {time_col})
             ORDER BY ticker, {time_col}
         """).fetchdf()
+        self._con.unregister("_bars")
 
-        # Derived indicators computed on the enriched DataFrame
         result["gap_pct"] = np.where(
             result["prev_close"] > 0,
             (result["open"] - result["prev_close"]) / result["prev_close"] * 100,
@@ -650,14 +667,19 @@ class DataLayer:
         result = self._compute_ema_indicators(result)
         result = self._compute_rsi(result, period=14)
         result = self._compute_vwap_proxy(result)
+        result = self._compute_macd(result)
+        result = self._compute_stochastic(result)
+        result = self._compute_bollinger(result)
+        result = self._compute_adx(result)
+        result = self._compute_true_atr(result)
+        result = self._compute_intraday_derived(result)
 
-        self._con.unregister("_bars")
         return result
 
     @staticmethod
     def _compute_ema_indicators(df: pd.DataFrame) -> pd.DataFrame:
-        """Compute EMA indicators per ticker using pandas ewm."""
-        ema_configs = [(9, "ema_9"), (21, "ema_21")]
+        """Compute all EMA indicators per ticker using pandas ewm."""
+        ema_configs = [(9, "ema_9"), (20, "ema_20"), (21, "ema_21"), (50, "ema_50")]
         for span, col_name in ema_configs:
             vals = []
             for _, group in df.groupby("ticker"):
@@ -676,7 +698,6 @@ class DataLayer:
         if "vwap" in df.columns:
             return df
         typical_price = (df["high"] + df["low"] + df["close"]) / 3
-        date_col = "date" if "date" in df.columns else "timestamp"
         vals = []
         for _, group in df.groupby("ticker"):
             tp = typical_price.loc[group.index]
@@ -701,6 +722,166 @@ class DataLayer:
             rs = avg_gain / avg_loss.replace(0, np.nan)
             rsi = 100 - (100 / (1 + rs))
             rsi_vals.append(rsi)
-
         df["rsi_14"] = pd.concat(rsi_vals).reindex(df.index)
+        return df
+
+    @staticmethod
+    def _compute_macd(df: pd.DataFrame) -> pd.DataFrame:
+        """MACD(12,26,9) per ticker: macd_line, macd_signal, macd_hist."""
+        line_vals, signal_vals, hist_vals = [], [], []
+        for _, g in df.groupby("ticker"):
+            ema12 = g["close"].ewm(span=12, adjust=False).mean()
+            ema26 = g["close"].ewm(span=26, adjust=False).mean()
+            line = ema12 - ema26
+            signal = line.ewm(span=9, adjust=False).mean()
+            hist = line - signal
+            line_vals.append(line)
+            signal_vals.append(signal)
+            hist_vals.append(hist)
+        df["macd_line"] = pd.concat(line_vals).reindex(df.index)
+        df["macd_signal"] = pd.concat(signal_vals).reindex(df.index)
+        df["macd_hist"] = pd.concat(hist_vals).reindex(df.index)
+        return df
+
+    @staticmethod
+    def _compute_stochastic(df: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> pd.DataFrame:
+        """Stochastic Oscillator: stoch_k, stoch_d."""
+        k_vals, d_vals = [], []
+        for _, g in df.groupby("ticker"):
+            low_min = g["low"].rolling(k_period, min_periods=1).min()
+            high_max = g["high"].rolling(k_period, min_periods=1).max()
+            denom = high_max - low_min
+            k = np.where(denom > 0, (g["close"] - low_min) / denom * 100, 50.0)
+            k_series = pd.Series(k, index=g.index)
+            d_series = k_series.rolling(d_period, min_periods=1).mean()
+            k_vals.append(k_series)
+            d_vals.append(d_series)
+        df["stoch_k"] = pd.concat(k_vals).reindex(df.index)
+        df["stoch_d"] = pd.concat(d_vals).reindex(df.index)
+        return df
+
+    @staticmethod
+    def _compute_bollinger(df: pd.DataFrame, period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
+        """Bollinger Bands: bb_upper, bb_middle, bb_lower, bb_width, bb_pct_b."""
+        upper_vals, middle_vals, lower_vals = [], [], []
+        width_vals, pctb_vals = [], []
+        for _, g in df.groupby("ticker"):
+            mid = g["close"].rolling(period, min_periods=1).mean()
+            std = g["close"].rolling(period, min_periods=1).std().fillna(0)
+            upper = mid + std_dev * std
+            lower = mid - std_dev * std
+            width = np.where(mid > 0, (upper - lower) / mid, 0.0)
+            band_range = upper - lower
+            pctb = np.where(band_range > 0, (g["close"] - lower) / band_range, 0.5)
+            upper_vals.append(upper)
+            middle_vals.append(mid)
+            lower_vals.append(lower)
+            width_vals.append(pd.Series(width, index=g.index))
+            pctb_vals.append(pd.Series(pctb, index=g.index))
+        df["bb_upper"] = pd.concat(upper_vals).reindex(df.index)
+        df["bb_middle"] = pd.concat(middle_vals).reindex(df.index)
+        df["bb_lower"] = pd.concat(lower_vals).reindex(df.index)
+        df["bb_width"] = pd.concat(width_vals).reindex(df.index)
+        df["bb_pct_b"] = pd.concat(pctb_vals).reindex(df.index)
+        return df
+
+    @staticmethod
+    def _compute_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+        """ADX(14): adx_14, plus_di, minus_di."""
+        adx_vals, pdi_vals, mdi_vals = [], [], []
+        for _, g in df.groupby("ticker"):
+            h, l, c = g["high"], g["low"], g["close"]
+            prev_h, prev_l, prev_c = h.shift(1), l.shift(1), c.shift(1)
+            tr = pd.concat([
+                h - l,
+                (h - prev_c).abs(),
+                (l - prev_c).abs(),
+            ], axis=1).max(axis=1)
+            plus_dm = np.where((h - prev_h) > (prev_l - l), np.maximum(h - prev_h, 0), 0.0)
+            minus_dm = np.where((prev_l - l) > (h - prev_h), np.maximum(prev_l - l, 0), 0.0)
+            alpha = 1 / period
+            atr = pd.Series(tr, index=g.index).ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+            plus_di = pd.Series(plus_dm, index=g.index).ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+            minus_di = pd.Series(minus_dm, index=g.index).ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+            plus_di_pct = np.where(atr > 0, plus_di / atr * 100, 0.0)
+            minus_di_pct = np.where(atr > 0, minus_di / atr * 100, 0.0)
+            di_sum = plus_di_pct + minus_di_pct
+            dx = np.where(di_sum > 0, np.abs(plus_di_pct - minus_di_pct) / di_sum * 100, 0.0)
+            adx = pd.Series(dx, index=g.index).ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+            adx_vals.append(adx)
+            pdi_vals.append(pd.Series(plus_di_pct, index=g.index))
+            mdi_vals.append(pd.Series(minus_di_pct, index=g.index))
+        df["adx_14"] = pd.concat(adx_vals).reindex(df.index)
+        df["plus_di"] = pd.concat(pdi_vals).reindex(df.index)
+        df["minus_di"] = pd.concat(mdi_vals).reindex(df.index)
+        return df
+
+    @staticmethod
+    def _compute_true_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+        """True ATR (with gaps) replacing the simple range-based atr_14."""
+        atr_vals = []
+        for _, g in df.groupby("ticker"):
+            h, l, c = g["high"], g["low"], g["close"]
+            prev_c = c.shift(1)
+            tr = pd.concat([
+                h - l,
+                (h - prev_c).abs(),
+                (l - prev_c).abs(),
+            ], axis=1).max(axis=1)
+            atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+            atr_vals.append(atr)
+        df["true_atr_14"] = pd.concat(atr_vals).reindex(df.index)
+        df["atr_pct"] = np.where(df["close"] > 0, df["true_atr_14"] / df["close"] * 100, 0.0)
+        return df
+
+    @staticmethod
+    def _compute_intraday_derived(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Derived columns needed by event translator:
+        change_pct, change_from_open, intraday_high, intraday_low,
+        dist_from_vwap, pos_in_range, below_high, above_low.
+        """
+        df["change_pct"] = np.where(
+            df["prev_close"] > 0,
+            (df["close"] - df["prev_close"]) / df["prev_close"] * 100,
+            0.0,
+        )
+        time_col = "timestamp" if "timestamp" in df.columns else "date"
+        hi_vals, lo_vals, open_vals = [], [], []
+        for _, g in df.groupby("ticker"):
+            cum_hi = g["high"].cummax()
+            cum_lo = g["low"].cummin()
+            hi_vals.append(cum_hi)
+            lo_vals.append(cum_lo)
+            open_vals.append(pd.Series(g["open"].iloc[0], index=g.index))
+        df["intraday_high"] = pd.concat(hi_vals).reindex(df.index)
+        df["intraday_low"] = pd.concat(lo_vals).reindex(df.index)
+        df["day_open"] = pd.concat(open_vals).reindex(df.index)
+        df["change_from_open"] = np.where(
+            df["day_open"] > 0,
+            (df["close"] - df["day_open"]) / df["day_open"] * 100,
+            0.0,
+        )
+        df["dist_from_vwap"] = np.where(
+            df.get("vwap", pd.Series(0, index=df.index)) > 0,
+            (df["close"] - df.get("vwap", 0)) / df.get("vwap", 1) * 100,
+            0.0,
+        )
+        intra_range = df["intraday_high"] - df["intraday_low"]
+        df["pos_in_range"] = np.where(
+            intra_range > 0,
+            (df["close"] - df["intraday_low"]) / intra_range * 100,
+            50.0,
+        )
+        df["below_high"] = np.where(
+            df["intraday_high"] > 0,
+            (df["intraday_high"] - df["close"]) / df["intraday_high"] * 100,
+            0.0,
+        )
+        df["above_low"] = np.where(
+            df["intraday_low"] > 0,
+            (df["close"] - df["intraday_low"]) / df["intraday_low"] * 100,
+            0.0,
+        )
+        df["dollar_volume"] = df["close"] * df["volume"]
         return df

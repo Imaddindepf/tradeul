@@ -11,6 +11,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import { ClientThemeProvider } from '@/components/settings/ClientThemeProvider';
 import { I18nProvider } from '@/components/providers/I18nProvider';
 import { ChunkLoadErrorHandler } from '@/components/ChunkLoadErrorHandler';
+import { BacktestFloatingProvider } from '@/contexts/BacktestFloatingContext';
 
 // UI Font - Using Inter for better stability
 const inter = Inter({
@@ -74,7 +75,9 @@ export default function RootLayout({
           <ChunkLoadErrorHandler />
           <I18nProvider>
             <ClientThemeProvider>
-              {children}
+              <BacktestFloatingProvider>
+                {children}
+              </BacktestFloatingProvider>
             </ClientThemeProvider>
           </I18nProvider>
           <div id="portal-root" />

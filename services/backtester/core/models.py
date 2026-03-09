@@ -81,7 +81,7 @@ class UniverseFilter(BaseModel):
 
 
 class StrategyConfig(BaseModel):
-    """Complete strategy configuration parsed from natural language."""
+    """Complete strategy configuration for the backtester."""
 
     name: str = "Untitled Strategy"
     description: str = ""
@@ -90,7 +90,36 @@ class StrategyConfig(BaseModel):
     entry_signals: list[Signal] = Field(default_factory=list)
     entry_timing: Literal["open", "close", "next_open"] = "next_open"
 
+    # Event-based entries: list of event IDs from alert-catalog
+    # Combined with OR (any event triggers), then ANDed with entry_signals
+    entry_events: list[str] = Field(
+        default_factory=list,
+        description="Event IDs from alert-catalog (e.g. 'vwap_cross_up', 'macd_cross_bullish')",
+    )
+    entry_events_combine: Literal["or", "and"] = Field(
+        "or",
+        description="How to combine multiple events: 'or' = any triggers, 'and' = all must fire",
+    )
+
     exit_rules: list[ExitRule] = Field(default_factory=list)
+
+    # Event-based exits: if any of these events fire, exit the position
+    exit_events: list[str] = Field(
+        default_factory=list,
+        description="Event IDs that trigger position exit",
+    )
+
+    # Filter-based conditions: applied per-bar as additional entry requirements
+    entry_filters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Filter parameters (min_price, max_rvol, etc.) applied per-bar",
+    )
+
+    # Universe filters: applied at aggregate level to pre-filter tickers
+    universe_filters: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Filter parameters for universe pre-filtering",
+    )
 
     timeframe: Timeframe = Timeframe.DAY_1
     start_date: date
@@ -257,6 +286,42 @@ class MonteCarloResult(BaseModel):
     best_max_drawdown_pct: float
 
 
+# ── Daily Stats (OddsMaker-style) ────────────────────────────────────────
+
+class DailyStats(BaseModel):
+    date: str
+    pnl: float
+    trades_count: int
+    winners: int
+    losers: int
+    win_rate: float
+    avg_gain: float
+    buying_power: float
+    gross_equity: float
+    net_equity: float
+
+
+class OptimizationBucket(BaseModel):
+    label: str
+    profit_factor: float
+    win_rate: float
+    avg_gain: float
+    total_gain: float
+    trades: int
+    pct_of_total: float
+
+
+class OptimizationBreakdown(BaseModel):
+    filter_name: str
+    interval: float
+    buckets: list[OptimizationBucket]
+
+
+class DayStreak(BaseModel):
+    date: str
+    pnl: float
+
+
 # ── Complete Result ──────────────────────────────────────────────────────
 
 class BacktestResult(BaseModel):
@@ -271,10 +336,18 @@ class BacktestResult(BaseModel):
     drawdown_curve: list[tuple[str, float]]
     monthly_returns: dict[str, float]
 
+    daily_stats: list[DailyStats] | None = None
+    optimization: dict[str, OptimizationBreakdown] | None = None
+
     execution_time_ms: int
     symbols_tested: int
     bars_processed: int
     warnings: list[str] = Field(default_factory=list)
+
+    most_winning_days_in_row: int = 0
+    most_losing_days_in_row: int = 0
+    biggest_winning_day: DayStreak | None = None
+    biggest_losing_day: DayStreak | None = None
 
 
 # ── API Models ───────────────────────────────────────────────────────────

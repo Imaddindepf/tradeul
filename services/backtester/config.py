@@ -17,8 +17,12 @@ class Settings(BaseSettings):
     day_aggs_subdir: str = "day_aggs"
     minute_aggs_dir: Path = Path("/data/backtester/minute_aggs_adjusted")
 
-    # Redis (for cached splits + scanner enrichment)
+    # Redis (queue + job storage)
     redis_url: str = "redis://redis:6379"
+    jobs_queue_name: str = "backtester:jobs"
+    job_result_ttl_seconds: int = 7 * 24 * 3600  # 7 days
+    max_concurrent_jobs_per_user: int = 2
+    max_jobs_per_day_per_user: int = 50  # 0 = sin límite diario
 
     # Defaults
     default_initial_capital: float = 100_000.0

@@ -52,6 +52,8 @@ import { InsiderTradingContent, InsiderGlossaryContent } from '@/components/insi
 import { AIAgentContent } from '@/components/ai-agent';
 import { InstitutionalHoldingsContent } from '@/components/institutional-holdings';
 import { AnalystRatingsContent } from '@/components/analyst-ratings';
+import { MarketPulseContent } from '@/components/market-pulse';
+import { OpenULContent } from '@/components/openul/OpenULContent';
 import { ConfigWindow, type AlertWindowConfig } from '@/components/config/ConfigWindow';
 import { UserScanTableContent } from '@/components/scanner/UserScanTableContent';
 import { useUserPreferencesStore } from '@/stores/useUserPreferencesStore';
@@ -142,6 +144,8 @@ export default function ScannerPage() {
     if (title === 'AI Agent') return <AIAgentContent />;
     if (title === 'Institutional Holdings') return <InstitutionalHoldingsContent />;
     if (title === 'Analyst Ratings') return <AnalystRatingsContent />;
+    if (title === 'Market Pulse') return <MarketPulseContent onOpenTicker={(sym) => executeTickerCommand(sym, 'chart')} />;
+    if (title === 'Openul — Breaking News') return <OpenULContent />;
     if (title === 'Chart') return <ChartContent ticker={(componentState?.ticker as string) || 'AAPL'} />;
     // Strategy Builder - restore with full callbacks for creating event/scanner windows
     if (title === 'Strategy Builder') return (

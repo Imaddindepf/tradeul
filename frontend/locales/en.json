@@ -248,6 +248,14 @@
     "rtn": {
       "name": "Analyst Ratings",
       "description": "Wall Street analyst consensus & price targets"
+    },
+    "backtest": {
+      "name": "Backtest",
+      "description": "Run strategy backtests with natural language"
+    },
+    "opn": {
+      "name": "Openul",
+      "description": "Ultra-low-latency breaking news"
     }
   },
   "scanner": {
@@ -662,6 +670,12 @@
       },
       "RTN": {
         "description": "Analyst consensus & price targets"
+      },
+      "BT": {
+        "description": "Run strategy backtests with natural language"
+      },
+      "OPN": {
+        "description": "Ultra-low-latency breaking news"
       }
     }
   },

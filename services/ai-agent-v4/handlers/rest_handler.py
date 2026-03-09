@@ -59,6 +59,16 @@ class ToolInfo(BaseModel):
     agent: str
 
 
+class BacktestSubmitNaturalRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    tickers: list[str] = Field(..., min_length=1, max_length=3)
+    user_id: Optional[str] = None
+
+
+class BacktestSubmitNaturalResponse(BaseModel):
+    job_id: str
+
+
 # ── Endpoints ────────────────────────────────────────────────────
 
 @router.post("/query", response_model=QueryResponse)
@@ -117,6 +127,27 @@ async def run_query(request: QueryRequest) -> QueryResponse:
         tables=final_state.get("tables", []),
         execution_metadata=exec_meta,
     )
+
+
+@router.post("/backtest/submit-natural", response_model=BacktestSubmitNaturalResponse)
+async def submit_backtest_natural_endpoint(body: BacktestSubmitNaturalRequest) -> BacktestSubmitNaturalResponse:
+    """Parse natural language strategy, enqueue on backtester, return job_id for polling."""
+    from agents.backtest import submit_backtest_natural
+    try:
+        out = await submit_backtest_natural(
+            prompt=body.prompt,
+            tickers=body.tickers,
+            user_id=body.user_id,
+        )
+        job_id = out.get("job_id") or ""
+        if not job_id:
+            raise HTTPException(status_code=502, detail="Backtester did not return job_id")
+        return BacktestSubmitNaturalResponse(job_id=job_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("submit_backtest_natural failed")
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @router.get("/health", response_model=HealthResponse)

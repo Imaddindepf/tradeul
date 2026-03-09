@@ -113,19 +113,13 @@ export const useTickersStore = create<TickersState & TickersActions>()(
           snapshot.rows.forEach((ticker: Ticker, index: number) => {
             ticker.rank = ticker.rank ?? index;
 
-            // Preservar precio en tiempo real si el ticker ya existe
-            // Los aggregates tienen datos más frescos que los snapshots
             if (existingTickers) {
               const existingTicker = existingTickers.get(ticker.symbol);
-              if (existingTicker && existingTicker.price) {
-                // Preservar precio, volume_today, high, low del ticker existente
-                ticker.price = existingTicker.price;
-                ticker.volume_today = existingTicker.volume_today || ticker.volume_today;
+              if (existingTicker) {
                 ticker.high = Math.max(existingTicker.high || 0, ticker.high || 0);
                 ticker.low = existingTicker.low && ticker.low
                   ? Math.min(existingTicker.low, ticker.low)
                   : existingTicker.low || ticker.low;
-                ticker.change_percent = existingTicker.change_percent ?? ticker.change_percent;
               }
             }
 
@@ -313,16 +307,14 @@ export const useTickersStore = create<TickersState & TickersActions>()(
                 if (delta.data) {
                   const oldTicker = newTickers.get(delta.symbol);
                   if (oldTicker) {
-                    // Merge con datos existentes (preservar real-time)
                     newTickers.set(delta.symbol, {
+                      ...oldTicker,
                       ...delta.data,
-                      price: oldTicker.price || delta.data.price,
-                      volume_today: oldTicker.volume_today || delta.data.volume_today,
                       high: Math.max(oldTicker.high || 0, delta.data.high || 0),
                       low:
                         oldTicker.low && delta.data.low
                           ? Math.min(oldTicker.low, delta.data.low)
-                          : oldTicker.low || delta.data.low,
+                          : delta.data.low || oldTicker.low,
                     });
                   } else {
                     newTickers.set(delta.symbol, delta.data);

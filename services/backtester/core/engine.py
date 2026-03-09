@@ -21,11 +21,17 @@ import pandas as pd
 import structlog
 
 from .data_layer import DataLayer
+from .event_translator import translate_event, translate_events
 from .fill_model import FillResult, estimate_fill
+from .filter_evaluator import evaluate_bar_filters, evaluate_universe_filters
 from .metrics import compute_core_metrics
 from .models import (
     BacktestResult,
+    DailyStats,
+    DayStreak,
     ExitType,
+    OptimizationBreakdown,
+    OptimizationBucket,
     Signal,
     SignalOperator,
     StrategyConfig,
@@ -144,6 +150,166 @@ def _to_date(val) -> date:
     return pd.Timestamp(val).date()
 
 
+def _compute_daily_stats(
+    trades: list[TradeRecord],
+    eq_arr: np.ndarray,
+    dates_list: list[str],
+    strategy: StrategyConfig,
+) -> tuple[list[DailyStats], dict]:
+    """Compute per-day stats, streaks, and biggest winning/losing days."""
+    from collections import defaultdict
+
+    by_exit_date: dict[str, list[TradeRecord]] = defaultdict(list)
+    for t in trades:
+        d = str(t.exit_date)[:10]
+        by_exit_date[d].append(t)
+
+    eq_by_date = {}
+    for i, d in enumerate(dates_list):
+        eq_by_date[d] = eq_arr[i]
+
+    daily: list[DailyStats] = []
+    all_dates = sorted(set(dates_list) | set(by_exit_date.keys()))
+
+    cum_equity = strategy.initial_capital
+    for d in all_dates:
+        day_trades = by_exit_date.get(d, [])
+        pnl = sum(t.pnl for t in day_trades)
+        winners = sum(1 for t in day_trades if t.pnl > 0)
+        losers = len(day_trades) - winners
+        wr = winners / len(day_trades) if day_trades else 0.0
+        avg_g = pnl / len(day_trades) if day_trades else 0.0
+        bp = sum(t.position_value for t in day_trades)
+        cum_equity += pnl
+        gross_eq = cum_equity + sum(
+            t.slippage_cost + t.commission_cost for t in day_trades
+        )
+        daily.append(DailyStats(
+            date=d, pnl=round(pnl, 2), trades_count=len(day_trades),
+            winners=winners, losers=losers, win_rate=round(wr, 4),
+            avg_gain=round(avg_g, 2), buying_power=round(bp, 2),
+            gross_equity=round(gross_eq, 2), net_equity=round(cum_equity, 2),
+        ))
+
+    win_streak = lose_streak = max_win = max_lose = 0
+    cur_win = cur_lose = 0
+    biggest_win: DayStreak | None = None
+    biggest_loss: DayStreak | None = None
+
+    for ds in daily:
+        if ds.trades_count == 0:
+            continue
+        if ds.pnl > 0:
+            cur_win += 1
+            cur_lose = 0
+            max_win = max(max_win, cur_win)
+            if biggest_win is None or ds.pnl > biggest_win.pnl:
+                biggest_win = DayStreak(date=ds.date, pnl=ds.pnl)
+        elif ds.pnl < 0:
+            cur_lose += 1
+            cur_win = 0
+            max_lose = max(max_lose, cur_lose)
+            if biggest_loss is None or ds.pnl < biggest_loss.pnl:
+                biggest_loss = DayStreak(date=ds.date, pnl=ds.pnl)
+        else:
+            cur_win = cur_lose = 0
+
+    streaks = {
+        "most_winning_days_in_row": max_win,
+        "most_losing_days_in_row": max_lose,
+        "biggest_winning_day": biggest_win,
+        "biggest_losing_day": biggest_loss,
+    }
+    return daily, streaks
+
+
+def _compute_optimization(
+    trades: list[TradeRecord],
+) -> dict[str, OptimizationBreakdown]:
+    """Compute optimization breakdowns by price and symbol."""
+    if not trades:
+        return {}
+
+    result: dict[str, OptimizationBreakdown] = {}
+
+    def _make_buckets(
+        groups: dict[str, list[TradeRecord]], total_trades: int,
+    ) -> list[OptimizationBucket]:
+        buckets = []
+        for label, group in sorted(groups.items()):
+            if not group:
+                continue
+            wins = [t for t in group if t.pnl > 0]
+            losses = [t for t in group if t.pnl <= 0]
+            gross_profit = sum(t.pnl for t in wins)
+            gross_loss = abs(sum(t.pnl for t in losses))
+            pf = gross_profit / gross_loss if gross_loss > 0 else (
+                10.0 if gross_profit > 0 else 0.0
+            )
+            wr = len(wins) / len(group) if group else 0
+            total_g = sum(t.pnl for t in group)
+            avg_g = total_g / len(group) if group else 0
+            buckets.append(OptimizationBucket(
+                label=label,
+                profit_factor=round(pf, 2),
+                win_rate=round(wr * 100, 1),
+                avg_gain=round(avg_g, 2),
+                total_gain=round(total_g, 2),
+                trades=len(group),
+                pct_of_total=round(len(group) / total_trades * 100, 1)
+                if total_trades > 0 else 0,
+            ))
+        return buckets
+
+    total = len(trades)
+
+    prices = [t.entry_fill_price for t in trades]
+    if prices:
+        mn, mx = min(prices), max(prices)
+        interval = max(1.0, round((mx - mn) / 12, 2))
+        price_groups: dict[str, list[TradeRecord]] = {}
+        for t in trades:
+            lo = int((t.entry_fill_price - mn) / interval) * interval + mn
+            hi = lo + interval
+            key = f"${lo:.2f}-${hi:.2f}"
+            price_groups.setdefault(key, []).append(t)
+        result["price"] = OptimizationBreakdown(
+            filter_name="Price", interval=interval,
+            buckets=_make_buckets(price_groups, total),
+        )
+
+    sym_groups: dict[str, list[TradeRecord]] = {}
+    for t in trades:
+        sym_groups.setdefault(t.ticker, []).append(t)
+    result["symbol"] = OptimizationBreakdown(
+        filter_name="Symbol", interval=0,
+        buckets=_make_buckets(sym_groups, total),
+    )
+
+    time_groups: dict[str, list[TradeRecord]] = {}
+    for t in trades:
+        entry_str = str(t.entry_date)
+        if "T" in entry_str or " " in entry_str:
+            parts = entry_str.replace("T", " ").split(" ")
+            if len(parts) > 1:
+                hm = parts[1][:5]
+                h = int(hm.split(":")[0])
+                bucket_h = h
+                key = f"{bucket_h:02d}:00-{bucket_h:02d}:59"
+            else:
+                key = "all-day"
+        else:
+            key = "all-day"
+        time_groups.setdefault(key, []).append(t)
+    if len(time_groups) > 1:
+        result["time_of_day"] = OptimizationBreakdown(
+            filter_name="Time of Day", interval=60,
+            buckets=_make_buckets(time_groups, total),
+        )
+
+    return result
+
+
 class BacktestEngine:
     """Professional backtesting engine."""
 
@@ -186,16 +352,54 @@ class BacktestEngine:
 
         _p("Calculando indicadores...", 0.15)
         bars_df = self._data.add_indicators_sql(bars_df)
+
+        # Universe pre-filtering via filter parameters
+        if strategy.universe_filters:
+            _p("Aplicando filtros de universo...", 0.18)
+            valid_tickers = evaluate_universe_filters(bars_df, strategy.universe_filters)
+            bars_df = bars_df[bars_df["ticker"].isin(valid_tickers)]
+            if bars_df.empty:
+                raise ValueError(
+                    "No tickers passed universe filters. "
+                    "Try relaxing filter parameters."
+                )
+
         symbols_tested = bars_df["ticker"].nunique()
         bars_processed = len(bars_df)
 
         _p("Evaluando senales...", 0.25)
-        entry_mask = evaluate_entries(bars_df, strategy.entry_signals)
+        # Classic indicator-based signals (ANDed together)
+        signal_mask = evaluate_entries(bars_df, strategy.entry_signals)
+
+        # Event-based entry signals
+        if strategy.entry_events:
+            _p("Traduciendo eventos de entrada...", 0.27)
+            event_mask = translate_events(
+                bars_df, strategy.entry_events, strategy.entry_events_combine)
+            if strategy.entry_signals:
+                entry_mask = signal_mask & event_mask
+            else:
+                entry_mask = event_mask
+        else:
+            entry_mask = signal_mask
+
+        # Per-bar filter conditions as additional entry requirements
+        if strategy.entry_filters:
+            _p("Aplicando filtros por barra...", 0.29)
+            filter_mask = evaluate_bar_filters(bars_df, strategy.entry_filters)
+            entry_mask = entry_mask & filter_mask
+
+        # Exit signals: classic + event-based
         exit_sig = None
         for r in strategy.exit_rules:
             if r.type == ExitType.SIGNAL and r.signal:
                 exit_sig = _evaluate_signal(bars_df, r.signal)
                 break
+
+        if strategy.exit_events:
+            _p("Traduciendo eventos de salida...", 0.30)
+            exit_event_mask = translate_events(bars_df, strategy.exit_events, "or")
+            exit_sig = exit_event_mask if exit_sig is None else (exit_sig | exit_event_mask)
 
         _p("Simulando portfolio...", 0.35)
         trades, eq_points, warnings = self._simulate(
@@ -238,6 +442,10 @@ class BacktestEngine:
         dd_arr = (eq_arr - rmax) / rmax
         dates_list = eq_df["date"].astype(str).tolist()
 
+        _p("Calculando estadisticas diarias...", 0.92)
+        daily, streaks = _compute_daily_stats(trades, eq_arr, dates_list, strategy)
+        optimization = _compute_optimization(trades)
+
         elapsed = int((time.time() - t0) * 1000)
         _p(f"Completado: {len(trades)} trades en {elapsed}ms", 1.0)
 
@@ -245,9 +453,13 @@ class BacktestEngine:
             strategy=strategy, core_metrics=core, trades=trades,
             equity_curve=list(zip(dates_list, eq_arr.tolist())),
             drawdown_curve=list(zip(dates_list, dd_arr.tolist())),
-            monthly_returns=monthly, execution_time_ms=elapsed,
+            monthly_returns=monthly,
+            daily_stats=daily,
+            optimization=optimization,
+            execution_time_ms=elapsed,
             symbols_tested=symbols_tested, bars_processed=bars_processed,
-            warnings=warnings)
+            warnings=warnings,
+            **streaks)
 
     def _simulate(self, bars_df, entry_mask, exit_sig, strat, date_col, _p):
         trades: list[TradeRecord] = []

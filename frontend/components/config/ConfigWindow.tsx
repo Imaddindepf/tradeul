@@ -36,8 +36,15 @@ export interface AlertWindowConfig {
   symbolsExclude: string[];
 }
 
+export interface BacktestFromConfigData {
+  eventTypes: string[];
+  filters: Record<string, any>;
+  name: string;
+}
+
 interface ConfigWindowProps {
   onCreateAlertWindow?: (config: AlertWindowConfig) => void;
+  onBacktestStrategy?: (data: BacktestFromConfigData) => void;
   onCreateScannerWindow?: (filter: UserFilter) => void;
   /** Pre-load existing config (for reconfiguring an existing window) */
   initialAlerts?: string[];
@@ -228,6 +235,7 @@ function FmtNum({ value, onChange, placeholder, className }: {
 export function ConfigWindow({
   onCreateAlertWindow,
   onCreateScannerWindow,
+  onBacktestStrategy,
   initialAlerts, initialFilters, initialSymbolsInclude, initialSymbolsExclude,
   initialName, initialTab, initialMode,
 }: ConfigWindowProps) {
@@ -667,19 +675,17 @@ export function ConfigWindow({
           <div className="flex bg-slate-200/80 rounded-md p-0.5 gap-0.5">
             <button
               onClick={() => handleModeSwitch('strategy')}
-              className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${
-                builderMode === 'strategy'
+              className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${builderMode === 'strategy'
                   ? 'bg-white text-blue-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700'
-              }`}
+                }`}
             >Strategy</button>
             <button
               onClick={() => handleModeSwitch('toplist')}
-              className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${
-                builderMode === 'toplist'
+              className={`px-2.5 py-[3px] text-[10px] font-semibold rounded transition-all ${builderMode === 'toplist'
                   ? 'bg-white text-emerald-600 shadow-sm'
                   : 'text-slate-500 hover:text-slate-700'
-              }`}
+                }`}
             >Top List</button>
           </div>
           <span className="text-[9px] text-slate-400 ml-1.5">
@@ -691,8 +697,8 @@ export function ConfigWindow({
           {tabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
               className={`px-3 py-1.5 text-xs border-b-2 transition-colors ${activeTab === tab.id
-                  ? (builderMode === 'toplist' ? 'border-emerald-600 text-emerald-600 bg-emerald-50/50' : 'border-blue-600 text-blue-600 bg-blue-50/50')
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                ? (builderMode === 'toplist' ? 'border-emerald-600 text-emerald-600 bg-emerald-50/50' : 'border-blue-600 text-blue-600 bg-blue-50/50')
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
                 }`}
             >{tab.label}</button>
           ))}
@@ -730,8 +736,8 @@ export function ConfigWindow({
                           onClick={() => setSelectedStrategy(s)}
                           onDoubleClick={() => handleLoadUserStrategy(s)}
                           className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'id' in selectedStrategy && selectedStrategy.id === s.id
-                              ? 'bg-blue-50 text-blue-700 font-medium'
-                              : 'text-slate-600 hover:bg-slate-50'
+                            ? 'bg-blue-50 text-blue-700 font-medium'
+                            : 'text-slate-600 hover:bg-slate-50'
                             }`}
                         >{s.name}</button>
                       ))}
@@ -751,8 +757,8 @@ export function ConfigWindow({
                       onClick={() => setSelectedStrategy(p)}
                       onDoubleClick={() => handleLoadBuiltIn(p)}
                       className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isBuiltIn' in selectedStrategy && selectedStrategy.id === p.id
-                          ? 'bg-blue-50 text-blue-700 font-medium'
-                          : 'text-slate-600 hover:bg-slate-50'
+                        ? 'bg-blue-50 text-blue-700 font-medium'
+                        : 'text-slate-600 hover:bg-slate-50'
                         }`}
                     >{p.name}</button>
                   ))}
@@ -876,8 +882,8 @@ export function ConfigWindow({
                           onClick={() => setSelectedStrategy(scan as any)}
                           onDoubleClick={() => handleLoadScan(scan)}
                           className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'userId' in selectedStrategy && (selectedStrategy as any).id === scan.id
-                              ? 'bg-emerald-50 text-emerald-700 font-medium'
-                              : 'text-slate-600 hover:bg-slate-50'
+                            ? 'bg-emerald-50 text-emerald-700 font-medium'
+                            : 'text-slate-600 hover:bg-slate-50'
                             }`}
                         >
                           <span className="flex items-center gap-1">
@@ -902,8 +908,8 @@ export function ConfigWindow({
                       onClick={() => setSelectedStrategy(p as any)}
                       onDoubleClick={() => handleLoadBuiltInTopList(p)}
                       className={`w-full text-left px-5 py-1 text-[11px] transition-colors truncate ${selectedStrategy && 'isTopList' in selectedStrategy && (selectedStrategy as any).id === p.id
-                          ? 'bg-emerald-50 text-emerald-700 font-medium'
-                          : 'text-slate-600 hover:bg-slate-50'
+                        ? 'bg-emerald-50 text-emerald-700 font-medium'
+                        : 'text-slate-600 hover:bg-slate-50'
                         }`}
                     >{p.name}</button>
                   ))}
@@ -1015,8 +1021,8 @@ export function ConfigWindow({
                         {alerts.map(a => (
                           <button key={a.eventType} onClick={() => toggleAlert(a.eventType)}
                             className={`px-1.5 py-[1px] text-[10px] rounded border transition-colors ${selectedAlerts.has(a.eventType)
-                                ? 'bg-blue-50/80 border-blue-200 text-blue-600 font-medium'
-                                : 'border-slate-200/80 text-slate-500 hover:bg-slate-50'
+                              ? 'bg-blue-50/80 border-blue-200 text-blue-600 font-medium'
+                              : 'border-slate-200/80 text-slate-500 hover:bg-slate-50'
                               }`}
                           >{a.name}</button>
                         ))}
@@ -1424,6 +1430,16 @@ export function ConfigWindow({
                     Open without saving
                   </button>
                 </>
+              )}
+              {onBacktestStrategy && selectedAlerts.size > 0 && (
+                <button onClick={() => onBacktestStrategy({
+                  eventTypes: Array.from(selectedAlerts),
+                  filters: { ...filters },
+                  name: strategyName.trim() || 'Strategy Backtest',
+                })}
+                  className="w-full py-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded hover:bg-amber-100 font-medium transition-colors">
+                  Backtest Strategy
+                </button>
               )}
               {selectedAlerts.size === 0 && (
                 <p className="text-[10px] text-slate-400 text-center">Select alerts first</p>

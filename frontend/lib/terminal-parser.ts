@@ -304,6 +304,20 @@ export const GLOBAL_COMMANDS = {
         descriptionKey: 'terminalCommands.globalCommands.RTN.description',
         shortcut: null
     },
+    BT: {
+        id: 'backtest',
+        label: 'BT',
+        name: 'Backtest',
+        descriptionKey: 'terminalCommands.globalCommands.BT.description',
+        shortcut: null
+    },
+    OPN: {
+        id: 'opn',
+        label: 'OPN',
+        name: 'Openul',
+        descriptionKey: 'terminalCommands.globalCommands.OPN.description',
+        shortcut: null
+    },
 } as const;
 
 export type GlobalCommandKey = keyof typeof GLOBAL_COMMANDS;
