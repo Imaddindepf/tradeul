@@ -214,7 +214,9 @@ export function useWorkspaces(): UseWorkspacesReturn {
             width: layout.size.width,
             height: layout.size.height,
             hideHeader: layout.title.startsWith('Scanner:') || layout.title.startsWith('Events:'),
-          });
+            componentState: layout.componentState,
+            linkGroup: (layout as any).linkGroup || undefined,
+          } as any);
         }
       });
 

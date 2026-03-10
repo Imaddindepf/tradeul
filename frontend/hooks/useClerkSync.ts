@@ -123,12 +123,9 @@ export function useClerkSync() {
                     }
                 }
 
-                // Solo cargar layouts del servidor si NO hay layouts locales activos
-                // Esto evita sobrescribir ventanas que el usuario acaba de abrir/cerrar
                 const currentLocalLayouts = useUserPreferencesStore.getState().windowLayouts;
                 if (data.windowLayouts && data.windowLayouts.length > 0 && currentLocalLayouts.length === 0) {
-                    // Convertir formato API a formato del store
-                    const layouts = data.windowLayouts.map((w) => ({
+                    const layouts = data.windowLayouts.map((w: WindowLayoutAPI) => ({
                         id: w.id,
                         type: w.type,
                         title: w.title,
@@ -136,6 +133,8 @@ export function useClerkSync() {
                         size: w.size,
                         isMinimized: w.isMinimized,
                         zIndex: w.zIndex,
+                        componentState: (w as any).componentState,
+                        linkGroup: (w as any).linkGroup,
                     }));
                     saveWindowLayouts(layouts);
                 }
@@ -180,6 +179,8 @@ export function useClerkSync() {
                     size: w.size,
                     isMinimized: w.isMinimized,
                     zIndex: w.zIndex,
+                    componentState: w.componentState,
+                    linkGroup: w.linkGroup,
                 })),
                 columnVisibility,
                 columnOrder,
@@ -281,6 +282,8 @@ export function useSaveLayoutToCloud() {
                 size: w.size,
                 isMinimized: w.isMinimized,
                 zIndex: w.zIndex,
+                componentState: w.componentState,
+                linkGroup: w.linkGroup,
             }));
 
             // Usar JWT en lugar de X-User-ID (más seguro)
